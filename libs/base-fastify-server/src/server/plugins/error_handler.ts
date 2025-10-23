@@ -1,4 +1,4 @@
-import { FastifyError } from '@fastify/error';
+import type { FastifyError } from 'fastify';
 import fastifyPlugin from 'fastify-plugin';
 
 import { SHARED_ERROR_REPLY_SCHEMA } from '@scribear/base-schema';
@@ -24,7 +24,10 @@ export default fastifyPlugin((fastify: BaseFastifyInstance) => {
       reply: BaseFastifyReply<{ response: typeof SHARED_ERROR_REPLY_SCHEMA }>,
     ) => {
       // Let default error handler manage FastifyErrors
-      if (err instanceof FastifyError) throw err;
+      // FastifyErrors have a code property starting with 'FST_'
+      if (err && typeof err === 'object' && 'code' in err && typeof err.code === 'string' && err.code.startsWith('FST_')) {
+        throw err;
+      }
 
       if (!(err instanceof BaseHttpError)) {
         // If not BaseHttpError, return Internal Server Error
@@ -36,7 +39,6 @@ export default fastifyPlugin((fastify: BaseFastifyInstance) => {
         return reply.code(500).send({
           message:
             'Sever encountered an unexpected error. Please try again later.',
-          reqId: req.id,
         });
       }
 
@@ -44,12 +46,10 @@ export default fastifyPlugin((fastify: BaseFastifyInstance) => {
       if (err instanceof HttpError.BadRequest) {
         return reply
           .code(err.statusCode)
-          .send({ requestErrors: err.requestErrors, reqId: req.id });
+          .send({ requestErrors: err.requestErrors });
       }
 
-      return reply
-        .code(err.statusCode)
-        .send({ message: err.message, reqId: req.id });
+      return reply.code(err.statusCode).send({ message: err.message });
     },
   );
 });

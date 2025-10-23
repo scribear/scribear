@@ -13,6 +13,7 @@ describe('Healthcheck controller', (it) => {
   let mockReply: {
     send: Mock;
     code: Mock;
+    header: Mock;
   };
 
   let healthcheckController: HealthcheckController;
@@ -21,6 +22,7 @@ describe('Healthcheck controller', (it) => {
     mockReply = {
       send: vi.fn(),
       code: vi.fn().mockReturnThis(),
+      header: vi.fn().mockReturnThis(),
     };
 
     healthcheckController = new HealthcheckController();

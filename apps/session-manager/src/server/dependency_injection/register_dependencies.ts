@@ -1,6 +1,6 @@
 // Need to import so that declare module '@fastify/awilix' below works
 import '@fastify/awilix';
-import { type AwilixContainer, Lifetime, asClass, asValue } from 'awilix';
+import { type AwilixContainer, Lifetime, asClass, asFunction, asValue } from 'awilix';
 
 import type { BaseDependencies } from '@scribear/base-fastify-server';
 
@@ -8,6 +8,9 @@ import type AppConfig from '../../app_config/app_config.js';
 import CalculatorController from '../features/calculator/calculator.controller.js';
 import CalculatorService from '../features/calculator/calculator.service.js';
 import HealthcheckController from '../features/healthcheck/healthcheck.controller.js';
+import SessionController from '../features/session/session.controller.js';
+import { SessionService } from '../features/session/session.service.js';
+import { JwtService } from '../services/jwt.service.js';
 
 /**
  * Define types for entities in dependency container
@@ -15,12 +18,19 @@ import HealthcheckController from '../features/healthcheck/healthcheck.controlle
 interface AppDependencies extends BaseDependencies {
   config: AppConfig;
 
+  // Services
+  jwtService: JwtService;
+
   // Healthcheck
   healthcheckController: HealthcheckController;
 
   // Calculator
   calculatorController: CalculatorController;
   calculatorService: CalculatorService;
+
+  // Session
+  sessionController: SessionController;
+  sessionService: SessionService;
 }
 
 /**
@@ -48,6 +58,20 @@ function registerDependencies(
     // Config
     config: asValue(config),
 
+    // Services
+    jwtService: asFunction(
+      ({ logger, config }) =>
+        new JwtService(
+          logger,
+          config.jwtSecret,
+          config.jwtIssuer,
+          config.jwtExpiresIn,
+        ),
+      {
+        lifetime: Lifetime.SINGLETON,
+      },
+    ),
+
     // Healthcheck
     healthcheckController: asClass(HealthcheckController, {
       lifetime: Lifetime.SCOPED,
@@ -59,6 +83,14 @@ function registerDependencies(
     }),
     calculatorService: asClass(CalculatorService, {
       lifetime: Lifetime.SCOPED,
+    }),
+
+    // Session
+    sessionController: asClass(SessionController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    sessionService: asClass(SessionService, {
+      lifetime: Lifetime.SINGLETON,
     }),
   });
 }
