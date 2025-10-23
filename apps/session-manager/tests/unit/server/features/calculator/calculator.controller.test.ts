@@ -70,7 +70,6 @@ describe('Calculator controller', () => {
       expect(mockReply.code).toHaveBeenCalledExactlyOnceWith(200);
       expect(mockReply.send).toHaveBeenCalledExactlyOnceWith({
         result,
-        reqId: testRequestId,
       });
     });
   });
@@ -111,7 +110,6 @@ describe('Calculator controller', () => {
       expect(mockReply.code).toHaveBeenCalledExactlyOnceWith(200);
       expect(mockReply.send).toHaveBeenCalledExactlyOnceWith({
         result,
-        reqId: testRequestId,
       });
     });
   });

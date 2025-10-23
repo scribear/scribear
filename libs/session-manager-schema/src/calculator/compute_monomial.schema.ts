@@ -23,7 +23,6 @@ const COMPUTE_MONOMIAL_SCHEMA = {
     200: Type.Object(
       {
         result: Type.Integer({ description: 'Result value of computation' }),
-        reqId: Type.String(),
       },
       { description: 'Successful computation response' },
     ),

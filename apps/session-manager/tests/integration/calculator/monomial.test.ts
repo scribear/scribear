@@ -34,7 +34,7 @@ describe('Integration Tests - /calculator/monomial', (it) => {
     // Act
     const response = await fastify.inject({
       method: 'POST',
-      url: '/calculator/monomial',
+      url: '/api/v1/calculator/monomial',
       body: request,
     });
 
@@ -54,7 +54,7 @@ describe('Integration Tests - /calculator/monomial', (it) => {
     // Act
     const response = await fastify.inject({
       method: 'POST',
-      url: '/calculator/monomial',
+      url: '/api/v1/calculator/monomial',
       body: request,
     });
 
@@ -73,7 +73,7 @@ describe('Integration Tests - /calculator/monomial', (it) => {
     // Act
     const response = await fastify.inject({
       method: 'POST',
-      url: '/calculator/monomial',
+      url: '/api/v1/calculator/monomial',
       body: request,
     });
 
@@ -98,7 +98,7 @@ describe('Integration Tests - /calculator/monomial', (it) => {
     // Act
     const response = await fastify.inject({
       method: 'POST',
-      url: '/calculator/monomial',
+      url: '/api/v1/calculator/monomial',
       body: request,
     });
 

@@ -12,7 +12,6 @@ const SHARED_ERROR_REPLY_SCHEMA = {
           key: Type.String({ default: '/body/some/nested/object/property' }),
         }),
       ),
-      reqId: Type.String(),
     },
     {
       description:
@@ -22,7 +21,6 @@ const SHARED_ERROR_REPLY_SCHEMA = {
   401: Type.Object(
     {
       message: Type.String(),
-      reqId: Type.String(),
     },
     {
       description:
@@ -32,7 +30,6 @@ const SHARED_ERROR_REPLY_SCHEMA = {
   403: Type.Object(
     {
       message: Type.String(),
-      reqId: Type.String(),
     },
     {
       description:
@@ -42,7 +39,6 @@ const SHARED_ERROR_REPLY_SCHEMA = {
   404: Type.Object(
     {
       message: Type.String(),
-      reqId: Type.String(),
     },
     {
       description: 'Response when request had no matching path on server.',
@@ -51,7 +47,6 @@ const SHARED_ERROR_REPLY_SCHEMA = {
   429: Type.Object(
     {
       message: Type.String(),
-      reqId: Type.String(),
     },
     {
       description: 'Response when request is rate limited.',
@@ -60,7 +55,6 @@ const SHARED_ERROR_REPLY_SCHEMA = {
   500: Type.Object(
     {
       message: Type.String(),
-      reqId: Type.String(),
     },
     {
       description: 'Response when server encounters an unexpected error.',

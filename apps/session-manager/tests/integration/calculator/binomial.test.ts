@@ -34,7 +34,7 @@ describe('Integration Tests - /calculator/binomial', (it) => {
     // Act
     const response = await fastify.inject({
       method: 'POST',
-      url: '/calculator/binomial',
+      url: '/api/v1/calculator/binomial',
       body: request,
     });
 
@@ -54,7 +54,7 @@ describe('Integration Tests - /calculator/binomial', (it) => {
     // Act
     const response = await fastify.inject({
       method: 'POST',
-      url: '/calculator/binomial',
+      url: '/api/v1/calculator/binomial',
       body: request,
     });
 
@@ -73,7 +73,7 @@ describe('Integration Tests - /calculator/binomial', (it) => {
     // Act
     const response = await fastify.inject({
       method: 'POST',
-      url: '/calculator/binomial',
+      url: '/api/v1/calculator/binomial',
       body: request,
     });
 
@@ -98,7 +98,7 @@ describe('Integration Tests - /calculator/binomial', (it) => {
     // Act
     const response = await fastify.inject({
       method: 'POST',
-      url: '/calculator/binomial',
+      url: '/api/v1/calculator/binomial',
       body: request,
     });
 
