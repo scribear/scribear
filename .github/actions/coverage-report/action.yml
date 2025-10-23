@@ -1,0 +1,66 @@
+name: "Coverage Report"
+description: "Reads provided cobertura coverage report and adds a comment to the PR with the coverage summary."
+inputs:
+  package_name:
+    description: "Package name for the coverage report title in PR comments."
+    required: true
+  # Inputs (except package_name) are the same as the arguments for irongut/CodeCoverageSummary@v1.3.0
+  #   see: https://github.com/irongut/CodeCoverageSummary
+  filename:
+    description: "A cobertura file to load coverage data from."
+    required: true
+  badge:
+    description: ""
+    default: "true"
+  fail_below_min:
+    description: ""
+    default: "false"
+  format:
+    description: ""
+    default: markdown
+  hide_branch_rate:
+    description: ""
+    default: "false"
+  hide_complexity:
+    description: ""
+    default: "false"
+  indicators:
+    description: ""
+    default: "true"
+  output:
+    description: ""
+    default: both
+  thresholds:
+    description: ""
+    default: "50 75"
+runs:
+  using: "composite"
+  steps:
+    - name: Code Coverage Report
+      uses: irongut/CodeCoverageSummary@v1.3.0
+      with:
+        filename: ${{ inputs.filename }}
+        badge: ${{ inputs.badge == 'true' }}
+        fail_below_min: ${{ inputs.fail_below_min == 'true' }}
+        format: ${{ inputs.format }}
+        hide_branch_rate: ${{ inputs.hide_branch_rate == 'true' }}
+        hide_complexity: ${{ inputs.hide_complexity == 'true' }}
+        indicators: ${{ inputs.indicators == 'true' }}
+        output: ${{ inputs.output }}
+        thresholds: ${{ inputs.thresholds }}
+
+    - name: Add Package Name To Comment
+      shell: bash
+      run: |
+        echo "## ${PACKAGE_NAME} Coverage Report" > tmp && cat code-coverage-results.md >> tmp && mv tmp code-coverage-results.md
+      env:
+        PACKAGE_NAME: ${{ inputs.package_name }}
+
+    - name: Add Coverage PR Comment
+      uses: marocchino/sticky-pull-request-comment@v2
+      if: github.event_name == 'pull_request'
+      with:
+        # Use package_name as unique identifier for the comment it can be recreated if PR is updated
+        header: ${{ inputs.package_name }}
+        recreate: true
+        path: code-coverage-results.md

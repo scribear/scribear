@@ -1,0 +1,19 @@
+{
+  "name": "@scribear/session-manager-schema",
+  "version": "0.0.0",
+  "description": "",
+  "author": "scribear",
+  "main": "dist/src/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "tsc --build --watch",
+    "format": "prettier --check ./src",
+    "format:fix": "prettier --write ./src",
+    "lint": "eslint ./src",
+    "lint:fix": "eslint ./src --fix"
+  },
+  "dependencies": {
+    "typebox": "1.0.41"
+  }
+}

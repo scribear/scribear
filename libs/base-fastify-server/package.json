@@ -1,0 +1,29 @@
+{
+  "name": "@scribear/base-fastify-server",
+  "version": "0.0.0",
+  "description": "",
+  "author": "scribear",
+  "main": "dist/src/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "tsc --build --watch",
+    "format": "prettier --check ./src ./tests",
+    "format:fix": "prettier --write ./src ./tests",
+    "lint": "eslint ./src ./tests",
+    "lint:fix": "eslint ./src ./tests --fix",
+    "test:dev": "vitest --ui --coverage",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/awilix": "8.0.0",
+    "@fastify/helmet": "13.0.2",
+    "@fastify/sensible": "6.0.3",
+    "@fastify/type-provider-typebox": "6.1.0",
+    "awilix": "12.0.5",
+    "fastify": "5.6.1",
+    "fastify-plugin": "5.1.0",
+    "pino": "10.1.0",
+    "uuid": "13.0.0"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+  },
+  "include": [
+    "src",
+    "tests",
+  ],
+  // Link to dependencies
+  "references": [
+    {
+      "path": "../../libs/base-fastify-server"
+    },
+    {
+      "path": "../../libs/session-manager-schema"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "name": "@scribear/session-manager",
+  "version": "0.0.0",
+  "description": "",
+  "author": "scribear",
+  "main": "dist/src/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --build",
+    "start": "node ./dist/src/index.js",
+    "start:dev": "node ./dist/src/index.js --dev | pino-pretty",
+    "dev": "nodemon --exec 'npm run build && npm run start:dev' --watch src --watch ../../libs/base-fastify-server/src --watch ../../libs/base-schema/src --watch ../../libs/session-manager-schema/src src/index.ts",
+    "format": "prettier --check ./src ./tests",
+    "format:fix": "prettier --write ./src ./tests",
+    "lint": "eslint ./src ./tests",
+    "lint:fix": "eslint ./src ./tests --fix",
+    "test:dev": "vitest --ui --coverage",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/awilix": "8.0.0",
+    "@fastify/swagger": "9.5.2",
+    "@fastify/swagger-ui": "5.2.3",
+    "awilix": "12.0.5",
+    "env-schema": "6.1.0",
+    "typebox": "1.0.41"
+  }
+}
