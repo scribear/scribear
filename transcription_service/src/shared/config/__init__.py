@@ -6,6 +6,7 @@ from .config import (
     Config,
     JobContextConfigSchema,
     JobContextDefinitionUID,
+    ProviderConfigFileSchema,
     TranscriptionProviderConfigSchema,
     TranscriptionProviderUID,
 )
