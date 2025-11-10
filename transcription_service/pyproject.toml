@@ -23,6 +23,7 @@ dependencies = [
     "starlette==0.48.0",
     "uvicorn==0.37.0",
     "websockets==15.0.0",
+    "requests==2.32.5",
 
     # Audio decoding
     "soundfile==0.13.1",
