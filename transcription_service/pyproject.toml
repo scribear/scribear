@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scribear_transcription_service"
+version = "0.0.1"
+authors = [{ name = "scribear" }]
+description = "ScribeAR Server backend transcription service"
+requires-python = ">=3.12"
+dependencies = [
+    # Type validation
+    "pydantic==2.12.0",
+
+    # Configuration
+    "python-dotenv==1.1.1",
+]
+
+[project.optional-dependencies]
+# Optional dependencies used for development
+# Install them with `pip install -e .[dev]`
+dev = [
+    # Hot reload
+    "watchfiles==1.1.0",
+
+    # Unit testing and coverage
+    "pytest==8.4.2",
+    "pytest-cov==7.0.0",
+
+    # Code linting and formatting
+    "black==25.9.0",
+    "isort==7.0.0",
+    "pylint==4.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/scribear/ScribeAR-NodeServer"
+Issues = "https://github.com/scribear/ScribeAR-NodeServer/issues"
+
+# Installation config
+[tool.setuptools.packages]
+# Have setuptools look for packages in transcription_service root dir
+find = { where = ["."] }
+
+# Formatter config
+[tool.black]
+line-length = 80
+skip-magic-trailing-comma = true
+
+[tool.isort]
+profile = "black"
+
+# Linter config
+[tool.pylint.main]
+fail-under = 9.0
+disable = "too-few-public-methods,too-many-arguments,too-many-positional-arguments,too-many-instance-attributes"
+
+# Testing config
+[tool.pytest.ini_options]
+testpaths = ["tests"]

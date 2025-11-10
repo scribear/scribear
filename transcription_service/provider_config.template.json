@@ -1,0 +1,38 @@
+{
+    "num_workers": 2,
+    "rolling_utilization_window_sec": 600,
+    "contexts": [
+        {
+            "context_uid": "faster-whisper",
+            "max_instances": 1,
+            "tags": [
+                "whisper_cpu_context"
+            ],
+            "negative_affinity": null,
+            "context_config": {
+                "model": "tiny",
+                "device": "cpu"
+            }
+        }
+    ],
+    "providers": [
+        {
+            "provider_key": "debug",
+            "provider_uid": "debug",
+            "provider_config": {
+                "sample_rate": 16000,
+                "num_channels": 1
+            }
+        },
+        {
+            "provider_key": "whisper",
+            "provider_uid": "whisper-streaming",
+            "provider_config": {
+                "context_tag": "whisper_cpu_context",
+                "job_period_ms": 5000,
+                "max_buffer_len_sec": 30,
+                "local_agree_dim": 2
+            }
+        }
+    ]
+}

@@ -1,0 +1,7 @@
+# https://editorconfig.org/
+# This file helps configure your code editor to match the project's formatting convention
+# You might need to install an extension to get support for .editorconfig (see editorconfig docs)
+
+# Override indent size for python project
+[*]
+indent_size = 4
