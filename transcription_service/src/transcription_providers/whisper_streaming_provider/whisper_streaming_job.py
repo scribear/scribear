@@ -2,8 +2,6 @@
 Defines WorkerPool job for DebugProvider that returns number of seconds of audio received
 """
 
-import time
-
 import numpy as np
 
 from src.shared.logger import Logger
