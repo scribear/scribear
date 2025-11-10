@@ -136,7 +136,7 @@ jobs:
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-  build-transcription-service-containers:
+  build-transcription-service-cpu-container:
     needs:
       - check-formatting-python
       - run-linter-python
@@ -155,6 +155,15 @@ jobs:
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
+  build-transcription-service-cuda-container:
+    needs:
+      - check-formatting-python
+      - run-linter-python
+      - run-tests-python
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Git repository
+        uses: actions/checkout@v4
       - name: Build and Push Docker Image
         uses: ./.github/actions/build-container
         with:
