@@ -8,10 +8,10 @@
   "scripts": {
     "build": "tsc --build",
     "dev": "tsc --build --watch",
-    "format": "prettier --check ./src ./tests",
-    "format:fix": "prettier --write ./src ./tests",
-    "lint": "eslint ./src ./tests",
-    "lint:fix": "eslint ./src ./tests --fix"
+    "format": "prettier --check ./src",
+    "format:fix": "prettier --write ./src",
+    "lint": "eslint ./src",
+    "lint:fix": "eslint ./src --fix"
   },
   "dependencies": {
     "eventemitter3": "5.0.1",
