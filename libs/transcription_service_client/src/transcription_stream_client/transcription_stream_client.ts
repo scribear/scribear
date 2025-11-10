@@ -17,6 +17,7 @@ const TRANSCRIPTION_STREAM_ROUTE = '/transcription_stream/';
 interface ClientEvents {
   'connected'(): void;
   'disconnected'(code: number, reason: string): void;
+  'error'(error: Error): void;
   'ip_transcription'(
     text: string[],
     starts: number[] | null,
@@ -47,16 +48,9 @@ class TranscriptionStreamClient extends EventEmitter<ClientEvents> {
     private _config: TranscriptionStreamConfig,
   ) {
     super();
-    this._connect();
   }
 
-  send_audio(chunk: ArrayBufferLike | Blob | ArrayBufferView) {
-    if (this._client_state === ClientState.CONNECTED) {
-      this._ws?.send(chunk);
-    }
-  }
-
-  private _connect() {
+  connect() {
     this._client_state = ClientState.CONNECTING;
 
     const protocol = this._use_ssl ? 'wss://' : 'ws://';
@@ -70,18 +64,33 @@ class TranscriptionStreamClient extends EventEmitter<ClientEvents> {
     this._ws.onerror = this._onerror.bind(this);
   }
 
-  private _onopen(e: WebSocket.Event) {
-    const auth_message: AuthMessage = {
+  send_audio(chunk: ArrayBufferLike | Blob | ArrayBufferView) {
+    if (this._client_state === ClientState.CONNECTED) {
+      this._ws?.send(chunk);
+    }
+  }
+
+  disconnect() {
+    if (this._client_state === ClientState.DISCONNECTED) return;
+
+    this._client_state = ClientState.DISCONNECTED;
+
+    this._ws?.close(1000);
+    this._ws = null;
+  }
+
+  private _onopen() {
+    const authMessage: AuthMessage = {
       type: ClientMessageTypes.AUTH,
       api_key: this._api_key,
     };
-    this._ws?.send(JSON.stringify(auth_message));
+    this._ws?.send(JSON.stringify(authMessage));
 
-    const config_message: ConfigMessage = {
+    const configMessage: ConfigMessage = {
       type: ClientMessageTypes.CONFIG,
       config: this._config,
     };
-    this._ws?.send(JSON.stringify(config_message));
+    this._ws?.send(JSON.stringify(configMessage));
 
     this._client_state = ClientState.CONNECTED;
     this.emit('connected');
@@ -93,20 +102,20 @@ class TranscriptionStreamClient extends EventEmitter<ClientEvents> {
 
     if (isBinary) return;
 
-    const server_message = ServerMessageValidator.Parse(JSON.parse(message));
-    if (server_message.type === ServerMessageTypes.IP_TRANSCRIPT) {
+    const serverMessage = ServerMessageValidator.Parse(JSON.parse(message));
+    if (serverMessage.type === ServerMessageTypes.IP_TRANSCRIPT) {
       this.emit(
         'ip_transcription',
-        server_message.text,
-        server_message.ends ?? null,
-        server_message.starts ?? null,
+        serverMessage.text,
+        serverMessage.ends ?? null,
+        serverMessage.starts ?? null,
       );
     } else {
       this.emit(
         'final_transcription',
-        server_message.text,
-        server_message.ends ?? null,
-        server_message.starts ?? null,
+        serverMessage.text,
+        serverMessage.ends ?? null,
+        serverMessage.starts ?? null,
       );
     }
   }
@@ -118,7 +127,9 @@ class TranscriptionStreamClient extends EventEmitter<ClientEvents> {
     this._ws = null;
   }
 
-  private _onerror(e: WebSocket.ErrorEvent) {}
+  private _onerror(e: WebSocket.ErrorEvent) {
+    this.emit('error', new Error(e.message));
+  }
 }
 
 export default TranscriptionStreamClient;

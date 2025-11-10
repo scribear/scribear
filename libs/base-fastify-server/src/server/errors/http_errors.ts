@@ -48,7 +48,6 @@ function createHttpError(statusCode: HttpErrorCodes) {
   };
 }
 
-/* eslint-disable @typescript-eslint/naming-convention */
 const HttpError = {
   BadRequest: HttpBadRequest,
   Unauthorized: createHttpError(401),
@@ -57,6 +56,5 @@ const HttpError = {
   TooManyRequests: createHttpError(429),
   ServerError: createHttpError(500),
 };
-/* eslint-enable @typescript-eslint/naming-convention */
 
 export { BaseHttpError, HttpError };

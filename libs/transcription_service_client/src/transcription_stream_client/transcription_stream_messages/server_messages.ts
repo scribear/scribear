@@ -1,5 +1,5 @@
 import Type from 'typebox';
-import { Compile } from 'typebox/compile';
+import { Validator } from 'typebox/compile';
 
 enum ServerMessageTypes {
   IP_TRANSCRIPT = 'ip_transcript',
@@ -22,7 +22,8 @@ const FinalTranscriptMessageSchema = Type.Object({
 });
 type FinalTranscriptMessage = Type.Static<typeof FinalTranscriptMessageSchema>;
 
-const ServerMessageValidator = Compile(
+const ServerMessageValidator = new Validator(
+  {},
   Type.Union([IPTranscriptMessageSchema, FinalTranscriptMessageSchema]),
 );
 

@@ -11,9 +11,7 @@
     "format": "prettier --check ./src ./tests",
     "format:fix": "prettier --write ./src ./tests",
     "lint": "eslint ./src ./tests",
-    "lint:fix": "eslint ./src ./tests --fix",
-    "test:dev": "vitest --ui --coverage",
-    "test": "vitest run"
+    "lint:fix": "eslint ./src ./tests --fix"
   },
   "dependencies": {
     "eventemitter3": "5.0.1",

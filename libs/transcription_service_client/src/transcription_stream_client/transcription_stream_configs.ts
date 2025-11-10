@@ -1,6 +1,9 @@
-import Type from 'typebox';
+import Type from "typebox";
 
-const DebugProviderConfigSchema = Type.Null();
+const DebugProviderConfigSchema = Type.Object({
+  sample_rate: Type.Integer(),
+  num_channels: Type.Integer(),
+});
 
 type DebugProviderConfig = Type.Static<typeof DebugProviderConfigSchema>;
 
