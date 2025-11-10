@@ -36,8 +36,6 @@ class WhisperStreamingProviderJob(
             SAMPLE_RATE, NUM_CHANNELS, TargetFormat.FLOAT_32
         )
 
-        self._last_run_time = time.perf_counter()
-
         # Make buffer 2 times larger than maximum to make forcing finalization of audio easier
         self._max_buffer_samples = int(SAMPLE_RATE * config.max_buffer_len_sec)
         self._buffer = NPCircularBuffer(
@@ -58,23 +56,16 @@ class WhisperStreamingProviderJob(
         Raises:
             TranscriptionClientError if chunks fail to decode or client sends audio too fast
         """
-        prev_time = self._last_run_time
-        self._last_run_time = time.perf_counter()
-        elapsed_seconds = self._last_run_time - prev_time
-        expected_samples = int(SAMPLE_RATE * elapsed_seconds)
-
-        num_samples_decoded = 0
         for chunk in batch:
             try:
                 samples = self._decoder.decode(chunk)
             except ValueError as e:
                 raise TranscriptionClientError(str(e)) from e
 
-            num_samples_decoded += len(samples)
-            self._buffer.append(samples)
+            extra = self._buffer.append(samples)
 
             # More than expected number of samples received, client sending audio to fast
-            if num_samples_decoded > expected_samples * 1.2:
+            if len(extra) > 0:
                 raise TranscriptionClientError("Client sent audio too quickly.")
 
     def _transcribe_audio(self, whisper: WhisperModel):

@@ -100,9 +100,13 @@ class LocalAgree:
             TranscriptionSegment that can be commited
         """
         for dim in range(self._local_agree_dim):
-            if (len(self._in_progress_segments[dim]) == 0) or (
-                self._in_progress_segments[dim][0].text
-                != self._in_progress_segments[-1][0].text
+            if (
+                (len(self._in_progress_segments[dim]) == 0)
+                or (len(self._in_progress_segments[-1]) == 0)
+                or (
+                    self._in_progress_segments[dim][0].text
+                    != self._in_progress_segments[-1][0].text
+                )
             ):
                 return None
         return self._in_progress_segments[-1][0]

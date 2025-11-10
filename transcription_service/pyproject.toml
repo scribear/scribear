@@ -59,7 +59,7 @@ dev = [
 ]
 # Optional dependencies used by faster-whisper
 # Install them with `pip install -e .[faster-whisper]`
-faster-whisper = ["ctranslate2==4.6.0", "faster-whisper==1.2.0"]
+faster-whisper = ["ctranslate2==4.4.0", "faster-whisper==1.1.0"]
 
 [project.urls]
 Homepage = "https://github.com/scribear/ScribeAR-NodeServer"
