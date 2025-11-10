@@ -33,8 +33,8 @@ check:
 
 # Run tests in dev mode (hot reload)
 test_dev:
-	watchfiles "pytest tests/  --cov=src/ --cov-report=html"
+	watchfiles "pytest tests/"
 
 # Run tests
 test:
-	pytest tests/ --cov=src/ --cov-report=html
+	coverage run -m pytest tests/ && coverage xml --include=src/* && coverage report
