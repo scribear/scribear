@@ -43,6 +43,7 @@ async def test_client(mock_config: Config, mock_logger: Logger):
         yield client
 
 
+@pytest.mark.timeout(3)
 def test_healthcheck_integration(test_client: TestClient):
     """
     Test that healthcheck endpoint works
