@@ -19,4 +19,4 @@ runs:
     - name: Install dependencies
       working-directory: "transcription_service"
       shell: bash
-      run: pip install .[dev]
+      run: pip install .[dev,faster-whisper]
