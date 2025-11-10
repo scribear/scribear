@@ -108,7 +108,7 @@ jobs:
 
       - name: Run tests
         working-directory: "transcription_service"
-        run: coverage run -m pytest tests/ && coverage xml --include=src/* && coverage report
+        run: coverage run --branch -m pytest tests/ && coverage xml --include=src/* && coverage report
 
       - name: Code Coverage Report - Base Fastify Server
         uses: ./.github/actions/coverage-report
