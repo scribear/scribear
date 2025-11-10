@@ -6,6 +6,7 @@ import io
 import logging
 import os
 import re
+
 from datetime import datetime, timezone
 
 import pytest
@@ -15,7 +16,9 @@ from src.shared.logger import PrettyPrintFormatter
 
 TIMESTAMP = 1058832226.123  # Tue Jul 22 2003 00:03:46 GMT+0000
 TIMESTAMP_DATETIME = datetime.fromtimestamp(TIMESTAMP, tz=timezone.utc)
-TIME_STR = "19:03:46.123"
+record = logging.LogRecord("", 0, "", 0, "", None, None)
+record.created = TIMESTAMP
+TIME_STR = logging.Formatter().formatTime(record, "%H:%M:%S") + ".123"
 MESSAGE = "This is a standard log message."
 
 
@@ -61,7 +64,7 @@ def test_log_with_context(logger: logging.Logger, log_stream: io.StringIO):
     extra_context: dict[str, object] = {"num": 12345, "str": "hi!"}
 
     # Act
-    with freeze_time(datetime.fromtimestamp(TIMESTAMP, tz=timezone.utc)):
+    with freeze_time(TIMESTAMP_DATETIME):
         logger.info(MESSAGE, extra={"context": extra_context})
 
     # Assert

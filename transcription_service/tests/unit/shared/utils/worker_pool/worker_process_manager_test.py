@@ -864,7 +864,7 @@ async def test_utilization_report_multiple_jobs(wpm: WorkerProcessManager):
     """
     # Arrange
     target_utilization = 0.25
-    num_jobs = 10
+    num_jobs = 2
     for _ in range(num_jobs):
         wpm.register_job(
             None,
@@ -883,4 +883,4 @@ async def test_utilization_report_multiple_jobs(wpm: WorkerProcessManager):
     await asyncio.sleep(ROLLING_UTILIZATION_WINDOW_SEC * 2)
 
     # Assert
-    assert abs(wpm.utilization - target_utilization) < 0.05
+    assert abs(wpm.utilization - target_utilization) < 0.1

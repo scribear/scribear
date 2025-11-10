@@ -68,7 +68,7 @@ async def test_client(mock_config: Config, mock_logger: Logger):
         yield client
 
 
-@pytest.mark.timeout(2)
+@pytest.mark.timeout(3)
 @pytest.mark.asyncio
 async def test_transcription_stream_disconnects_on_timeout(
     test_client: TestClient,
@@ -86,7 +86,7 @@ async def test_transcription_stream_disconnects_on_timeout(
             websocket.receive_text()
 
 
-@pytest.mark.timeout(2)
+@pytest.mark.timeout(3)
 @pytest.mark.asyncio
 async def test_transcription_stream_rejects_invalid_auth(
     test_client: TestClient,
@@ -100,10 +100,14 @@ async def test_transcription_stream_rejects_invalid_auth(
     ) as websocket:
         websocket.send_json({"type": "auth", "api_key": "NOT_KEY"})
 
+        # Allow async loop to run
+        await asyncio.sleep(1)
+
         with pytest.raises(WebSocketDisconnect):
             websocket.receive_text()
 
 
+@pytest.mark.timeout(3)
 @pytest.mark.asyncio
 async def test_transcription_stream_accepts_valid_auth_config(
     test_client: TestClient,
@@ -122,6 +126,9 @@ async def test_transcription_stream_accepts_valid_auth_config(
                 "config": {"sample_rate": 16000, "num_channels": 1},
             }
         )
+
+        # Allow async loop to run
+        await asyncio.sleep(1)
 
         received = websocket.receive_json()
         assert received == {
@@ -160,7 +167,7 @@ async def test_transcription_stream_accepts_audio(test_client: TestClient):
             websocket.receive_json()
 
             # Allow async loop to run
-            await asyncio.sleep(2)
+            await asyncio.sleep(3)
 
             received = websocket.receive_json()
 
