@@ -114,7 +114,7 @@ jobs:
         uses: ./.github/actions/coverage-report
         with:
           package_name: "Transcription Service"
-          filename: "./transcription_service/cobertura-coverage.xml"
+          filename: "./transcription_service/coverage.xml"
 
   build-session-manager-container:
     needs:
