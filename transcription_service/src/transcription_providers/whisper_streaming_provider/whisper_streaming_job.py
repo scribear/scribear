@@ -2,8 +2,6 @@
 Defines WorkerPool job for DebugProvider that returns number of seconds of audio received
 """
 
-import time
-
 import numpy as np
 
 from src.shared.logger import Logger
@@ -36,8 +34,6 @@ class WhisperStreamingProviderJob(
             SAMPLE_RATE, NUM_CHANNELS, TargetFormat.FLOAT_32
         )
 
-        self._last_run_time = time.perf_counter()
-
         # Make buffer 2 times larger than maximum to make forcing finalization of audio easier
         self._max_buffer_samples = int(SAMPLE_RATE * config.max_buffer_len_sec)
         self._buffer = NPCircularBuffer(
@@ -58,23 +54,16 @@ class WhisperStreamingProviderJob(
         Raises:
             TranscriptionClientError if chunks fail to decode or client sends audio too fast
         """
-        prev_time = self._last_run_time
-        self._last_run_time = time.perf_counter()
-        elapsed_seconds = self._last_run_time - prev_time
-        expected_samples = int(SAMPLE_RATE * elapsed_seconds)
-
-        num_samples_decoded = 0
         for chunk in batch:
             try:
                 samples = self._decoder.decode(chunk)
             except ValueError as e:
                 raise TranscriptionClientError(str(e)) from e
 
-            num_samples_decoded += len(samples)
-            self._buffer.append(samples)
+            extra = self._buffer.append(samples)
 
             # More than expected number of samples received, client sending audio to fast
-            if num_samples_decoded > expected_samples * 1.2:
+            if len(extra) > 0:
                 raise TranscriptionClientError("Client sent audio too quickly.")
 
     def _transcribe_audio(self, whisper: WhisperModel):
@@ -150,9 +139,13 @@ class WhisperStreamingProviderJob(
             self._buffer_offset_samples += samples_to_purge
 
         # Transcribe the audio currently in the buffer
+        log.debug("Last finalized: " + self._last_finalized)
         segments = self._transcribe_audio(context)
         if len(segments) == 0:
             log.info("No words transcribed in buffer.")
+
+            if forced_final is not None:
+                self._last_finalized = "".join(forced_final.text)
             return TranscriptionResult(final=forced_final)
 
         self._local_agree.append_transcription(segments)
@@ -175,9 +168,13 @@ class WhisperStreamingProviderJob(
             self._buffer.purge(samples_to_purge)
             self._buffer_offset_samples = end_samples
 
+            self._last_finalized = "".join(final.text)
+
         if forced_final is not None:
             # If forced_final transcription exists, add to beginning of finalized transcription
             self._append_sequence(forced_final, final)
+
+            self._last_finalized = "".join(forced_final.text)
             return TranscriptionResult(
                 in_progress=in_progress, final=forced_final
             )
