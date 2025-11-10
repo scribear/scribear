@@ -7,8 +7,8 @@ import {
   COMPUTE_MONOMIAL_SCHEMA,
 } from './calculator/compute_monomial.schema.js';
 import {
-  HEALTHCHECK_ROUTE,
-  HEALTHCHECK_SCHEMA,
+  HealthcheckRoute,
+  HealthcheckSchema,
 } from './healthcheck/healthcheck.schema.js';
 
 export {
@@ -16,6 +16,6 @@ export {
   COMPUTE_BINOMIAL_ROUTE,
   COMPUTE_MONOMIAL_SCHEMA,
   COMPUTE_MONOMIAL_ROUTE,
-  HEALTHCHECK_ROUTE,
-  HEALTHCHECK_SCHEMA,
+  HealthcheckRoute,
+  HealthcheckSchema,
 };

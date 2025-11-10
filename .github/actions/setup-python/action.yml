@@ -1,0 +1,22 @@
+name: "Setup Python"
+description: "Checks out the repo and installs dependencies for python packages."
+inputs:
+  python-version:
+    description: "Python version to use for setup."
+    default: "3.12.11"
+runs:
+  using: "composite"
+
+  steps:
+    - name: Set up Git repository
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js ${{ inputs.node-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install dependencies
+      working-directory: "transcription_service"
+      shell: bash
+      run: pip install .[dev,faster-whisper]
