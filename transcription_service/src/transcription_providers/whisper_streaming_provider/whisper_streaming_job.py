@@ -139,9 +139,13 @@ class WhisperStreamingProviderJob(
             self._buffer_offset_samples += samples_to_purge
 
         # Transcribe the audio currently in the buffer
+        log.debug("Last finalized: " + self._last_finalized)
         segments = self._transcribe_audio(context)
         if len(segments) == 0:
             log.info("No words transcribed in buffer.")
+
+            if forced_final is not None:
+                self._last_finalized = "".join(forced_final.text)
             return TranscriptionResult(final=forced_final)
 
         self._local_agree.append_transcription(segments)
@@ -164,9 +168,13 @@ class WhisperStreamingProviderJob(
             self._buffer.purge(samples_to_purge)
             self._buffer_offset_samples = end_samples
 
+            self._last_finalized = "".join(final.text)
+
         if forced_final is not None:
             # If forced_final transcription exists, add to beginning of finalized transcription
             self._append_sequence(forced_final, final)
+
+            self._last_finalized = "".join(forced_final.text)
             return TranscriptionResult(
                 in_progress=in_progress, final=forced_final
             )
