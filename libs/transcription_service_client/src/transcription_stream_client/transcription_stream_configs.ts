@@ -1,4 +1,4 @@
-import Type from "typebox";
+import Type from 'typebox';
 
 const DebugProviderConfigSchema = Type.Object({
   sample_rate: Type.Integer(),
