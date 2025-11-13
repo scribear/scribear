@@ -38,7 +38,7 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
             self._provider = provider
 
             self._job = provider.worker_pool.register_job(
-                self._provider.config.context_tag,
+                (self._provider.config.context_tag,),
                 self._provider.config.job_period_ms,
                 WhisperStreamingProviderJob(self._provider.config),
             )

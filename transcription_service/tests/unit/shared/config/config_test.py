@@ -45,6 +45,7 @@ CONTEXT_0 = JobContextConfigSchema(
     tags=["tag0", "tag1"],
     negative_affinity="tag2",
     context_config={"some_key": "some_value"},
+    creation_cost=0.1,
 )
 CONTEXT_1 = JobContextConfigSchema(
     context_uid=JobContextDefinitionUID.FASTER_WHISPER,
@@ -52,6 +53,7 @@ CONTEXT_1 = JobContextConfigSchema(
     tags=["tag2"],
     negative_affinity=None,
     context_config={"some_key": "other_value"},
+    creation_cost=0,
 )
 
 

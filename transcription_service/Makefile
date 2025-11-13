@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := start
 
 install_dev:
-	pip install -e .[dev]
+	pip install -e .[dev,faster-whisper]
 
 install:
 	pip install .
@@ -28,13 +28,13 @@ lint:
 check:
 	isort --check ./src ./tests
 	black --check ./src ./tests
-	pylint -j 0 --recursive=y --fail-under=10 ./src 
+	pylint -j 0 --recursive=y --fail-under=10 ./src
 	pylint -j 0 --recursive=y --fail-under=10  --disable=redefined-outer-name ./tests
 
 # Run tests in dev mode (hot reload)
 test_dev:
-	watchfiles "pytest tests/"
+	watchfiles "pytest tests/unit tests/integration"
 
 # Run tests
 test:
-	coverage run -m pytest tests/ && coverage xml --include=src/* && coverage report
+	coverage run -m pytest tests/unit tests/integration && coverage xml --include=src/* && coverage report --include=src/*

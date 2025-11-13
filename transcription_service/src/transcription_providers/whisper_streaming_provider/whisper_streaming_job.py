@@ -23,7 +23,7 @@ NUM_CHANNELS = 1
 
 
 class WhisperStreamingProviderJob(
-    JobInterface[WhisperModel, bytes, TranscriptionResult]
+    JobInterface[tuple[WhisperModel], bytes, TranscriptionResult]
 ):
     """
     WorkerPool job definition for WhisperStreamingProvider
@@ -91,6 +91,10 @@ class WhisperStreamingProviderJob(
 
         segments: list[TranscriptionSegment] = []
         for part in transcription:
+            if part.words is None:
+                raise RuntimeError(
+                    "Expected whisper transcription to have word level timestamps"
+                )
             for word in part.words:
                 segments.append(
                     TranscriptionSegment(
@@ -118,8 +122,10 @@ class WhisperStreamingProviderJob(
             a.ends.extend(b.ends)
 
     def process_batch(
-        self, log: Logger, context: WhisperModel, batch: list[bytes]
+        self, log: Logger, contexts: tuple[WhisperModel], batch: list[bytes]
     ) -> TranscriptionResult:
+        (whisper_model,) = contexts
+
         self._decode_audio(batch)
 
         forced_final = None
@@ -140,7 +146,7 @@ class WhisperStreamingProviderJob(
 
         # Transcribe the audio currently in the buffer
         log.debug("Last finalized: " + self._last_finalized)
-        segments = self._transcribe_audio(context)
+        segments = self._transcribe_audio(whisper_model)
         if len(segments) == 0:
             log.info("No words transcribed in buffer.")
 

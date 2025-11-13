@@ -9,6 +9,7 @@
                 "whisper_cpu_context"
             ],
             "negative_affinity": null,
+            "creation_cost": 0.1,
             "context_config": {
                 "model": "tiny",
                 "device": "cpu"

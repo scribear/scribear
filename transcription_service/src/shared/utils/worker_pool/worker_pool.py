@@ -2,6 +2,7 @@
 Defines WorkerPool for managing multiple WorkerProcessManagers
 """
 
+from itertools import product
 from typing import Any, TypeVar, cast
 
 from src.shared.logger import Logger
@@ -13,15 +14,13 @@ from src.shared.utils.worker_pool.worker_process_manager import (
 from .job_context_interface import JobContextInterface
 from .job_interface import JobInterface
 
-C = TypeVar("C")
+C = TypeVar("C", bound=tuple)
 D = TypeVar("D")
 R = TypeVar("R")
 
-ACTIVE_CONTEXT_SCORE_BONUS = 0.1
-
 
 class WorkerPool:
-    """
+    """self._context_max_active_reached(context_id)
     Interface for managing multiple WorkerProcessManagers
     Handles assigning jobs to processes
 
@@ -132,7 +131,28 @@ class WorkerPool:
                 return False
         return True
 
+    def _get_min_utilization(self):
+        """
+        Gets the process id with minimum utilization
+        """
+        min_util = None
+        min_util_process = None
+        for process_id, process in enumerate(self._processes):
+            if min_util is None or min_util > process.utilization:
+                min_util = process.utilization
+                min_util_process = process_id
+        return cast(int, min_util_process)
+
     def _context_max_active_reached(self, context_id: int):
+        """
+        Determine if a given context_id has reached maximum active instances allowed
+
+        Args:
+            context_id      - Context id to check
+
+        Returns:
+            True if maximum is reached, False if not
+        """
         max_instances = self._context_def[context_id].max_instances
         if max_instances == -1:
             return False
@@ -143,7 +163,38 @@ class WorkerPool:
                 count += 1
         return count >= max_instances
 
+    def _context_ids_are_compatible(self, context_ids: tuple[int, ...]):
+        """
+        Determines if group of context ids are compatible
+        As in none have negative affinity with another
+
+        Args:
+            context_ids     - Group of context ids to check
+
+        Returns:
+            True if context_ids are compatible, False if not
+        """
+        for context_id in context_ids:
+            other_tags = set[str]()
+            for other_id in context_ids:
+                if other_id != context_ids:
+                    other_tags.update(self._context_def[other_id].tags)
+
+            if self._context_def[context_id].negative_affinity in other_tags:
+                return False
+        return True
+
     def _has_negative_affinity(self, context_id: int, process_id: int):
+        """
+        Determines if given context id has negative affinity with active contexts on process
+
+        Args:
+            context_id      - Context id to check
+            process_id      - Process id to to check
+
+        Returns:
+            True if context id has negative affinity with process, False if not
+        """
         tags = self._context_def[context_id].tags
         negative_affinity = self._context_def[context_id].negative_affinity
 
@@ -169,66 +220,119 @@ class WorkerPool:
             return True
         return False
 
-    def _assign_worker(self, context_tag: str | None) -> tuple[int, int | None]:
-        # If no context is required, select process with minimum utilization
-        if context_tag is None:
-            min_util = None
-            min_util_process = None
-            for process_id, process in enumerate(self._processes):
-                if min_util is None or min_util > process.utilization:
-                    min_util = process.utilization
-                    min_util_process = process_id
-            return (cast(int, min_util_process), None)
+    def _assignment_is_valid(
+        self, context_ids: tuple[int, ...], process_id: int
+    ):
+        """
+        Determinie if a given group of context ids can be assigned to a given process
 
-        # Cannot schedule if no valid context ids are found
-        context_ids = self.get_context_ids_by_tag(context_tag)
-        if len(context_ids) == 0:
-            raise KeyError(
-                f"context tag: {context_tag} matched 0 context definitions"
-            )
+        Args:
+            context_ids     - Group of context ids to check
+            process_id      - Process id of process to check
 
-        # Determine potential valid assignments for job
-        potential_assignments: list[tuple[int, int]] = []
+        Returns:
+            True if context ids can be assigned, False if not
+        """
+        # Process needs to support every context_id in group
         for context_id in context_ids:
-            max_reached = self._context_max_active_reached(context_id)
+            # context_id/process_id is disqualified if pair has negative affinity
+            if self._has_negative_affinity(context_id, process_id):
+                return False
 
-            for process_id, process in enumerate(self._processes):
-                # context_id/process_id is disqualified if pair has negative affinity
-                if self._has_negative_affinity(context_id, process_id):
-                    continue
+            # context_id/process_id id disqualified if it requires created new
+            # context instance when max instance count is already reached
+            if (
+                self._context_max_active_reached(context_id)
+                and context_id
+                not in self._processes[process_id].active_context_ids
+            ):
+                return False
+        return True
 
-                # context_id/process_id id disqualified if it requires created new
-                # context instance when max instance count is already reached
-                if max_reached and context_id not in process.active_context_ids:
-                    continue
+    def _get_potential_assignments(
+        self, matched_contexts: tuple[set[int], ...]
+    ):
+        """
+        Determine potential valid assignments for job given set of context_id matches
 
-                potential_assignments.append((process_id, context_id))
+        Args:
+            matched_contexts    - Group of lists, with each list matching set of
+                                    context ids that matched corresponding context tag
+
+        Returns:
+            List of process_ids and tuples of context_ids that are valid assignments
+        """
+        potential_assignments: list[tuple[int, tuple[int, ...]]] = []
+        for context_ids in product(*matched_contexts):
+            if not self._context_ids_are_compatible(context_ids):
+                print(context_ids)
+                continue
+
+            for process_id in range(len(self._processes)):
+                if self._assignment_is_valid(context_ids, process_id):
+                    potential_assignments.append((process_id, context_ids))
+        return potential_assignments
+
+    def _assign_process(
+        self, context_tags: tuple[str, ...]
+    ) -> tuple[int, tuple[int, ...]]:
+        """
+        Determine which process to assign a job with given context tags to
+        Considers all valid combinations of context_ids matching tags and processes
+        and selects the pair with best score.
+
+        Args:
+            context_tags        - Group of tags corresponding to the requested context of the job
+
+        Returns:
+            Process id and tuple of context_ids to assign to it
+        """
+        # If no context is required, select process with minimum utilization
+        if len(context_tags) == 0:
+            return (self._get_min_utilization(), ())
+
+        # Map each context tag to set of context ids
+        matched_contexts = tuple(map(self.get_context_ids_by_tag, context_tags))
+        # If a tag doesn't match any ids, we cannot provide assign a worker
+        for i, context_ids in enumerate(matched_contexts):
+            if len(context_ids) == 0:
+                raise KeyError(
+                    f"context tag: {context_tags[i]} matched 0 context definitions"
+                )
 
         best_score = None
         best_assignment = None
-        for process_id, context_id in potential_assignments:
-            active_context = (
-                context_id in self._processes[process_id].active_context_ids
-            )
+        for process_id, context_ids in self._get_potential_assignments(
+            matched_contexts
+        ):
+            # Compute the cost of creating contexts on process
+            creation_cost = 0
+            # Only use unique context ids to compute cost
+            for context_id in set(context_ids):
+                is_active_context = (
+                    context_id in self._processes[process_id].active_context_ids
+                )
+                if not is_active_context:
+                    creation_cost += self._context_def[context_id].creation_cost
+
             utilization = self._processes[process_id].utilization
 
             score = 1 - utilization
-            if active_context:
-                score += ACTIVE_CONTEXT_SCORE_BONUS
+            score -= creation_cost
 
             if best_score is None or score > best_score:
                 best_score = score
-                best_assignment = (process_id, context_id)
+                best_assignment = (process_id, context_ids)
 
         if best_assignment is None:
             raise RuntimeError(
-                f"No valid assignment cound be found for context tag: {context_tag}"
+                f"No valid assignment cound be found for context tags: {context_tags}"
             )
         return best_assignment
 
     def register_job(
         self,
-        context_tag: str | None,
+        context_tags: tuple[str, ...],
         period_ms: int,
         job: JobInterface[C, D, R],
     ) -> JobHandle[D, R]:
@@ -236,7 +340,7 @@ class WorkerPool:
         Registers a new job with WorkerPool
 
         Args:
-            context_id      - Context id of context to provide to Job, can be None for no context
+            context_tags    - Context tags of context instances to provide to Job, can be empty
             period_ms       - Frequency at which job should be run
             job             - Definition of job to register
 
@@ -247,7 +351,7 @@ class WorkerPool:
             KeyError if invalid context id is provided
             RuntimeError if job could not be assigned to a worker
         """
-        process_id, context_id = self._assign_worker(context_tag)
+        process_id, context_id = self._assign_process(context_tags)
         return self._processes[process_id].register_job(
             context_id, period_ms, job
         )

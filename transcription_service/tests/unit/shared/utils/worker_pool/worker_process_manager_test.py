@@ -27,9 +27,8 @@ from .context_definitions import (
 )
 from .jobs import ContextJob, ErrorJob, LoggerJob, SlowJob, SumJob
 
-# Mark this slow test suite to run last
-# and increase default timeout for this slow test suite
-pytestmark = [pytest.mark.order(-1), pytest.mark.timeout(2)]
+# Increase default timeout for this slow test suite
+pytestmark = pytest.mark.timeout(2)
 
 NS_PER_SEC = 10**9
 
@@ -128,7 +127,7 @@ async def test_job_handle_has_correct_worker_id(wpm: WorkerProcessManager):
     Test that a job handle has worker id property
     """
     # Arrange / Act
-    job = wpm.register_job(None, 200, SumJob())
+    job = wpm.register_job((), 200, SumJob())
 
     # Assert
     assert job.worker_id == TEST_WORKER_ID
@@ -140,8 +139,8 @@ async def test_job_handle_has_unique_job_id(wpm: WorkerProcessManager):
     Test that a job handle has unique job id property
     """
     # Arrange / Act
-    job0 = wpm.register_job(None, 200, SumJob())
-    job1 = wpm.register_job(None, 200, SumJob())
+    job0 = wpm.register_job((), 200, SumJob())
+    job1 = wpm.register_job((), 200, SumJob())
 
     # Assert
     assert job0.job_id != job1.job_id
@@ -155,7 +154,7 @@ async def test_single_job_executes_once(wpm: WorkerProcessManager):
     # Arrange
     results: list[JobSuccess[int] | JobException] = []
 
-    job = wpm.register_job(None, 200, SumJob())
+    job = wpm.register_job((), 200, SumJob())
     job.on(job.JobResultEvent, results.append)
 
     # Act
@@ -177,7 +176,7 @@ async def test_single_job_executes_multiple_times(wpm: WorkerProcessManager):
     # Arrange
     results: list[JobSuccess[int] | JobException] = []
 
-    job = wpm.register_job(None, 200, SumJob())
+    job = wpm.register_job((), 200, SumJob())
     job.on(job.JobResultEvent, results.append)
 
     # Act
@@ -210,8 +209,8 @@ async def test_multiple_jobs_same_period_execute_multiple_timess(
     results0: list[JobSuccess[int] | JobException] = []
     results1: list[JobSuccess[int] | JobException] = []
 
-    job0 = wpm.register_job(None, 200, SumJob())
-    job1 = wpm.register_job(None, 200, SumJob())
+    job0 = wpm.register_job((), 200, SumJob())
+    job1 = wpm.register_job((), 200, SumJob())
     job0.on(job0.JobResultEvent, results0.append)
     job1.on(job1.JobResultEvent, results1.append)
 
@@ -245,8 +244,8 @@ async def test_multiple_jobs_different_period_execute_multiple_timess(
     results0: list[JobSuccess[int] | JobException] = []
     results1: list[JobSuccess[int] | JobException] = []
 
-    job0 = wpm.register_job(None, 200, SumJob())
-    job1 = wpm.register_job(None, 400, SumJob())
+    job0 = wpm.register_job((), 200, SumJob())
+    job1 = wpm.register_job((), 400, SumJob())
     job0.on(job0.JobResultEvent, results0.append)
     job1.on(job1.JobResultEvent, results1.append)
 
@@ -285,7 +284,7 @@ async def test_single_error_job_returns_error(wpm: WorkerProcessManager):
     # Arrange
     results: list[JobSuccess[None] | JobException] = []
 
-    job = wpm.register_job(None, 200, ErrorJob())
+    job = wpm.register_job((), 200, ErrorJob())
     job.on(job.JobResultEvent, results.append)
 
     # Act
@@ -305,7 +304,7 @@ async def test_error_job_is_not_rescheduled(wpm: WorkerProcessManager):
     # Arrange
     results: list[JobSuccess[None] | JobException] = []
 
-    job = wpm.register_job(None, 1, ErrorJob())
+    job = wpm.register_job((), 1, ErrorJob())
     job.on(job.JobResultEvent, results.append)
 
     # Act
@@ -324,7 +323,7 @@ async def test_multiple_error_jobs_returns_errors(wpm: WorkerProcessManager):
     results: list[JobSuccess[None] | JobException] = []
 
     for _ in range(10):
-        job = wpm.register_job(None, 200, ErrorJob())
+        job = wpm.register_job((), 200, ErrorJob())
         job.on(job.JobResultEvent, results.append)
 
     # Act
@@ -347,7 +346,7 @@ async def test_deregister_single_job_single_registered(
     # Arrange
     results: list[JobSuccess[int] | JobException] = []
 
-    job = wpm.register_job(None, 200, SumJob())
+    job = wpm.register_job((), 200, SumJob())
     job.on(job.JobResultEvent, results.append)
 
     # Act
@@ -370,8 +369,8 @@ async def test_deregister_single_job_multiple_registered(
     results0: list[JobSuccess[int] | JobException] = []
     results1: list[JobSuccess[int] | JobException] = []
 
-    job0 = wpm.register_job(None, 200, SumJob())
-    job1 = wpm.register_job(None, 200, SumJob())
+    job0 = wpm.register_job((), 200, SumJob())
+    job1 = wpm.register_job((), 200, SumJob())
     job0.on(job0.JobResultEvent, results0.append)
     job1.on(job1.JobResultEvent, results1.append)
 
@@ -396,8 +395,8 @@ async def test_deregister_single_job_while_running_multiple_registered(
     results0: list[JobSuccess[None] | JobException] = []
     results1: list[JobSuccess[int] | JobException] = []
 
-    job0 = wpm.register_job(None, 200, SlowJob(int(0.2 * NS_PER_SEC)))
-    job1 = wpm.register_job(None, 400, SumJob())
+    job0 = wpm.register_job((), 200, SlowJob(int(0.2 * NS_PER_SEC)))
+    job1 = wpm.register_job((), 400, SumJob())
     job0.on(job0.JobResultEvent, results0.append)
     job1.on(job1.JobResultEvent, results1.append)
 
@@ -421,7 +420,7 @@ async def test_creates_context_instance_on_new_request_single_job(
     # Arrange
     results: list[JobSuccess[ContextInstance] | JobException] = []
 
-    job = wpm.register_job(TEST_CONTEXT_ID_0, 200, ContextJob())
+    job = wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
     job.on(job.JobResultEvent, results.append)
 
     # Act
@@ -445,8 +444,8 @@ async def test_reuses_context_instance_on_repeat_request_multiple_jobs(
     results0: list[JobSuccess[ContextInstance] | JobException] = []
     results1: list[JobSuccess[ContextInstance] | JobException] = []
 
-    job0 = wpm.register_job(TEST_CONTEXT_ID_0, 200, ContextJob())
-    job1 = wpm.register_job(TEST_CONTEXT_ID_0, 200, ContextJob())
+    job0 = wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
+    job1 = wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
     job0.on(job0.JobResultEvent, results0.append)
     job1.on(job1.JobResultEvent, results1.append)
 
@@ -476,8 +475,8 @@ async def test_creates_context_instance_on_new_request_multiple_jobs(
     results0: list[JobSuccess[ContextInstance] | JobException] = []
     results1: list[JobSuccess[ContextInstance] | JobException] = []
 
-    job0 = wpm.register_job(TEST_CONTEXT_ID_0, 200, ContextJob())
-    job1 = wpm.register_job(TEST_CONTEXT_ID_1, 200, ContextJob())
+    job0 = wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
+    job1 = wpm.register_job((TEST_CONTEXT_ID_1,), 200, ContextJob())
     job0.on(job0.JobResultEvent, results0.append)
     job1.on(job1.JobResultEvent, results1.append)
 
@@ -505,9 +504,9 @@ async def test_does_not_destroy_active_context_instance_on_deregister_single_con
     # Arrange
     results2: list[JobSuccess[ContextInstance] | JobException] = []
 
-    job0 = wpm.register_job(TEST_CONTEXT_ID_0, 200, ContextJob())
+    job0 = wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
     # Second job to keep context active
-    wpm.register_job(TEST_CONTEXT_ID_0, 200, ContextJob())
+    wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
 
     # Act
     await asyncio.sleep(0.2 + 0.1)
@@ -515,7 +514,7 @@ async def test_does_not_destroy_active_context_instance_on_deregister_single_con
     await asyncio.sleep(0.1)
 
     # Register job to capture context state
-    job2 = wpm.register_job(TEST_CONTEXT_ID_0, 200, ContextJob())
+    job2 = wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
     job2.on(job2.JobResultEvent, results2.append)
     await asyncio.sleep(0.2 + 0.1)
 
@@ -536,7 +535,7 @@ async def test_destroys_unused_context_instance_on_deregister_single_context(
     # Arrange
     results1: list[JobSuccess[ContextInstance] | JobException] = []
 
-    job0 = wpm.register_job(TEST_CONTEXT_ID_0, 200, ContextJob())
+    job0 = wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
 
     # Act
     await asyncio.sleep(0.2 + 0.1)
@@ -544,7 +543,7 @@ async def test_destroys_unused_context_instance_on_deregister_single_context(
     await asyncio.sleep(0.1)
 
     # Register job to capture context state
-    job1 = wpm.register_job(TEST_CONTEXT_ID_0, 200, ContextJob())
+    job1 = wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
     job1.on(job1.JobResultEvent, results1.append)
     await asyncio.sleep(0.2 + 0.1)
 
@@ -567,9 +566,9 @@ async def test_does_not_destroy_active_context_instance_on_deregister_multiple_c
     results2: list[JobSuccess[ContextInstance] | JobException] = []
     results3: list[JobSuccess[ContextInstance] | JobException] = []
 
-    job0 = wpm.register_job(TEST_CONTEXT_ID_0, 200, ContextJob())
+    job0 = wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
     # Context 1 stays active, context 0 gets deregistered
-    wpm.register_job(TEST_CONTEXT_ID_1, 200, ContextJob())
+    wpm.register_job((TEST_CONTEXT_ID_1,), 200, ContextJob())
 
     # Act
     await asyncio.sleep(0.2 + 0.1)
@@ -577,9 +576,9 @@ async def test_does_not_destroy_active_context_instance_on_deregister_multiple_c
     await asyncio.sleep(0.1)
 
     # Register job to capture context state
-    job2 = wpm.register_job(TEST_CONTEXT_ID_0, 200, ContextJob())
+    job2 = wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
     job2.on(job2.JobResultEvent, results2.append)
-    job3 = wpm.register_job(TEST_CONTEXT_ID_1, 200, ContextJob())
+    job3 = wpm.register_job((TEST_CONTEXT_ID_1,), 200, ContextJob())
     job3.on(job3.JobResultEvent, results3.append)
     await asyncio.sleep(0.2 + 0.1)
 
@@ -602,9 +601,9 @@ async def test_reports_active_context_ids_after_register(
     Test that WorkerProcessManager reports currently active context ids after registering jobs
     """
     # Arrange
-    wpm.register_job(TEST_CONTEXT_ID_0, 200, ContextJob())
-    wpm.register_job(TEST_CONTEXT_ID_1, 200, ContextJob())
-    wpm.register_job(TEST_LOGGER_CONTEXT, 200, ContextJob())
+    wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
+    wpm.register_job((TEST_CONTEXT_ID_1,), 200, ContextJob())
+    wpm.register_job((TEST_LOGGER_CONTEXT,), 200, ContextJob())
 
     # Act
     await asyncio.sleep(0.2 + 0.1)
@@ -623,10 +622,10 @@ async def test_reports_active_context_ids_after_deregister(
     Test that WorkerProcessManager reports currently active context ids after deregistering jobs
     """
     # Arrange
-    wpm.register_job(TEST_CONTEXT_ID_0, 200, ContextJob())
-    wpm.register_job(TEST_CONTEXT_ID_0, 200, ContextJob())
-    wpm.register_job(TEST_LOGGER_CONTEXT, 200, ContextJob())
-    job3 = wpm.register_job(TEST_CONTEXT_ID_1, 200, ContextJob())
+    wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
+    wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
+    wpm.register_job((TEST_LOGGER_CONTEXT,), 200, ContextJob())
+    job3 = wpm.register_job((TEST_CONTEXT_ID_1,), 200, ContextJob())
 
     # Act
     await asyncio.sleep(0.2 + 0.1)
@@ -649,7 +648,7 @@ async def test_returns_error_result_on_create_context_error(
     # Arrange
     results: list[JobSuccess[int] | JobException] = []
 
-    job = wpm.register_job(TEST_ERROR_CONTEXT, 200, SumJob())
+    job = wpm.register_job((TEST_ERROR_CONTEXT,), 200, SumJob())
     job.on(job.JobResultEvent, results.append)
 
     # Act
@@ -670,7 +669,7 @@ async def test_job_logger_logs_messages(
     Test that logger provided to job correctly logs messages
     """
     # Arrange
-    job = wpm.register_job(None, 200, LoggerJob())
+    job = wpm.register_job((), 200, LoggerJob())
 
     # Act
     await asyncio.sleep(0.2 + 0.1)
@@ -691,7 +690,7 @@ async def test_context_create_logger_logs_messages(
     Test that logger provided to context create correctly logs messages
     """
     # Arrange
-    wpm.register_job(TEST_LOGGER_CONTEXT, 200, SumJob())
+    wpm.register_job((TEST_LOGGER_CONTEXT,), 200, SumJob())
 
     # Act
     await asyncio.sleep(0.2 + 0.1)
@@ -712,7 +711,7 @@ async def test_context_destroy_logger_logs_messages(
     Test that logger provided to context destroy correctly logs messages
     """
     # Arrange
-    job = wpm.register_job(TEST_LOGGER_CONTEXT, 200, SumJob())
+    job = wpm.register_job((TEST_LOGGER_CONTEXT,), 200, SumJob())
 
     # Act
     await asyncio.sleep(0.2 + 0.1)
@@ -736,7 +735,7 @@ async def test_reports_jobs_stats_single_slow_job(wpm: WorkerProcessManager):
     slow_worker_time = NS_PER_SEC
 
     results: list[JobSuccess[None] | JobException] = []
-    job = wpm.register_job(None, 200, SlowJob(NS_PER_SEC))
+    job = wpm.register_job((), 200, SlowJob(NS_PER_SEC))
     job.on(job.JobResultEvent, results.append)
 
     # Act
@@ -763,7 +762,7 @@ async def test_reports_jobs_stats_single_slow_job_slow_context(
     slow_worker_time = NS_PER_SEC
 
     results: list[JobSuccess[None] | JobException] = []
-    job = wpm.register_job(TEST_SLOW_CONTEXT, 200, SlowJob(NS_PER_SEC))
+    job = wpm.register_job((TEST_SLOW_CONTEXT,), 200, SlowJob(NS_PER_SEC))
     job.on(job.JobResultEvent, results.append)
 
     # Act
@@ -791,8 +790,8 @@ async def test_reports_job_stats_multiple_slow_job(wpm: WorkerProcessManager):
     slow_worker_time = NS_PER_SEC
 
     results1: list[JobSuccess[None] | JobException] = []
-    wpm.register_job(None, 200, SlowJob(NS_PER_SEC))
-    job1 = wpm.register_job(None, 200, SlowJob(NS_PER_SEC))
+    wpm.register_job((), 200, SlowJob(NS_PER_SEC))
+    job1 = wpm.register_job((), 200, SlowJob(NS_PER_SEC))
     job1.on(job1.JobResultEvent, results1.append)
 
     # Act
@@ -816,8 +815,8 @@ async def test_earliest_deadline_first_scheduling(wpm: WorkerProcessManager):
     # Arrange
     results0: list[JobSuccess[int] | JobException] = []
     results1: list[JobSuccess[int] | JobException] = []
-    job0 = wpm.register_job(None, 100, SumJob())
-    job1 = wpm.register_job(None, 200, SumJob())
+    job0 = wpm.register_job((), 100, SumJob())
+    job1 = wpm.register_job((), 200, SumJob())
     job0.on(job0.JobResultEvent, results0.append)
     job1.on(job1.JobResultEvent, results1.append)
 
@@ -841,7 +840,7 @@ async def test_utilization_report_single_job(wpm: WorkerProcessManager):
     # Arrange
     target_utilization = 0.25
     wpm.register_job(
-        None,
+        (),
         ROLLING_UTILIZATION_WINDOW_SEC * 1000,
         SlowJob(
             int(
@@ -867,7 +866,7 @@ async def test_utilization_report_multiple_jobs(wpm: WorkerProcessManager):
     num_jobs = 2
     for _ in range(num_jobs):
         wpm.register_job(
-            None,
+            (),
             ROLLING_UTILIZATION_WINDOW_SEC * 1000,
             SlowJob(
                 int(
