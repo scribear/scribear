@@ -36,8 +36,15 @@ class FasterWhisperContext(JobContextInterface[WhisperModel]):
         max_instances: int,
         tags: list[str],
         negative_affinity: str | None,
+        creation_cost: float,
     ):
-        super().__init__(context_config, max_instances, tags, negative_affinity)
+        super().__init__(
+            context_config,
+            max_instances,
+            tags,
+            negative_affinity,
+            creation_cost,
+        )
         self._config = faster_whisper_context_config_adapter.validate_python(
             context_config
         )

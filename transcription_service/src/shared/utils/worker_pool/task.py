@@ -36,7 +36,7 @@ class RegisterJobTask:
     """
 
     job_id: int
-    context_id: int | None
+    context_ids: tuple[int, ...]
     period_ms: int
     job: JobInterface[Any, Any, Any]
     type: Literal[TaskType.REGISTER_JOB] = TaskType.REGISTER_JOB

@@ -60,20 +60,18 @@ class TranscriptionService:
         """
         context_def: dict[int, JobContextInterface[Any]] = {}
         for i, config in enumerate(context_configurations):
-            context_uid = config.context_uid
-            max_instances = config.max_instances
-            tags = config.tags
-            negative_affinity = config.negative_affinity
-            context_config = config.context_config
-
-            match context_uid:
+            match config.context_uid:
                 case JobContextDefinitionUID.FASTER_WHISPER:
                     from src.transcription_contexts.faster_whisper_context import (
                         FasterWhisperContext,
                     )
 
                     context = FasterWhisperContext(
-                        context_config, max_instances, tags, negative_affinity
+                        config.context_config,
+                        config.max_instances,
+                        config.tags,
+                        config.negative_affinity,
+                        config.creation_cost,
                     )
 
             context_def[i] = context
@@ -98,20 +96,16 @@ class TranscriptionService:
         """
         providers: dict[str, TranscriptionProviderInterface] = {}
         for config in configured_providers:
-            provider_key = config.provider_key
-            provider_uid = config.provider_uid
-            provider_config = config.provider_config
+            child_logger = logger.child({"provider_key": config.provider_key})
 
-            child_logger = logger.child({"provider_key": provider_key})
-
-            match provider_uid:
+            match config.provider_uid:
                 case TranscriptionProviderUID.DEBUG:
                     from src.transcription_providers.debug_provider import (
                         DebugProvider,
                     )
 
                     provider = DebugProvider(
-                        provider_config, child_logger, worker_pool
+                        config.provider_config, child_logger, worker_pool
                     )
                 case TranscriptionProviderUID.WHISPER_STREAMING:
                     from src.transcription_providers.whisper_streaming_provider import (
@@ -119,10 +113,10 @@ class TranscriptionService:
                     )
 
                     provider = WhisperStreamingProvider(
-                        provider_config, child_logger, worker_pool
+                        config.provider_config, child_logger, worker_pool
                     )
 
-            providers[provider_key] = provider
+            providers[config.provider_key] = provider
         return providers
 
     def create_session(
