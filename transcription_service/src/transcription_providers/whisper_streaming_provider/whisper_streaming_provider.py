@@ -31,8 +31,8 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
         Bojar, Ond{\v{r}}ej",
         editor = "Saha, Sriparna  and
         Sujaini, Herry",
-        booktitle = "Proceedings of the 13th International Joint Conference on Natural 
-            Language Processing and the 3rd Conference of the Asia-Pacific Chapter of the 
+        booktitle = "Proceedings of the 13th International Joint Conference on Natural
+            Language Processing and the 3rd Conference of the Asia-Pacific Chapter of the
             Association for Computational Linguistics: System Demonstrations",
         month = nov,
         year = "2023",

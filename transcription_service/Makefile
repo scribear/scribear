@@ -14,22 +14,20 @@ start:
 dev:
 	watchfiles "python src/index.py --dev"
 
-# Format source code
+# Formatting without editing and run linter
 format:
+	isort --check ./src ./tests
+	black --check ./src ./tests
+
+# Format source code
+format_fix:
 	isort ./src ./tests
 	black ./src ./tests
 
 # Run linter
 lint:
-	pylint -j 0 --recursive=y ./src
-	pylint -j 0 --recursive=y ./tests --disable=redefined-outer-name
-
-# Check source code formatting without editing and run linter
-check:
-	isort --check ./src ./tests
-	black --check ./src ./tests
 	pylint -j 0 --recursive=y --fail-under=10 ./src
-	pylint -j 0 --recursive=y --fail-under=10  --disable=redefined-outer-name ./tests
+	pylint -j 0 --recursive=y --fail-under=10 --disable=redefined-outer-name ./tests
 
 # Run tests in dev mode (hot reload)
 test_dev:
