@@ -20,7 +20,7 @@ R = TypeVar("R")
 
 
 class WorkerPool:
-    """self._context_max_active_reached(context_id)
+    """
     Interface for managing multiple WorkerProcessManagers
     Handles assigning jobs to processes
 
