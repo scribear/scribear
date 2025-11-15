@@ -74,10 +74,9 @@ export class SessionService {
     );
 
     // Schedule session cleanup
-    setTimeout(
-      () => this._cleanupSession(sessionId),
-      params.sessionLength * 1000,
-    );
+    setTimeout(() => {
+      this._cleanupSession(sessionId);
+    }, params.sessionLength * 1000);
 
     return session;
   }
@@ -158,9 +157,10 @@ export class SessionService {
     let joinCode = '';
 
     for (let i = 0; i < 8; i++) {
-      const byte = randomBytes(1)[0];
-      const randomIndex = (byte ?? 0) % chars.length;
-      joinCode += chars[randomIndex];
+      const byte = randomBytes(1).readUInt8(0);
+      const randomIndex = byte % chars.length;
+      const char = chars.charAt(randomIndex);
+      joinCode += char;
     }
 
     return joinCode;

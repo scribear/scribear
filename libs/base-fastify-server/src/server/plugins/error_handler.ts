@@ -1,4 +1,3 @@
-import type { FastifyError } from 'fastify';
 import fastifyPlugin from 'fastify-plugin';
 
 import { SHARED_ERROR_REPLY_SCHEMA } from '@scribear/base-schema';
@@ -26,7 +25,7 @@ export default fastifyPlugin((fastify: BaseFastifyInstance) => {
       // Let default error handler manage FastifyErrors
       // FastifyErrors have a code property starting with 'FST_'
       if (err && typeof err === 'object' && 'code' in err && typeof err.code === 'string' && err.code.startsWith('FST_')) {
-        throw err;
+        throw new Error(`Fastify error: ${err.code}`);
       }
 
       if (!(err instanceof BaseHttpError)) {

@@ -55,24 +55,11 @@ class SessionController {
     req: BaseFastifyRequest<typeof CREATE_TOKEN_SCHEMA>,
     res: BaseFastifyReply<typeof CREATE_TOKEN_SCHEMA>,
   ) {
-    const { sessionId, joinCode, audioSourceSecret, scope } = req.body;
-
-    // Validate that either (sessionId + audioSourceSecret) or joinCode is provided
-    if (!joinCode && (!sessionId || !audioSourceSecret)) {
-      throw new HttpError.BadRequest([
-        {
-          message:
-            'Must provide either joinCode OR (sessionId + audioSourceSecret)',
-          key: 'authentication',
-        },
-      ]);
-    }
-
-    // Determine session ID based on input
+    const body = req.body;
     let resolvedSessionId: string;
 
-    if (joinCode) {
-      // Look up session by join code
+    if ('joinCode' in body) {
+      const { joinCode } = body;
       const session = this._sessionService.getSessionByJoinCode(joinCode);
 
       if (!session) {
@@ -81,36 +68,35 @@ class SessionController {
 
       resolvedSessionId = session.sessionId;
     } else {
-      // Verify audio source secret
+      const { sessionId, audioSourceSecret } = body;
+
       const isValid = await this._sessionService.verifyAudioSourceSecret(
-        sessionId!,
-        audioSourceSecret!,
+        sessionId,
+        audioSourceSecret,
       );
 
       if (!isValid) {
         throw new HttpError.Unauthorized('Invalid session ID or audio source secret');
       }
 
-      resolvedSessionId = sessionId!;
+      resolvedSessionId = sessionId;
     }
 
-    // Check if session is still valid
     if (!this._sessionService.isSessionValid(resolvedSessionId)) {
       throw new HttpError.NotFound('Session expired or not found');
     }
 
-    // Issue JWT token
     const token = this._jwtService.issueToken(
       resolvedSessionId,
-      scope,
-      audioSourceSecret ? 'audio-source' : undefined,
+      body.scope,
+      'joinCode' in body ? undefined : 'audio-source',
     );
 
     res.code(200).send({
       token,
-      expiresIn: '24h', // TODO: Make this configurable based on session
+      expiresIn: '24h', // TODO: Make this configurable based on instructor session configuration
       sessionId: resolvedSessionId,
-      scope,
+      scope: body.scope,
     });
   }
 }

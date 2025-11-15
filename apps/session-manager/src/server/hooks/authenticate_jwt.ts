@@ -1,8 +1,7 @@
-import type { FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyRequest } from 'fastify';
 import { HttpError } from '@scribear/base-fastify-server';
 
 import type { JwtPayload } from '../services/jwt.service.js';
-import type { AppDependencies } from '../dependency_injection/register_dependencies.js';
 
 // Extend FastifyRequest to include JWT payload
 declare module 'fastify' {
@@ -30,10 +29,9 @@ declare module 'fastify' {
  * });
  * ```
  */
-export async function authenticateJwt(
+export function authenticateJwt(
   req: FastifyRequest,
-  reply: FastifyReply,
-): Promise<void> {
+): void {
   // Extract Authorization header
   const authHeader = req.headers.authorization;
 
@@ -51,18 +49,24 @@ export async function authenticateJwt(
 
   const token = parts[1];
 
+  if (!token) {
+    throw new HttpError.Unauthorized('Missing token in Authorization header');
+  }
+
   // Verify token using JWT service from DI container
-  const jwtService = (req as any).diScope.resolve('jwtService');
+  const jwtService = req.diScope.resolve('jwtService');
   const result = jwtService.verifyToken(token);
 
   if (!result.valid) {
     throw new HttpError.Unauthorized(
-      `Invalid or expired token: ${result.error}`,
+      `Invalid or expired token: ${result.error ?? 'Unknown error'}`,
     );
   }
 
   // Attach payload to request for use in handlers
-  req.jwtPayload = result.payload;
+  if (result.payload) {
+    req.jwtPayload = result.payload;
+  }
 }
 
 /**
@@ -72,10 +76,9 @@ export async function authenticateJwt(
  *
  * Useful for routes that have different behavior for authenticated vs unauthenticated users
  */
-export async function optionalAuthenticateJwt(
+export function optionalAuthenticateJwt(
   req: FastifyRequest,
-  reply: FastifyReply,
-): Promise<void> {
+): void {
   const authHeader = req.headers.authorization;
 
   // If no auth header, just continue without setting jwtPayload
@@ -86,11 +89,13 @@ export async function optionalAuthenticateJwt(
   const parts = authHeader.split(' ');
   if (parts.length === 2 && parts[0] === 'Bearer') {
     const token = parts[1];
-    const jwtService = (req as any).diScope.resolve('jwtService');
-    const result = jwtService.verifyToken(token);
+    if (token) {
+      const jwtService = req.diScope.resolve('jwtService');
+      const result = jwtService.verifyToken(token);
 
-    if (result.valid) {
-      req.jwtPayload = result.payload;
+      if (result.valid && result.payload) {
+        req.jwtPayload = result.payload;
+      }
     }
   }
 }

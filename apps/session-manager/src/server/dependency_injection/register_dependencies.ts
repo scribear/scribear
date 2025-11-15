@@ -60,7 +60,7 @@ function registerDependencies(
 
     // Services
     jwtService: asFunction(
-      ({ logger, config }) =>
+      ({ logger, config }: AppDependencies) =>
         new JwtService(
           logger,
           config.jwtSecret,

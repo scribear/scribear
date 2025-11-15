@@ -1,5 +1,7 @@
 import jwt from 'jsonwebtoken';
 import type { BaseLogger } from '@scribear/base-fastify-server';
+import { type StringValue } from 'ms';
+import ms from "ms";
 
 export type SessionScope = 'source' | 'sink' | 'both';
 
@@ -27,8 +29,8 @@ export class JwtService {
   constructor(
     logger: BaseLogger,
     jwtSecret: string,
-    jwtIssuer: string = 'scribear-session-manager',
-    defaultExpiresIn: string = '24h',
+    jwtIssuer = 'scribear-session-manager',
+    defaultExpiresIn = '24h',
   ) {
     this._log = logger;
     this._secret = jwtSecret;
@@ -65,18 +67,15 @@ export class JwtService {
       'Issuing JWT token for session',
     );
 
-    const signOptions: jwt.SignOptions = {
-      issuer: this._issuer,
-      algorithm: 'HS256',
-    };
-
-    if (expiresIn) {
-      signOptions.expiresIn = expiresIn as any;
-    } else {
-      signOptions.expiresIn = this._defaultExpiresIn as any;
-    }
-
-    return jwt.sign(payload, this._secret, signOptions);
+    return jwt.sign(
+      payload,
+      this._secret,
+      {
+        issuer: this._issuer,
+        algorithm: 'HS256',
+        expiresIn: ms((expiresIn ?? this._defaultExpiresIn) as StringValue),
+      },
+    );
   }
 
   /**
@@ -135,8 +134,8 @@ export class JwtService {
    */
   isTokenExpired(token: string): boolean {
     try {
-      const decoded = jwt.decode(token) as jwt.JwtPayload;
-      if (!decoded || !decoded.exp) {
+      const decoded = jwt.decode(token) as jwt.JwtPayload | null;
+      if (!decoded?.exp) {
         return true;
       }
       return Date.now() >= decoded.exp * 1000;
