@@ -99,8 +99,8 @@ export default defineConfig([
             'classMethod',
             'variable',
           ],
-          // Prefer camelCase but allow UPPER_CASE for global variables
-          format: ['camelCase', 'UPPER_CASE'],
+          // Prefer camelCase but allow PascalCase or UPPER_CASE for global variables
+          format: ['camelCase', 'PascalCase', 'UPPER_CASE'],
         },
         {
           selector: ['function'],

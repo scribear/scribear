@@ -1,0 +1,31 @@
+FROM nvidia/cuda:12.2.2-cudnn8-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update -y
+RUN apt install software-properties-common -y
+
+RUN add-apt-repository ppa:deadsnakes/ppa
+RUN apt-get update -y
+
+RUN apt install python3.12 python3-pip python3.12-venv -y
+RUN apt install curl -y
+
+WORKDIR /app
+
+RUN python3.12 -m venv .venv
+
+COPY pyproject.toml .
+
+RUN /app/.venv/bin/python -m pip install .[faster-whisper]
+
+COPY src ./src
+
+RUN /app/.venv/bin/python -m pip install .
+
+ENV HOST=0.0.0.0
+ENV PORT=80
+ENV PROVIDER_CONFIG_PATH=/app/provider_config.json
+
+HEALTHCHECK --interval=30s --timeout=30s --start-period=30s --start-interval=1s --retries=3 CMD curl -f http://localhost:80/healthcheck || exit 1
+
+CMD ["/app/.venv/bin/python", "src/index.py"]

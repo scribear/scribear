@@ -1,0 +1,19 @@
+FROM python:3.12.11
+
+WORKDIR /app
+
+COPY pyproject.toml .
+
+RUN pip install .[faster-whisper]
+
+COPY src ./src
+
+RUN pip install .
+
+ENV HOST=0.0.0.0
+ENV PORT=80
+ENV PROVIDER_CONFIG_PATH=/app/provider_config.json
+
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --start-interval=1s --retries=3 CMD curl -f http://localhost:80/healthcheck || exit 1
+
+CMD ["python", "src/index.py"]

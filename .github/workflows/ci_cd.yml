@@ -1,10 +1,7 @@
-name: Node CI
+name: CI / CD
 
 on:
   push:
-    paths:
-      - apps/*
-      - libs/*
     branches:
       - main
       - staging
@@ -80,6 +77,45 @@ jobs:
           package_name: "Session Manager"
           filename: "./apps/session-manager/coverage/cobertura-coverage.xml"
 
+  check-formatting-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+
+      - name: Check formatting
+        working-directory: "transcription_service"
+        run: make format
+
+  run-linter-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+
+      - name: Run linter
+        working-directory: "transcription_service"
+        run: make lint
+
+  run-tests-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+
+      - name: Run tests
+        working-directory: "transcription_service"
+        run: make test
+
+      - name: Code Coverage Report - Base Fastify Server
+        uses: ./.github/actions/coverage-report
+        with:
+          package_name: "Transcription Service"
+          filename: "./transcription_service/coverage.xml"
+
   build-session-manager-container:
     needs:
       - check-formatting-node
@@ -97,5 +133,42 @@ jobs:
           image_name: "scribear/session-manager"
           build_context: "."
           dockerfile: "./apps/session-manager/Dockerfile"
+          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+  build-transcription-service-cpu-container:
+    needs:
+      - check-formatting-python
+      - run-linter-python
+      - run-tests-python
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Git repository
+        uses: actions/checkout@v4
+
+      - name: Build and Push Docker Image
+        uses: ./.github/actions/build-container
+        with:
+          image_name: "scribear/transcription-service-cpu"
+          build_context: "./transcription_service"
+          dockerfile: "./transcription_service/Dockerfile_CPU"
+          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+  build-transcription-service-cuda-container:
+    needs:
+      - check-formatting-python
+      - run-linter-python
+      - run-tests-python
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Git repository
+        uses: actions/checkout@v4
+      - name: Build and Push Docker Image
+        uses: ./.github/actions/build-container
+        with:
+          image_name: "scribear/transcription-service-cuda"
+          build_context: "./transcription_service"
+          dockerfile: "./transcription_service/Dockerfile_CUDA"
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
