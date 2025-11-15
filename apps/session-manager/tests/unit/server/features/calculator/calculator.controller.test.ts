@@ -61,7 +61,6 @@ describe('Calculator controller', () => {
 
       // Assert
       // ignore linter error caused by vitest-mock-extended
-      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockCalculatorService.binomial).toHaveBeenCalledExactlyOnceWith(
         mockReq.body.a,
         mockReq.body.b,
@@ -102,7 +101,6 @@ describe('Calculator controller', () => {
 
       // Assert
       // ignore linter error caused by vitest-mock-extended
-      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockCalculatorService.monomial).toHaveBeenCalledExactlyOnceWith(
         mockReq.body.a,
         mockReq.body.op,

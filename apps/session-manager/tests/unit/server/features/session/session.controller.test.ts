@@ -77,7 +77,6 @@ describe('Session controller', () => {
       );
 
       // Assert
-      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockSessionService.createSession).toHaveBeenCalledExactlyOnceWith({
         sessionLength: 3600,
         maxClients: 10,
@@ -164,7 +163,6 @@ describe('Session controller', () => {
       );
 
       // Assert
-      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockSessionService.createSession).toHaveBeenCalledExactlyOnceWith({
         sessionLength: 3600,
         audioSourceSecret: 'test-secret-123456',
@@ -419,7 +417,6 @@ describe('Session controller', () => {
         );
 
         // Assert
-        // eslint-disable-next-line @typescript-eslint/unbound-method
         expect(mockJwtService.issueToken).toHaveBeenCalledWith(
           'session_valid',
           'sink',
@@ -449,7 +446,6 @@ describe('Session controller', () => {
         );
 
         // Assert
-        // eslint-disable-next-line @typescript-eslint/unbound-method
         expect(mockJwtService.issueToken).toHaveBeenCalledWith(
           'session_valid',
           'both',

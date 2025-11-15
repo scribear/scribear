@@ -176,6 +176,8 @@ export default defineConfig([
       '@typescript-eslint/no-unsafe-member-access': 'off',
       '@typescript-eslint/no-unsafe-return': 'off',
       '@typescript-eslint/no-non-null-assertion': 'off',
+      // Unbound methods used everywhere in tests because expect calls
+      '@typescript-eslint/unbound-method': 'off',
     },
   },
 ]);
