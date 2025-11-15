@@ -2,7 +2,6 @@
 import '@fastify/awilix';
 import {
   type AwilixContainer,
-  InjectionMode,
   Lifetime,
   asClass,
   asFunction,
@@ -61,16 +60,9 @@ function registerDependencies(
 
     // Services
     jwtService: asFunction(
-      ({ logger, config }: AppDependencies) =>
-        new JwtService(
-          logger,
-          config.jwtSecret,
-          config.jwtIssuer,
-          config.jwtExpiresIn,
-        ),
+      ({ logger, config }: AppDependencies) => new JwtService(logger, config),
       {
         lifetime: Lifetime.SINGLETON,
-        injectionMode: InjectionMode.PROXY,
       },
     ),
 

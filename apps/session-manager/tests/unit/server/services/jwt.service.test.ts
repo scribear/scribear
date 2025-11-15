@@ -5,6 +5,7 @@ import { type MockProxy, mock } from 'vitest-mock-extended';
 import type { BaseLogger } from '@scribear/base-fastify-server';
 
 import {
+  type JwtConfig,
   type JwtPayload,
   JwtService,
 } from '../../../../src/server/services/jwt.service.js';
@@ -13,10 +14,11 @@ describe('JwtService', () => {
   let mockLogger: MockProxy<BaseLogger>;
   let jwtService: JwtService;
   const testSecret = 'test-jwt-secret-must-be-at-least-32-characters-long';
+  const defaultConfig: JwtConfig = { jwtSecret: testSecret };
 
   beforeEach(() => {
     mockLogger = mock<BaseLogger>();
-    jwtService = new JwtService(mockLogger, testSecret);
+    jwtService = new JwtService(mockLogger, defaultConfig);
   });
 
   describe('constructor', (it) => {
@@ -25,7 +27,7 @@ describe('JwtService', () => {
      */
     it('throws error when secret is too short', () => {
       // Act & Assert
-      expect(() => new JwtService(mockLogger, 'short')).toThrow(
+      expect(() => new JwtService(mockLogger, { jwtSecret: 'short' })).toThrow(
         'JWT secret must be at least 32 characters long',
       );
     });
@@ -35,7 +37,7 @@ describe('JwtService', () => {
      */
     it('accepts valid secret', () => {
       // Act & Assert
-      expect(() => new JwtService(mockLogger, testSecret)).not.toThrow();
+      expect(() => new JwtService(mockLogger, defaultConfig)).not.toThrow();
     });
 
     /**
@@ -43,7 +45,7 @@ describe('JwtService', () => {
      */
     it('uses default values for optional parameters', () => {
       // Arrange & Act
-      const service = new JwtService(mockLogger, testSecret);
+      const service = new JwtService(mockLogger, defaultConfig);
       const token = service.issueToken('session_123', 'source');
 
       // Assert
@@ -56,7 +58,10 @@ describe('JwtService', () => {
      */
     it('accepts custom issuer', () => {
       // Arrange & Act
-      const service = new JwtService(mockLogger, testSecret, 'custom-issuer');
+      const service = new JwtService(mockLogger, {
+        jwtSecret: testSecret,
+        issuer: 'custom-issuer',
+      });
       const token = service.issueToken('session_123', 'source');
 
       // Assert
@@ -241,7 +246,9 @@ describe('JwtService', () => {
     it('rejects token with invalid signature', () => {
       // Arrange
       const differentSecret = 'different-secret-must-be-at-least-32-chars-long';
-      const differentService = new JwtService(mockLogger, differentSecret);
+      const differentService = new JwtService(mockLogger, {
+        jwtSecret: differentSecret,
+      });
       const token = differentService.issueToken('session_123', 'source');
 
       // Act
@@ -290,11 +297,10 @@ describe('JwtService', () => {
      */
     it('rejects token with wrong issuer', () => {
       // Arrange
-      const differentService = new JwtService(
-        mockLogger,
-        testSecret,
-        'different-issuer',
-      );
+      const differentService = new JwtService(mockLogger, {
+        jwtSecret: testSecret,
+        issuer: 'different-issuer',
+      });
       const token = differentService.issueToken('session_123', 'source');
 
       // Act

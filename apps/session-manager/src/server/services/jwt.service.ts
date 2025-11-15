@@ -21,22 +21,23 @@ export interface JwtVerificationResult {
   error?: string;
 }
 
+export interface JwtConfig {
+  jwtSecret: string;
+  issuer?: string;
+  defaultExpiresIn?: string;
+}
+
 export class JwtService {
   private _log: BaseLogger;
   private _secret: string;
   private _issuer: string;
   private _defaultExpiresIn: string;
 
-  constructor(
-    logger: BaseLogger,
-    jwtSecret: string,
-    jwtIssuer = 'scribear-session-manager',
-    defaultExpiresIn = '24h',
-  ) {
+  constructor(logger: BaseLogger, config: JwtConfig) {
     this._log = logger;
-    this._secret = jwtSecret;
-    this._issuer = jwtIssuer;
-    this._defaultExpiresIn = defaultExpiresIn;
+    this._secret = config.jwtSecret;
+    this._issuer = config.issuer ?? 'scribear-session-manager';
+    this._defaultExpiresIn = config.defaultExpiresIn ?? '24h';
 
     if (!this._secret || this._secret.length < 32) {
       throw new Error('JWT secret must be at least 32 characters long');
