@@ -4,7 +4,7 @@ import type {
   BaseFastifyReply,
   BaseFastifyRequest,
 } from '@scribear/base-fastify-server';
-import type { HealthcheckSchema } from '@scribear/session-manager-schema';
+import type { HEALTHCHECK_SCHEMA } from '@scribear/session-manager-schema';
 
 import HealthcheckController from '../../../../../src/server/features/healthcheck/healthcheck.controller.js';
 
@@ -13,6 +13,7 @@ describe('Healthcheck controller', (it) => {
   let mockReply: {
     send: Mock;
     code: Mock;
+    header: Mock;
   };
 
   let healthcheckController: HealthcheckController;
@@ -21,6 +22,7 @@ describe('Healthcheck controller', (it) => {
     mockReply = {
       send: vi.fn(),
       code: vi.fn().mockReturnThis(),
+      header: vi.fn().mockReturnThis(),
     };
 
     healthcheckController = new HealthcheckController();
@@ -32,8 +34,8 @@ describe('Healthcheck controller', (it) => {
 
     // Act
     healthcheckController.healthcheck(
-      mockReq as unknown as BaseFastifyRequest<typeof HealthcheckSchema>,
-      mockReply as unknown as BaseFastifyReply<typeof HealthcheckSchema>,
+      mockReq as unknown as BaseFastifyRequest<typeof HEALTHCHECK_SCHEMA>,
+      mockReply as unknown as BaseFastifyReply<typeof HEALTHCHECK_SCHEMA>,
     );
 
     // Assert

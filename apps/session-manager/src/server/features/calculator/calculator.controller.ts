@@ -25,7 +25,7 @@ class CalculatorController {
 
     const result = this._calculatorService.binomial(a, b, op);
 
-    res.code(200).send({ result, reqId: req.id });
+    res.code(200).send({ result });
   }
 
   monomial(
@@ -36,7 +36,7 @@ class CalculatorController {
 
     const result = this._calculatorService.monomial(a, op);
 
-    res.code(200).send({ result, reqId: req.id });
+    res.code(200).send({ result });
   }
 }
 

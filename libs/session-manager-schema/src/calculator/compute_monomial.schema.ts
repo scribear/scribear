@@ -2,7 +2,7 @@ import { Type } from 'typebox';
 
 import {
   type BaseRouteSchema,
-  SharedErrorReplySchema,
+  SHARED_ERROR_REPLY_SCHEMA,
 } from '@scribear/base-schema';
 
 const COMPUTE_MONOMIAL_SCHEMA = {
@@ -23,12 +23,11 @@ const COMPUTE_MONOMIAL_SCHEMA = {
     200: Type.Object(
       {
         result: Type.Integer({ description: 'Result value of computation' }),
-        reqId: Type.String(),
       },
       { description: 'Successful computation response' },
     ),
-    400: SharedErrorReplySchema[400],
-    500: SharedErrorReplySchema[500],
+    400: SHARED_ERROR_REPLY_SCHEMA[400],
+    500: SHARED_ERROR_REPLY_SCHEMA[500],
   },
 };
 

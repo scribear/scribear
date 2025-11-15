@@ -166,4 +166,18 @@ export default defineConfig([
       ],
     },
   },
+  {
+    // Disable strict type checking rules for test files
+    // There's no real point in making sure JSON outputs are a certain type
+    // When the test file is about to check it.
+    files: ['**/*.test.ts'],
+    rules: {
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-non-null-assertion': 'off',
+      // Unbound methods used everywhere in tests because expect calls
+      '@typescript-eslint/unbound-method': 'off',
+    },
+  },
 ]);

@@ -1,0 +1,22 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      typebox:
+        specifier: 1.0.41
+        version: 1.0.41
+
+packages:
+
+  typebox@1.0.41:
+    resolution: {integrity: sha512-ArVs9pvOH3AKItL/DARnb7rG6fuv6dk7y7A42F5J+RmbZ1AE0b4gZ6o0HgLQXj5xidT761UfbJmhrSxR/+7gmA==}
+
+snapshots:
+
+  typebox@1.0.41: {}
