@@ -4,7 +4,6 @@ import {
   type AwilixContainer,
   Lifetime,
   asClass,
-  asFunction,
   asValue,
 } from 'awilix';
 
@@ -60,7 +59,7 @@ function registerDependencies(
 
     // Services
     jwtService: asClass(JwtService, {
-      lifetime: Lifetime.SCOPED
+      lifetime: Lifetime.SCOPED,
     }),
 
     // Healthcheck
