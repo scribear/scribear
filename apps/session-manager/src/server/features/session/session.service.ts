@@ -10,7 +10,7 @@ export interface Session {
   sessionLength: number;
   maxClients: number;
   enableJoinCode: boolean;
-  joinCode?: string;
+  joinCode?: string | undefined;
   audioSourceSecretHash: string;
   createdAt: Date;
   expiresAt: Date;
@@ -18,8 +18,8 @@ export interface Session {
 
 export interface CreateSessionParams {
   sessionLength: number;
-  maxClients?: number;
-  enableJoinCode?: boolean;
+  maxClients?: number | undefined;
+  enableJoinCode?: boolean | undefined;
   audioSourceSecret: string;
 }
 
@@ -59,7 +59,7 @@ export class SessionService {
       sessionLength: params.sessionLength,
       maxClients: params.maxClients ?? 0,
       enableJoinCode: params.enableJoinCode ?? false,
-      ...(joinCode && { joinCode }),
+      joinCode,
       audioSourceSecretHash,
       createdAt,
       expiresAt,

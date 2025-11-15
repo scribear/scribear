@@ -33,22 +33,16 @@ class SessionController {
 
     const session = await this._sessionService.createSession({
       sessionLength,
-      ...(maxClients !== undefined && { maxClients }),
-      ...(enableJoinCode !== undefined && { enableJoinCode }),
+      maxClients,
+      enableJoinCode,
       audioSourceSecret,
     });
 
-    const response: {
-      sessionId: string;
-      joinCode?: string;
-      expiresAt: string;
-    } = {
+    res.code(200).send({
       sessionId: session.sessionId,
-      ...(session.joinCode && { joinCode: session.joinCode }),
+      ...(session.joinCode !== undefined && { joinCode: session.joinCode }),
       expiresAt: session.expiresAt.toISOString(),
-    };
-
-    res.code(200).send(response);
+    });
   }
 
   async createToken(

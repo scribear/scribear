@@ -12,7 +12,7 @@ export interface JwtPayload {
   /**
    * Optional audio source identifier for source connections
    */
-  sourceId?: string;
+  sourceId?: string | undefined;
 }
 
 export interface JwtVerificationResult {
@@ -61,7 +61,7 @@ export class JwtService {
     const payload: JwtPayload = {
       sessionId,
       scope,
-      ...(sourceId && { sourceId }),
+      sourceId
     };
 
     this._log.info(
