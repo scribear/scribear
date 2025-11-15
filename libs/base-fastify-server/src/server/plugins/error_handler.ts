@@ -1,6 +1,6 @@
 import fastifyPlugin from 'fastify-plugin';
 
-import { SharedErrorReplySchema } from '@scribear/base-schema';
+import { SHARED_ERROR_REPLY_SCHEMA } from '@scribear/base-schema';
 
 import { BaseHttpError, HttpError } from '../errors/http_errors.js';
 import type {
@@ -19,8 +19,8 @@ export default fastifyPlugin((fastify: BaseFastifyInstance) => {
   fastify.setErrorHandler(
     (
       err: unknown,
-      req: BaseFastifyRequest<{ response: typeof SharedErrorReplySchema }>,
-      reply: BaseFastifyReply<{ response: typeof SharedErrorReplySchema }>,
+      req: BaseFastifyRequest<{ response: typeof SHARED_ERROR_REPLY_SCHEMA }>,
+      reply: BaseFastifyReply<{ response: typeof SHARED_ERROR_REPLY_SCHEMA }>,
     ) => {
       // Let default error handler manage FastifyErrors
       // FastifyErrors have a code property starting with 'FST_'

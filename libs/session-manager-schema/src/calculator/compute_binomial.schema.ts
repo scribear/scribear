@@ -2,7 +2,7 @@ import { Type } from 'typebox';
 
 import {
   type BaseRouteSchema,
-  SharedErrorReplySchema,
+  SHARED_ERROR_REPLY_SCHEMA,
 } from '@scribear/base-schema';
 
 const COMPUTE_BINOMIAL_SCHEMA = {
@@ -27,8 +27,8 @@ const COMPUTE_BINOMIAL_SCHEMA = {
       },
       { description: 'Successful computation response' },
     ),
-    400: SharedErrorReplySchema[400],
-    500: SharedErrorReplySchema[500],
+    400: SHARED_ERROR_REPLY_SCHEMA[400],
+    500: SHARED_ERROR_REPLY_SCHEMA[500],
   },
 };
 
