@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   type BaseFastifyInstance,
@@ -8,7 +8,7 @@ import {
 import AppConfig from '../../../src/app_config/app_config.js';
 import createServer from '../../../src/server/create_server.js';
 
-describe('Integration Tests - POST /session/token', (it) => {
+describe('Integration Tests - POST /session/token', () => {
   let fastify: BaseFastifyInstance;
   let testConfig: AppConfig;
 
@@ -17,7 +17,10 @@ describe('Integration Tests - POST /session/token', (it) => {
     vi.stubEnv('LOG_LEVEL', LogLevel.SILENT);
     vi.stubEnv('PORT', '3000');
     vi.stubEnv('HOST', 'localhost');
-    vi.stubEnv('JWT_SECRET', 'test-jwt-secret-with-at-least-32-characters-long');
+    vi.stubEnv(
+      'JWT_SECRET',
+      'test-jwt-secret-with-at-least-32-characters-long',
+    );
     vi.stubEnv('JWT_ISSUER', 'scribear-session-manager');
     vi.stubEnv('JWT_EXPIRES_IN', '24h');
 
@@ -46,14 +49,10 @@ describe('Integration Tests - POST /session/token', (it) => {
     });
 
     expect(response.statusCode).toBe(200);
-    return response.json() as {
-      sessionId: string;
-      joinCode?: string;
-      expiresAt: string;
-    };
+    return response.json();
   }
 
-  describe('Token creation via sessionId and audioSourceSecret', (it) => {
+  describe('Token creation via sessionId and audioSourceSecret', () => {
     /**
      * Test that server successfully creates token with source scope
      */
@@ -156,7 +155,10 @@ describe('Integration Tests - POST /session/token', (it) => {
       // Assert
       expect(response.statusCode).toBe(401);
       const body = response.json();
-      expect(body).toHaveProperty('message', 'Invalid session ID or audio source secret');
+      expect(body).toHaveProperty(
+        'message',
+        'Invalid session ID or audio source secret',
+      );
     });
 
     /**
@@ -355,8 +357,13 @@ describe('Integration Tests - POST /session/token', (it) => {
       const tokenParts = (body.token as string).split('.');
       expect(tokenParts).toHaveLength(3);
 
+      const payloadPart = tokenParts[1];
+      if (!payloadPart) {
+        throw new Error('Token payload part is missing');
+      }
+
       const payload = JSON.parse(
-        Buffer.from(tokenParts[1], 'base64').toString('utf-8'),
+        Buffer.from(payloadPart, 'base64').toString('utf-8'),
       ) as { sessionId: string; scope: string; sourceId?: string; iss: string };
 
       expect(payload).toHaveProperty('sessionId', session.sessionId);
@@ -388,8 +395,13 @@ describe('Integration Tests - POST /session/token', (it) => {
       const body = response.json();
 
       const tokenParts = (body.token as string).split('.');
+      const payloadPart = tokenParts[1];
+      if (!payloadPart) {
+        throw new Error('Token payload part is missing');
+      }
+
       const payload = JSON.parse(
-        Buffer.from(tokenParts[1], 'base64').toString('utf-8'),
+        Buffer.from(payloadPart, 'base64').toString('utf-8'),
       ) as { sessionId: string; scope: string; sourceId?: string };
 
       expect(payload).not.toHaveProperty('sourceId');

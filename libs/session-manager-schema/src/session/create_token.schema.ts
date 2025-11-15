@@ -8,39 +8,56 @@ import {
 const CREATE_TOKEN_SCHEMA = {
   description: 'Creates a JWT token for session access',
   tags: ['Session'],
-  body: Type.Union([
-    Type.Object({
-      sessionId: Type.String({
-        description: 'Session ID',
-      }),
-      audioSourceSecret: Type.String({
-        description: 'Audio source secret for authentication',
-      }),
-      scope: Type.Union(
-        [Type.Literal('source'), Type.Literal('sink'), Type.Literal('both')],
+  body: Type.Union(
+    [
+      Type.Object(
         {
-          description: 'Access scope for the token',
+          sessionId: Type.String({
+            description: 'Session ID',
+          }),
+          audioSourceSecret: Type.String({
+            description: 'Audio source secret for authentication',
+          }),
+          scope: Type.Union(
+            [
+              Type.Literal('source'),
+              Type.Literal('sink'),
+              Type.Literal('both'),
+            ],
+            {
+              description: 'Access scope for the token',
+            },
+          ),
+        },
+        {
+          description: 'Token creation via session ID and audio source secret',
         },
       ),
-    }, {
-      description: 'Token creation via session ID and audio source secret',
-    }),
-    Type.Object({
-      joinCode: Type.String({
-        description: 'Join code for accessing the session',
-      }),
-      scope: Type.Union(
-        [Type.Literal('source'), Type.Literal('sink'), Type.Literal('both')],
+      Type.Object(
         {
-          description: 'Access scope for the token',
+          joinCode: Type.String({
+            description: 'Join code for accessing the session',
+          }),
+          scope: Type.Union(
+            [
+              Type.Literal('source'),
+              Type.Literal('sink'),
+              Type.Literal('both'),
+            ],
+            {
+              description: 'Access scope for the token',
+            },
+          ),
+        },
+        {
+          description: 'Token creation via join code',
         },
       ),
-    }, {
-      description: 'Token creation via join code',
-    }),
-  ], {
-    description: 'Token creation request',
-  }),
+    ],
+    {
+      description: 'Token creation request',
+    },
+  ),
   response: {
     200: Type.Object(
       {

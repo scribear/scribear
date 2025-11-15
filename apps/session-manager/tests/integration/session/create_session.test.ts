@@ -17,7 +17,10 @@ describe('Integration Tests - POST /session/create', (it) => {
     vi.stubEnv('LOG_LEVEL', LogLevel.SILENT);
     vi.stubEnv('PORT', '3000');
     vi.stubEnv('HOST', 'localhost');
-    vi.stubEnv('JWT_SECRET', 'test-jwt-secret-with-at-least-32-characters-long');
+    vi.stubEnv(
+      'JWT_SECRET',
+      'test-jwt-secret-with-at-least-32-characters-long',
+    );
     vi.stubEnv('JWT_ISSUER', 'scribear-session-manager');
     vi.stubEnv('JWT_EXPIRES_IN', '24h');
 

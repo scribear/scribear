@@ -8,7 +8,6 @@ import type {
   BaseFastifyReply,
   BaseFastifyRequest,
 } from '../types/base_fastify_types.js';
-import { type FastifyError } from 'fastify';
 
 /**
  * Custom fastify error handler
@@ -24,8 +23,14 @@ export default fastifyPlugin((fastify: BaseFastifyInstance) => {
       reply: BaseFastifyReply<{ response: typeof SHARED_ERROR_REPLY_SCHEMA }>,
     ) => {
       // Let default error handler manage FastifyErrors
-      if (err && typeof err === 'object' && 'code' in err && typeof err.code === 'string' && err.code.startsWith('FST_')) {
-        throw err;
+      if (
+        err &&
+        typeof err === 'object' &&
+        'code' in err &&
+        typeof err.code === 'string' &&
+        err.code.startsWith('FST_')
+      ) {
+        throw err instanceof Error ? err : new Error(JSON.stringify(err));
       }
 
       if (!(err instanceof BaseHttpError)) {

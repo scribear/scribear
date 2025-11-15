@@ -1,12 +1,12 @@
-import { beforeEach, describe, expect, vi } from 'vitest';
-import { type MockProxy, mock } from 'vitest-mock-extended';
 import jwt from 'jsonwebtoken';
+import { beforeEach, describe, expect } from 'vitest';
+import { type MockProxy, mock } from 'vitest-mock-extended';
 
 import type { BaseLogger } from '@scribear/base-fastify-server';
 
 import {
-  JwtService,
   type JwtPayload,
+  JwtService,
 } from '../../../../src/server/services/jwt.service.js';
 
 describe('JwtService', () => {
@@ -35,9 +35,7 @@ describe('JwtService', () => {
      */
     it('accepts valid secret', () => {
       // Act & Assert
-      expect(
-        () => new JwtService(mockLogger, testSecret),
-      ).not.toThrow();
+      expect(() => new JwtService(mockLogger, testSecret)).not.toThrow();
     });
 
     /**
@@ -58,11 +56,7 @@ describe('JwtService', () => {
      */
     it('accepts custom issuer', () => {
       // Arrange & Act
-      const service = new JwtService(
-        mockLogger,
-        testSecret,
-        'custom-issuer',
-      );
+      const service = new JwtService(mockLogger, testSecret, 'custom-issuer');
       const token = service.issueToken('session_123', 'source');
 
       // Assert
@@ -177,7 +171,12 @@ describe('JwtService', () => {
       const beforeIssue = Math.floor(Date.now() / 1000);
 
       // Act
-      const token = jwtService.issueToken('session_123', 'source', undefined, '1h');
+      const token = jwtService.issueToken(
+        'session_123',
+        'source',
+        undefined,
+        '1h',
+      );
 
       // Assert
       const decoded = jwt.decode(token) as jwt.JwtPayload;
@@ -196,7 +195,6 @@ describe('JwtService', () => {
       jwtService.issueToken('session_123', 'source', 'audio-1');
 
       // Assert
-      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.info).toHaveBeenCalledWith(
         { sessionId: 'session_123', scope: 'source', sourceId: 'audio-1' },
         'Issuing JWT token for session',
@@ -243,10 +241,7 @@ describe('JwtService', () => {
     it('rejects token with invalid signature', () => {
       // Arrange
       const differentSecret = 'different-secret-must-be-at-least-32-chars-long';
-      const differentService = new JwtService(
-        mockLogger,
-        differentSecret,
-      );
+      const differentService = new JwtService(mockLogger, differentSecret);
       const token = differentService.issueToken('session_123', 'source');
 
       // Act
@@ -273,9 +268,14 @@ describe('JwtService', () => {
     /**
      * Test that verifyToken rejects expired token
      */
-    it('rejects expired token', async () => {
+    it('rejects expired token', () => {
       // Arrange - create token that's already expired
-      const token = jwtService.issueToken('session_123', 'source', undefined, '-1s');
+      const token = jwtService.issueToken(
+        'session_123',
+        'source',
+        undefined,
+        '-1s',
+      );
 
       // Act
       const result = jwtService.verifyToken(token);
@@ -316,7 +316,6 @@ describe('JwtService', () => {
       jwtService.verifyToken(token);
 
       // Assert
-      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.debug).toHaveBeenCalledWith(
         { sessionId: 'session_123', scope: 'source' },
         'JWT token verified successfully',
@@ -331,7 +330,6 @@ describe('JwtService', () => {
       jwtService.verifyToken('invalid.token');
 
       // Assert
-      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ error: expect.any(String) }),
         'JWT verification failed',
@@ -345,7 +343,11 @@ describe('JwtService', () => {
      */
     it('decodes token without verification', () => {
       // Arrange
-      const token = jwtService.issueToken('session_abc123', 'source', 'audio-1');
+      const token = jwtService.issueToken(
+        'session_abc123',
+        'source',
+        'audio-1',
+      );
 
       // Act
       const decoded = jwtService.decodeToken(token);
@@ -360,9 +362,14 @@ describe('JwtService', () => {
     /**
      * Test that decodeToken works with expired tokens
      */
-    it('decodes expired token', async () => {
+    it('decodes expired token', () => {
       // Arrange - create token that's already expired
-      const token = jwtService.issueToken('session_123', 'source', undefined, '-1s');
+      const token = jwtService.issueToken(
+        'session_123',
+        'source',
+        undefined,
+        '-1s',
+      );
 
       // Act
       const decoded = jwtService.decodeToken(token);
@@ -413,9 +420,14 @@ describe('JwtService', () => {
     /**
      * Test that isTokenExpired returns true for expired token
      */
-    it('returns true for expired token', async () => {
+    it('returns true for expired token', () => {
       // Arrange - create token that's already expired
-      const token = jwtService.issueToken('session_123', 'source', undefined, '-1s');
+      const token = jwtService.issueToken(
+        'session_123',
+        'source',
+        undefined,
+        '-1s',
+      );
 
       // Act
       const expired = jwtService.isTokenExpired(token);

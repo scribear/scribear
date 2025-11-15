@@ -1,5 +1,6 @@
 {
   "name": "scribear",
+  "version": "0.1.0",
   "description": "",
   "author": "scribear",
   "private": true,
@@ -38,8 +39,5 @@
     "typescript-eslint": "8.46.2",
     "vitest": "4.0.1",
     "vitest-mock-extended": "3.1.0"
-  },
-  "dependencies": {
-    "@rollup/rollup-darwin-arm64": "4.53.2"
   }
 }

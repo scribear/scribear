@@ -1,4 +1,4 @@
-import { type Mock, beforeEach, describe, expect, vi } from 'vitest';
+import { type Mock, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type MockProxy, mock } from 'vitest-mock-extended';
 
 import type {
@@ -12,11 +12,11 @@ import type {
 } from '@scribear/session-manager-schema';
 
 import SessionController from '../../../../../src/server/features/session/session.controller.js';
-import type { JwtService } from '../../../../../src/server/services/jwt.service.js';
 import type {
   Session,
   SessionService,
 } from '../../../../../src/server/features/session/session.service.js';
+import type { JwtService } from '../../../../../src/server/services/jwt.service.js';
 
 describe('Session controller', () => {
   const testRequestId = 'TEST_REQUEST_ID';
@@ -172,23 +172,13 @@ describe('Session controller', () => {
     });
   });
 
-  describe('createToken handler', (it) => {
-    describe('via sessionId and audioSourceSecret', (it) => {
+  describe('createToken handler', () => {
+    describe('via sessionId and audioSourceSecret', () => {
       /**
        * Test that createToken successfully creates token with valid credentials
        */
       it('creates token with valid sessionId and audioSourceSecret', async () => {
         // Arrange
-        const mockSession: Session = {
-          sessionId: 'session_valid',
-          sessionLength: 3600,
-          maxClients: 0,
-          enableJoinCode: false,
-          audioSourceSecretHash: 'hashed_secret',
-          createdAt: new Date(),
-          expiresAt: new Date(Date.now() + 3600000),
-        };
-
         mockSessionService.verifyAudioSourceSecret.mockResolvedValue(true);
         mockSessionService.isSessionValid.mockReturnValue(true);
         mockJwtService.issueToken.mockReturnValue('jwt.token.here');
@@ -209,15 +199,12 @@ describe('Session controller', () => {
         );
 
         // Assert
-        // eslint-disable-next-line @typescript-eslint/unbound-method
         expect(
           mockSessionService.verifyAudioSourceSecret,
         ).toHaveBeenCalledExactlyOnceWith('session_valid', 'correct-secret');
-        // eslint-disable-next-line @typescript-eslint/unbound-method
-        expect(mockSessionService.isSessionValid).toHaveBeenCalledExactlyOnceWith(
-          'session_valid',
-        );
-        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(
+          mockSessionService.isSessionValid,
+        ).toHaveBeenCalledExactlyOnceWith('session_valid');
         expect(mockJwtService.issueToken).toHaveBeenCalledExactlyOnceWith(
           'session_valid',
           'source',
@@ -350,11 +337,9 @@ describe('Session controller', () => {
         );
 
         // Assert
-        // eslint-disable-next-line @typescript-eslint/unbound-method
         expect(
           mockSessionService.getSessionByJoinCode,
         ).toHaveBeenCalledExactlyOnceWith('VALID123');
-        // eslint-disable-next-line @typescript-eslint/unbound-method
         expect(mockJwtService.issueToken).toHaveBeenCalledExactlyOnceWith(
           'session_join',
           'sink',

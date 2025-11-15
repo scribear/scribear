@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import type { SignOptions } from 'jsonwebtoken';
+import type { StringValue } from 'ms';
 
 import type { BaseLogger } from '@scribear/base-fastify-server';
 
@@ -70,8 +71,13 @@ export class JwtService {
     const options: SignOptions = {
       issuer: this._issuer,
       algorithm: 'HS256',
-      expiresIn: expiresIn ?? this._defaultExpiresIn,
     };
+
+    // Only set expiresIn if we have a value
+    const expiresInValue = expiresIn ?? this._defaultExpiresIn;
+    if (expiresInValue) {
+      options.expiresIn = expiresInValue as StringValue;
+    }
 
     return jwt.sign(payload, this._secret, options);
   }

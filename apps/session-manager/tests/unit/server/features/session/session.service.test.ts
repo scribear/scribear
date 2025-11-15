@@ -121,7 +121,6 @@ describe('SessionService', () => {
       const session = await sessionService.createSession(params);
 
       // Assert
-      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.info).toHaveBeenCalledWith(
         {
           sessionId: session.sessionId,
@@ -327,7 +326,6 @@ describe('SessionService', () => {
 
       // Assert
       expect(isValid).toBe(false);
-      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.warn).toHaveBeenCalledWith(
         { sessionId: session.sessionId },
         'Invalid audio source secret',
@@ -346,7 +344,6 @@ describe('SessionService', () => {
 
       // Assert
       expect(isValid).toBe(false);
-      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.warn).toHaveBeenCalledWith(
         { sessionId: 'session_nonexistent' },
         'Session not found for secret verification',
@@ -439,7 +436,7 @@ describe('SessionService', () => {
     it('filters out expired sessions', async () => {
       // Arrange
       vi.useFakeTimers();
-      const session1 = await sessionService.createSession({
+      await sessionService.createSession({
         sessionLength: 1,
         audioSourceSecret: 'secret-1',
       });
@@ -454,7 +451,11 @@ describe('SessionService', () => {
 
       // Assert
       expect(activeSessions).toHaveLength(1);
-      expect(activeSessions[0].sessionId).toBe(session2.sessionId);
+      const firstSession = activeSessions[0];
+      if (!firstSession) {
+        throw new Error('Expected one active session');
+      }
+      expect(firstSession.sessionId).toBe(session2.sessionId);
 
       vi.useRealTimers();
     });
@@ -489,7 +490,6 @@ describe('SessionService', () => {
 
       // Assert
       expect(retrievedSession).toBeUndefined();
-      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.info).toHaveBeenCalledWith(
         { sessionId: session.sessionId },
         'Session cleaned up',
