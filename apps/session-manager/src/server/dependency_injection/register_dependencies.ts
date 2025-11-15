@@ -1,11 +1,6 @@
 // Need to import so that declare module '@fastify/awilix' below works
 import '@fastify/awilix';
-import {
-  type AwilixContainer,
-  Lifetime,
-  asClass,
-  asValue,
-} from 'awilix';
+import { type AwilixContainer, Lifetime, asClass, asValue } from 'awilix';
 
 import type { BaseDependencies } from '@scribear/base-fastify-server';
 
@@ -38,10 +33,10 @@ interface AppDependencies extends BaseDependencies {
  */
 declare module '@fastify/awilix' {
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-  interface Cradle extends AppDependencies { }
+  interface Cradle extends AppDependencies {}
 
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-  interface RequestCradle extends AppDependencies { }
+  interface RequestCradle extends AppDependencies {}
 }
 
 /**

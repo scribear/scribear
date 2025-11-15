@@ -61,7 +61,7 @@ export class JwtService {
     const payload: JwtPayload = {
       sessionId,
       scope,
-      sourceId
+      sourceId,
     };
 
     this._log.info(
