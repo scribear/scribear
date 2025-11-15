@@ -60,7 +60,7 @@ describe('JwtService', () => {
       // Arrange & Act
       const service = new JwtService(mockLogger, {
         jwtSecret: testSecret,
-        issuer: 'custom-issuer',
+        jwtIssuer: 'custom-issuer',
       });
       const token = service.issueToken('session_123', 'source');
 
@@ -299,7 +299,7 @@ describe('JwtService', () => {
       // Arrange
       const differentService = new JwtService(mockLogger, {
         jwtSecret: testSecret,
-        issuer: 'different-issuer',
+        jwtIssuer: 'different-issuer',
       });
       const token = differentService.issueToken('session_123', 'source');
 

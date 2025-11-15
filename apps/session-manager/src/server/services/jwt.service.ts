@@ -23,21 +23,21 @@ export interface JwtVerificationResult {
 
 export interface JwtConfig {
   jwtSecret: string;
-  issuer?: string;
-  defaultExpiresIn?: string;
+  jwtIssuer?: string;
+  jwtExpiresIn?: string;
 }
 
 export class JwtService {
   private _log: BaseLogger;
   private _secret: string;
   private _issuer: string;
-  private _defaultExpiresIn: string;
+  private _jwtExpiresIn: string;
 
   constructor(logger: BaseLogger, config: JwtConfig) {
     this._log = logger;
     this._secret = config.jwtSecret;
-    this._issuer = config.issuer ?? 'scribear-session-manager';
-    this._defaultExpiresIn = config.defaultExpiresIn ?? '24h';
+    this._issuer = config.jwtIssuer ?? 'scribear-session-manager';
+    this._jwtExpiresIn = config.jwtExpiresIn ?? '24h';
 
     if (!this._secret || this._secret.length < 32) {
       throw new Error('JWT secret must be at least 32 characters long');
@@ -75,7 +75,7 @@ export class JwtService {
     };
 
     // Only set expiresIn if we have a value
-    const expiresInValue = expiresIn ?? this._defaultExpiresIn;
+    const expiresInValue = expiresIn ?? this._jwtExpiresIn;
     if (expiresInValue) {
       options.expiresIn = expiresInValue as StringValue;
     }

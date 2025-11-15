@@ -59,12 +59,9 @@ function registerDependencies(
     config: asValue(config),
 
     // Services
-    jwtService: asFunction(
-      ({ logger, config }: AppDependencies) => new JwtService(logger, config),
-      {
-        lifetime: Lifetime.SINGLETON,
-      },
-    ),
+    jwtService: asClass(JwtService, {
+      lifetime: Lifetime.SCOPED
+    }),
 
     // Healthcheck
     healthcheckController: asClass(HealthcheckController, {

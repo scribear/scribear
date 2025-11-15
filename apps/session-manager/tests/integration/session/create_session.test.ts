@@ -14,7 +14,7 @@ describe('Integration Tests - POST /session/create', (it) => {
 
   beforeEach(async () => {
     // Use vi.stubEnv to set environment variables
-    vi.stubEnv('LOG_LEVEL', LogLevel.SILENT);
+    vi.stubEnv('LOG_LEVEL', LogLevel.DEBUG);
     vi.stubEnv('PORT', '3000');
     vi.stubEnv('HOST', 'localhost');
     vi.stubEnv(

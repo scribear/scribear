@@ -79,7 +79,7 @@ const CREATE_TOKEN_SCHEMA = {
 
 const CREATE_TOKEN_ROUTE: BaseRouteSchema = {
   method: 'POST',
-  url: '/session/token',
+  url: '/api/v1/session/token',
 };
 
 export { CREATE_TOKEN_SCHEMA, CREATE_TOKEN_ROUTE };
