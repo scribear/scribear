@@ -1,6 +1,5 @@
 import jwt from 'jsonwebtoken';
-import { type StringValue } from 'ms';
-import ms from 'ms';
+import type { SignOptions } from 'jsonwebtoken';
 
 import type { BaseLogger } from '@scribear/base-fastify-server';
 
@@ -68,11 +67,13 @@ export class JwtService {
       'Issuing JWT token for session',
     );
 
-    return jwt.sign(payload, this._secret, {
+    const options: SignOptions = {
       issuer: this._issuer,
       algorithm: 'HS256',
-      expiresIn: ms((expiresIn ?? this._defaultExpiresIn) as StringValue),
-    });
+      expiresIn: expiresIn ?? this._defaultExpiresIn,
+    };
+
+    return jwt.sign(payload, this._secret, options);
   }
 
   /**

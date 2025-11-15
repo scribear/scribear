@@ -2,6 +2,7 @@
 import '@fastify/awilix';
 import {
   type AwilixContainer,
+  InjectionMode,
   Lifetime,
   asClass,
   asFunction,
@@ -75,6 +76,7 @@ function registerDependencies(
         ),
       {
         lifetime: Lifetime.SINGLETON,
+        injectionMode: InjectionMode.PROXY,
       },
     ),
 

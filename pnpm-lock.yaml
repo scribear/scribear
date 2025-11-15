@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@rollup/rollup-darwin-arm64':
+        specifier: 4.53.2
+        version: 4.53.2
     devDependencies:
       '@eslint-react/eslint-plugin':
         specifier: 2.2.3
@@ -153,6 +157,25 @@ importers:
       typebox:
         specifier: 1.0.41
         version: 1.0.41
+
+  libs/transcription-service-client:
+    dependencies:
+      eventemitter3:
+        specifier: 5.0.1
+        version: 5.0.1
+      isomorphic-ws:
+        specifier: 5.0.0
+        version: 5.0.0(ws@8.18.3)
+      typebox:
+        specifier: 1.0.41
+        version: 1.0.41
+      ws:
+        specifier: 8.18.3
+        version: 8.18.3
+    devDependencies:
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
 
 packages:
 
@@ -579,6 +602,11 @@ packages:
     cpu: [arm64]
     os: [darwin]
 
+  '@rollup/rollup-darwin-arm64@4.53.2':
+    resolution: {integrity: sha512-A6s4gJpomNBtJ2yioj8bflM2oogDwzUiMl2yNJ2v9E7++sHrSrsQ29fOfn5DM/iCzpWcebNYEdXpaK4tr2RhfQ==}
+    cpu: [arm64]
+    os: [darwin]
+
   '@rollup/rollup-darwin-x64@4.52.5':
     resolution: {integrity: sha512-W901Pla8Ya95WpxDn//VF9K9u2JbocwV/v75TE0YIHNTbhqUTv9w4VuQ9MaWlNOkkEfFwkdNhXgcLqPSmHy0fA==}
     cpu: [x64]
@@ -716,6 +744,9 @@ packages:
 
   '@types/node@24.9.1':
     resolution: {integrity: sha512-QoiaXANRkSXK6p0Duvt56W208du4P9Uye9hWLWgGMDTEoKPhuenzNcC4vGUmrNkiOKTlIrBoyNQYNpSwfEZXSg==}
+
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@typescript-eslint/eslint-plugin@8.46.2':
     resolution: {integrity: sha512-ZGBMToy857/NIPaaCucIUQgqueOiq7HeAKkhlvqVV4lm089zUFW6ikRySx2v+cAhKeUCPuWVHeimyk6Dw1iY3w==}
@@ -1143,6 +1174,9 @@ packages:
     resolution: {integrity: sha512-kVscqXk4OCp68SZ0dkgEKVi6/8ij300KBWTJq32P/dYeWTSwK41WyTxalN1eRmA5Z9UU/LX9D7FWSmV9SAYx6g==}
     engines: {node: '>=0.10.0'}
 
+  eventemitter3@5.0.1:
+    resolution: {integrity: sha512-GWkBvjiSZK87ELrYOSESUYeVIc9mvLLf/nXalMOS5dYrgZq9o5OVkbZAVM06CVxYsCwH9BDZFPlQTlPA1j4ahA==}
+
   expect-type@1.2.2:
     resolution: {integrity: sha512-JhFGDVJ7tmDJItKhYgJCGLOWjuK9vPxiXoUFLwLDc99NlmklilbiQJwoctZtt13+xMw91MCk/REan6MWHqDjyA==}
     engines: {node: '>=12.0.0'}
@@ -1345,6 +1379,11 @@ packages:
 
   isexe@2.0.0:
     resolution: {integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==}
+
+  isomorphic-ws@5.0.0:
+    resolution: {integrity: sha512-muId7Zzn9ywDsyXgTIafTry2sV3nySZeUDe6YedVd1Hvuuep5AsIlqK+XefWpYTyJG5e503F2xIuT2lcU6rCSw==}
+    peerDependencies:
+      ws: '*'
 
   istanbul-lib-coverage@3.2.2:
     resolution: {integrity: sha512-O8dpsF+r0WV/8MNRKfnmrtCWhuKjxrq2w+jpzBL5UZKTi2LeVWnWOmWRxFlesJONmc+wLAGvKQZEOanko0LFTg==}
@@ -2031,6 +2070,18 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
+  ws@8.18.3:
+    resolution: {integrity: sha512-PEIGCY5tSlUt50cqyMXfCzX+oOPqN0vuGqWzbcJ2xvnkzkq46oOpz7dQaTDBdfICb4N14+GARUDw2XV2N4tvzg==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
 
@@ -2511,6 +2562,8 @@ snapshots:
   '@rollup/rollup-darwin-arm64@4.52.5':
     optional: true
 
+  '@rollup/rollup-darwin-arm64@4.53.2': {}
+
   '@rollup/rollup-darwin-x64@4.52.5':
     optional: true
 
@@ -2607,6 +2660,10 @@ snapshots:
   '@types/node@24.9.1':
     dependencies:
       undici-types: 7.16.0
+
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 24.9.1
 
   '@typescript-eslint/eslint-plugin@8.46.2(@typescript-eslint/parser@8.46.2(eslint@9.38.0)(typescript@5.9.3))(eslint@9.38.0)(typescript@5.9.3)':
     dependencies:
@@ -3175,6 +3232,8 @@ snapshots:
 
   esutils@2.0.3: {}
 
+  eventemitter3@5.0.1: {}
+
   expect-type@1.2.2: {}
 
   fast-copy@3.0.2: {}
@@ -3369,6 +3428,10 @@ snapshots:
   is-number@7.0.0: {}
 
   isexe@2.0.0: {}
+
+  isomorphic-ws@5.0.0(ws@8.18.3):
+    dependencies:
+      ws: 8.18.3
 
   istanbul-lib-coverage@3.2.2: {}
 
@@ -4023,6 +4086,8 @@ snapshots:
       strip-ansi: 7.1.2
 
   wrappy@1.0.2: {}
+
+  ws@8.18.3: {}
 
   yallist@3.1.1: {}
 
