@@ -1,7 +1,7 @@
 import type { BaseFastifyInstance } from '@scribear/base-fastify-server';
 import {
-  HealthcheckRoute,
-  HealthcheckSchema,
+  HEALTHCHECK_ROUTE,
+  HEALTHCHECK_SCHEMA,
 } from '@scribear/session-manager-schema';
 
 import resolveHandler from '../../dependency_injection/resolve_handler.js';
@@ -12,8 +12,8 @@ import resolveHandler from '../../dependency_injection/resolve_handler.js';
  */
 function healthcheckRouter(fastify: BaseFastifyInstance) {
   fastify.route({
-    ...HealthcheckRoute,
-    schema: HealthcheckSchema,
+    ...HEALTHCHECK_ROUTE,
+    schema: HEALTHCHECK_SCHEMA,
     handler: resolveHandler('healthcheckController', 'healthcheck'),
   });
 }

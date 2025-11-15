@@ -13,6 +13,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { BaseLogger, LogLevel } from './create_logger.js';
 import { createLogger } from './create_logger.js';
 import scopeLogger from './hooks/on_request/scope_logger.js';
+import setRequestIdHeader from './hooks/on_send/set_request_id_header.js';
 import errorHandler from './plugins/error_handler.js';
 import jsonParser from './plugins/json_parser.js';
 import notFoundHandler from './plugins/not_found_handler.js';
@@ -68,6 +69,7 @@ function createBaseServer(
 
   // Register hooks
   fastify.register(scopeLogger);
+  fastify.register(setRequestIdHeader);
 
   return {
     logger,

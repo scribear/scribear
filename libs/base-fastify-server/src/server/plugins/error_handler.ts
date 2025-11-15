@@ -1,7 +1,6 @@
-import { FastifyError } from '@fastify/error';
 import fastifyPlugin from 'fastify-plugin';
 
-import { SharedErrorReplySchema } from '@scribear/base-schema';
+import { SHARED_ERROR_REPLY_SCHEMA } from '@scribear/base-schema';
 
 import { BaseHttpError, HttpError } from '../errors/http_errors.js';
 import type {
@@ -20,11 +19,19 @@ export default fastifyPlugin((fastify: BaseFastifyInstance) => {
   fastify.setErrorHandler(
     (
       err: unknown,
-      req: BaseFastifyRequest<{ response: typeof SharedErrorReplySchema }>,
-      reply: BaseFastifyReply<{ response: typeof SharedErrorReplySchema }>,
+      req: BaseFastifyRequest<{ response: typeof SHARED_ERROR_REPLY_SCHEMA }>,
+      reply: BaseFastifyReply<{ response: typeof SHARED_ERROR_REPLY_SCHEMA }>,
     ) => {
       // Let default error handler manage FastifyErrors
-      if (err instanceof FastifyError) throw err;
+      if (
+        err &&
+        typeof err === 'object' &&
+        'code' in err &&
+        typeof err.code === 'string' &&
+        err.code.startsWith('FST_')
+      ) {
+        throw err instanceof Error ? err : new Error(JSON.stringify(err));
+      }
 
       if (!(err instanceof BaseHttpError)) {
         // If not BaseHttpError, return Internal Server Error
@@ -36,7 +43,6 @@ export default fastifyPlugin((fastify: BaseFastifyInstance) => {
         return reply.code(500).send({
           message:
             'Sever encountered an unexpected error. Please try again later.',
-          reqId: req.id,
         });
       }
 
@@ -44,12 +50,10 @@ export default fastifyPlugin((fastify: BaseFastifyInstance) => {
       if (err instanceof HttpError.BadRequest) {
         return reply
           .code(err.statusCode)
-          .send({ requestErrors: err.requestErrors, reqId: req.id });
+          .send({ requestErrors: err.requestErrors });
       }
 
-      return reply
-        .code(err.statusCode)
-        .send({ message: err.message, reqId: req.id });
+      return reply.code(err.statusCode).send({ message: err.message });
     },
   );
 });
