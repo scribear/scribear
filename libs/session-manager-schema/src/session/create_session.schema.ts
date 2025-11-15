@@ -59,7 +59,7 @@ const CREATE_SESSION_SCHEMA = {
 
 const CREATE_SESSION_ROUTE: BaseRouteSchema = {
   method: 'POST',
-  url: '/session/create',
+  url: '/api/v1/session/create',
 };
 
 export { CREATE_SESSION_SCHEMA, CREATE_SESSION_ROUTE };

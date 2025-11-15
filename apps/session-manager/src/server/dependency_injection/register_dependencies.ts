@@ -12,8 +12,6 @@ import {
 import type { BaseDependencies } from '@scribear/base-fastify-server';
 
 import type AppConfig from '../../app_config/app_config.js';
-import CalculatorController from '../features/calculator/calculator.controller.js';
-import CalculatorService from '../features/calculator/calculator.service.js';
 import HealthcheckController from '../features/healthcheck/healthcheck.controller.js';
 import SessionController from '../features/session/session.controller.js';
 import { SessionService } from '../features/session/session.service.js';
@@ -31,10 +29,6 @@ interface AppDependencies extends BaseDependencies {
   // Healthcheck
   healthcheckController: HealthcheckController;
 
-  // Calculator
-  calculatorController: CalculatorController;
-  calculatorService: CalculatorService;
-
   // Session
   sessionController: SessionController;
   sessionService: SessionService;
@@ -46,10 +40,10 @@ interface AppDependencies extends BaseDependencies {
  */
 declare module '@fastify/awilix' {
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-  interface Cradle extends AppDependencies {}
+  interface Cradle extends AppDependencies { }
 
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-  interface RequestCradle extends AppDependencies {}
+  interface RequestCradle extends AppDependencies { }
 }
 
 /**
@@ -82,14 +76,6 @@ function registerDependencies(
 
     // Healthcheck
     healthcheckController: asClass(HealthcheckController, {
-      lifetime: Lifetime.SCOPED,
-    }),
-
-    // Calculator
-    calculatorController: asClass(CalculatorController, {
-      lifetime: Lifetime.SCOPED,
-    }),
-    calculatorService: asClass(CalculatorService, {
       lifetime: Lifetime.SCOPED,
     }),
 
