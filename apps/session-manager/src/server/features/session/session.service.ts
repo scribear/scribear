@@ -1,5 +1,6 @@
-import { randomBytes } from 'node:crypto';
 import bcrypt from 'bcrypt';
+import { randomBytes } from 'node:crypto';
+
 import type { BaseLogger } from '@scribear/base-fastify-server';
 
 const SALT_ROUNDS = 10;
@@ -49,7 +50,9 @@ export class SessionService {
     );
 
     const createdAt = new Date();
-    const expiresAt = new Date(createdAt.getTime() + params.sessionLength * 1000);
+    const expiresAt = new Date(
+      createdAt.getTime() + params.sessionLength * 1000,
+    );
 
     const session: Session = {
       sessionId,
@@ -118,7 +121,10 @@ export class SessionService {
     const session = this.getSession(sessionId);
 
     if (!session) {
-      this._log.warn({ sessionId }, 'Session not found for secret verification');
+      this._log.warn(
+        { sessionId },
+        'Session not found for secret verification',
+      );
       return false;
     }
 

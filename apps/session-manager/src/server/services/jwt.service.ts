@@ -1,7 +1,8 @@
 import jwt from 'jsonwebtoken';
-import type { BaseLogger } from '@scribear/base-fastify-server';
 import { type StringValue } from 'ms';
-import ms from "ms";
+import ms from 'ms';
+
+import type { BaseLogger } from '@scribear/base-fastify-server';
 
 export type SessionScope = 'source' | 'sink' | 'both';
 
@@ -67,15 +68,11 @@ export class JwtService {
       'Issuing JWT token for session',
     );
 
-    return jwt.sign(
-      payload,
-      this._secret,
-      {
-        issuer: this._issuer,
-        algorithm: 'HS256',
-        expiresIn: ms((expiresIn ?? this._defaultExpiresIn) as StringValue),
-      },
-    );
+    return jwt.sign(payload, this._secret, {
+      issuer: this._issuer,
+      algorithm: 'HS256',
+      expiresIn: ms((expiresIn ?? this._defaultExpiresIn) as StringValue),
+    });
   }
 
   /**
@@ -100,7 +97,8 @@ export class JwtService {
         payload: decoded,
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
 
       this._log.warn({ error: errorMessage }, 'JWT verification failed');
 

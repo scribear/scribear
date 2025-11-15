@@ -1,4 +1,5 @@
 import type { FastifyRequest } from 'fastify';
+
 import { HttpError } from '@scribear/base-fastify-server';
 
 import type { JwtPayload } from '../services/jwt.service.js';
@@ -29,9 +30,7 @@ declare module 'fastify' {
  * });
  * ```
  */
-export function authenticateJwt(
-  req: FastifyRequest,
-): void {
+export function authenticateJwt(req: FastifyRequest): void {
   // Extract Authorization header
   const authHeader = req.headers.authorization;
 
@@ -76,9 +75,7 @@ export function authenticateJwt(
  *
  * Useful for routes that have different behavior for authenticated vs unauthenticated users
  */
-export function optionalAuthenticateJwt(
-  req: FastifyRequest,
-): void {
+export function optionalAuthenticateJwt(req: FastifyRequest): void {
   const authHeader = req.headers.authorization;
 
   // If no auth header, just continue without setting jwtPayload

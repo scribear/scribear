@@ -3,7 +3,7 @@ import { Type } from 'typebox';
 /**
  * Reply schema of shared API http error responses
  */
-const SharedErrorReplySchema = {
+const SHARED_ERROR_REPLY_SCHEMA = {
   400: Type.Object(
     {
       requestErrors: Type.Array(
@@ -62,4 +62,4 @@ const SharedErrorReplySchema = {
   ),
 };
 
-export { SharedErrorReplySchema };
+export { SHARED_ERROR_REPLY_SCHEMA };

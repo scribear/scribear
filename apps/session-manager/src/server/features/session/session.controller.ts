@@ -76,7 +76,9 @@ class SessionController {
       );
 
       if (!isValid) {
-        throw new HttpError.Unauthorized('Invalid session ID or audio source secret');
+        throw new HttpError.Unauthorized(
+          'Invalid session ID or audio source secret',
+        );
       }
 
       resolvedSessionId = sessionId;

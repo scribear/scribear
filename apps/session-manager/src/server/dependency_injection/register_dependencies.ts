@@ -1,6 +1,12 @@
 // Need to import so that declare module '@fastify/awilix' below works
 import '@fastify/awilix';
-import { type AwilixContainer, Lifetime, asClass, asFunction, asValue } from 'awilix';
+import {
+  type AwilixContainer,
+  Lifetime,
+  asClass,
+  asFunction,
+  asValue,
+} from 'awilix';
 
 import type { BaseDependencies } from '@scribear/base-fastify-server';
 
