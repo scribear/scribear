@@ -12,6 +12,7 @@ from pytest_mock import MockerFixture, MockType
 from src.shared.logger import Logger
 from src.shared.utils.worker_pool import (
     JobContextInterface,
+    JobInterface,
     WorkerPool,
     WorkerProcessManager,
 )
@@ -22,13 +23,11 @@ from .context_definitions import (
     LoggerContext,
     SlowContext,
 )
-from .jobs import SumJob
 
-TEST_CONTEXT_ID_0 = 1
-TEST_CONTEXT_ID_1 = 2
-TEST_LOGGER_CONTEXT = 3
-TEST_ERROR_CONTEXT = 4
-TEST_SLOW_CONTEXT = 5
+TEST_CONTEXT_ID = 1
+TEST_LOGGER_CONTEXT = 2
+TEST_ERROR_CONTEXT = 3
+TEST_SLOW_CONTEXT = 4
 
 ROLLING_UTILIZATION_WINDOW_SEC = 3
 
@@ -72,8 +71,7 @@ def context_def():
     Defines mapping from context ids to context definition
     """
     return {
-        TEST_CONTEXT_ID_0: Context(TEST_CONTEXT_ID_0),
-        TEST_CONTEXT_ID_1: Context(TEST_CONTEXT_ID_1),
+        TEST_CONTEXT_ID: Context(TEST_CONTEXT_ID),
         TEST_LOGGER_CONTEXT: LoggerContext(),
         TEST_ERROR_CONTEXT: ErrorContext(),
         TEST_SLOW_CONTEXT: SlowContext(0),
@@ -171,12 +169,7 @@ def test_fetch_multiple_context_by_tag(pool: WorkerPool):
 
     # Assert
     assert context_ids == set(
-        [
-            TEST_CONTEXT_ID_0,
-            TEST_CONTEXT_ID_1,
-            TEST_LOGGER_CONTEXT,
-            TEST_SLOW_CONTEXT,
-        ]
+        [TEST_CONTEXT_ID, TEST_LOGGER_CONTEXT, TEST_SLOW_CONTEXT]
     )
 
 
@@ -232,19 +225,19 @@ def test_register_job_no_context(
     """
     # Arrange
     period_ms = 1000
-    job = SumJob()
+    job = MagicMock(spec=JobInterface)
 
     mock_wpm_instances[0].utilization = 0.5
     mock_wpm_instances[1].utilization = 0
     mock_wpm_instances[2].utilization = 0.25
 
     # Act
-    pool.register_job(None, period_ms, job)
+    pool.register_job((), period_ms, job)
 
     # Assert
     mock_wpm_instances[0].register_job.assert_not_called()
     mock_wpm_instances[1].register_job.assert_called_once_with(
-        None, period_ms, job
+        (), period_ms, job
     )
     mock_wpm_instances[2].register_job.assert_not_called()
 
@@ -258,18 +251,18 @@ def test_register_job_with_context_single_tag_match_no_active(
     """
     # Arrange
     period_ms = 1000
-    job = SumJob()
+    job = MagicMock(spec=JobInterface)
 
     mock_wpm_instances[0].utilization = 0.1
     mock_wpm_instances[1].utilization = 0.5
     mock_wpm_instances[2].utilization = 0.25
 
     # Act
-    pool.register_job("log_context", period_ms, job)
+    pool.register_job(("log_context",), period_ms, job)
 
     # Assert
     mock_wpm_instances[0].register_job.assert_called_once_with(
-        TEST_LOGGER_CONTEXT, period_ms, job
+        (TEST_LOGGER_CONTEXT,), period_ms, job
     )
     mock_wpm_instances[1].register_job.assert_not_called()
     mock_wpm_instances[2].register_job.assert_not_called()
@@ -281,11 +274,11 @@ def test_register_job_prefers_active_context_over_lower_utilization(
     """
     Test that the job scheduler prefers a process that already has the
     context active, even if another process has slightly lower utilization,
-    due to the ACTIVE_CONTEXT_SCORE_BONUS.
+    due to the creation_cost of a context.
     """
     # Arrange
     period_ms = 1000
-    job = SumJob()
+    job = MagicMock(spec=JobInterface)
 
     mock_wpm_instances[0].utilization = 0.1
     mock_wpm_instances[0].active_context_ids = set()
@@ -294,16 +287,16 @@ def test_register_job_prefers_active_context_over_lower_utilization(
     mock_wpm_instances[1].active_context_ids = set()
 
     mock_wpm_instances[2].utilization = 0.15
-    mock_wpm_instances[2].active_context_ids = {TEST_LOGGER_CONTEXT}
+    mock_wpm_instances[2].active_context_ids = {TEST_SLOW_CONTEXT}
 
     # Act
-    pool.register_job("log_context", period_ms, job)
+    pool.register_job(("slow_context",), period_ms, job)
 
     # Assert
     mock_wpm_instances[0].register_job.assert_not_called()
     mock_wpm_instances[1].register_job.assert_not_called()
     mock_wpm_instances[2].register_job.assert_called_once_with(
-        TEST_LOGGER_CONTEXT, period_ms, job
+        (TEST_SLOW_CONTEXT,), period_ms, job
     )
 
 
@@ -313,11 +306,11 @@ def test_register_job_prefers_create_context_over_high_utilization_active_contex
     """
     Test that the job scheduler prefers a process that doesn't have
     active context over one with active context when utilization
-    on active context exceeds ACTIVE_CONTEXT_SCORE_BONUS
+    on active context exceeds creation_cost
     """
     # Arrange
     period_ms = 1000
-    job = SumJob()
+    job = MagicMock(spec=JobInterface)
 
     mock_wpm_instances[0].utilization = 0.2
     mock_wpm_instances[0].active_context_ids = set()
@@ -326,15 +319,15 @@ def test_register_job_prefers_create_context_over_high_utilization_active_contex
     mock_wpm_instances[1].active_context_ids = set()
 
     mock_wpm_instances[2].utilization = 0.5
-    mock_wpm_instances[2].active_context_ids = {TEST_LOGGER_CONTEXT}
+    mock_wpm_instances[2].active_context_ids = {TEST_SLOW_CONTEXT}
 
     # Act
-    pool.register_job("log_context", period_ms, job)
+    pool.register_job(("slow_context",), period_ms, job)
 
     # Assert
     mock_wpm_instances[0].register_job.assert_not_called()
     mock_wpm_instances[1].register_job.assert_called_once_with(
-        TEST_LOGGER_CONTEXT, period_ms, job
+        (TEST_SLOW_CONTEXT,), period_ms, job
     )
     mock_wpm_instances[2].register_job.assert_not_called()
 
@@ -348,7 +341,7 @@ def test_register_job_respects_max_instances(
     """
     # Arrange
     period_ms = 1000
-    job = SumJob()
+    job = MagicMock(spec=JobInterface)
 
     mock_wpm_instances[0].utilization = 0.3
     mock_wpm_instances[0].active_context_ids = {TEST_SLOW_CONTEXT}
@@ -360,11 +353,11 @@ def test_register_job_respects_max_instances(
     mock_wpm_instances[2].active_context_ids = set()
 
     # Act
-    pool.register_job("slow_context", period_ms, job)
+    pool.register_job(("slow_context",), period_ms, job)
 
     # Assert
     mock_wpm_instances[0].register_job.assert_called_once_with(
-        TEST_SLOW_CONTEXT, period_ms, job
+        (TEST_SLOW_CONTEXT,), period_ms, job
     )
     mock_wpm_instances[1].register_job.assert_not_called()
     mock_wpm_instances[2].register_job.assert_not_called()
@@ -379,7 +372,7 @@ def test_register_job_avoids_context_own_negative_affinity(
     """
     # Arrange
     period_ms = 1000
-    job = SumJob()
+    job = MagicMock(spec=JobInterface)
 
     mock_wpm_instances[0].utilization = 0.1
     mock_wpm_instances[0].active_context_ids = {TEST_LOGGER_CONTEXT}
@@ -391,12 +384,12 @@ def test_register_job_avoids_context_own_negative_affinity(
     mock_wpm_instances[2].active_context_ids = set()
 
     # Act
-    pool.register_job("slow_context", period_ms, job)
+    pool.register_job(("slow_context",), period_ms, job)
 
     # Assert
     mock_wpm_instances[0].register_job.assert_not_called()
     mock_wpm_instances[1].register_job.assert_called_once_with(
-        TEST_SLOW_CONTEXT, period_ms, job
+        (TEST_SLOW_CONTEXT,), period_ms, job
     )
     mock_wpm_instances[2].register_job.assert_not_called()
 
@@ -410,7 +403,7 @@ def test_register_job_avoids_active_context_negative_affinity(
     """
     # Arrange
     period_ms = 1000
-    job = SumJob()
+    job = MagicMock(spec=JobInterface)
 
     mock_wpm_instances[0].utilization = 0.2
     mock_wpm_instances[0].active_context_ids = set()
@@ -422,11 +415,11 @@ def test_register_job_avoids_active_context_negative_affinity(
     mock_wpm_instances[2].active_context_ids = {TEST_SLOW_CONTEXT}
 
     # Act
-    pool.register_job("log_context", period_ms, job)
+    pool.register_job(("log_context",), period_ms, job)
 
     # Assert
     mock_wpm_instances[0].register_job.assert_called_once_with(
-        TEST_LOGGER_CONTEXT, period_ms, job
+        (TEST_LOGGER_CONTEXT,), period_ms, job
     )
     mock_wpm_instances[1].register_job.assert_not_called()
     mock_wpm_instances[2].register_job.assert_not_called()
@@ -441,7 +434,7 @@ def test_register_job_raises_runtime_error_if_no_valid_assignment(
     """
     # Arrange
     period_ms = 1000
-    job = SumJob()
+    job = MagicMock(spec=JobInterface)
 
     mock_wpm_instances[0].utilization = 0.1
     mock_wpm_instances[0].active_context_ids = {TEST_LOGGER_CONTEXT}
@@ -454,7 +447,7 @@ def test_register_job_raises_runtime_error_if_no_valid_assignment(
 
     # Act / Assert
     with pytest.raises(RuntimeError):
-        pool.register_job("slow_context", period_ms, job)
+        pool.register_job(("slow_context",), period_ms, job)
 
 
 def test_register_job_raises_key_error_for_invalid_tag(pool: WorkerPool):
@@ -463,11 +456,142 @@ def test_register_job_raises_key_error_for_invalid_tag(pool: WorkerPool):
     """
     # Arrange
     period_ms = 1000
-    job = SumJob()
+    job = MagicMock(spec=JobInterface)
 
     # Act / Assert
     with pytest.raises(
         KeyError,
         match="context tag: non_existent_tag matched 0 context definitions",
     ):
-        pool.register_job("non_existent_tag", period_ms, job)
+        pool.register_job(("non_existent_tag",), period_ms, job)
+
+
+def test_register_job_with_multiple_context_no_active(
+    pool: WorkerPool, mock_wpm_instances: list[MagicMock]
+):
+    """
+    Test that registering a job with multiple contexts with no active contexts
+    selects process with lowest utilization
+    """
+    # Arrange
+    period_ms = 1000
+    job = MagicMock(spec=JobInterface)
+
+    mock_wpm_instances[0].utilization = 0.1
+    mock_wpm_instances[1].utilization = 0.3
+    mock_wpm_instances[2].utilization = 0.5
+
+    # Act
+    pool.register_job(("context", "log_context"), period_ms, job)
+
+    # Assert
+    mock_wpm_instances[0].register_job.assert_called_once_with(
+        (TEST_CONTEXT_ID, TEST_LOGGER_CONTEXT), period_ms, job
+    )
+    mock_wpm_instances[1].register_job.assert_not_called()
+    mock_wpm_instances[2].register_job.assert_not_called()
+
+
+def test_register_job_with_multiple_context_lowest_creation_cost(
+    pool: WorkerPool, mock_wpm_instances: list[MagicMock]
+):
+    """
+    Test that registering a job with multiple contexts with no active contexts
+    selects process with lowest utilization and lowest creation cost
+    """
+    # Arrange
+    period_ms = 1000
+    job = MagicMock(spec=JobInterface)
+
+    mock_wpm_instances[0].utilization = 0.1
+    mock_wpm_instances[1].utilization = 0.3
+    mock_wpm_instances[2].utilization = 0.5
+
+    # Act
+    pool.register_job(("no_error", "error"), period_ms, job)
+
+    # Assert
+    mock_wpm_instances[0].register_job.assert_called_once_with(
+        (TEST_CONTEXT_ID, TEST_ERROR_CONTEXT), period_ms, job
+    )
+    mock_wpm_instances[1].register_job.assert_not_called()
+    mock_wpm_instances[2].register_job.assert_not_called()
+
+
+def test_register_job_with_multiple_context_negative_affinity(
+    pool: WorkerPool, mock_wpm_instances: list[MagicMock]
+):
+    """
+    Test that registering a job with multiple contexts with negative affinity
+    to active context is assigned to a different process
+    """
+    # Arrange
+    period_ms = 1000
+    job = MagicMock(spec=JobInterface)
+
+    mock_wpm_instances[0].utilization = 0.1
+    mock_wpm_instances[0].active_context_ids = {TEST_LOGGER_CONTEXT}
+
+    mock_wpm_instances[1].utilization = 0.3
+    mock_wpm_instances[1].active_context_ids = {TEST_LOGGER_CONTEXT}
+
+    mock_wpm_instances[2].utilization = 0.5
+    mock_wpm_instances[2].active_context_ids = set()
+
+    # Act
+    pool.register_job(("context", "slow_context"), period_ms, job)
+
+    # Assert
+    mock_wpm_instances[0].register_job.assert_not_called()
+    mock_wpm_instances[1].register_job.assert_not_called()
+    mock_wpm_instances[2].register_job.assert_called_once_with(
+        (TEST_CONTEXT_ID, TEST_SLOW_CONTEXT), period_ms, job
+    )
+
+
+def test_register_job_with_multiple_context_active_negative_affinity(
+    pool: WorkerPool, mock_wpm_instances: list[MagicMock]
+):
+    """
+    Test that registering a job with multiple contexts with active contexts
+    that have negative affinity with requested context is assigned to a
+    different process
+    """
+    # Arrange
+    period_ms = 1000
+    job = MagicMock(spec=JobInterface)
+
+    mock_wpm_instances[0].utilization = 0.1
+    mock_wpm_instances[0].active_context_ids = {TEST_SLOW_CONTEXT}
+
+    mock_wpm_instances[1].utilization = 0.3
+    mock_wpm_instances[1].active_context_ids = {TEST_SLOW_CONTEXT}
+
+    mock_wpm_instances[2].utilization = 0.5
+    mock_wpm_instances[2].active_context_ids = set()
+
+    # Act
+    pool.register_job(("context", "log_context"), period_ms, job)
+
+    # Assert
+    mock_wpm_instances[0].register_job.assert_not_called()
+    mock_wpm_instances[1].register_job.assert_not_called()
+    mock_wpm_instances[2].register_job.assert_called_once_with(
+        (TEST_CONTEXT_ID, TEST_LOGGER_CONTEXT), period_ms, job
+    )
+
+
+def test_register_job_with_invalid_multiple_context_raises_runtime_error(
+    pool: WorkerPool,
+):
+    """
+    Test that registering a job with multiple contexts that have negative affinity
+    with each other raises RuntimeError
+    """
+    # Arrange
+    period_ms = 1000
+    job = MagicMock(spec=JobInterface)
+
+    # Act / Assert
+    with pytest.raises(RuntimeError):
+        pool.register_job(("slow_context", "log_context"), period_ms, job)

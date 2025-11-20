@@ -39,6 +39,14 @@ class JobContextInterface(ABC, Generic[JobContextInstance]):
         """
         return self._negative_affinity
 
+    @property
+    def creation_cost(self) -> float:
+        """
+        Cost weight of creating a job, higher means slower creation
+        Used by WorkerPool to select context to be used for a job
+        """
+        return self._creation_cost
+
     # pylint: disable=unused-argument
     def __init__(
         self,
@@ -46,6 +54,7 @@ class JobContextInterface(ABC, Generic[JobContextInstance]):
         max_instances: int,
         tags: list[str],
         negative_affinity: str | None,
+        creation_cost: float,
     ):
         """
         Args:
@@ -53,10 +62,12 @@ class JobContextInterface(ABC, Generic[JobContextInstance]):
             max_instances       - Maximum instances configured for job context
             tags                - List of tags configured for job context
             negative_affinity   - Negative affinity tag configured for job context
+            creation_cost       - Cost weight of creating this context
         """
         self._max_instances = max_instances
         self._tags = set(tags)
         self._negative_affinity = negative_affinity
+        self._creation_cost = creation_cost
 
     @abstractmethod
     def create(self, log: Logger) -> JobContextInstance:

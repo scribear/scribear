@@ -1,5 +1,6 @@
 {
   "name": "scribear",
+  "version": "0.1.0",
   "description": "",
   "author": "scribear",
   "private": true,
@@ -17,7 +18,7 @@
     "test": "npm run test --workspaces --if-present"
   },
   "engines": {
-    "node": ">=24.10.0"
+    "node": ">=22.0.0"
   },
   "devDependencies": {
     "@eslint-react/eslint-plugin": "2.2.3",

@@ -1,16 +1,16 @@
 import { EventEmitter } from 'eventemitter3';
 import WebSocket from 'isomorphic-ws';
 
-import type { TranscriptionStreamConfig } from './transcription_stream_configs.js';
+import type { TranscriptionStreamConfig } from './transcription-stream-configs.js';
 import {
   type AuthMessage,
   ClientMessageTypes,
   type ConfigMessage,
-} from './transcription_stream_messages/client_messages.js';
+} from './transcription-stream-messages/client-messages.js';
 import {
   ServerMessageTypes,
   ServerMessageValidator,
-} from './transcription_stream_messages/server_messages.js';
+} from './transcription-stream-messages/server-messages.js';
 
 const TRANSCRIPTION_STREAM_ROUTE = '/transcription_stream/';
 

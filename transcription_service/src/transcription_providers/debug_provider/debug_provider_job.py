@@ -10,7 +10,7 @@ from src.transcription_provider_interface import TranscriptionClientError
 from .debug_session_config import DebugSessionConfig
 
 
-class DebugProviderJob(JobInterface[None, bytes, float]):
+class DebugProviderJob(JobInterface[tuple, bytes, float]):
     """
     WorkerPool job definition for DebugProvider
     Decodes audio chunks and returns number of seconds of audio received
@@ -23,7 +23,7 @@ class DebugProviderJob(JobInterface[None, bytes, float]):
         )
 
     def process_batch(
-        self, log: Logger, context: None, batch: list[bytes]
+        self, log: Logger, contexts: tuple, batch: list[bytes]
     ) -> float:
         if len(batch) == 0:
             return 0

@@ -47,6 +47,7 @@ class JobContextConfigSchema(BaseModel):
     max_instances: int
     tags: list[str]
     negative_affinity: str | None
+    creation_cost: float
     context_config: Any
 
 

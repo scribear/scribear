@@ -21,6 +21,7 @@ dependencies = [
     # Web server
     "fastapi==0.119.0",
     "starlette==0.48.0",
+    "httpx==0.28.1",
     "uvicorn==0.37.0",
     "websockets==15.0.0",
     "requests==2.32.5",

@@ -21,7 +21,6 @@ export default fastifyPlugin(async (fastify: BaseFastifyInstance) => {
           name: 'Healthcheck',
           description: 'Server health probe endpoint',
         },
-        { name: 'Calculator', description: 'Server demo endpoints' },
       ],
     },
   });

@@ -3,7 +3,7 @@ import { Type } from 'typebox';
 /**
  * Reply schema of shared API http error responses
  */
-const SharedErrorReplySchema = {
+const SHARED_ERROR_REPLY_SCHEMA = {
   400: Type.Object(
     {
       requestErrors: Type.Array(
@@ -12,7 +12,6 @@ const SharedErrorReplySchema = {
           key: Type.String({ default: '/body/some/nested/object/property' }),
         }),
       ),
-      reqId: Type.String(),
     },
     {
       description:
@@ -22,7 +21,6 @@ const SharedErrorReplySchema = {
   401: Type.Object(
     {
       message: Type.String(),
-      reqId: Type.String(),
     },
     {
       description:
@@ -32,7 +30,6 @@ const SharedErrorReplySchema = {
   403: Type.Object(
     {
       message: Type.String(),
-      reqId: Type.String(),
     },
     {
       description:
@@ -42,7 +39,6 @@ const SharedErrorReplySchema = {
   404: Type.Object(
     {
       message: Type.String(),
-      reqId: Type.String(),
     },
     {
       description: 'Response when request had no matching path on server.',
@@ -51,7 +47,6 @@ const SharedErrorReplySchema = {
   429: Type.Object(
     {
       message: Type.String(),
-      reqId: Type.String(),
     },
     {
       description: 'Response when request is rate limited.',
@@ -60,7 +55,6 @@ const SharedErrorReplySchema = {
   500: Type.Object(
     {
       message: Type.String(),
-      reqId: Type.String(),
     },
     {
       description: 'Response when server encounters an unexpected error.',
@@ -68,4 +62,4 @@ const SharedErrorReplySchema = {
   ),
 };
 
-export { SharedErrorReplySchema };
+export { SHARED_ERROR_REPLY_SCHEMA };

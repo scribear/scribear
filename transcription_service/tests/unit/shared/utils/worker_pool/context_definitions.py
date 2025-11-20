@@ -30,7 +30,7 @@ class Context(JobContextInterface[ContextInstance]):
         Args:
             context_id  - Identifier for created context instance
         """
-        super().__init__(None, 2, ["context", "no_error"], None)
+        super().__init__(None, 2, ["context", "no_error"], None, 0)
         self._context_id = context_id
         self._create_count = 0
         self._destroy_count = 0
@@ -55,7 +55,7 @@ class ErrorContext(JobContextInterface[None]):
     """
 
     def __init__(self):
-        super().__init__(None, -1, ["error"], None)
+        super().__init__(None, -1, ["error"], None, 0)
 
     def create(self, log: Logger) -> None:
         raise RuntimeError("Failed Create Context")
@@ -71,7 +71,7 @@ class LoggerContext(JobContextInterface[None]):
 
     def __init__(self):
         super().__init__(
-            None, -1, ["no_error", "none_context", "log_context"], None
+            None, -1, ["no_error", "none_context", "log_context"], None, 0.1
         )
 
     def create(self, log: Logger) -> None:
@@ -81,7 +81,7 @@ class LoggerContext(JobContextInterface[None]):
         log.info("Destroy Context")
 
 
-class SlowContext(JobContextInterface[None]):
+class SlowContext(JobContextInterface[int]):
     """
     Definition for slow context for testing
     """
@@ -92,14 +92,19 @@ class SlowContext(JobContextInterface[None]):
             work_time_ns    - Nanoseconds slow context should take to create
         """
         super().__init__(
-            None, 2, ["slow_context", "no_error", "none_context"], "log_context"
+            None,
+            2,
+            ["slow_context", "no_error", "none_context"],
+            "log_context",
+            0.1,
         )
         self._work_time_ns = work_time_ns
 
-    def create(self, log: Logger) -> None:
+    def create(self, log: Logger) -> int:
         end_time = time.perf_counter_ns() + self._work_time_ns
         while time.perf_counter_ns() < end_time:
             pass
+        return self._work_time_ns
 
-    def destroy(self, log: Logger, context: None) -> None:
+    def destroy(self, log: Logger, context: int) -> None:
         log.info("Destroy Context")

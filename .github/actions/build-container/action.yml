@@ -54,7 +54,7 @@ runs:
         push: false
         context: ${{ inputs.build_context }}
         file: ${{ inputs.dockerfile }}
-        platforms: "linux/arm64"
+        platforms: "linux/amd64"
         # Use build cache for faster builds
         cache-from: |
           type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-linux-amd64
@@ -89,4 +89,4 @@ runs:
         # Use build cache for faster builds
         cache-from: |
           type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-linux-amd64
-          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-linux-amd64
+          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-linux-arm64

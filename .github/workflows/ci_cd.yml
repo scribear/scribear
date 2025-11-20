@@ -86,7 +86,7 @@ jobs:
 
       - name: Check formatting
         working-directory: "transcription_service"
-        run: isort --check ./src ./tests && black --check ./src ./tests
+        run: make format
 
   run-linter-python:
     runs-on: ubuntu-latest
@@ -97,7 +97,7 @@ jobs:
 
       - name: Run linter
         working-directory: "transcription_service"
-        run: pylint -j 0 --recursive=y --fail-under=10 ./src && pylint -j 0 --recursive=y --fail-under=10  --disable=redefined-outer-name ./tests
+        run: make lint
 
   run-tests-python:
     runs-on: ubuntu-latest
@@ -108,7 +108,7 @@ jobs:
 
       - name: Run tests
         working-directory: "transcription_service"
-        run: coverage run --branch -m pytest tests/ && coverage xml --include=src/* && coverage report
+        run: make test
 
       - name: Code Coverage Report - Base Fastify Server
         uses: ./.github/actions/coverage-report

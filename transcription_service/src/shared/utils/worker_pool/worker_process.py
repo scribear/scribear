@@ -55,7 +55,7 @@ class _JobEntry:
     period_ms: int
     # Beginning of next period based on time.perf_counter_ns()
     period_start_ns: int
-    context_id: int | None
+    context_ids: tuple[int, ...]
     buffer: list[Any]
     job: JobInterface[Any, Any, Any]
 
@@ -104,7 +104,7 @@ class _JobContextTable:
         self._instance_table[context_id] = instance
         return instance
 
-    def destroy_unused(self, active_context_ids: set[int | None]):
+    def destroy_unused(self, active_context_ids: set[int]):
         """
         Destroys context instances that are not in use.
 
@@ -217,7 +217,7 @@ class WorkerProcess:
                 period_start_ns=(
                     time.perf_counter_ns() + task.period_ms * NS_PER_MS
                 ),
-                context_id=task.context_id,
+                context_ids=task.context_ids,
                 buffer=[],
                 job=task.job,
             )
@@ -227,9 +227,9 @@ class WorkerProcess:
         Destroys all context instances that aren't in use by a job
         """
         self._log.debug("Cleaning up unused context")
-        active_context_ids = set[int | None]()
+        active_context_ids = set[int]()
         for entry in self._job_entries.values():
-            active_context_ids.add(entry.context_id)
+            active_context_ids.update(entry.context_ids)
 
         self._context_table.destroy_unused(active_context_ids)
 
@@ -245,9 +245,9 @@ class WorkerProcess:
         entry = self._job_entries[job_id]
         logger = self._log.child({"job_id": job_id})
 
-        # Initialize job context
+        # Initialize job contexts
         try:
-            context = self._context_table.get(entry.context_id)
+            contexts = tuple(map(self._context_table.get, entry.context_ids))
         # Worker should catch all exceptions and push to main process to be handled
         # pylint: disable=broad-exception-caught
         except Exception as error:
@@ -269,7 +269,7 @@ class WorkerProcess:
             batch = entry.buffer
             entry.buffer = []
 
-            result = entry.job.process_batch(logger, context, batch)
+            result = entry.job.process_batch(logger, contexts, batch)
 
             stats = JobStatistics(
                 period_start_ns=entry.period_start_ns,

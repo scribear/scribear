@@ -14,6 +14,8 @@ class WhisperStreamingProviderConfig(BaseModel):
     job_period_ms: int
     max_buffer_len_sec: float
     local_agree_dim: int
+    vad_detector: bool = False
+    silence_threshold: float = 0.01
 
 
 whisper_streaming_config_adapter = TypeAdapter[WhisperStreamingProviderConfig](
