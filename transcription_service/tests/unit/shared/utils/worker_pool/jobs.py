@@ -10,51 +10,51 @@ from src.shared.utils.worker_pool import JobInterface
 from .context_definitions import ContextInstance
 
 
-class SumJob(JobInterface[None, int, int]):
+class SumJob(JobInterface[tuple[()], int, int]):
     """
     Definition for job that sums batch elements for testing
     """
 
     def process_batch(
-        self, log: Logger, context: None, batch: list[int]
+        self, log: Logger, contexts: tuple[()], batch: list[int]
     ) -> int:
         return sum(batch)
 
 
-class ErrorJob(JobInterface[None, None, None]):
+class ErrorJob(JobInterface[tuple[()], None, None]):
     """
     Definition for job that raises exception for testing
     """
 
     def process_batch(
-        self, log: Logger, context: None, batch: list[None]
+        self, log: Logger, contexts: tuple[()], batch: list[None]
     ) -> None:
         raise RuntimeError("Failed Process Batch")
 
 
-class ContextJob(JobInterface[ContextInstance, None, ContextInstance]):
+class ContextJob(JobInterface[tuple[ContextInstance], None, ContextInstance]):
     """
     Definition for job that returns context for testing
     """
 
     def process_batch(
-        self, log: Logger, context: ContextInstance, batch: list[None]
+        self, log: Logger, contexts: tuple[ContextInstance], batch: list[None]
     ) -> ContextInstance:
-        return context
+        return contexts[0]
 
 
-class LoggerJob(JobInterface[None, None, None]):
+class LoggerJob(JobInterface[tuple[()], None, None]):
     """
     Definition for job that uses logger for testing
     """
 
     def process_batch(
-        self, log: Logger, context: None, batch: list[None]
+        self, log: Logger, contexts: tuple[()], batch: list[None]
     ) -> None:
         log.info("Process Batch")
 
 
-class SlowJob(JobInterface[None, None, None]):
+class SlowJob(JobInterface[tuple[()], None, None]):
     """
     Definition for slow job for testing
     """
@@ -67,7 +67,7 @@ class SlowJob(JobInterface[None, None, None]):
         self._work_time_ns = work_time_ns
 
     def process_batch(
-        self, log: Logger, context: None, batch: list[None]
+        self, log: Logger, contexts: tuple[()], batch: list[None]
     ) -> None:
         end_time = time.perf_counter_ns() + self._work_time_ns
         while time.perf_counter_ns() < end_time:

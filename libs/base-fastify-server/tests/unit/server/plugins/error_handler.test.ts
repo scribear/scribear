@@ -44,7 +44,6 @@ describe('Error Handler Plugin', (it) => {
       expect(response.statusCode).toBe(code);
       expect(JSON.parse(response.payload)).toStrictEqual({
         message: errorMessage,
-        reqId: testRequestId,
       });
     },
   );
@@ -70,7 +69,6 @@ describe('Error Handler Plugin', (it) => {
     expect(response.statusCode).toBe(400);
     expect(JSON.parse(response.payload)).toStrictEqual({
       requestErrors: testRequestErrors,
-      reqId: testRequestId,
     });
   });
 
@@ -113,7 +111,6 @@ describe('Error Handler Plugin', (it) => {
     expect(response.statusCode).toBe(500);
     expect(JSON.parse(response.payload)).toStrictEqual({
       message: 'Sever encountered an unexpected error. Please try again later.',
-      reqId: testRequestId,
     });
   });
 });

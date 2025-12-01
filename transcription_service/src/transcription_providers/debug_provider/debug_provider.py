@@ -39,7 +39,7 @@ class DebugProvider(TranscriptionProviderInterface):
             self._config = config
 
             self._job = provider.worker_pool.register_job(
-                None, 1000, DebugProviderJob(self._config)
+                (), 1000, DebugProviderJob(self._config)
             )
 
             self._job.on(self._job.JobResultEvent, self._handle_job_result)

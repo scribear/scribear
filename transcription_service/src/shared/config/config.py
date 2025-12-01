@@ -36,6 +36,7 @@ class JobContextDefinitionUID(StrEnum):
     """
 
     FASTER_WHISPER = "faster-whisper"
+    SILERO_VAD = "silero-vad"
 
 
 class JobContextConfigSchema(BaseModel):
@@ -47,6 +48,7 @@ class JobContextConfigSchema(BaseModel):
     max_instances: int
     tags: list[str]
     negative_affinity: str | None
+    creation_cost: float
     context_config: Any
 
 

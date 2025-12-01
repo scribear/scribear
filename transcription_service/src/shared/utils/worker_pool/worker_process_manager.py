@@ -30,7 +30,7 @@ from .worker_state import WorkerState
 
 NS_PER_SEC = 1000000000
 
-C = TypeVar("C")
+C = TypeVar("C", bound=tuple)
 D = TypeVar("D")
 R = TypeVar("R")
 
@@ -271,11 +271,14 @@ class WorkerProcessManager:
         return self._rolling_utilization.utilization
 
     @property
-    def active_context_ids(self):
+    def active_context_ids(self) -> set[int]:
         """
         Gets set of context_ids that are actively used by jobs
         """
-        return set(self._job_context_ids.values())
+        active_ids = set[int]()
+        for context_ids in self._job_context_ids.values():
+            active_ids.update(context_ids)
+        return active_ids
 
     def __init__(
         self,
@@ -301,7 +304,7 @@ class WorkerProcessManager:
         self._next_job_id = 0
         self._context_def = context_def
         self._registered_job_handles: dict[int, JobHandle[Any, Any]] = {}
-        self._job_context_ids: dict[int, int | None] = {}
+        self._job_context_ids: dict[int, tuple[int, ...]] = {}
 
         # False positive
         # pylint: disable=no-member
@@ -356,13 +359,16 @@ class WorkerProcessManager:
                     job_handle.deregister()
 
     def register_job(
-        self, context_id: int | None, period_ms: int, job: JobInterface[C, D, R]
+        self,
+        context_ids: tuple[int, ...],
+        period_ms: int,
+        job: JobInterface[C, D, R],
     ) -> JobHandle[D, R]:
         """
         Registers a new job with WorkerProcess
 
         Args:
-            context_id      - Context id of context to provide to Job, can be None for no context
+            context_ids     - Context ids of context instances to provide to Job, can be empty
             period_ms       - Frequency at which job should be run
             job             - Definition of job to register
 
@@ -372,15 +378,16 @@ class WorkerProcessManager:
         Raises:
             KeyError if invalid context id is provided
         """
-        if context_id is not None and context_id not in self._context_def:
-            raise KeyError("Invalid Context Id")
+        for context_id in context_ids:
+            if context_id not in self._context_def:
+                raise KeyError("Invalid Context Id")
 
         job_id = self._next_job_id
         self._next_job_id += 1
 
-        self._job_context_ids[job_id] = context_id
+        self._job_context_ids[job_id] = context_ids
         self._task_queue.put(
-            RegisterJobTask(job_id, context_id, period_ms, job)
+            RegisterJobTask(job_id, context_ids, period_ms, job)
         )
 
         def _queue_data(data: list[D]):

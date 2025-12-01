@@ -9,6 +9,7 @@ from src.shared.utils.worker_pool import JobException, JobSuccess, WorkerPool
 from src.transcription_contexts.faster_whisper_context import (
     FasterWhisperContext,
 )
+from src.transcription_contexts.silero_vad_context import SileroVadContext
 from src.transcription_provider_interface import (
     TranscriptionProviderInterface,
     TranscriptionResult,
@@ -21,8 +22,26 @@ from .whisper_streaming_job import WhisperStreamingProviderJob
 
 class WhisperStreamingProvider(TranscriptionProviderInterface):
     """
-    TranscriptionProvider
-    TODO: THIS
+    TranscriptionProvider that implements WhisperStreaming algorithm
+    described in (Macháček et al.)
+
+    @inproceedings{machacek-etal-2023-turning,
+        title = "Turning Whisper into Real-Time Transcription System",
+        author = "Mach{\'a}{\v{c}}ek, Dominik  and
+        Dabre, Raj  and
+        Bojar, Ond{\v{r}}ej",
+        editor = "Saha, Sriparna  and
+        Sujaini, Herry",
+        booktitle = "Proceedings of the 13th International Joint Conference on Natural
+            Language Processing and the 3rd Conference of the Asia-Pacific Chapter of the
+            Association for Computational Linguistics: System Demonstrations",
+        month = nov,
+        year = "2023",
+        address = "Bali, Indonesia",
+        publisher = "Association for Computational Linguistics",
+        url = "https://aclanthology.org/2023.ijcnlp-demo.3",
+        pages = "17--24",
+    }
     """
 
     class _WhisperStreamingSession(TranscriptionSessionInterface):
@@ -38,7 +57,10 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
             self._provider = provider
 
             self._job = provider.worker_pool.register_job(
-                self._provider.config.context_tag,
+                (
+                    self._provider.config.context_tag,
+                    self._provider.config.vad_context_tag,
+                ),
                 self._provider.config.job_period_ms,
                 WhisperStreamingProviderJob(self._provider.config),
             )
@@ -88,6 +110,16 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
         worker_pool.tagged_context_is_instance(
             self.config.context_tag, [FasterWhisperContext]
         )
+        try:
+            worker_pool.tagged_context_is_instance(
+                self.config.vad_context_tag, [SileroVadContext]
+            )
+        except Exception as e:
+            self._log.error(
+                f"VAD Context '{self.config.vad_context_tag}' not found or invalid: {e}"
+            )
+            raise e
+
         self.worker_pool = worker_pool
 
     def create_session(self, session_config: object, logger: Logger):

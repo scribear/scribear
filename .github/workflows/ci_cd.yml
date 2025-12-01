@@ -86,7 +86,7 @@ jobs:
 
       - name: Check formatting
         working-directory: "transcription_service"
-        run: isort --check ./src ./tests && black --check ./src ./tests
+        run: make format
 
   run-linter-python:
     runs-on: ubuntu-latest
@@ -94,10 +94,16 @@ jobs:
       - uses: actions/checkout@v5
       - name: Setup Python
         uses: ./.github/actions/setup-python
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch faster-whisper multiprocess fastapi uvicorn starlette python-dotenv colorama
+          pip install pylint pytest pytest-mock black isort coverage
 
       - name: Run linter
         working-directory: "transcription_service"
-        run: pylint -j 0 --recursive=y --fail-under=10 ./src && pylint -j 0 --recursive=y --fail-under=10  --disable=redefined-outer-name ./tests
+        run: make lint
 
   run-tests-python:
     runs-on: ubuntu-latest
@@ -105,10 +111,16 @@ jobs:
       - uses: actions/checkout@v5
       - name: Setup Python
         uses: ./.github/actions/setup-python
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch faster-whisper multiprocess fastapi uvicorn starlette python-dotenv colorama
+          pip install pylint pytest pytest-mock black isort coverage
 
       - name: Run tests
         working-directory: "transcription_service"
-        run: coverage run --branch -m pytest tests/ && coverage xml --include=src/* && coverage report
+        run: make test
 
       - name: Code Coverage Report - Base Fastify Server
         uses: ./.github/actions/coverage-report
