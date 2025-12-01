@@ -36,6 +36,7 @@ class JobContextDefinitionUID(StrEnum):
     """
 
     FASTER_WHISPER = "faster-whisper"
+    SILERO_VAD = "silero-vad"
 
 
 class JobContextConfigSchema(BaseModel):

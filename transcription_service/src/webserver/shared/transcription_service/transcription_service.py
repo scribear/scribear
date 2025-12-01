@@ -73,6 +73,18 @@ class TranscriptionService:
                         config.negative_affinity,
                         config.creation_cost,
                     )
+                case JobContextDefinitionUID.SILERO_VAD:
+                    from src.transcription_contexts.silero_vad_context import (
+                        SileroVadContext,
+                    )
+
+                    context = SileroVadContext(
+                        config.context_config,
+                        config.max_instances,
+                        config.tags,
+                        config.negative_affinity,
+                        config.creation_cost,
+                    )
 
             context_def[i] = context
         return context_def
