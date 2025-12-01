@@ -5,8 +5,6 @@ Unit tests for TranscriptionService
 from unittest.mock import MagicMock, call
 
 import pytest
-pytest.skip("skip cuz I did not modify this document",
-            allow_module_level=True)
 from pytest_mock import MockerFixture, MockType
 
 from src.shared.config import (
@@ -24,6 +22,8 @@ from src.transcription_provider_interface import (
     TranscriptionProviderInterface,
 )
 from src.webserver.shared.transcription_service import TranscriptionService
+
+pytest.skip("skip cuz I did not modify this document", allow_module_level=True)
 
 NUM_WORKERS = 2
 ROLLING_UTILIZATION_WINDOW_SEC = 5
