@@ -1,9 +1,12 @@
 """
 Defines SileroVadContext for caching Silero VAD model in WorkerProcess
 """
+
 from typing import Any, Callable, Tuple
+
 import torch
 from pydantic import BaseModel, TypeAdapter
+
 from src.shared.logger import Logger
 from src.shared.utils.worker_pool import JobContextInterface
 
@@ -29,6 +32,7 @@ class SileroVadContext(JobContextInterface[SileroVadModelType]):
     Job context definition for managing Silero VAD model lifecycle
     """
 
+    # pylint: disable=duplicate-code
     def __init__(
         self,
         context_config: Any,

@@ -3,6 +3,7 @@ Defines PureSilenceDetection and SilenceFiltering
 """
 
 import logging
+
 import numpy as np
 import numpy.typing as npt
 import torch

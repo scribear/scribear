@@ -2,6 +2,7 @@
 Defines configuration schema for WhisperStreamingProvider
 """
 from typing import Optional
+
 from pydantic import BaseModel, TypeAdapter
 
 
