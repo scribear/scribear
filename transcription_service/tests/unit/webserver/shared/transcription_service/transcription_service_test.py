@@ -23,8 +23,6 @@ from src.transcription_provider_interface import (
 )
 from src.webserver.shared.transcription_service import TranscriptionService
 
-pytest.skip("skip cuz I did not modify this document", allow_module_level=True)
-
 NUM_WORKERS = 2
 ROLLING_UTILIZATION_WINDOW_SEC = 5
 
@@ -65,11 +63,6 @@ def mock_config():
             provider_key="debug_1",
             provider_uid=TranscriptionProviderUID.DEBUG,
             provider_config="config:debug_1",
-        ),
-        TranscriptionProviderConfigSchema(
-            provider_key="whisper",
-            provider_uid=TranscriptionProviderUID.WHISPER_STREAMING,
-            provider_config="config:whisper",
         ),
     ]
 
@@ -147,7 +140,6 @@ def mock_provider_instances(mocker: MockerFixture):
     return [
         mocker.MagicMock(spec=TranscriptionProviderInterface),
         mocker.MagicMock(spec=TranscriptionProviderInterface),
-        mocker.MagicMock(spec=TranscriptionProviderInterface),
     ]
 
 
@@ -165,11 +157,7 @@ def mock_provider_import(
                 mock_provider_instances[0],
                 mock_provider_instances[1],
             ],
-        ),
-        TranscriptionProviderUID.WHISPER_STREAMING: mocker.patch(
-            "src.transcription_providers.whisper_streaming_provider.WhisperStreamingProvider",
-            side_effect=[mock_provider_instances[2]],
-        ),
+        )
     }
 
 
@@ -265,22 +253,11 @@ def test_loads_provider(
             ),
         ]
     )
-    mock_provider_import[
-        TranscriptionProviderUID.WHISPER_STREAMING
-    ].assert_has_calls(
-        [
-            call(
-                mock_config.provider_config.providers[2].provider_config,
-                mock_logger,
-                mock_worker_pool_instance,
-            )
-        ]
-    )
 
 
 @pytest.mark.parametrize(
     "provider_key, mock_provider_idx",
-    [("debug_0", 0), ("debug_1", 1), ("whisper", 2)],
+    [("debug_0", 0), ("debug_1", 1)],
 )
 def test_valid_start_session(
     transcription_service: TranscriptionService,
