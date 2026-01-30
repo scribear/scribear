@@ -18,6 +18,8 @@ import { RehydrateGate } from '@/components/rehydrate-gate';
 import { MainErrorFallback } from '@/components/ui/main-error-fallback';
 import { PageLoadSpinner } from '@/components/ui/page-load-spinner';
 import { BASE_THEME } from '@/config/base-theme';
+import { MicrophoneServiceProvider } from '@/core/microphone/contexts/microphone-service-provider';
+import { CustomThemeProvider } from '@/features/theme-customization/contexts/custom-theme/custom-theme-provider';
 import { TranscriptionDisplayProvider } from '@/features/transcription-display/contexts/transcription-display/transcription-display-provider';
 import { store } from '@/stores/store';
 
@@ -28,14 +30,18 @@ interface AppProviderProps {
 export const AppProvider = ({ children }: AppProviderProps) => {
   return (
     <ThemeProvider theme={BASE_THEME}>
-      <CssBaseline />
       <Suspense fallback={<PageLoadSpinner />}>
         <ErrorBoundary FallbackComponent={MainErrorFallback}>
           <Provider store={store}>
             <RehydrateGate>
-              <TranscriptionDisplayProvider>
-                {children}
-              </TranscriptionDisplayProvider>
+              <CustomThemeProvider>
+                <CssBaseline />
+                <TranscriptionDisplayProvider>
+                  <MicrophoneServiceProvider>
+                    {children}
+                  </MicrophoneServiceProvider>
+                </TranscriptionDisplayProvider>
+              </CustomThemeProvider>
             </RehydrateGate>
           </Provider>
         </ErrorBoundary>

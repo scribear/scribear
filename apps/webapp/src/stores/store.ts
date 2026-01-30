@@ -8,6 +8,7 @@ import { microphonePreferencesReducer } from '@/core/microphone/stores/microphon
 import { microphoneServiceMiddleware } from '@/core/microphone/stores/microphone-service-middleware';
 import { microphoneServiceReducer } from '@/core/microphone/stores/microphone-service-slice';
 import { transcriptionContentReducer } from '@/core/transcription-content/store/transcription-content-slice';
+import { themePreferencesReducer } from '@/features/theme-customization/stores/theme-preferences-slice';
 import { transcriptionDisplayPreferencesReducer } from '@/features/transcription-display/stores/transcription-display-preferences-slice';
 import { providerConfigReducer } from '@/features/transcription-providers/stores/provider-config-slice';
 import { providerPreferencesReducer } from '@/features/transcription-providers/stores/provider-preferences-slice';
@@ -28,6 +29,8 @@ const reducers = {
 
   transcriptionContent: transcriptionContentReducer,
 
+  themePreferences: themePreferencesReducer,
+
   transcriptionDisplayPreferences: transcriptionDisplayPreferencesReducer,
 
   providerConfig: providerConfigReducer,
@@ -39,6 +42,7 @@ const reducers = {
 export const rememberedKeys: (keyof typeof reducers)[] = [
   'appLayoutPreferences',
   'microphonePreferences',
+  'themePreferences',
   'transcriptionDisplayPreferences',
   'providerConfig',
   'providerPreferences',
