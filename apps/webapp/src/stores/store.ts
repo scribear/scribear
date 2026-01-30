@@ -5,15 +5,19 @@ import { configureStore, createAction } from '@reduxjs/toolkit';
 import { rememberEnhancer, rememberReducer } from 'redux-remember';
 
 import { appModeReducer } from '../core/app-mode/store/app-mode-slice';
+import { appLayoutPreferencesReducer } from './slices/app-layout-preferences-slice';
 import { reduxRememberReducer } from './slices/redux-remember-slice';
 
 const reducers = {
+  appLayoutPreferences: appLayoutPreferencesReducer,
   appMode: appModeReducer,
   reduxRemember: reduxRememberReducer,
 };
 
 // Keys to save to local storage
-export const rememberedKeys: (keyof typeof reducers)[] = [];
+export const rememberedKeys: (keyof typeof reducers)[] = [
+  'appLayoutPreferences',
+];
 
 export const rootReducer = rememberReducer(reducers);
 
