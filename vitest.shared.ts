@@ -1,3 +1,4 @@
+import viteTsconfigPaths from 'vite-tsconfig-paths';
 import { defineConfig } from 'vitest/config';
 
 /**
@@ -5,6 +6,7 @@ import { defineConfig } from 'vitest/config';
  * Defines a shared vitest configuration for all packages
  */
 export default defineConfig({
+  plugins: [viteTsconfigPaths()],
   test: {
     include: ['./tests/**/*.test.ts'],
     coverage: {

@@ -20,11 +20,12 @@ const config = {
 
   // Enforce import grouping and ordering
   importOrder: [
-    '^react(.*)',
+    '^react$',
     '^@mui/(.*)',
     '<THIRD_PARTY_MODULES>',
-    '@scribear/(.*)',
-    '^[(./|../)]',
+    '^@scribear/(.*)',
+    '^@/(.*)',
+    '^[./]',
   ],
   importOrderSeparation: true,
   importOrderSortSpecifiers: true,

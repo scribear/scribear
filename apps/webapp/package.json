@@ -1,0 +1,36 @@
+{
+  "name": "@scribear/webapp",
+  "version": "0.0.0",
+  "description": "",
+  "author": "scribear",
+  "main": "dist/src/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "dev": "vite",
+    "format": "prettier --check ./src",
+    "format:fix": "prettier --write ./src",
+    "lint": "eslint ./src",
+    "lint:fix": "eslint ./src --fix",
+    "test:dev": "vitest --ui --coverage"
+  },
+  "dependencies": {
+    "@emotion/react": "11.14.0",
+    "@emotion/styled": "11.14.1",
+    "@fontsource/roboto": "5.2.9",
+    "@mui/icons-material": "7.3.7",
+    "@mui/material": "7.3.7",
+    "@reduxjs/toolkit": "2.11.2",
+    "mui-color-input": "7.0.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-error-boundary": "6.0.3",
+    "react-redux": "9.2.0",
+    "react-router": "7.12.0",
+    "redux-remember": "5.4.0"
+  },
+  "devDependencies": {
+    "@types/dom-speech-recognition": "0.0.7"
+  }
+}

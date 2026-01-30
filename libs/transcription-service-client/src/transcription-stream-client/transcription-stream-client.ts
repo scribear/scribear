@@ -15,19 +15,19 @@ import {
 const TRANSCRIPTION_STREAM_ROUTE = '/transcription_stream/';
 
 interface ClientEvents {
-  'connected'(): void;
-  'disconnected'(code: number, reason: string): void;
-  'error'(error: Error): void;
-  'ip_transcription'(
+  connected: () => void;
+  disconnected: (code: number, reason: string) => void;
+  error: (error: Error) => void;
+  ipTranscription: (
     text: string[],
     starts: number[] | null,
     ends: number[] | null,
-  ): void;
-  'final_transcription'(
+  ) => void;
+  finalTranscription: (
     text: string[],
     starts: number[] | null,
     ends: number[] | null,
-  ): void;
+  ) => void;
 }
 
 enum ClientState {
@@ -105,14 +105,14 @@ class TranscriptionStreamClient extends EventEmitter<ClientEvents> {
     const serverMessage = ServerMessageValidator.Parse(JSON.parse(message));
     if (serverMessage.type === ServerMessageTypes.IP_TRANSCRIPT) {
       this.emit(
-        'ip_transcription',
+        'ipTranscription',
         serverMessage.text,
         serverMessage.ends ?? null,
         serverMessage.starts ?? null,
       );
     } else {
       this.emit(
-        'final_transcription',
+        'finalTranscription',
         serverMessage.text,
         serverMessage.ends ?? null,
         serverMessage.starts ?? null,

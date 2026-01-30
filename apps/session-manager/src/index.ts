@@ -1,5 +1,5 @@
-import AppConfig from './app_config/app_config.js';
-import createServer from './server/create_server.js';
+import AppConfig from './app-config/app-config.js';
+import createServer from './server/create-server.js';
 
 /**
  * Main entrypoint for session manager server
