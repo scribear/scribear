@@ -4,6 +4,10 @@
 import { configureStore, createAction } from '@reduxjs/toolkit';
 import { rememberEnhancer, rememberReducer } from 'redux-remember';
 
+import { microphonePreferencesReducer } from '@/core/microphone/stores/microphone-preferences-slice';
+import { microphoneServiceMiddleware } from '@/core/microphone/stores/microphone-service-middleware';
+import { microphoneServiceReducer } from '@/core/microphone/stores/microphone-service-slice';
+
 import { appModeReducer } from '../core/app-mode/store/app-mode-slice';
 import { appLayoutPreferencesReducer } from './slices/app-layout-preferences-slice';
 import { reduxRememberReducer } from './slices/redux-remember-slice';
@@ -12,11 +16,15 @@ const reducers = {
   appLayoutPreferences: appLayoutPreferencesReducer,
   appMode: appModeReducer,
   reduxRemember: reduxRememberReducer,
+
+  microphonePreferences: microphonePreferencesReducer,
+  microphoneService: microphoneServiceReducer,
 };
 
 // Keys to save to local storage
 export const rememberedKeys: (keyof typeof reducers)[] = [
   'appLayoutPreferences',
+  'microphonePreferences',
 ];
 
 export const rootReducer = rememberReducer(reducers);
@@ -25,6 +33,9 @@ export const appInitialization = createAction('APP_INITIALIZATION');
 
 export const store = configureStore({
   reducer: rootReducer,
+  middleware: (getDefaultMiddleware) =>
+    getDefaultMiddleware()
+      .concat(microphoneServiceMiddleware),
   enhancers: (getDefaultEnhancers) =>
     getDefaultEnhancers().prepend(
       rememberEnhancer(window.localStorage, rememberedKeys, {

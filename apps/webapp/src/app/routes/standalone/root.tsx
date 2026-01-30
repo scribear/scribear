@@ -1,28 +1,25 @@
-import DownloadIcon from '@mui/icons-material/Download';
-import MicIcon from '@mui/icons-material/Mic';
-import IconButton from '@mui/material/IconButton';
-
-import { AppLayout } from '@/components/app-layout';
-
 /**
  * Root of standalone mode
  */
+import { AppLayout } from '@/components/app-layout';
+import { MicrophoneModal } from '@/core/microphone/components/microphone-modal';
+import { ToggleMicrophoneButton } from '@/core/microphone/components/toggle-microphone-button';
+
 const StandaloneRoot = () => {
+  const DrawerMenus = <>Drawer</>;
+
+  const HeaderButtons = [<ToggleMicrophoneButton key="mic" />];
+
+  const ProviderSelector = <>Web Speech</>;
+
   return (
     <AppLayout
-      providerSelector={'Web Speech'}
-      headerButtons={[
-        <IconButton color="inherit">
-          <MicIcon />
-        </IconButton>,
-        <IconButton color="inherit">
-          <DownloadIcon />
-        </IconButton>,
-      ]}
-      drawerContent={'Drawer'}
+      drawerContent={DrawerMenus}
+      headerButtons={HeaderButtons}
+      providerSelector={ProviderSelector}
       headerBreakpoint="md"
     >
-      Content
+      <MicrophoneModal />
     </AppLayout>
   );
 };
