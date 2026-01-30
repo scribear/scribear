@@ -1,8 +1,8 @@
 import { asValue } from 'awilix';
 import fastifyPlugin from 'fastify-plugin';
 
-import type { BaseLogger } from '../../create_logger.js';
-import type { BaseFastifyInstance } from '../../types/base_fastify_types.js';
+import type { BaseLogger } from '../../create-logger.js';
+import type { BaseFastifyInstance } from '../../types/base-fastify-types.js';
 
 /**
  * Fastify onRequest hook that registers logger with request scoped dependency container

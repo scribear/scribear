@@ -10,16 +10,16 @@ import {
 import Fastify, { type FastifyServerOptions } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 
-import type { BaseLogger, LogLevel } from './create_logger.js';
-import { createLogger } from './create_logger.js';
-import scopeLogger from './hooks/on_request/scope_logger.js';
-import setRequestIdHeader from './hooks/on_send/set_request_id_header.js';
-import errorHandler from './plugins/error_handler.js';
-import jsonParser from './plugins/json_parser.js';
-import notFoundHandler from './plugins/not_found_handler.js';
-import schemaValidator from './plugins/schema_validator.js';
-import type { BaseDependencies } from './types/base_dependencies.js';
-import type { BaseFastifyInstance } from './types/base_fastify_types.js';
+import type { BaseLogger, LogLevel } from './create-logger.js';
+import { createLogger } from './create-logger.js';
+import scopeLogger from './hooks/on-request/scope-logger.js';
+import setRequestIdHeader from './hooks/on-send/set-request-id-header.js';
+import errorHandler from './plugins/error-handler.js';
+import jsonParser from './plugins/json-parser.js';
+import notFoundHandler from './plugins/not-found-handler.js';
+import schemaValidator from './plugins/schema-validator.js';
+import type { BaseDependencies } from './types/base-dependencies.js';
+import type { BaseFastifyInstance } from './types/base-fastify-types.js';
 
 /**
  * Creates fastify server, logger, dependency container and loads default plugins and hooks

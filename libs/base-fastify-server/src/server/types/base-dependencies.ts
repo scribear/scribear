@@ -1,4 +1,4 @@
-import type { BaseLogger } from '../create_logger.js';
+import type { BaseLogger } from '../create-logger.js';
 
 /**
  * Define the dependencies in dependency container provided by base fastify server

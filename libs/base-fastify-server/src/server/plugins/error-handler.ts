@@ -2,12 +2,12 @@ import fastifyPlugin from 'fastify-plugin';
 
 import { SHARED_ERROR_REPLY_SCHEMA } from '@scribear/base-schema';
 
-import { BaseHttpError, HttpError } from '../errors/http_errors.js';
+import { BaseHttpError, HttpError } from '../errors/http-errors.js';
 import type {
   BaseFastifyInstance,
   BaseFastifyReply,
   BaseFastifyRequest,
-} from '../types/base_fastify_types.js';
+} from '../types/base-fastify-types.js';
 
 /**
  * Custom fastify error handler

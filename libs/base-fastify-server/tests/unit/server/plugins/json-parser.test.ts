@@ -1,8 +1,8 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { type Mock, beforeEach, describe, expect, vi } from 'vitest';
 
-import { HttpError } from '../../../../src/server/errors/http_errors.js';
-import jsonParser from '../../../../src/server/plugins/json_parser.js';
+import { HttpError } from '@/server/errors/http-errors.js';
+import jsonParser from '@/server/plugins/json-parser.js';
 
 describe('JSON Parser Plugin', (it) => {
   let fastify: FastifyInstance;

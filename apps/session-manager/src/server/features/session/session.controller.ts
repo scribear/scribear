@@ -8,7 +8,7 @@ import {
   CREATE_TOKEN_SCHEMA,
 } from '@scribear/session-manager-schema';
 
-import type { AppDependencies } from '../../dependency_injection/register_dependencies.js';
+import type { AppDependencies } from '../../dependency-injection/register-dependencies.js';
 import type { JwtService } from '../../services/jwt.service.js';
 import type { SessionService } from './session.service.js';
 

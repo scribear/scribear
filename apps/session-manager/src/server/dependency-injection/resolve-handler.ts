@@ -1,6 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
-import type { AppDependencies } from './register_dependencies.js';
+import type { AppDependencies } from './register-dependencies.js';
 
 /**
  * Creates a wrapper function around provided controller route handler

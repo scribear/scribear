@@ -4,7 +4,7 @@ import { type AwilixContainer, Lifetime, asClass, asValue } from 'awilix';
 
 import type { BaseDependencies } from '@scribear/base-fastify-server';
 
-import type AppConfig from '../../app_config/app_config.js';
+import type AppConfig from '../../app-config/app-config.js';
 import HealthcheckController from '../features/healthcheck/healthcheck.controller.js';
 import SessionController from '../features/session/session.controller.js';
 import { SessionService } from '../features/session/session.service.js';

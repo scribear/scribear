@@ -1,8 +1,8 @@
 import Fastify, { type FastifyInstance, errorCodes } from 'fastify';
 import { beforeEach, describe, expect } from 'vitest';
 
-import { HttpError } from '../../../../src/server/errors/http_errors.js';
-import errorHandler from '../../../../src/server/plugins/error_handler.js';
+import { HttpError } from '@/server/errors/http-errors.js';
+import errorHandler from '@/server/plugins/error-handler.js';
 
 describe('Error Handler Plugin', (it) => {
   const testRequestId = 'TEST-REQUEST-ID';

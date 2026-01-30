@@ -3,8 +3,8 @@ import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import { type Mock, beforeEach, describe, expect, vi } from 'vitest';
 
-import type { BaseLogger } from '../../../../../src/server/create_logger.js';
-import scopeLogger from '../../../../../src/server/hooks/on_request/scope_logger.js';
+import type { BaseLogger } from '@/server/create-logger.js';
+import scopeLogger from '@/server/hooks/on-request/scope-logger.js';
 
 // Override awilix asValue function to be a no-op
 vi.mock('awilix', () => ({

@@ -1,13 +1,13 @@
 import { Type } from 'typebox';
 import { beforeEach, describe, expect } from 'vitest';
 
-import { LogLevel } from '../../src/index.js';
-import createBaseServer from '../../src/server/create_base_server.js';
+import { LogLevel } from '@/index.js';
+import createBaseServer from '@/server/create-base-server.js';
 import type {
   BaseFastifyInstance,
   BaseFastifyReply,
   BaseFastifyRequest,
-} from '../../src/server/types/base_fastify_types.js';
+} from '@/server/types/base-fastify-types.js';
 
 describe('Integration Tests - Request validation', (it) => {
   let fastify: BaseFastifyInstance;

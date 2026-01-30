@@ -1,6 +1,7 @@
 import eslintReact from '@eslint-react/eslint-plugin';
 import js from '@eslint/js';
 import eslintConfigPrettierFlat from 'eslint-config-prettier/flat';
+import checkFile from 'eslint-plugin-check-file';
 import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 import { defineConfig } from 'eslint/config';
@@ -22,6 +23,9 @@ export default defineConfig([
   {
     // Only lint Typescript files
     files: ['**/*.{ts,mts,cts,tsx}'],
+    plugins: {
+      'check-file': checkFile,
+    },
     extends: [
       /**
        * @see https://eslint.org/docs/latest/use/configure/configuration-files#using-predefined-configurations
@@ -46,7 +50,7 @@ export default defineConfig([
        * @see https://react.dev/learn/react-compiler/installation#eslint-integration
        * Allows ESLint to enforce the "Rules of Hooks"
        */
-      reactHooks.configs.flat['recommended-latest'],
+      reactHooks.configs.flat.recommended,
 
       /**
        * @see https://github.com/ArnaudBarre/eslint-plugin-react-refresh
@@ -86,6 +90,25 @@ export default defineConfig([
     },
     rules: {
       /**
+       * @see https://github.com/dukeluo/eslint-plugin-check-file
+       * A collection of rules for consistent folder and file naming
+       */
+      'check-file/filename-naming-convention': [
+        'error',
+        {
+          '**/*.{ts,mts,cts,tsx}': 'KEBAB_CASE',
+        },
+        {
+          ignoreMiddleExtensions: true,
+        },
+      ],
+      'check-file/folder-naming-convention': [
+        'error',
+        {
+          '{src,tests}/**': 'KEBAB_CASE',
+        },
+      ],
+      /**
        * @see https://typescript-eslint.io/rules/naming-convention/
        * A collection of rules for consistent identifier naming
        */
@@ -101,6 +124,8 @@ export default defineConfig([
           ],
           // Prefer camelCase but allow PascalCase or UPPER_CASE for global variables
           format: ['camelCase', 'PascalCase', 'UPPER_CASE'],
+          // Allow underscore for unused variables
+          leadingUnderscore: 'allow',
         },
         {
           selector: ['function'],
@@ -176,7 +201,6 @@ export default defineConfig([
       '@typescript-eslint/no-unsafe-member-access': 'off',
       '@typescript-eslint/no-unsafe-return': 'off',
       '@typescript-eslint/no-non-null-assertion': 'off',
-      // Unbound methods used everywhere in tests because expect calls
       '@typescript-eslint/unbound-method': 'off',
     },
   },

@@ -11,7 +11,7 @@ import type {
 import type { RouteGenericInterface } from 'fastify/types/route.js';
 import type { FastifySchema } from 'fastify/types/schema.js';
 
-import type { BaseLogger } from '../create_logger.js';
+import type { BaseLogger } from '../create-logger.js';
 
 /**
  * Custom types for Fastify to provide type checking for requests and replies according to route schema

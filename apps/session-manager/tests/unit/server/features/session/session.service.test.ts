@@ -3,7 +3,7 @@ import { type MockProxy, mock } from 'vitest-mock-extended';
 
 import type { BaseLogger } from '@scribear/base-fastify-server';
 
-import { SessionService } from '../../../../../src/server/features/session/session.service.js';
+import { SessionService } from '@/server/features/session/session.service.js';
 
 describe('SessionService', () => {
   let mockLogger: MockProxy<BaseLogger>;

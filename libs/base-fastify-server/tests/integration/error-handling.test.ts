@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect } from 'vitest';
 
-import { LogLevel } from '../../src/index.js';
-import createBaseServer from '../../src/server/create_base_server.js';
-import { HttpError } from '../../src/server/errors/http_errors.js';
-import type { BaseFastifyInstance } from '../../src/server/types/base_fastify_types.js';
+import { LogLevel } from '@/index.js';
+import createBaseServer from '@/server/create-base-server.js';
+import { HttpError } from '@/server/errors/http-errors.js';
+import type { BaseFastifyInstance } from '@/server/types/base-fastify-types.js';
 
 /**
  * Integration tests for server error handling
