@@ -2,6 +2,11 @@ import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 
+import {
+  selectActiveSection,
+  selectCommitedSections,
+  selectInProgressTranscriptionText,
+} from '@/core/transcription-content/store/transcription-content-slice';
 import { useTranscriptionDisplayHeight } from '@/features/transcription-display/contexts/transcription-display/transcription-display-context';
 import {
   selectBoundedDisplayPreferences,
@@ -9,11 +14,6 @@ import {
   selectLineHeightPx,
   selectWordSpacingEm,
 } from '@/features/transcription-display/stores/transcription-display-preferences-slice';
-import {
-  selectActiveSection,
-  selectCommitedSections,
-  selectInProgressTranscriptionText,
-} from '@/core/transcription-content/store/transcription-content-slice';
 import { useAppSelector } from '@/stores/use-redux';
 
 import { useAutoScroll } from '../hooks/use-auto-scroll';

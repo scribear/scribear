@@ -17,7 +17,11 @@ interface DrawerMenuGroupProps {
   children?: React.ReactNode;
 }
 
-export const DrawerMenuGroup = ({ icon, summary, children }: DrawerMenuGroupProps) => {
+export const DrawerMenuGroup = ({
+  icon,
+  summary,
+  children,
+}: DrawerMenuGroupProps) => {
   const [isOpen, setIsOpen] = useState(false);
 
   return (

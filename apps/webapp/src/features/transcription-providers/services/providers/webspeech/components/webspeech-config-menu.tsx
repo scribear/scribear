@@ -65,7 +65,9 @@ export const WebspeechConfigMenu = ({ onClose }: ProviderConfigMenuProps) => {
         sx={{ width: 300 }}
       >
         {Object.keys(languageTags).map((tag) => (
-          <MenuItem value={tag} key={tag}>{languageTags[tag]}</MenuItem>
+          <MenuItem value={tag} key={tag}>
+            {languageTags[tag]}
+          </MenuItem>
         ))}
       </Select>
     </ProviderConfigContainer>

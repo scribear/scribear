@@ -9,9 +9,9 @@ import { ToggleMicrophoneButton } from '@/core/microphone/components/toggle-micr
 import { ThemeCustomizationMenu } from '@/features/theme-customization/components/theme-customization-menu';
 import { TranscriptionDisplayContainer } from '@/features/transcription-display/components/transcription-display-container';
 import { TranscriptionDisplayPreferencesMenu } from '@/features/transcription-display/components/transcription-display-preferences-menu';
-import { TranscriptionProviderStatusModal } from '@/features/transcription-providers/components/transcription-provider-status-modal';
 import { TranscriptionProviderSelector } from '@/features/transcription-providers/components/transcription-provider-selector';
 import { TranscriptionProviderStatusDisplay } from '@/features/transcription-providers/components/transcription-provider-status-display';
+import { TranscriptionProviderStatusModal } from '@/features/transcription-providers/components/transcription-provider-status-modal';
 
 const StandaloneRoot = () => {
   const DrawerMenus = (
@@ -21,9 +21,7 @@ const StandaloneRoot = () => {
     </>
   );
 
-  const HeaderButtons = [
-    <ToggleMicrophoneButton key="mic" />,
-  ];
+  const HeaderButtons = [<ToggleMicrophoneButton key="mic" />];
 
   const ProviderSelector = (
     <Stack direction="row" alignItems="center">
