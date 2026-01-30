@@ -9,6 +9,10 @@ import { microphoneServiceMiddleware } from '@/core/microphone/stores/microphone
 import { microphoneServiceReducer } from '@/core/microphone/stores/microphone-service-slice';
 import { transcriptionContentReducer } from '@/core/transcription-content/store/transcription-content-slice';
 import { transcriptionDisplayPreferencesReducer } from '@/features/transcription-display/stores/transcription-display-preferences-slice';
+import { providerConfigReducer } from '@/features/transcription-providers/stores/provider-config-slice';
+import { providerPreferencesReducer } from '@/features/transcription-providers/stores/provider-preferences-slice';
+import { providerServiceMiddleware } from '@/features/transcription-providers/stores/provider-service-middleware';
+import { providerStatusReducer } from '@/features/transcription-providers/stores/provider-status-slice';
 
 import { appModeReducer } from '../core/app-mode/store/app-mode-slice';
 import { appLayoutPreferencesReducer } from './slices/app-layout-preferences-slice';
@@ -25,6 +29,10 @@ const reducers = {
   transcriptionContent: transcriptionContentReducer,
 
   transcriptionDisplayPreferences: transcriptionDisplayPreferencesReducer,
+
+  providerConfig: providerConfigReducer,
+  providerPreferences: providerPreferencesReducer,
+  providerStatus: providerStatusReducer,
 };
 
 // Keys to save to local storage
@@ -32,6 +40,8 @@ export const rememberedKeys: (keyof typeof reducers)[] = [
   'appLayoutPreferences',
   'microphonePreferences',
   'transcriptionDisplayPreferences',
+  'providerConfig',
+  'providerPreferences',
 ];
 
 export const rootReducer = rememberReducer(reducers);
@@ -42,7 +52,8 @@ export const store = configureStore({
   reducer: rootReducer,
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware()
-      .concat(microphoneServiceMiddleware),
+      .concat(microphoneServiceMiddleware)
+      .concat(providerServiceMiddleware),
   enhancers: (getDefaultEnhancers) =>
     getDefaultEnhancers().prepend(
       rememberEnhancer(window.localStorage, rememberedKeys, {

@@ -29,5 +29,8 @@
     "react-redux": "9.2.0",
     "react-router": "7.12.0",
     "redux-remember": "5.4.0"
+  },
+  "devDependencies": {
+    "@types/dom-speech-recognition": "0.0.7"
   }
 }
