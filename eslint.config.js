@@ -90,6 +90,30 @@ export default defineConfig([
     },
     rules: {
       /**
+       * @see https://eslint.org/docs/latest/rules/no-restricted-imports
+       * @see https://mui.com/material-ui/guides/minimizing-bundle-size/#enforce-best-practices-with-eslint
+       * Restrict use of MUI barrel imports for better dev startup/rebuild performance
+       */
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [{ regex: '^@mui/[^/]+$' }],
+        },
+      ],
+      /**
+       * @see https://redux.js.org/usage/usage-with-typescript#use-typed-hooks-in-components
+       * Restrict use of useSelector and useDispatch in favor of useAppDispatch and useAppSelector
+       */
+      '@typescript-eslint/no-restricted-imports': [
+        'warn',
+        {
+          name: 'react-redux',
+          importNames: ['useSelector', 'useDispatch'],
+          message:
+            'Use typed hooks `useAppDispatch` and `useAppSelector` instead.',
+        },
+      ],
+      /**
        * @see https://github.com/dukeluo/eslint-plugin-check-file
        * A collection of rules for consistent folder and file naming
        */

@@ -1,0 +1,32 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    },
+    // Vite/React specific configuration
+    "types": [
+      "vite/client",
+      "dom-speech-recognition"
+    ],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "jsx": "react-jsx"
+  },
+  "include": [
+    "src",
+    "tests",
+  ],
+  // Link to shared packages
+  "references": [
+    {
+      "path": "../../libs/transcription-service-client/tsconfig.json"
+    }
+  ],
+}
