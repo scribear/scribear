@@ -18,6 +18,7 @@ import { RehydrateGate } from '@/components/rehydrate-gate';
 import { MainErrorFallback } from '@/components/ui/main-error-fallback';
 import { PageLoadSpinner } from '@/components/ui/page-load-spinner';
 import { BASE_THEME } from '@/config/base-theme';
+import { TranscriptionDisplayProvider } from '@/features/transcription-display/contexts/transcription-display/transcription-display-provider';
 import { store } from '@/stores/store';
 
 interface AppProviderProps {
@@ -31,7 +32,11 @@ export const AppProvider = ({ children }: AppProviderProps) => {
       <Suspense fallback={<PageLoadSpinner />}>
         <ErrorBoundary FallbackComponent={MainErrorFallback}>
           <Provider store={store}>
-            <RehydrateGate>{children}</RehydrateGate>
+            <RehydrateGate>
+              <TranscriptionDisplayProvider>
+                {children}
+              </TranscriptionDisplayProvider>
+            </RehydrateGate>
           </Provider>
         </ErrorBoundary>
       </Suspense>

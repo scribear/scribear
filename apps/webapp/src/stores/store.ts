@@ -7,6 +7,8 @@ import { rememberEnhancer, rememberReducer } from 'redux-remember';
 import { microphonePreferencesReducer } from '@/core/microphone/stores/microphone-preferences-slice';
 import { microphoneServiceMiddleware } from '@/core/microphone/stores/microphone-service-middleware';
 import { microphoneServiceReducer } from '@/core/microphone/stores/microphone-service-slice';
+import { transcriptionContentReducer } from '@/core/transcription-content/store/transcription-content-slice';
+import { transcriptionDisplayPreferencesReducer } from '@/features/transcription-display/stores/transcription-display-preferences-slice';
 
 import { appModeReducer } from '../core/app-mode/store/app-mode-slice';
 import { appLayoutPreferencesReducer } from './slices/app-layout-preferences-slice';
@@ -19,12 +21,17 @@ const reducers = {
 
   microphonePreferences: microphonePreferencesReducer,
   microphoneService: microphoneServiceReducer,
+
+  transcriptionContent: transcriptionContentReducer,
+
+  transcriptionDisplayPreferences: transcriptionDisplayPreferencesReducer,
 };
 
 // Keys to save to local storage
 export const rememberedKeys: (keyof typeof reducers)[] = [
   'appLayoutPreferences',
   'microphonePreferences',
+  'transcriptionDisplayPreferences',
 ];
 
 export const rootReducer = rememberReducer(reducers);
