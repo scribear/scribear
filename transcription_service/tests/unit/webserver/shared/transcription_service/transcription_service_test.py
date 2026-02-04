@@ -103,12 +103,18 @@ def mock_context_import(
     """
     Patches imports for job contexts
     """
-    return {
-        JobContextDefinitionUID.FASTER_WHISPER: mocker.patch(
-            "src.transcription_contexts.faster_whisper_context.FasterWhisperContext",
-            side_effect=[mock_context_instances[0], mock_context_instances[1]],
-        )
-    }
+    mock = mocker.MagicMock()
+    mock.FasterWhisperContext = mocker.MagicMock(
+        side_effect=[mock_context_instances[0], mock_context_instances[1]]
+    )
+
+    # Patch sys.modules to inject our mock
+    mocker.patch.dict(
+        "sys.modules",
+        {"src.transcription_contexts.faster_whisper_context": mock},
+    )
+
+    return {JobContextDefinitionUID.FASTER_WHISPER: mock.FasterWhisperContext}
 
 
 @pytest.fixture
@@ -150,15 +156,19 @@ def mock_provider_import(
     """
     Patches imports for providers
     """
-    return {
-        TranscriptionProviderUID.DEBUG: mocker.patch(
-            "src.transcription_providers.debug_provider.DebugProvider",
-            side_effect=[
-                mock_provider_instances[0],
-                mock_provider_instances[1],
-            ],
-        )
-    }
+    # For dynamic imports, we need to mock the module before it's imported
+    mock_debug_module = mocker.MagicMock()
+    mock_debug_module.DebugProvider = mocker.MagicMock(
+        side_effect=[mock_provider_instances[0], mock_provider_instances[1]]
+    )
+
+    # Patch sys.modules to inject our mock
+    mocker.patch.dict(
+        "sys.modules",
+        {"src.transcription_providers.debug_provider": mock_debug_module},
+    )
+
+    return {TranscriptionProviderUID.DEBUG: mock_debug_module.DebugProvider}
 
 
 # pylint: disable=unused-argument
