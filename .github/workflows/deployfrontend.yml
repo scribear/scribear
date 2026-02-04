@@ -57,7 +57,7 @@ jobs:
           git commit -m "Removing previous latest dir"
           
           mkdir -p latest
-          mv ../build/* latest
+          mv ../dist/* latest
           git add latest
   
           git commit -m "Commit Deploy: ${SHORT_SHA}"
