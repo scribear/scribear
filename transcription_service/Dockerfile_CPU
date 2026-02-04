@@ -4,7 +4,7 @@ WORKDIR /app
 
 COPY pyproject.toml .
 
-RUN pip install .[faster-whisper]
+RUN pip install .[faster-whisper,silero-vad]
 
 COPY src ./src
 
