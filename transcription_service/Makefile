@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := start
 
 install_dev:
-	pip install -e .[dev,faster-whisper]
+	pip install -e .[dev,faster-whisper,silero-vad]
 
 install:
 	pip install .

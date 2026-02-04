@@ -16,7 +16,7 @@ RUN python3.12 -m venv .venv
 
 COPY pyproject.toml .
 
-RUN /app/.venv/bin/python -m pip install .[faster-whisper]
+RUN /app/.venv/bin/python -m pip install .[faster-whisper,silero-vad]
 
 COPY src ./src
 
