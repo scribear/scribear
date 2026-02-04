@@ -11,12 +11,12 @@ import type {
   CREATE_TOKEN_SCHEMA,
 } from '@scribear/session-manager-schema';
 
-import SessionController from '../../../../../src/server/features/session/session.controller.js';
+import SessionController from '@/server/features/session/session.controller.js';
 import type {
   Session,
   SessionService,
-} from '../../../../../src/server/features/session/session.service.js';
-import type { JwtService } from '../../../../../src/server/services/jwt.service.js';
+} from '@/server/features/session/session.service.js';
+import type { JwtService } from '@/server/services/jwt.service.js';
 
 describe('Session controller', () => {
   const testRequestId = 'TEST_REQUEST_ID';
