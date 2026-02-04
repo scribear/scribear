@@ -18,6 +18,9 @@
     },
     {
       "path": "../../libs/session-manager-schema"
+    },
+    {
+      "path": "../../infra/scribear-db"
     }
   ]
 }
