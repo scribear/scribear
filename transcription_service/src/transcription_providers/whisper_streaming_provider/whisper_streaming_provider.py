@@ -56,7 +56,10 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
             self._provider = provider
 
             self._job = provider.worker_pool.register_job(
-                (self._provider.config.context_tag,),
+                (
+                    self._provider.config.context_tag,
+                    self._provider.config.vad_context_tag,
+                ),
                 self._provider.config.job_period_ms,
                 WhisperStreamingProviderJob(self._provider.config),
             )
@@ -106,6 +109,16 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
         worker_pool.tagged_context_is_instance(
             self.config.context_tag, [FasterWhisperContext]
         )
+        try:
+            assert worker_pool.tagged_context_is_instance(
+                self.config.context_tag, [FasterWhisperContext]
+            ), f"Context tag '{self.config.context_tag}' is not an instance of FasterWhisperContext"
+        except AssertionError as e:
+            self._log.error(
+                f"Context '{self.config.context_tag}' not found or invalid: {e}"
+            )
+            raise
+
         self.worker_pool = worker_pool
 
     def create_session(self, session_config: object, logger: Logger):

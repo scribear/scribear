@@ -61,10 +61,13 @@ dev = [
 # Optional dependencies used by faster-whisper
 # Install them with `pip install -e .[faster-whisper]`
 faster-whisper = ["ctranslate2==4.4.0", "faster-whisper==1.1.0"]
+# Optional dependencies used by Silero VAD
+# install them with `pip install -e.[silero-vad]`
+silero-vad = ["torch==2.9.1", "torchaudio==2.9.1"]
 
 [project.urls]
-Homepage = "https://github.com/scribear/ScribeAR-NodeServer"
-Issues = "https://github.com/scribear/ScribeAR-NodeServer/issues"
+Homepage = "https://github.com/scribear/scribear"
+Issues = "https://github.com/scribear/scribear/issues"
 
 # Installation config
 [tool.setuptools.packages]

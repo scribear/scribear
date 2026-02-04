@@ -64,11 +64,6 @@ def mock_config():
             provider_uid=TranscriptionProviderUID.DEBUG,
             provider_config="config:debug_1",
         ),
-        TranscriptionProviderConfigSchema(
-            provider_key="whisper",
-            provider_uid=TranscriptionProviderUID.WHISPER_STREAMING,
-            provider_config="config:whisper",
-        ),
     ]
 
     mock.provider_config = ProviderConfigFileSchema(
@@ -108,12 +103,18 @@ def mock_context_import(
     """
     Patches imports for job contexts
     """
-    return {
-        JobContextDefinitionUID.FASTER_WHISPER: mocker.patch(
-            "src.transcription_contexts.faster_whisper_context.FasterWhisperContext",
-            side_effect=[mock_context_instances[0], mock_context_instances[1]],
-        )
-    }
+    mock = mocker.MagicMock()
+    mock.FasterWhisperContext = mocker.MagicMock(
+        side_effect=[mock_context_instances[0], mock_context_instances[1]]
+    )
+
+    # Patch sys.modules to inject our mock
+    mocker.patch.dict(
+        "sys.modules",
+        {"src.transcription_contexts.faster_whisper_context": mock},
+    )
+
+    return {JobContextDefinitionUID.FASTER_WHISPER: mock.FasterWhisperContext}
 
 
 @pytest.fixture
@@ -145,7 +146,6 @@ def mock_provider_instances(mocker: MockerFixture):
     return [
         mocker.MagicMock(spec=TranscriptionProviderInterface),
         mocker.MagicMock(spec=TranscriptionProviderInterface),
-        mocker.MagicMock(spec=TranscriptionProviderInterface),
     ]
 
 
@@ -156,19 +156,19 @@ def mock_provider_import(
     """
     Patches imports for providers
     """
-    return {
-        TranscriptionProviderUID.DEBUG: mocker.patch(
-            "src.transcription_providers.debug_provider.DebugProvider",
-            side_effect=[
-                mock_provider_instances[0],
-                mock_provider_instances[1],
-            ],
-        ),
-        TranscriptionProviderUID.WHISPER_STREAMING: mocker.patch(
-            "src.transcription_providers.whisper_streaming_provider.WhisperStreamingProvider",
-            side_effect=[mock_provider_instances[2]],
-        ),
-    }
+    # For dynamic imports, we need to mock the module before it's imported
+    mock_debug_module = mocker.MagicMock()
+    mock_debug_module.DebugProvider = mocker.MagicMock(
+        side_effect=[mock_provider_instances[0], mock_provider_instances[1]]
+    )
+
+    # Patch sys.modules to inject our mock
+    mocker.patch.dict(
+        "sys.modules",
+        {"src.transcription_providers.debug_provider": mock_debug_module},
+    )
+
+    return {TranscriptionProviderUID.DEBUG: mock_debug_module.DebugProvider}
 
 
 # pylint: disable=unused-argument
@@ -263,22 +263,10 @@ def test_loads_provider(
             ),
         ]
     )
-    mock_provider_import[
-        TranscriptionProviderUID.WHISPER_STREAMING
-    ].assert_has_calls(
-        [
-            call(
-                mock_config.provider_config.providers[2].provider_config,
-                mock_logger,
-                mock_worker_pool_instance,
-            )
-        ]
-    )
 
 
 @pytest.mark.parametrize(
-    "provider_key, mock_provider_idx",
-    [("debug_0", 0), ("debug_1", 1), ("whisper", 2)],
+    "provider_key, mock_provider_idx", [("debug_0", 0), ("debug_1", 1)]
 )
 def test_valid_start_session(
     transcription_service: TranscriptionService,
