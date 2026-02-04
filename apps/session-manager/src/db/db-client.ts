@@ -5,8 +5,6 @@ import type { DB } from '@scribear/scribear-db';
 
 import type { AppDependencies } from '@/server/dependency-injection/register-dependencies.js';
 
-import type AppConfig from '../app-config/app-config.js';
-
 class DBClient {
   private _db: Kysely<DB>;
 
