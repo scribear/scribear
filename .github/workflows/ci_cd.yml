@@ -115,7 +115,11 @@ jobs:
       - name: Generate database types
         working-directory: "./infra/scribear-db"
         env:
-          DATABASE_URL: postgresql://scribear:scribear@localhost:5432/scribear-db
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: scribear-db
+          DB_USER: scribear
+          DB_PASSWORD: scribear
         run: npm run generate:types
 
       - name: Check for uncommitted changes
