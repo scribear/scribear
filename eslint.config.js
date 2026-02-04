@@ -216,6 +216,21 @@ export default defineConfig([
     },
   },
   {
+    // Allow migration files to start with numbers
+    files: ['**/migrations/**/*.{ts,mts,cts}'],
+    rules: {
+      'check-file/filename-naming-convention': [
+        'error',
+        {
+          '**/migrations/**/*.{ts,mts,cts}': '+([0-9])*([a-z0-9-])',
+        },
+        {
+          ignoreMiddleExtensions: true,
+        },
+      ],
+    },
+  },
+  {
     // Disable strict type checking rules for test files
     // There's no real point in making sure JSON outputs are a certain type
     // When the test file is about to check it.
