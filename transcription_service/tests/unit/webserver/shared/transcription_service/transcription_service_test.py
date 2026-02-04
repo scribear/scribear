@@ -256,8 +256,7 @@ def test_loads_provider(
 
 
 @pytest.mark.parametrize(
-    "provider_key, mock_provider_idx",
-    [("debug_0", 0), ("debug_1", 1)],
+    "provider_key, mock_provider_idx", [("debug_0", 0), ("debug_1", 1)]
 )
 def test_valid_start_session(
     transcription_service: TranscriptionService,
