@@ -21,8 +21,8 @@ jobs:
       - name: Add Build Info
         working-directory: "./apps/webapp"
         run: | 
-          date > build/builddate.txt
-          git rev-parse --short HEAD > build/commit.txt
+          date > dist/builddate.txt
+          git rev-parse --short HEAD > dist/commit.txt
 
       - name: Deploy to Production
         working-directory: "./apps/webapp"
