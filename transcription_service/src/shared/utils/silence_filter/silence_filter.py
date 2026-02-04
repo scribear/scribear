@@ -10,6 +10,7 @@ import torch
 
 logger = logging.getLogger(__name__)
 
+
 class SilenceFiltering:
     """
     Silero-based VAD wrapper that expects a pre-loaded model.

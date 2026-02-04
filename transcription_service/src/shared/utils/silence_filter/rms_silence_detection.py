@@ -1,8 +1,11 @@
 import logging
+
 import numpy as np
 import numpy.typing as npt
 
 logger = logging.getLogger(__name__)
+
+
 class RMSSilenceDetection:
     """
     Fast heuristic checks (peak + RMS) to detect near-silence in audio.
@@ -43,4 +46,3 @@ class RMSSilenceDetection:
         return (max_abs <= float(silence_threshold)) and (
             rms <= float(silence_threshold)
         )
-

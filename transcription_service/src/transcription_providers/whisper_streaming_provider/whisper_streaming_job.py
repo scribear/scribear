@@ -9,8 +9,8 @@ from src.shared.utils.audio_decoder import AudioDecoder, TargetFormat
 from src.shared.utils.local_agree import LocalAgree, TranscriptionSegment
 from src.shared.utils.np_circular_buffer import NPCircularBuffer
 from src.shared.utils.silence_filter import (
+    RMSSilenceDetection,
     SilenceFiltering,
-    RMSSilenceDetection
 )
 from src.shared.utils.worker_pool import JobInterface
 from src.transcription_contexts.faster_whisper_context import WhisperModel
@@ -110,8 +110,8 @@ class WhisperStreamingProviderJob(
 
         ranges = vad_context.detect_speech_ranges(
             buffer_samples,
-            threshold = self._vad_threshold,
-            neg_threshold=self._vad_neg_threshold
+            threshold=self._vad_threshold,
+            neg_threshold=self._vad_neg_threshold,
         )
 
         if not ranges:

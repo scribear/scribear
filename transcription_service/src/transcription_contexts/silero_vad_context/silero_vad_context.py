@@ -2,27 +2,34 @@
 Defines SileroVadContext for caching Silero VAD model in WorkerProcess
 """
 
-from typing import Any, Callable, Tuple, List
+from typing import Any, Callable, List, Tuple
 
 import torch
 from pydantic import BaseModel, TypeAdapter
 
 from src.shared.logger import Logger
 from src.shared.utils.worker_pool import JobContextInterface
-from src.transcription_providers.whisper_streaming_provider.silence_filtering import SilenceFiltering
+from src.transcription_providers.whisper_streaming_provider.silence_filtering import (
+    SilenceFiltering,
+)
 
 
 class SileroVADService:
-    def __init__(self, model: Any, get_speech_timestamps: Callable, sample_rate: int = 16000):
+    def __init__(
+        self,
+        model: Any,
+        get_speech_timestamps: Callable,
+        sample_rate: int = 16000,
+    ):
         self._model = model
         self._get_speech_timestamps = get_speech_timestamps
         self._sample_rate = sample_rate
-    
+
     def detect_speech_ranges(
-            self,
-            buffer_samples: Any,
-            threshold: float,
-            neg_threshold: float | None = None
+        self,
+        buffer_samples: Any,
+        threshold: float,
+        neg_threshold: float | None = None,
     ) -> List[Tuple[int, int]]:
         silence_filter = SilenceFiltering(
             buffer_samples,
@@ -34,7 +41,9 @@ class SileroVADService:
         )
         return silence_filter.voice_position_detection() or []
 
+
 SileroVadModelType = SileroVADService
+
 
 class SileroVadContextConfig(BaseModel):
     """
