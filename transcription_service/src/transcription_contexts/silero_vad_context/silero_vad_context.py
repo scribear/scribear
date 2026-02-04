@@ -2,16 +2,39 @@
 Defines SileroVadContext for caching Silero VAD model in WorkerProcess
 """
 
-from typing import Any, Callable, Tuple
+from typing import Any, Callable, Tuple, List
 
 import torch
 from pydantic import BaseModel, TypeAdapter
 
 from src.shared.logger import Logger
 from src.shared.utils.worker_pool import JobContextInterface
+from src.transcription_providers.whisper_streaming_provider.silence_filtering import SilenceFiltering
 
-SileroVadModelType = Tuple[Any, Callable]
 
+class SileroVADService:
+    def __init__(self, model: Any, get_speech_timestamps: Callable, sample_rate: int = 16000):
+        self._model = model
+        self._get_speech_timestamps = get_speech_timestamps
+        self._sample_rate = sample_rate
+    
+    def detect_speech_ranges(
+            self,
+            buffer_samples: Any,
+            threshold: float,
+            neg_threshold: float | None = None
+    ) -> List[Tuple[int, int]]:
+        silence_filter = SilenceFiltering(
+            buffer_samples,
+            self._sample_rate,
+            vad_model=self._model,
+            get_speech_timestamps=self._get_speech_timestamps,
+            threshold=threshold,
+            neg_threshold=neg_threshold,
+        )
+        return silence_filter.voice_position_detection() or []
+
+SileroVadModelType = SileroVADService
 
 class SileroVadContextConfig(BaseModel):
     """
@@ -70,7 +93,7 @@ class SileroVadContext(JobContextInterface[SileroVadModelType]):
             get_speech_timestamps = utils[0]
 
             log.info("Silero VAD model loaded successfully")
-            return (model, get_speech_timestamps)
+            return SileroVADService(model, get_speech_timestamps)
 
         except Exception as e:
             log.error(f"Failed to load Silero VAD: {e}")
@@ -78,9 +101,9 @@ class SileroVadContext(JobContextInterface[SileroVadModelType]):
 
     def destroy(self, log: Logger, context: SileroVadModelType) -> None:
         log.info("Destroying Silero VAD context")
-        model, _ = context
-        if hasattr(model, "result"):
-            pass
-        del model
+        if hasattr(context, "_model"):
+            del context._model
+        if hasattr(context, "_get_speech_timestamps"):
+            del context._get_speech_timestamps
         if torch.cuda.is_available():
             torch.cuda.empty_cache()

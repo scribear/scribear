@@ -111,14 +111,14 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
             self.config.context_tag, [FasterWhisperContext]
         )
         try:
-            worker_pool.tagged_context_is_instance(
-                self.config.vad_context_tag, [SileroVadContext]
-            )
-        except Exception as e:
+            assert worker_pool.tagged_context_is_instance(
+                self.config.context_tag, [FasterWhisperContext]
+            ), f"Context tag '{self.config.context_tag}' is not an instance of FasterWhisperContext"
+        except AssertionError as e:
             self._log.error(
-                f"VAD Context '{self.config.vad_context_tag}' not found or invalid: {e}"
+                f"Context '{self.config.context_tag}' not found or invalid: {e}"
             )
-            raise e
+            raise
 
         self.worker_pool = worker_pool
 

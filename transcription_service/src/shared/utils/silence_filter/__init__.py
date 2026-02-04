@@ -2,4 +2,5 @@
 Public exports for silence_filter
 """
 
-from .silence_filter import PureSilenceDetection, SilenceFiltering
+from .rms_silence_detection import RMSSilenceDetection
+from .silence_filter import SilenceFiltering

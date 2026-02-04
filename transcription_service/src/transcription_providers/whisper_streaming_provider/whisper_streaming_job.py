@@ -9,8 +9,8 @@ from src.shared.utils.audio_decoder import AudioDecoder, TargetFormat
 from src.shared.utils.local_agree import LocalAgree, TranscriptionSegment
 from src.shared.utils.np_circular_buffer import NPCircularBuffer
 from src.shared.utils.silence_filter import (
-    PureSilenceDetection,
     SilenceFiltering,
+    RMSSilenceDetection
 )
 from src.shared.utils.worker_pool import JobInterface
 from src.transcription_contexts.faster_whisper_context import WhisperModel
@@ -53,7 +53,7 @@ class WhisperStreamingProviderJob(
 
         # Pure_silence detector:
         self._silence_threshold = config.silence_threshold
-        self._silence_detector = PureSilenceDetection(
+        self._silence_detector = RMSSilenceDetection(
             sample_rate=SAMPLE_RATE,
             default_silence_threshold=self._silence_threshold,
             mix_to_mono=True,
@@ -84,7 +84,7 @@ class WhisperStreamingProviderJob(
                 raise TranscriptionClientError(str(e)) from e
 
             # Pure_silence detection:
-            is_silent = self._silence_detector.pure_silence_detection(
+            is_silent = self._silence_detector.detect(
                 samples, self._silence_threshold
             )
 
@@ -108,16 +108,11 @@ class WhisperStreamingProviderJob(
         if not self._enable_vad:
             return [(0, buffer_samples.shape[0])]
 
-        vad_model, get_speech_timestamps = vad_context
-        silence_filter = SilenceFiltering(
+        ranges = vad_context.detect_speech_ranges(
             buffer_samples,
-            SAMPLE_RATE,
-            vad_model=vad_model,
-            get_speech_timestamps=get_speech_timestamps,
-            threshold=self._vad_threshold,
-            neg_threshold=self._vad_neg_threshold,
+            threshold = self._vad_threshold,
+            neg_threshold=self._vad_neg_threshold
         )
-        ranges = silence_filter.voice_position_detection() or []
 
         if not ranges:
             log.debug("VAD detected no speech in buffer")
