@@ -99,11 +99,11 @@ jobs:
         uses: ./.github/actions/setup-node
 
       - name: Run build
-        working-directory: "."
+        working-directory: "./infra/scribear-db"
         run: npm run build
 
       - name: Run migrations
-        working-directory: "./libs/scribear-db"
+        working-directory: "./infra/scribear-db"
         env:
           DB_HOST: localhost
           DB_PORT: 5432
@@ -113,14 +113,14 @@ jobs:
         run: npm run migrate:up
 
       - name: Generate database types
-        working-directory: "./libs/scribear-db"
+        working-directory: "./infra/scribear-db"
         env:
           DATABASE_URL: postgresql://scribear:scribear@localhost:5432/scribear-db
         run: npm run generate:types
 
       - name: Check for uncommitted changes
         run: |
-          git diff --exit-code libs/scribear-db/src/database.types.ts || \
+          git diff --exit-code infra/scribear-db/src/database.types.ts || \
           (echo "Error: Generated database types are out of date. Run 'npm run generate:types' in libs/scribear-db and commit the changes." && exit 1)
 
   check-formatting-python:
