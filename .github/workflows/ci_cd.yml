@@ -17,7 +17,63 @@ permissions:
   pull-requests: write
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      infra: ${{ steps.filter.outputs.infra }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      deploy_frontend: ${{ steps.filter.outputs.deploy_frontend }}
+      backend_node: ${{ steps.filter.outputs.backend_node }}
+      backend_python: ${{ steps.filter.outputs.backend_python }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            infra:
+              - '.github/**'
+            frontend:
+              - 'apps/webapp/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'tsconfig.base.json'
+              - 'eslint.config.js'
+              - 'prettier.config.js'
+              - 'vitest.config.ts'
+              - 'vitest.shared.ts'
+              - '.npmrc'
+              - '.editorconfig'
+            deploy_frontend:
+              - 'apps/webapp/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'tsconfig.base.json'
+              - 'eslint.config.js'
+              - 'prettier.config.js'
+              - 'vitest.config.ts'
+              - 'vitest.shared.ts'
+              - '.npmrc'
+              - '.editorconfig'
+            backend_node:
+              - 'apps/session-manager/**'
+              - 'libs/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'tsconfig.base.json'
+              - 'eslint.config.js'
+              - 'prettier.config.js'
+              - 'vitest.config.ts'
+              - 'vitest.shared.ts'
+              - '.npmrc'
+              - '.editorconfig'
+            backend_python:
+              - 'transcription_service/**'
+
   check-formatting-node:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.backend_node == 'true' || needs.changes.outputs.infra == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -29,6 +85,8 @@ jobs:
         run: npm run format
 
   run-linter-node:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.backend_node == 'true' || needs.changes.outputs.infra == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -40,6 +98,8 @@ jobs:
         run: npm run lint
 
   run-build-node:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.backend_node == 'true' || needs.changes.outputs.infra == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -51,6 +111,8 @@ jobs:
         run: npm run build
 
   run-tests-node:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.backend_node == 'true' || needs.changes.outputs.infra == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -128,6 +190,8 @@ jobs:
           (echo "Error: Generated database types are out of date. Run 'npm run generate:types' in libs/scribear-db and commit the changes." && exit 1)
 
   check-formatting-python:
+    needs: changes
+    if: needs.changes.outputs.backend_python == 'true' || needs.changes.outputs.infra == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -139,6 +203,8 @@ jobs:
         run: make format
 
   run-linter-python:
+    needs: changes
+    if: needs.changes.outputs.backend_python == 'true' || needs.changes.outputs.infra == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -150,6 +216,8 @@ jobs:
         run: make lint
 
   run-tests-python:
+    needs: changes
+    if: needs.changes.outputs.backend_python == 'true' || needs.changes.outputs.infra == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -168,10 +236,12 @@ jobs:
 
   build-session-manager-container:
     needs:
+      - changes
       - check-formatting-node
       - run-linter-node
       - run-build-node
       - run-tests-node
+    if: needs.changes.outputs.backend_node == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Set up Git repository
@@ -188,9 +258,11 @@ jobs:
 
   build-transcription-service-cpu-container:
     needs:
+      - changes
       - check-formatting-python
       - run-linter-python
       - run-tests-python
+    if: needs.changes.outputs.backend_python == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Set up Git repository
@@ -207,9 +279,11 @@ jobs:
 
   build-transcription-service-cuda-container:
     needs:
+      - changes
       - check-formatting-python
       - run-linter-python
       - run-tests-python
+    if: needs.changes.outputs.backend_python == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Set up Git repository
@@ -222,3 +296,41 @@ jobs:
           dockerfile: "./transcription_service/Dockerfile_CUDA"
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+  deploy-webapp:
+    needs:
+      - changes
+      - check-formatting-node
+      - run-linter-node
+      - run-build-node
+      - run-tests-node
+    if: needs.changes.outputs.deploy_frontend == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: Build webapp
+        working-directory: "apps/webapp"
+        run: npm run build
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.WEBAPP_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          if [ -n "${{ secrets.WEBAPP_SSH_KNOWN_HOSTS }}" ]; then
+            printf '%s\n' "${{ secrets.WEBAPP_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+            chmod 600 ~/.ssh/known_hosts
+          fi
+
+      - name: Deploy webapp
+        env:
+          DEPLOY_HOST: scribear.illinois.edu
+          DEPLOY_USER: ${{ secrets.WEBAPP_SSH_USER }}
+          DEPLOY_PATH: ${{ secrets.WEBAPP_DEPLOY_PATH }}
+        run: |
+          rsync -az --delete -e "ssh -o StrictHostKeyChecking=accept-new" apps/webapp/dist/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
