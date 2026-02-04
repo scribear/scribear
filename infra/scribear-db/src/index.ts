@@ -1,1 +1,1 @@
-export type * from './database.types.js'
+export type * from './database.types.js';
