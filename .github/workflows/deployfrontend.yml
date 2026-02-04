@@ -26,7 +26,7 @@ jobs:
 
       - name: Deploy to Production
         working-directory: "./apps/webapp"
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/master'
         env:
           DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
           GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=no"
