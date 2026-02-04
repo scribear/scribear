@@ -1,9 +1,15 @@
 .DEFAULT_GOAL := start
 
 install_dev:
+	pip install -e .[dev,faster-whisper,silero-vad] --extra-index-url https://download.pytorch.org/whl/cpu
+
+install_dev_gpu:
 	pip install -e .[dev,faster-whisper,silero-vad]
 
 install:
+	pip install . --extra-index-url https://download.pytorch.org/whl/cpu
+
+install_gpu:
 	pip install .
 
 # Run application in prod mode
