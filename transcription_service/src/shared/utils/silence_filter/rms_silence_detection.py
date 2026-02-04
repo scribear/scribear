@@ -1,3 +1,7 @@
+"""
+RMS Silence Detection module.
+"""
+
 import logging
 
 import numpy as np

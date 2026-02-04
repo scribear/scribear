@@ -9,7 +9,6 @@ from src.shared.utils.worker_pool import JobException, JobSuccess, WorkerPool
 from src.transcription_contexts.faster_whisper_context import (
     FasterWhisperContext,
 )
-from src.transcription_contexts.silero_vad_context import SileroVadContext
 from src.transcription_provider_interface import (
     TranscriptionProviderInterface,
     TranscriptionResult,

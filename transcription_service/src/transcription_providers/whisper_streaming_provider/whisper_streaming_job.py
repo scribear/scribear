@@ -8,10 +8,7 @@ from src.shared.logger import Logger
 from src.shared.utils.audio_decoder import AudioDecoder, TargetFormat
 from src.shared.utils.local_agree import LocalAgree, TranscriptionSegment
 from src.shared.utils.np_circular_buffer import NPCircularBuffer
-from src.shared.utils.silence_filter import (
-    RMSSilenceDetection,
-    SilenceFiltering,
-)
+from src.shared.utils.silence_filter import RMSSilenceDetection
 from src.shared.utils.worker_pool import JobInterface
 from src.transcription_contexts.faster_whisper_context import WhisperModel
 from src.transcription_contexts.silero_vad_context import SileroVadModelType

@@ -8,13 +8,15 @@ import torch
 from pydantic import BaseModel, TypeAdapter
 
 from src.shared.logger import Logger
+from src.shared.utils.silence_filter import SilenceFiltering
 from src.shared.utils.worker_pool import JobContextInterface
-from src.transcription_providers.whisper_streaming_provider.silence_filtering import (
-    SilenceFiltering,
-)
 
 
 class SileroVADService:
+    """
+    Service for VAD
+    """
+
     def __init__(
         self,
         model: Any,
@@ -31,6 +33,7 @@ class SileroVADService:
         threshold: float,
         neg_threshold: float | None = None,
     ) -> List[Tuple[int, int]]:
+        """Detects speech segments in the audio buffer."""
         silence_filter = SilenceFiltering(
             buffer_samples,
             self._sample_rate,
