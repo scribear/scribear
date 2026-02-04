@@ -8,7 +8,6 @@ import numpy as np
 import numpy.typing as npt
 import torch
 
-torch.set_num_threads(1)
 logger = logging.getLogger(__name__)
 
 
