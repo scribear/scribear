@@ -139,6 +139,56 @@ jobs:
           package_name: "Session Manager"
           filename: "./apps/session-manager/coverage/cobertura-coverage.xml"
 
+  check-database-types:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine3.23
+        env:
+          POSTGRES_DB: scribear-db
+          POSTGRES_USER: scribear
+          POSTGRES_PASSWORD: scribear
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scribear -d scribear-db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: Run build
+        working-directory: "./infra/scribear-db"
+        run: npm run build
+
+      - name: Run migrations
+        working-directory: "./infra/scribear-db"
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: scribear-db
+          DB_USER: scribear
+          DB_PASSWORD: scribear
+        run: npm run migrate:up
+
+      - name: Generate database types
+        working-directory: "./infra/scribear-db"
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: scribear-db
+          DB_USER: scribear
+          DB_PASSWORD: scribear
+        run: npm run generate:types
+
+      - name: Check for uncommitted changes
+        run: |
+          git diff --exit-code infra/scribear-db/src/database.types.ts || \
+          (echo "Error: Generated database types are out of date. Run 'npm run generate:types' in libs/scribear-db and commit the changes." && exit 1)
+
   check-formatting-python:
     needs: changes
     if: needs.changes.outputs.backend_python == 'true' || needs.changes.outputs.infra == 'true'

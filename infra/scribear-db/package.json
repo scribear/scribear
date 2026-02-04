@@ -1,0 +1,29 @@
+{
+  "name": "@scribear/scribear-db",
+  "version": "0.0.0",
+  "description": "",
+  "author": "scribear",
+  "main": "dist/src/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "tsc --build --watch",
+    "format": "prettier --check ./src",
+    "format:fix": "prettier --write ./src",
+    "lint": "eslint ./src",
+    "lint:fix": "eslint ./src --fix",
+    "migrate:up": "npm run build && node ./dist/src/scripts/migrate.js",
+    "migrate:down": "npm run build && node ./dist/src/scripts/migrate.js down",
+    "generate:types": "npm run build && node ./dist/src/scripts/generate-types.js"
+  },
+  "dependencies": {
+    "env-schema": "6.1.0",
+    "kysely": "0.27.4",
+    "pg": "8.13.1",
+    "typebox": "1.0.41"
+  },
+  "devDependencies": {
+    "@types/pg": "8.11.10",
+    "kysely-codegen": "0.19.0"
+  }
+}
