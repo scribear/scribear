@@ -24,7 +24,7 @@ COPY libs/${LIB}/package*.json libs/${LIB}/
 RUN npm ci
 
 # Copy source code and build
-COPY tsconfig.base.json .LIB
+COPY tsconfig.base.json .
 
 ARG SRC="session-manager"
 COPY apps/${SRC} apps/${SRC}
