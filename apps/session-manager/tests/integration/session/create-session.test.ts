@@ -23,6 +23,11 @@ describe('Integration Tests - POST /session/create', (it) => {
     );
     vi.stubEnv('JWT_ISSUER', 'scribear-session-manager');
     vi.stubEnv('JWT_EXPIRES_IN', '24h');
+    vi.stubEnv('DB_HOST', 'localhost');
+    vi.stubEnv('DB_PORT', '5432');
+    vi.stubEnv('DB_NAME', 'scribear-db');
+    vi.stubEnv('DB_USER', 'scribear');
+    vi.stubEnv('DB_PASSWORD', 'CHANGEME');
 
     // Create a real AppConfig instance with stubbed environment variables
     testConfig = new AppConfig();
