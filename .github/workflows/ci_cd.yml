@@ -297,17 +297,12 @@ jobs:
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-  deploy-webapp:
-    needs:
-      - changes
-      - check-formatting-node
-      - run-linter-node
-      - run-build-node
-      - run-tests-node
-    if: needs.changes.outputs.deploy_frontend == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+  release-webapp:
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v5
       - name: Setup Node
         uses: ./.github/actions/setup-node
 
@@ -315,22 +310,17 @@ jobs:
         working-directory: "apps/webapp"
         run: npm run build
 
-      - name: Configure SSH
-        shell: bash
+      - name: Add build info
+        working-directory: "apps/webapp"
         run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.WEBAPP_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          if [ -n "${{ secrets.WEBAPP_SSH_KNOWN_HOSTS }}" ]; then
-            printf '%s\n' "${{ secrets.WEBAPP_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
-            chmod 600 ~/.ssh/known_hosts
-          fi
+          date > dist/builddate.txt
+          git rev-parse --short HEAD > dist/commit.txt
 
-      - name: Deploy webapp
-        env:
-          DEPLOY_HOST: scribear.illinois.edu
-          DEPLOY_USER: ${{ secrets.WEBAPP_SSH_USER }}
-          DEPLOY_PATH: ${{ secrets.WEBAPP_DEPLOY_PATH }}
+      - name: Package release artifact
         run: |
-          rsync -az --delete -e "ssh -o StrictHostKeyChecking=accept-new" apps/webapp/dist/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+          tar -czf "webapp-dist-${GITHUB_REF_NAME}.tgz" -C apps/webapp dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "webapp-dist-${{ github.ref_name }}.tgz"
