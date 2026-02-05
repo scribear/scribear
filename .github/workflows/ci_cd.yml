@@ -303,6 +303,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
       - name: Setup Node
         uses: ./.github/actions/setup-node
 
