@@ -22,6 +22,7 @@ import { MicrophoneServiceProvider } from '@/core/microphone/contexts/microphone
 import { CustomThemeProvider } from '@/features/theme-customization/contexts/custom-theme/custom-theme-provider';
 import { TranscriptionDisplayProvider } from '@/features/transcription-display/contexts/transcription-display/transcription-display-provider';
 import { store } from '@/stores/store';
+import { MicrophoneVisualizerOverlay } from '@/core/microphone/components/microphone-visualizers/visualizer-overlay';
 
 interface AppProviderProps {
   children: React.ReactNode;
@@ -39,6 +40,7 @@ export const AppProvider = ({ children }: AppProviderProps) => {
                 <TranscriptionDisplayProvider>
                   <MicrophoneServiceProvider>
                     {children}
+                    <MicrophoneVisualizerOverlay />
                   </MicrophoneServiceProvider>
                 </TranscriptionDisplayProvider>
               </CustomThemeProvider>
