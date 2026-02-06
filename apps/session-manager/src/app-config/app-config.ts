@@ -5,6 +5,7 @@ import type { Static } from 'typebox';
 import { LogLevel } from '@scribear/base-fastify-server';
 
 import type { DBClientConfig } from '@/db/db-client.js';
+import type { HashServiceConfig } from '@/server/services/hash.service.js';
 import type { JwtServiceConfig } from '@/server/services/jwt.service.js';
 
 const CONFIG_SCHEMA = Type.Object({
@@ -19,6 +20,7 @@ const CONFIG_SCHEMA = Type.Object({
   DB_NAME: Type.String(),
   DB_USER: Type.String(),
   DB_PASSWORD: Type.String(),
+  HASH_SALT_ROUNDS: Type.Number({ minimum: 10, default: '10' }),
 });
 
 export interface BaseConfig {
@@ -59,6 +61,12 @@ class AppConfig {
       jwtSecret: this._env.JWT_SECRET,
       jwtIssuer: this._env.JWT_ISSUER,
       jwtExpiresIn: this._env.JWT_EXPIRES_IN,
+    };
+  }
+
+  get hashServiceConfig(): HashServiceConfig {
+    return {
+      saltRounds: this._env.HASH_SALT_ROUNDS,
     };
   }
 
