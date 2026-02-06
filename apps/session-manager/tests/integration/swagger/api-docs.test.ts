@@ -13,8 +13,7 @@ describe('Integration Tests - /api-docs', (it) => {
   it('returns 404 on /api-docs when not in development mode', async () => {
     // Arrange
     const mockConfig = mock<AppConfig>({
-      isDevelopment: false,
-      logLevel: LogLevel.SILENT,
+      baseConfig: { isDevelopment: false, logLevel: LogLevel.SILENT },
     });
     const { fastify } = await createServer(mockConfig);
 
@@ -34,8 +33,7 @@ describe('Integration Tests - /api-docs', (it) => {
   it('returns 200 on /api-docs when in development mode', async () => {
     // Arrange
     const mockConfig = mock<AppConfig>({
-      isDevelopment: true,
-      logLevel: LogLevel.SILENT,
+      baseConfig: { isDevelopment: true, logLevel: LogLevel.SILENT },
     });
     const { fastify } = await createServer(mockConfig);
 

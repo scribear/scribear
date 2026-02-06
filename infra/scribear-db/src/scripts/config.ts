@@ -14,43 +14,33 @@ const CONFIG_SCHEMA = Type.Object({
  * Class that loads and provides database configuration for scripts
  */
 class DatabaseConfig {
-  private _host: string;
-  private _port: number;
-  private _database: string;
-  private _user: string;
-  private _password: string;
+  private _env: Static<typeof CONFIG_SCHEMA>;
 
   get host() {
-    return this._host;
+    return this._env.DB_HOST;
   }
 
   get port() {
-    return this._port;
+    return this._env.DB_PORT;
   }
 
   get database() {
-    return this._database;
+    return this._env.DB_NAME;
   }
 
   get user() {
-    return this._user;
+    return this._env.DB_USER;
   }
 
   get password() {
-    return this._password;
+    return this._env.DB_PASSWORD;
   }
 
   constructor(path?: string) {
-    const env = envSchema<Static<typeof CONFIG_SCHEMA>>({
+    this._env = envSchema<Static<typeof CONFIG_SCHEMA>>({
       dotenv: path ? { path, quiet: true } : { quiet: true },
       schema: CONFIG_SCHEMA,
     });
-
-    this._host = env.DB_HOST;
-    this._port = env.DB_PORT;
-    this._database = env.DB_NAME;
-    this._user = env.DB_USER;
-    this._password = env.DB_PASSWORD;
   }
 }
 

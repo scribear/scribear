@@ -21,7 +21,10 @@ async function main() {
   });
 
   try {
-    await fastify.listen({ port: config.port, host: config.host });
+    await fastify.listen({
+      port: config.baseConfig.port,
+      host: config.baseConfig.host,
+    });
   } catch (err) {
     logger.fatal({ msg: 'Failed to start fastify webserver', err });
     throw err; // terminate if failed to start

@@ -3,7 +3,13 @@ import pg from 'pg';
 
 import type { DB } from '@scribear/scribear-db';
 
-import type { AppDependencies } from '@/server/dependency-injection/register-dependencies.js';
+export interface DBClientConfig {
+  dbHost: string;
+  dbPort: number;
+  dbName: string;
+  dbUser: string;
+  dbPassword: string;
+}
 
 class DBClient {
   private _db: Kysely<DB>;
@@ -12,15 +18,15 @@ class DBClient {
     return this._db;
   }
 
-  constructor(config: AppDependencies['config']) {
+  constructor(dbClientConfig: DBClientConfig) {
     this._db = new Kysely<DB>({
       dialect: new PostgresDialect({
         pool: new pg.Pool({
-          host: config.dbHost,
-          port: config.dbPort,
-          database: config.dbName,
-          user: config.dbUser,
-          password: config.dbPassword,
+          host: dbClientConfig.dbHost,
+          port: dbClientConfig.dbPort,
+          database: dbClientConfig.dbName,
+          user: dbClientConfig.dbUser,
+          password: dbClientConfig.dbPassword,
         }),
       }),
     });
