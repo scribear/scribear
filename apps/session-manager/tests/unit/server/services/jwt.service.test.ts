@@ -5,16 +5,20 @@ import { type MockProxy, mock } from 'vitest-mock-extended';
 import type { BaseLogger } from '@scribear/base-fastify-server';
 
 import {
-  type JwtConfig,
   type JwtPayload,
   JwtService,
+  type JwtServiceConfig,
 } from '@/server/services/jwt.service.js';
 
 describe('JwtService', () => {
   let mockLogger: MockProxy<BaseLogger>;
   let jwtService: JwtService;
   const testSecret = 'test-jwt-secret-must-be-at-least-32-characters-long';
-  const defaultConfig: JwtConfig = { jwtSecret: testSecret };
+  const defaultConfig: JwtServiceConfig = {
+    jwtSecret: testSecret,
+    jwtIssuer: 'scribear-session-manager',
+    jwtExpiresIn: '24h',
+  };
 
   beforeEach(() => {
     mockLogger = mock<BaseLogger>();
@@ -22,16 +26,6 @@ describe('JwtService', () => {
   });
 
   describe('constructor', (it) => {
-    /**
-     * Test that constructor throws error for short secret
-     */
-    it('throws error when secret is too short', () => {
-      // Act & Assert
-      expect(() => new JwtService(mockLogger, { jwtSecret: 'short' })).toThrow(
-        'JWT secret must be at least 32 characters long',
-      );
-    });
-
     /**
      * Test that constructor accepts valid secret
      */
@@ -59,6 +53,7 @@ describe('JwtService', () => {
     it('accepts custom issuer', () => {
       // Arrange & Act
       const service = new JwtService(mockLogger, {
+        ...defaultConfig,
         jwtSecret: testSecret,
         jwtIssuer: 'custom-issuer',
       });
@@ -247,6 +242,7 @@ describe('JwtService', () => {
       // Arrange
       const differentSecret = 'different-secret-must-be-at-least-32-chars-long';
       const differentService = new JwtService(mockLogger, {
+        ...defaultConfig,
         jwtSecret: differentSecret,
       });
       const token = differentService.issueToken('session_123', 'source');
@@ -298,6 +294,7 @@ describe('JwtService', () => {
     it('rejects token with wrong issuer', () => {
       // Arrange
       const differentService = new JwtService(mockLogger, {
+        ...defaultConfig,
         jwtSecret: testSecret,
         jwtIssuer: 'different-issuer',
       });

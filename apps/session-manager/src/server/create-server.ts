@@ -13,11 +13,11 @@ import swagger from './plugins/swagger.js';
  */
 async function createServer(config: AppConfig) {
   const { logger, dependencyContainer, fastify } = createBaseServer(
-    config.logLevel,
+    config.baseConfig.logLevel,
   );
 
   // Only include swagger docs if in development mode
-  if (config.isDevelopment) {
+  if (config.baseConfig.isDevelopment) {
     await fastify.register(swagger);
   }
 

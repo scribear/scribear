@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import type { SignOptions } from 'jsonwebtoken';
 import type { StringValue } from 'ms';
 
-import type { BaseLogger } from '@scribear/base-fastify-server';
+import type { AppDependencies } from '../dependency-injection/register-dependencies.js';
 
 export type SessionScope = 'source' | 'sink' | 'both';
 
@@ -21,27 +21,26 @@ export interface JwtVerificationResult {
   error?: string;
 }
 
-export interface JwtConfig {
+export interface JwtServiceConfig {
   jwtSecret: string;
-  jwtIssuer?: string;
-  jwtExpiresIn?: string;
+  jwtIssuer: string;
+  jwtExpiresIn: string;
 }
 
 export class JwtService {
-  private _log: BaseLogger;
+  private _log: AppDependencies['logger'];
   private _secret: string;
   private _issuer: string;
   private _jwtExpiresIn: string;
 
-  constructor(logger: BaseLogger, config: JwtConfig) {
+  constructor(
+    logger: AppDependencies['logger'],
+    jwtServiceConfig: AppDependencies['jwtServiceConfig'],
+  ) {
     this._log = logger;
-    this._secret = config.jwtSecret;
-    this._issuer = config.jwtIssuer ?? 'scribear-session-manager';
-    this._jwtExpiresIn = config.jwtExpiresIn ?? '24h';
-
-    if (!this._secret || this._secret.length < 32) {
-      throw new Error('JWT secret must be at least 32 characters long');
-    }
+    this._secret = jwtServiceConfig.jwtSecret;
+    this._issuer = jwtServiceConfig.jwtIssuer;
+    this._jwtExpiresIn = jwtServiceConfig.jwtExpiresIn;
   }
 
   /**

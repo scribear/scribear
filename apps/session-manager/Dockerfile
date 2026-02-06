@@ -13,13 +13,14 @@ COPY package*.json .
 
 ARG SRC="session-manager"
 COPY apps/${SRC}/package*.json apps/${SRC}/
+ARG INFRA="scribear-db"
+COPY infra/${INFRA}/package*.json infra/${INFRA}/
 ARG LIB="base-fastify-server"
 COPY libs/${LIB}/package*.json libs/${LIB}/
 ARG LIB="base-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
 ARG LIB="session-manager-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-
 RUN npm ci
 
 # Copy source code and build
@@ -27,6 +28,8 @@ COPY tsconfig.base.json .
 
 ARG SRC="session-manager"
 COPY apps/${SRC} apps/${SRC}
+ARG INFRA="scribear-db"
+COPY infra/${INFRA} infra/${INFRA}
 ARG LIB="base-fastify-server"
 COPY libs/${LIB} libs/${LIB}
 ARG LIB="base-schema"
@@ -47,6 +50,8 @@ COPY package*.json .
 
 ARG SRC="session-manager"
 COPY apps/${SRC}/package*.json apps/${SRC}/
+ARG INFRA="scribear-db"
+COPY infra/${INFRA}/package*.json infra/${INFRA}/
 ARG LIB="base-fastify-server"
 COPY libs/${LIB}/package*.json libs/${LIB}/
 ARG LIB="base-schema"
@@ -58,7 +63,9 @@ RUN npm ci --omit=dev
 
 # Copy the build artifacts from build-env container
 ARG SRC="session-manager"
-COPY --from=build-env /app/apps/${SRC}/dist/src/ /app/apps/${SRC}/dist/src/
+COPY --from=build-env /app/apps/${SRC}/dist/src/ /app/apps/${SRC}/dist/src
+ARG INFRA="scribear-db"
+COPY --from=build-env /app/infra/${INFRA}/dist/src/ /app/infra/${INFRA}/dist/src/
 ARG LIB="base-fastify-server"
 COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
 ARG LIB="base-schema"
