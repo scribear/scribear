@@ -9,12 +9,10 @@ import {
 } from '@scribear/session-manager-schema';
 
 import type { AppDependencies } from '../../dependency-injection/register-dependencies.js';
-import type { JwtService } from '../../services/jwt.service.js';
-import type { SessionService } from './session.service.js';
 
 class SessionController {
-  private _sessionService: SessionService;
-  private _jwtService: JwtService;
+  private _sessionService: AppDependencies['sessionService'];
+  private _jwtService: AppDependencies['jwtService'];
 
   constructor(
     sessionService: AppDependencies['sessionService'],

@@ -15,8 +15,7 @@ describe('Integration Tests - /healthcheck', (it) => {
 
   beforeEach(async () => {
     mockConfig = mock<AppConfig>({
-      isDevelopment: false,
-      logLevel: LogLevel.SILENT,
+      baseConfig: { isDevelopment: false, logLevel: LogLevel.SILENT },
     });
 
     const server = await createServer(mockConfig);

@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
 import { randomBytes } from 'node:crypto';
 
-import type { BaseLogger } from '@scribear/base-fastify-server';
+import type { AppDependencies } from '@/server/dependency-injection/register-dependencies.js';
 
 const SALT_ROUNDS = 10;
 
@@ -25,11 +25,11 @@ export interface CreateSessionParams {
 
 // This is currently in-memory, we can override these functions to save to prisma/KV-store later
 export class SessionService {
-  private _log: BaseLogger;
+  private _log: AppDependencies['logger'];
   private _sessions: Map<string, Session>;
   private _joinCodeToSessionId: Map<string, string>;
 
-  constructor(logger: BaseLogger) {
+  constructor(logger: AppDependencies['logger']) {
     this._log = logger;
     this._sessions = new Map();
     this._joinCodeToSessionId = new Map();
