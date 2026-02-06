@@ -15,7 +15,6 @@ import DBClient, { type DBClientConfig } from '../../db/db-client.js';
 import HealthcheckController from '../features/healthcheck/healthcheck.controller.js';
 import SessionController from '../features/session/session.controller.js';
 import { SessionService } from '../features/session/session.service.js';
-import { JwtService } from '../services/jwt.service.js';
 import { JwtService, type JwtServiceConfig } from '../services/jwt.service.js';
 
 /**
