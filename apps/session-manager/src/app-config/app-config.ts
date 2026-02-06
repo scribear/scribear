@@ -62,6 +62,26 @@ class AppConfig {
     };
   }
 
+  get dbHost() {
+    return this._dbHost;
+  }
+
+  get dbPort() {
+    return this._dbPort;
+  }
+
+  get dbName() {
+    return this._dbName;
+  }
+
+  get dbUser() {
+    return this._dbUser;
+  }
+
+  get dbPassword() {
+    return this._dbPassword;
+  }
+
   constructor(path?: string) {
     this._isDevelopment = process.argv.includes('--dev');
 
