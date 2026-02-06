@@ -25,13 +25,9 @@ interface AppDependencies extends BaseDependencies {
   dbClientConfig: DBClientConfig;
   dbClient: DBClient;
 
-  // Database
-  dbClient: DBClient;
-
   // Services
   jwtServiceConfig: JwtServiceConfig;
   jwtService: JwtService;
-
 
   // Healthcheck
   healthcheckController: HealthcheckController;
