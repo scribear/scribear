@@ -1,0 +1,36 @@
+{
+  "name": "@scribear/transcription-gateway",
+  "version": "0.0.0",
+  "description": "WebSocket Gateway for Transcription Service",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --build",
+    "start": "node ./dist/src/index.js",
+    "dev": "tsx watch src/index.ts",
+    "format": "prettier --check ./src",
+    "format:fix": "prettier --write ./src",
+    "lint": "eslint ./src",
+    "lint:fix": "eslint ./src --fix",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/awilix": "8.0.0",
+    "@fastify/websocket": "^10.0.1",
+    "awilix": "12.0.5",
+    "env-schema": "6.1.0",
+    "fastify": "5.6.1",
+    "fastify-plugin": "5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "typebox": "1.0.41",
+    
+    "@scribear/base-fastify-server": "workspace:*",
+    "@scribear/transcription-service-client": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^20.11.24",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3",
+    "vitest": "^1.3.1"
+  }
+}
