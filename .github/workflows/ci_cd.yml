@@ -24,6 +24,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       deploy_frontend: ${{ steps.filter.outputs.deploy_frontend }}
       backend_node: ${{ steps.filter.outputs.backend_node }}
+      backend_db: ${{ steps.filter.outputs.backend_db }}
       backend_python: ${{ steps.filter.outputs.backend_python }}
     steps:
       - uses: actions/checkout@v5
@@ -47,15 +48,6 @@ jobs:
               - '.editorconfig'
             deploy_frontend:
               - 'apps/webapp/**'
-              - 'package.json'
-              - 'package-lock.json'
-              - 'tsconfig.base.json'
-              - 'eslint.config.js'
-              - 'prettier.config.js'
-              - 'vitest.config.ts'
-              - 'vitest.shared.ts'
-              - '.npmrc'
-              - '.editorconfig'
             backend_node:
               - 'apps/session-manager/**'
               - 'libs/**'
@@ -68,64 +60,116 @@ jobs:
               - 'vitest.shared.ts'
               - '.npmrc'
               - '.editorconfig'
+            backend_db:
+              - 'infra/scribear-db/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'tsconfig.base.json'
+              - 'eslint.config.js'
+              - 'prettier.config.js'
+              - '.npmrc'
+              - '.editorconfig'
             backend_python:
               - 'transcription_service/**'
 
   check-formatting-node:
     needs: changes
-    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.backend_node == 'true' || needs.changes.outputs.infra == 'true'
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.backend_node == 'true' || needs.changes.outputs.backend_db == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - name: Setup Node
         uses: ./.github/actions/setup-node
 
-      - name: Check formatting
-        working-directory: "."
-        run: npm run format
+      - name: Check formatting - frontend
+        if: needs.changes.outputs.frontend == 'true'
+        run: npm run format --workspace @scribear/webapp
+
+      - name: Check formatting - backend node
+        if: needs.changes.outputs.backend_node == 'true'
+        run: |
+          npm run format --workspace @scribear/base-schema
+          npm run format --workspace @scribear/session-manager-schema
+          npm run format --workspace @scribear/transcription-service-client
+          npm run format --workspace @scribear/base-fastify-server
+          npm run format --workspace @scribear/session-manager
+
+      - name: Check formatting - backend db
+        if: needs.changes.outputs.backend_db == 'true'
+        run: npm run format --workspace @scribear/scribear-db
 
   run-linter-node:
     needs: changes
-    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.backend_node == 'true' || needs.changes.outputs.infra == 'true'
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.backend_node == 'true' || needs.changes.outputs.backend_db == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - name: Setup Node
         uses: ./.github/actions/setup-node
 
-      - name: Run linter
-        working-directory: "."
-        run: npm run lint
+      - name: Run linter - frontend
+        if: needs.changes.outputs.frontend == 'true'
+        run: npm run lint --workspace @scribear/webapp
+
+      - name: Run linter - backend node
+        if: needs.changes.outputs.backend_node == 'true'
+        run: |
+          npm run lint --workspace @scribear/base-schema
+          npm run lint --workspace @scribear/session-manager-schema
+          npm run lint --workspace @scribear/transcription-service-client
+          npm run lint --workspace @scribear/base-fastify-server
+          npm run lint --workspace @scribear/session-manager
+
+      - name: Run linter - backend db
+        if: needs.changes.outputs.backend_db == 'true'
+        run: npm run lint --workspace @scribear/scribear-db
 
   run-build-node:
     needs: changes
-    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.backend_node == 'true' || needs.changes.outputs.infra == 'true'
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.backend_node == 'true' || needs.changes.outputs.backend_db == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - name: Setup Node
         uses: ./.github/actions/setup-node
 
-      - name: Run build
-        working-directory: "."
-        run: npm run build
+      - name: Run build - frontend
+        if: needs.changes.outputs.frontend == 'true'
+        run: npm run build --workspace @scribear/webapp
+
+      - name: Run build - backend node
+        if: needs.changes.outputs.backend_node == 'true'
+        run: |
+          npm run build --workspace @scribear/base-schema
+          npm run build --workspace @scribear/session-manager-schema
+          npm run build --workspace @scribear/transcription-service-client
+          npm run build --workspace @scribear/base-fastify-server
+          npm run build --workspace @scribear/session-manager
+
+      - name: Run build - backend db
+        if: needs.changes.outputs.backend_db == 'true'
+        run: npm run build --workspace @scribear/scribear-db
 
   run-tests-node:
     needs: changes
-    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.backend_node == 'true' || needs.changes.outputs.infra == 'true'
+    if: needs.changes.outputs.backend_node == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - name: Setup Node
         uses: ./.github/actions/setup-node
 
-      - name: Run build
-        working-directory: "."
-        run: npm run build
+      - name: Build backend test targets
+        run: |
+          npm run build --workspace @scribear/base-schema
+          npm run build --workspace @scribear/session-manager-schema
+          npm run build --workspace @scribear/base-fastify-server
+          npm run build --workspace @scribear/session-manager
 
-      - name: Run tests
-        working-directory: "."
-        run: npm run test
+      - name: Run backend tests
+        run: |
+          npm run test --workspace @scribear/base-fastify-server
+          npm run test --workspace @scribear/session-manager
 
       - name: Code Coverage Report - Base Fastify Server
         uses: ./.github/actions/coverage-report
@@ -140,6 +184,8 @@ jobs:
           filename: "./apps/session-manager/coverage/cobertura-coverage.xml"
 
   check-database-types:
+    needs: changes
+    if: needs.changes.outputs.backend_db == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -191,7 +237,7 @@ jobs:
 
   check-formatting-python:
     needs: changes
-    if: needs.changes.outputs.backend_python == 'true' || needs.changes.outputs.infra == 'true'
+    if: needs.changes.outputs.backend_python == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -204,7 +250,7 @@ jobs:
 
   run-linter-python:
     needs: changes
-    if: needs.changes.outputs.backend_python == 'true' || needs.changes.outputs.infra == 'true'
+    if: needs.changes.outputs.backend_python == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -217,7 +263,7 @@ jobs:
 
   run-tests-python:
     needs: changes
-    if: needs.changes.outputs.backend_python == 'true' || needs.changes.outputs.infra == 'true'
+    if: needs.changes.outputs.backend_python == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -297,15 +343,16 @@ jobs:
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-  deploy-webapp:
+  release-webapp:
     needs:
       - changes
       - check-formatting-node
       - run-linter-node
       - run-build-node
-      - run-tests-node
-    if: needs.changes.outputs.deploy_frontend == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.deploy_frontend == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
       - name: Setup Node
@@ -315,22 +362,17 @@ jobs:
         working-directory: "apps/webapp"
         run: npm run build
 
-      - name: Configure SSH
-        shell: bash
+      - name: Add build info
+        working-directory: "apps/webapp"
         run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.WEBAPP_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          if [ -n "${{ secrets.WEBAPP_SSH_KNOWN_HOSTS }}" ]; then
-            printf '%s\n' "${{ secrets.WEBAPP_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
-            chmod 600 ~/.ssh/known_hosts
-          fi
+          date > dist/builddate.txt
+          git rev-parse --short HEAD > dist/commit.txt
 
-      - name: Deploy webapp
-        env:
-          DEPLOY_HOST: scribear.illinois.edu
-          DEPLOY_USER: ${{ secrets.WEBAPP_SSH_USER }}
-          DEPLOY_PATH: ${{ secrets.WEBAPP_DEPLOY_PATH }}
+      - name: Package release artifact
         run: |
-          rsync -az --delete -e "ssh -o StrictHostKeyChecking=accept-new" apps/webapp/dist/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+          tar -czf "webapp-dist-${GITHUB_REF_NAME}.tgz" -C apps/webapp dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "webapp-dist-${{ github.ref_name }}.tgz"
