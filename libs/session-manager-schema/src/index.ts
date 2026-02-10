@@ -7,10 +7,6 @@ export {
   CREATE_TOKEN_SCHEMA,
 } from './session/create-token.schema.js';
 export {
-  REGISTER_KIOSK_ROUTE,
-  REGISTER_KIOSK_SCHEMA,
-} from './kiosk-management/register-kiosk.schema.js';
-export {
   HEALTHCHECK_ROUTE,
   HEALTHCHECK_SCHEMA,
 } from './healthcheck/healthcheck.schema.js';
