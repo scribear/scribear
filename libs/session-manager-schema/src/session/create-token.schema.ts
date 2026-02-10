@@ -1,13 +1,16 @@
 import { Type } from 'typebox';
 
 import {
+  type BaseRouteDefinition,
   type BaseRouteSchema,
   SHARED_ERROR_REPLY_SCHEMA,
 } from '@scribear/base-schema';
 
+import { SESSION_MANAGEMENT_TAG } from '../tags.js';
+
 const CREATE_TOKEN_SCHEMA = {
   description: 'Creates a JWT token for session access',
-  tags: ['Session'],
+  tags: [SESSION_MANAGEMENT_TAG],
   body: Type.Union(
     [
       Type.Object(
@@ -75,9 +78,9 @@ const CREATE_TOKEN_SCHEMA = {
     404: SHARED_ERROR_REPLY_SCHEMA[404],
     500: SHARED_ERROR_REPLY_SCHEMA[500],
   },
-};
+} satisfies BaseRouteSchema;
 
-const CREATE_TOKEN_ROUTE: BaseRouteSchema = {
+const CREATE_TOKEN_ROUTE: BaseRouteDefinition = {
   method: 'POST',
   url: '/api/v1/session/token',
 };
