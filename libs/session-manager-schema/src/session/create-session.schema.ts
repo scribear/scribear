@@ -5,6 +5,7 @@ import {
   type BaseRouteSchema,
   SHARED_ERROR_REPLY_SCHEMA,
 } from '@scribear/base-schema';
+
 import { SESSION_MANAGEMENT_TAG } from '../tags.js';
 
 const CREATE_SESSION_SCHEMA = {
