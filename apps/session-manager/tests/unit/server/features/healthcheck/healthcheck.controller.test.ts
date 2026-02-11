@@ -6,7 +6,7 @@ import type {
 } from '@scribear/base-fastify-server';
 import type { HEALTHCHECK_SCHEMA } from '@scribear/session-manager-schema';
 
-import HealthcheckController from '#src/server/features/healthcheck/healthcheck.controller.js';
+import { HealthcheckController } from '#src/server/features/healthcheck/healthcheck.controller.js';
 
 describe('Healthcheck controller', (it) => {
   const testRequestId = 'TEST_REQUEST_ID';

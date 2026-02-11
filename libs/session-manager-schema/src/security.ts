@@ -5,14 +5,14 @@ import type { BaseSecurityDefinition } from '@scribear/base-schema';
 export const API_KEY_AUTH_HEADER_SCHEMA = Type.String({
   pattern: '^API-KEY [A-Za-z0-9_-]+$',
   description:
-    'API key authentication header. Format: API-KEY <your-api-key>. ',
+    'API key authentication header. Format: API-KEY <your-api-key>. Do not use this parameter directly in Swagger Web UI, use the Authorize button at the top of the page or lock icon in the corner of this endpoint instead.',
   examples: ['API-KEY some_api_key'],
 });
 
 export const KIOSK_SECRET_AUTH_HEADER_SCHEMA = Type.String({
   pattern: '^KIOSK-SECRET [A-Za-z0-9_-]+$',
   description:
-    'Kiosk secret authentication header. Format: KIOSK-SECRET <your-kiosk-secret>',
+    'Kiosk secret authentication header. Format: KIOSK-SECRET <your-kiosk-secret>. Do not use this parameter directly in Swagger Web UI, use the Authorize button at the top of the page or lock icon in the corner of this endpoint instead.',
   examples: ['KIOSK-SECRET some_kiosk_secret'],
 });
 
@@ -32,5 +32,5 @@ export const OPENAPI_SECURITY_SCHEMES = {
   },
 } satisfies BaseSecurityDefinition;
 
-export const API_KEY_AUTH_SECURITY = [{ apiKeyAuth: [] }];
-export const KIOSK_SECRET_AUTH_SECURITY = [{ kioskSecretAuth: [] }];
+export const API_KEY_AUTH_SECURITY = { apiKeyAuth: [] };
+export const KIOSK_SECRET_AUTH_SECURITY = { kioskSecretAuth: [] };

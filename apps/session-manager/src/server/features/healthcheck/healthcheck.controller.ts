@@ -4,7 +4,7 @@ import type {
 } from '@scribear/base-fastify-server';
 import { HEALTHCHECK_SCHEMA } from '@scribear/session-manager-schema';
 
-class HealthcheckController {
+export class HealthcheckController {
   healthcheck(
     req: BaseFastifyRequest<typeof HEALTHCHECK_SCHEMA>,
     res: BaseFastifyReply<typeof HEALTHCHECK_SCHEMA>,
@@ -12,5 +12,3 @@ class HealthcheckController {
     res.code(200).send({ reqId: req.id });
   }
 }
-
-export default HealthcheckController;

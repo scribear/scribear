@@ -13,9 +13,16 @@ import type { BaseDependencies } from '@scribear/base-fastify-server';
 import type AppConfig from '#src/app-config/app-config.js';
 import DBClient, { type DBClientConfig } from '#src/db/db-client.js';
 
-import HealthcheckController from '../features/healthcheck/healthcheck.controller.js';
-import SessionController from '../features/session/session.controller.js';
+import { HealthcheckController } from '../features/healthcheck/healthcheck.controller.js';
+import { KioskManagementController } from '../features/kiosk-management/kiosk-management.controller.js';
+import { KioskManagementRepository } from '../features/kiosk-management/kiosk-management.repository.js';
+import { KioskManagementService } from '../features/kiosk-management/kiosk-management.service.js';
+import { SessionController } from '../features/session/session.controller.js';
 import { SessionService } from '../features/session/session.service.js';
+import {
+  AuthService,
+  type AuthServiceConfig,
+} from '../services/auth.service.js';
 import {
   HashService,
   type HashServiceConfig,
@@ -25,7 +32,7 @@ import { JwtService, type JwtServiceConfig } from '../services/jwt.service.js';
 /**
  * Define types for entities in dependency container
  */
-interface AppDependencies extends BaseDependencies {
+export interface AppDependencies extends BaseDependencies {
   // Database
   dbClientConfig: DBClientConfig;
   dbClient: DBClient;
@@ -37,12 +44,20 @@ interface AppDependencies extends BaseDependencies {
   hashServiceConfig: HashServiceConfig;
   hashService: HashService;
 
+  authServiceConfig: AuthServiceConfig;
+  authService: AuthService;
+
   // Healthcheck
   healthcheckController: HealthcheckController;
 
   // Session
   sessionController: SessionController;
   sessionService: SessionService;
+
+  // Kiosk Management
+  kioskManagementController: KioskManagementController;
+  kioskManagementService: KioskManagementService;
+  kioskManagementRepository: KioskManagementRepository;
 }
 
 /**
@@ -62,7 +77,7 @@ declare module '@fastify/awilix' {
  * @param dependencyContainer Container to load dependencies into
  * @param config AppConfig to be registered into dependency controller
  */
-function registerDependencies(
+export function registerDependencies(
   dependencyContainer: AwilixContainer,
   config: AppConfig,
 ) {
@@ -84,6 +99,11 @@ function registerDependencies(
       lifetime: Lifetime.SCOPED,
     }),
 
+    authServiceConfig: asValue(config.authServiceConfig),
+    authService: asClass(AuthService, {
+      lifetime: Lifetime.SCOPED,
+    }),
+
     // Healthcheck
     healthcheckController: asClass(HealthcheckController, {
       lifetime: Lifetime.SCOPED,
@@ -96,8 +116,16 @@ function registerDependencies(
     sessionService: asClass(SessionService, {
       lifetime: Lifetime.SINGLETON,
     }),
+
+    // Kiosk Management
+    kioskManagementController: asClass(KioskManagementController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    kioskManagementService: asClass(KioskManagementService, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    kioskManagementRepository: asClass(KioskManagementRepository, {
+      lifetime: Lifetime.SCOPED,
+    }),
   } as NameAndRegistrationPair<AppDependencies>);
 }
-
-export default registerDependencies;
-export type { AppDependencies };

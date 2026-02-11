@@ -5,8 +5,9 @@ import type { Static } from 'typebox';
 import { LogLevel } from '@scribear/base-fastify-server';
 
 import type { DBClientConfig } from '#src/db/db-client.js';
-import type { JwtServiceConfig } from '#src/server/services/jwt.service.js';
+import type { AuthServiceConfig } from '#src/server/services/auth.service.js';
 import type { HashServiceConfig } from '#src/server/services/hash.service.js';
+import type { JwtServiceConfig } from '#src/server/services/jwt.service.js';
 
 const CONFIG_SCHEMA = Type.Object({
   LOG_LEVEL: Type.Enum(LogLevel),
@@ -21,6 +22,7 @@ const CONFIG_SCHEMA = Type.Object({
   DB_USER: Type.String(),
   DB_PASSWORD: Type.String(),
   HASH_SALT_ROUNDS: Type.Number({ minimum: 10, default: '10' }),
+  API_KEY: Type.String({ minLength: 1 }),
 });
 
 export interface BaseConfig {
@@ -67,6 +69,12 @@ class AppConfig {
   get hashServiceConfig(): HashServiceConfig {
     return {
       saltRounds: this._env.HASH_SALT_ROUNDS,
+    };
+  }
+
+  get authServiceConfig(): AuthServiceConfig {
+    return {
+      apiKey: this._env.API_KEY,
     };
   }
 

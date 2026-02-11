@@ -12,7 +12,7 @@ import resolveHandler from '#src/server/dependency-injection/resolve-handler.js'
  * Registers session management routes
  * @param fastify Fastify app instance
  */
-function sessionRouter(fastify: BaseFastifyInstance) {
+export function sessionRouter(fastify: BaseFastifyInstance) {
   fastify.route({
     ...CREATE_SESSION_ROUTE,
     schema: CREATE_SESSION_SCHEMA,
@@ -25,5 +25,3 @@ function sessionRouter(fastify: BaseFastifyInstance) {
     handler: resolveHandler('sessionController', 'createToken'),
   });
 }
-
-export default sessionRouter;

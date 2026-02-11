@@ -11,7 +11,7 @@ import type {
   CREATE_TOKEN_SCHEMA,
 } from '@scribear/session-manager-schema';
 
-import SessionController from '#src/server/features/session/session.controller.js';
+import { SessionController } from '#src/server/features/session/session.controller.js';
 import type {
   Session,
   SessionService,

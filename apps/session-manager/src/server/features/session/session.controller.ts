@@ -10,7 +10,7 @@ import {
 
 import type { AppDependencies } from '#src/server/dependency-injection/register-dependencies.js';
 
-class SessionController {
+export class SessionController {
   private _sessionService: AppDependencies['sessionService'];
   private _jwtService: AppDependencies['jwtService'];
 
@@ -94,5 +94,3 @@ class SessionController {
     });
   }
 }
-
-export default SessionController;
