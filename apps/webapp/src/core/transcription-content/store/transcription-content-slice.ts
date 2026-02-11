@@ -3,7 +3,7 @@
  */
 import { type PayloadAction, createSlice } from '@reduxjs/toolkit';
 
-import type { RootState } from '@/stores/store';
+import type { RootState } from '#src/stores/store';
 
 export interface TranscriptionSequence {
   text: string[];

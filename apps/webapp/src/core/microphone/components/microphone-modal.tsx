@@ -1,11 +1,11 @@
-import { ChoiceModal } from '@/components/ui/choice-modal';
-import { MicrophoneServiceStatus } from '@/core/microphone/services/microphone-service';
+import { ChoiceModal } from '#src/components/ui/choice-modal';
+import { MicrophoneServiceStatus } from '#src/core/microphone/services/microphone-service';
 import {
   activateMicrophone,
   deactivateMicrophone,
-} from '@/core/microphone/stores/microphone-preferences-slice';
-import { selectMicrophoneServiceStatus } from '@/core/microphone/stores/microphone-service-slice';
-import { useAppDispatch, useAppSelector } from '@/stores/use-redux';
+} from '#src/core/microphone/stores/microphone-preferences-slice';
+import { selectMicrophoneServiceStatus } from '#src/core/microphone/stores/microphone-service-slice';
+import { useAppDispatch, useAppSelector } from '#src/stores/use-redux';
 
 export const MicrophoneModal = () => {
   const dispatch = useAppDispatch();

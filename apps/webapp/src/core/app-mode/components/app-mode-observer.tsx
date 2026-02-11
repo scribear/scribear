@@ -2,9 +2,9 @@ import { useEffect } from 'react';
 
 import { Outlet, useLocation } from 'react-router';
 
-import { APP_MODE_PATHS, DEFAULT_APP_MODE } from '@/config/app-mode-paths';
-import { appModeChange } from '@/core/app-mode/store/app-mode-slice';
-import { useAppDispatch } from '@/stores/use-redux';
+import { APP_MODE_PATHS, DEFAULT_APP_MODE } from '#src/config/app-mode-paths';
+import { appModeChange } from '#src/core/app-mode/store/app-mode-slice';
+import { useAppDispatch } from '#src/stores/use-redux';
 
 export const AppModeObserver = () => {
   const dispatch = useAppDispatch();

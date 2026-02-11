@@ -8,9 +8,9 @@ import {
   createSlice,
 } from '@reduxjs/toolkit';
 
-import { selectAppMode } from '@/core/app-mode/store/app-mode-slice';
-import type { RootState } from '@/stores/store';
-import { AppMode } from '@/types/app-mode';
+import { selectAppMode } from '#src/core/app-mode/store/app-mode-slice';
+import type { RootState } from '#src/stores/store';
+import { AppMode } from '#src/types/app-mode';
 
 import { ProviderId } from '../services/providers/provider-registry';
 

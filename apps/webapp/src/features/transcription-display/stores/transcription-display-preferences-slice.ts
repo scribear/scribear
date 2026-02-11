@@ -7,7 +7,7 @@ import {
   createSlice,
 } from '@reduxjs/toolkit';
 
-import type { RootState } from '@/stores/store';
+import type { RootState } from '#src/stores/store';
 
 import { TRANSCRIPTION_DISPLAY_CONFG } from '../config/transcription-display-bounds';
 import {

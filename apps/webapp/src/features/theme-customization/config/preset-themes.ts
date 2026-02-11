@@ -2,7 +2,7 @@ import {
   BASE_ACCENT_COLOR,
   BASE_BACKGROUND_COLOR,
   BASE_TRANSCRIPTION_COLOR,
-} from '@/config/base-theme';
+} from '#src/config/base-theme';
 
 import type { PresetThemeConfig } from '../types/theme';
 

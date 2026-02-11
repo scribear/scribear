@@ -2,8 +2,8 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { Type } from 'typebox';
 import { type Mock, beforeEach, describe, expect, vi } from 'vitest';
 
-import { HttpError } from '@/server/errors/http-errors.js';
-import schemaValidator from '@/server/plugins/schema-validator.js';
+import { HttpError } from '#src/server/errors/http-errors.js';
+import schemaValidator from '#src/server/plugins/schema-validator.js';
 
 describe('Schema Validator Plugin', (it) => {
   let fastify: FastifyInstance;

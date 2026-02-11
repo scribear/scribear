@@ -3,8 +3,8 @@ import Typography from '@mui/material/Typography';
 
 import { MuiColorInput } from 'mui-color-input';
 
-import { DEBOUNCE_DELAY } from '@/config/contants';
-import { useDebouncedReduxValue } from '@/hooks/use-debounced-redux-value';
+import { DEBOUNCE_DELAY } from '#src/config/contants';
+import { useDebouncedReduxValue } from '#src/hooks/use-debounced-redux-value';
 
 import {
   selectBackgroundColor,

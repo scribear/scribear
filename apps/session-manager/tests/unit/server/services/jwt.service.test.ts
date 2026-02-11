@@ -8,7 +8,7 @@ import {
   type JwtPayload,
   JwtService,
   type JwtServiceConfig,
-} from '@/server/services/jwt.service.js';
+} from '#src/server/services/jwt.service.js';
 
 describe('JwtService', () => {
   let mockLogger: MockProxy<BaseLogger>;

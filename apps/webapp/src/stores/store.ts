@@ -4,16 +4,16 @@
 import { configureStore, createAction } from '@reduxjs/toolkit';
 import { rememberEnhancer, rememberReducer } from 'redux-remember';
 
-import { microphonePreferencesReducer } from '@/core/microphone/stores/microphone-preferences-slice';
-import { microphoneServiceMiddleware } from '@/core/microphone/stores/microphone-service-middleware';
-import { microphoneServiceReducer } from '@/core/microphone/stores/microphone-service-slice';
-import { transcriptionContentReducer } from '@/core/transcription-content/store/transcription-content-slice';
-import { themePreferencesReducer } from '@/features/theme-customization/stores/theme-preferences-slice';
-import { transcriptionDisplayPreferencesReducer } from '@/features/transcription-display/stores/transcription-display-preferences-slice';
-import { providerConfigReducer } from '@/features/transcription-providers/stores/provider-config-slice';
-import { providerPreferencesReducer } from '@/features/transcription-providers/stores/provider-preferences-slice';
-import { providerServiceMiddleware } from '@/features/transcription-providers/stores/provider-service-middleware';
-import { providerStatusReducer } from '@/features/transcription-providers/stores/provider-status-slice';
+import { microphonePreferencesReducer } from '#src/core/microphone/stores/microphone-preferences-slice';
+import { microphoneServiceMiddleware } from '#src/core/microphone/stores/microphone-service-middleware';
+import { microphoneServiceReducer } from '#src/core/microphone/stores/microphone-service-slice';
+import { transcriptionContentReducer } from '#src/core/transcription-content/store/transcription-content-slice';
+import { themePreferencesReducer } from '#src/features/theme-customization/stores/theme-preferences-slice';
+import { transcriptionDisplayPreferencesReducer } from '#src/features/transcription-display/stores/transcription-display-preferences-slice';
+import { providerConfigReducer } from '#src/features/transcription-providers/stores/provider-config-slice';
+import { providerPreferencesReducer } from '#src/features/transcription-providers/stores/provider-preferences-slice';
+import { providerServiceMiddleware } from '#src/features/transcription-providers/stores/provider-service-middleware';
+import { providerStatusReducer } from '#src/features/transcription-providers/stores/provider-status-slice';
 
 import { appModeReducer } from '../core/app-mode/store/app-mode-slice';
 import { appLayoutPreferencesReducer } from './slices/app-layout-preferences-slice';
