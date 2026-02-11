@@ -1,6 +1,6 @@
 import { EventEmitter } from 'eventemitter3';
 
-import type { TranscriptionSequence } from '../../../../core/transcription-content/store/transcription-content-slice';
+import type { TranscriptionSequence } from '#src/core/transcription-content/store/transcription-content-slice';
 
 export interface ProviderEvents<StatusType> {
   commitParagraphBreak: () => void;

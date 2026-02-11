@@ -8,7 +8,7 @@ import {
   CREATE_TOKEN_SCHEMA,
 } from '@scribear/session-manager-schema';
 
-import type { AppDependencies } from '../../dependency-injection/register-dependencies.js';
+import type { AppDependencies } from '#src/server/dependency-injection/register-dependencies.js';
 
 class SessionController {
   private _sessionService: AppDependencies['sessionService'];
