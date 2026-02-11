@@ -1,6 +1,6 @@
 import fastifyPlugin from 'fastify-plugin';
 
-import type { BaseFastifyInstance } from '../../types/base-fastify-types.js';
+import type { BaseFastifyInstance } from '#src/server/types/base-fastify-types.js';
 
 /**
  * Fastify onSend hook that adds X-Request-Id header to all responses

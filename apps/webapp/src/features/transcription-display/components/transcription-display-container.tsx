@@ -6,15 +6,15 @@ import {
   selectActiveSection,
   selectCommitedSections,
   selectInProgressTranscriptionText,
-} from '@/core/transcription-content/store/transcription-content-slice';
-import { useTranscriptionDisplayHeight } from '@/features/transcription-display/contexts/transcription-display/transcription-display-context';
+} from '#src/core/transcription-content/store/transcription-content-slice';
+import { useTranscriptionDisplayHeight } from '#src/features/transcription-display/contexts/transcription-display/transcription-display-context';
 import {
   selectBoundedDisplayPreferences,
   selectFontSizePx,
   selectLineHeightPx,
   selectWordSpacingEm,
-} from '@/features/transcription-display/stores/transcription-display-preferences-slice';
-import { useAppSelector } from '@/stores/use-redux';
+} from '#src/features/transcription-display/stores/transcription-display-preferences-slice';
+import { useAppSelector } from '#src/stores/use-redux';
 
 import { useAutoScroll } from '../hooks/use-auto-scroll';
 import { useContainerHeight } from '../hooks/use-container-height';

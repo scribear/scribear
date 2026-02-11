@@ -6,9 +6,9 @@ import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutline';
 import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
 
-import { getProviderDisplayName } from '@/features/transcription-providers/services/providers/provider-component-registry';
-import { selectProviderStatus } from '@/features/transcription-providers/stores/provider-status-slice';
-import { useAppSelector } from '@/stores/use-redux';
+import { getProviderDisplayName } from '#src/features/transcription-providers/services/providers/provider-component-registry';
+import { selectProviderStatus } from '#src/features/transcription-providers/stores/provider-status-slice';
+import { useAppSelector } from '#src/stores/use-redux';
 
 import { ProviderId } from '../../provider-registry';
 import { AzureStatus } from '../types/azure-status';

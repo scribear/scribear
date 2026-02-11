@@ -3,8 +3,8 @@ import { mock } from 'vitest-mock-extended';
 
 import { LogLevel } from '@scribear/base-fastify-server';
 
-import AppConfig from '@/app-config/app-config.js';
-import createServer from '@/server/create-server.js';
+import AppConfig from '#src/app-config/app-config.js';
+import createServer from '#src/server/create-server.js';
 
 describe('Integration Tests - /api-docs', (it) => {
   /**

@@ -6,7 +6,7 @@ import {
   CREATE_TOKEN_SCHEMA,
 } from '@scribear/session-manager-schema';
 
-import resolveHandler from '../../dependency-injection/resolve-handler.js';
+import resolveHandler from '#src/server/dependency-injection/resolve-handler.js';
 
 /**
  * Registers session management routes

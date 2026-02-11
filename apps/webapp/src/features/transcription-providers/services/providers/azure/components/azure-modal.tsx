@@ -1,12 +1,12 @@
 import CircularProgress from '@mui/material/CircularProgress';
 import Stack from '@mui/material/Stack';
 
-import { CancelableInfoModal } from '@/components/ui/cancelable-info-modal';
-import { ChoiceModal } from '@/components/ui/choice-modal';
-import { getProviderDisplayName } from '@/features/transcription-providers/services/providers/provider-component-registry';
-import { setPreferredProviderId } from '@/features/transcription-providers/stores/provider-preferences-slice';
-import { selectProviderStatus } from '@/features/transcription-providers/stores/provider-status-slice';
-import { useAppDispatch, useAppSelector } from '@/stores/use-redux';
+import { CancelableInfoModal } from '#src/components/ui/cancelable-info-modal';
+import { ChoiceModal } from '#src/components/ui/choice-modal';
+import { getProviderDisplayName } from '#src/features/transcription-providers/services/providers/provider-component-registry';
+import { setPreferredProviderId } from '#src/features/transcription-providers/stores/provider-preferences-slice';
+import { selectProviderStatus } from '#src/features/transcription-providers/stores/provider-status-slice';
+import { useAppDispatch, useAppSelector } from '#src/stores/use-redux';
 
 import { ProviderId } from '../../provider-registry';
 import { AzureStatus } from '../types/azure-status';

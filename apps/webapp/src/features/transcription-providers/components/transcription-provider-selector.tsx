@@ -9,7 +9,7 @@ import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
-import { useAppDispatch, useAppSelector } from '@/stores/use-redux';
+import { useAppDispatch, useAppSelector } from '#src/stores/use-redux';
 
 import { getProviderDisplayName } from '../services/providers/provider-component-registry';
 import { ProviderId } from '../services/providers/provider-registry';

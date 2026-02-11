@@ -1,8 +1,8 @@
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 
-import { selectTargetProviderId } from '@/features/transcription-providers/stores/provider-preferences-slice';
-import { useAppSelector } from '@/stores/use-redux';
+import { selectTargetProviderId } from '#src/features/transcription-providers/stores/provider-preferences-slice';
+import { useAppSelector } from '#src/stores/use-redux';
 
 import {
   getProviderDisplayName,

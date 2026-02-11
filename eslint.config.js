@@ -100,12 +100,24 @@ export default defineConfig([
           patterns: [{ regex: '^@mui/[^/]+$' }],
         },
       ],
+      'no-restricted-imports': [
+        'warn',
+        {
+          patterns: [
+            {
+              group: ['../../../*'],
+              message:
+                'Avoid deeply nested relative imports. Consider refactoring or using a subpath import instead.',
+            },
+          ],
+        },
+      ],
       /**
        * @see https://redux.js.org/usage/usage-with-typescript#use-typed-hooks-in-components
        * Restrict use of useSelector and useDispatch in favor of useAppDispatch and useAppSelector
        */
       '@typescript-eslint/no-restricted-imports': [
-        'warn',
+        'error',
         {
           name: 'react-redux',
           importNames: ['useSelector', 'useDispatch'],

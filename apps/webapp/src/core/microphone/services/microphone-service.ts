@@ -1,6 +1,6 @@
 import { EventEmitter } from 'eventemitter3';
 
-import { tryCatch } from '@/utils/try-catch';
+import { tryCatch } from '#src/utils/try-catch';
 
 // import { RecordRTCPromisesHandler } from 'recordrtc';
 

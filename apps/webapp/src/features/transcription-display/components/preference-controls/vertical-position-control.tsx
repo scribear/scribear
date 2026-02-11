@@ -2,10 +2,10 @@ import Slider from '@mui/material/Slider';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 
-import { DEBOUNCE_DELAY } from '@/config/contants';
-import { useDebouncedReduxValue } from '@/hooks/use-debounced-redux-value';
-import type { RootState } from '@/stores/store';
-import { useAppSelector } from '@/stores/use-redux';
+import { DEBOUNCE_DELAY } from '#src/config/contants';
+import { useDebouncedReduxValue } from '#src/hooks/use-debounced-redux-value';
+import type { RootState } from '#src/stores/store';
+import { useAppSelector } from '#src/stores/use-redux';
 
 import { TRANSCRIPTION_DISPLAY_CONFG } from '../../config/transcription-display-bounds';
 import { useTranscriptionDisplayHeight } from '../../contexts/transcription-display/transcription-display-context';

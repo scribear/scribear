@@ -1,8 +1,8 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { type Mock, beforeEach, describe, expect, vi } from 'vitest';
 
-import { HttpError } from '@/server/errors/http-errors.js';
-import notFoundHandler from '@/server/plugins/not-found-handler.js';
+import { HttpError } from '#src/server/errors/http-errors.js';
+import notFoundHandler from '#src/server/plugins/not-found-handler.js';
 
 describe('Not Found Handler Plugin', (it) => {
   let fastify: FastifyInstance;

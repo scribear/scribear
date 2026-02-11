@@ -5,7 +5,7 @@ import { useMemo } from 'react';
 
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 
-import { useAppSelector } from '@/stores/use-redux';
+import { useAppSelector } from '#src/stores/use-redux';
 
 import {
   selectAccentColor,
