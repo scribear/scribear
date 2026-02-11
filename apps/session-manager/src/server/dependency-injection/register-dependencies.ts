@@ -16,6 +16,10 @@ import DBClient, { type DBClientConfig } from '#src/db/db-client.js';
 import HealthcheckController from '../features/healthcheck/healthcheck.controller.js';
 import SessionController from '../features/session/session.controller.js';
 import { SessionService } from '../features/session/session.service.js';
+import {
+  HashService,
+  type HashServiceConfig,
+} from '../services/hash.service.js';
 import { JwtService, type JwtServiceConfig } from '../services/jwt.service.js';
 
 /**
@@ -29,6 +33,9 @@ interface AppDependencies extends BaseDependencies {
   // Services
   jwtServiceConfig: JwtServiceConfig;
   jwtService: JwtService;
+
+  hashServiceConfig: HashServiceConfig;
+  hashService: HashService;
 
   // Healthcheck
   healthcheckController: HealthcheckController;
@@ -60,9 +67,6 @@ function registerDependencies(
   config: AppConfig,
 ) {
   dependencyContainer.register({
-    // Config
-    config: asValue(config),
-
     // Database
     dbClientConfig: asValue(config.dbClientConfig),
     dbClient: asClass(DBClient, {
@@ -72,6 +76,11 @@ function registerDependencies(
     // Services
     jwtServiceConfig: asValue(config.jwtServiceConfig),
     jwtService: asClass(JwtService, {
+      lifetime: Lifetime.SCOPED,
+    }),
+
+    hashServiceConfig: asValue(config.hashServiceConfig),
+    hashService: asClass(HashService, {
       lifetime: Lifetime.SCOPED,
     }),
 
