@@ -19,15 +19,13 @@ import { KioskManagementRepository } from '../features/kiosk-management/kiosk-ma
 import { KioskManagementService } from '../features/kiosk-management/kiosk-management.service.js';
 import { SessionController } from '../features/session/session.controller.js';
 import { SessionService } from '../features/session/session.service.js';
+import { AuthRepository } from '../shared/auth/auth.repository.js';
 import {
   AuthService,
   type AuthServiceConfig,
-} from '../services/auth.service.js';
-import {
-  HashService,
-  type HashServiceConfig,
-} from '../services/hash.service.js';
-import { JwtService, type JwtServiceConfig } from '../services/jwt.service.js';
+} from '../shared/auth/auth.service.js';
+import { HashService, type HashServiceConfig } from '../shared/hash.service.js';
+import { JwtService, type JwtServiceConfig } from '../shared/jwt.service.js';
 
 /**
  * Define types for entities in dependency container
@@ -46,6 +44,7 @@ export interface AppDependencies extends BaseDependencies {
 
   authServiceConfig: AuthServiceConfig;
   authService: AuthService;
+  authRepository: AuthRepository;
 
   // Healthcheck
   healthcheckController: HealthcheckController;
@@ -101,6 +100,9 @@ export function registerDependencies(
 
     authServiceConfig: asValue(config.authServiceConfig),
     authService: asClass(AuthService, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    authRepository: asClass(AuthRepository, {
       lifetime: Lifetime.SCOPED,
     }),
 

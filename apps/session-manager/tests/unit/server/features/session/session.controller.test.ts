@@ -16,7 +16,7 @@ import type {
   Session,
   SessionService,
 } from '#src/server/features/session/session.service.js';
-import type { JwtService } from '#src/server/services/jwt.service.js';
+import type { JwtService } from '#src/server/shared/jwt.service.js';
 
 describe('Session controller', () => {
   const testRequestId = 'TEST_REQUEST_ID';

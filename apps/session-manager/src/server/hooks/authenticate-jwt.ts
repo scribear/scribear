@@ -2,7 +2,7 @@ import type { FastifyRequest } from 'fastify';
 
 import { HttpError } from '@scribear/base-fastify-server';
 
-import type { JwtPayload } from '../services/jwt.service.js';
+import type { JwtPayload } from '../shared/jwt.service.js';
 
 // Extend FastifyRequest to include JWT payload
 declare module 'fastify' {

@@ -30,6 +30,8 @@ export class KioskManagementService {
       return null;
     }
 
-    return { id: result.id, secret };
+    const token = Buffer.from(`${result.id}:${secret}`).toString('base64');
+
+    return { id: result.id, token };
   }
 }

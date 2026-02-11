@@ -5,9 +5,9 @@ import type { Static } from 'typebox';
 import { LogLevel } from '@scribear/base-fastify-server';
 
 import type { DBClientConfig } from '#src/db/db-client.js';
-import type { AuthServiceConfig } from '#src/server/services/auth.service.js';
-import type { HashServiceConfig } from '#src/server/services/hash.service.js';
-import type { JwtServiceConfig } from '#src/server/services/jwt.service.js';
+import type { AuthServiceConfig } from '#src/server/shared/auth/auth.service.js';
+import type { HashServiceConfig } from '#src/server/shared/hash.service.js';
+import type { JwtServiceConfig } from '#src/server/shared/jwt.service.js';
 
 const CONFIG_SCHEMA = Type.Object({
   LOG_LEVEL: Type.Enum(LogLevel),

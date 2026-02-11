@@ -22,8 +22,9 @@ export const REGISTER_KIOSK_SCHEMA = {
   response: {
     200: Type.Object({
       id: Type.String({ description: 'Unique kiosk identifier' }),
-      secret: Type.String({
-        description: 'Secret token for authenticating kiosk',
+      token: Type.String({
+        description:
+          'Opaque authentication token for this kiosk. Use in the Authorization header as: KIOSK-TOKEN <token>',
       }),
     }),
     400: SHARED_ERROR_REPLY_SCHEMA[400],
