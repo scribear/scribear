@@ -1,21 +1,25 @@
 {
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": ".",
-    "paths": {
-      "@/*": ["./src/*"]
-    }
-  },
-  "include": [
-    "src"
-  ],
-  "references": [
-    {
-      "path": "../../libs/base-fastify-server"
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+        "outDir": "./dist",
+        "rootDir": ".",
+        "paths": {
+            "@/*": [
+                "./src/*"
+            ]
+        }
     },
-    {
-      "path": "../../libs/transcription-service-client"
-    }
-  ]
+    "include": [
+        "src",
+        "tests",
+    ],
+    // Link to dependencies
+    "references": [
+        {
+            "path": "../../libs/base-fastify-server"
+        },
+        {
+            "path": "../../libs/transcription-service-client"
+        }
+    ]
 }
