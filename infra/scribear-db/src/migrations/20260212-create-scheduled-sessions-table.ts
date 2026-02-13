@@ -10,6 +10,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn('session_length', 'integer', (col) => col.notNull())
     .addColumn('scheduled_at', 'timestamptz', (col) => col.notNull())
     .addColumn('recurrence_rule', 'text')
+    .addColumn('kiosk_id', 'uuid', (col) =>
+      col.notNull().references('kiosks.id'),
+    )
     .execute();
 }
 

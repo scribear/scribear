@@ -18,6 +18,7 @@ export interface Kiosks {
 
 export interface ScheduledSessions {
   id: Generated<string>;
+  kiosk_id: string;
   recurrence_rule: string | null;
   scheduled_at: Timestamp;
   session_length: number;
