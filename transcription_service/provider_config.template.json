@@ -1,19 +1,29 @@
 {
-    "num_workers": 2,
+    "num_workers": 3,
     "rolling_utilization_window_sec": 600,
     "contexts": [
         {
             "context_uid": "faster-whisper",
-            "max_instances": 1,
+            "max_instances": 3,
             "tags": [
                 "whisper_cpu_context"
             ],
             "negative_affinity": null,
             "creation_cost": 0.1,
             "context_config": {
-                "model": "tiny",
+                "model": "small",
                 "device": "cpu"
             }
+        },
+        {
+            "context_uid": "silero-vad",
+            "max_instances": 3,
+            "tags": [
+                "silero_vad"
+            ],
+            "negative_affinity": null,
+            "creation_cost": 0.05,
+            "context_config": {}
         }
     ],
     "providers": [

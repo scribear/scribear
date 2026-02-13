@@ -8,6 +8,12 @@ import resolveHandler from '../../dependency-injection/resolve-handler.js';
  */
 function roomRouter(fastify: BaseFastifyInstance) {
     fastify.route({
+        method: 'POST',
+        url: '/rooms',
+        handler: resolveHandler('roomController', 'createRoom'),
+    });
+
+    fastify.route({
         method: 'GET',
         url: '/rooms',
         handler: resolveHandler('roomController', 'listRooms'),

@@ -1,3 +1,4 @@
+import cors from '@fastify/cors';
 import { createBaseServer } from '@scribear/base-fastify-server';
 
 import type AppConfig from '../app-config/app-config.js';
@@ -18,6 +19,9 @@ async function createServer(config: AppConfig) {
     const { logger, dependencyContainer, fastify } = createBaseServer(
         config.baseConfig.logLevel,
     );
+
+    // Enable CORS so the webapp (different origin) can call our API
+    await fastify.register(cors, { origin: true });
 
     // Register WebSocket support
     await fastify.register(websocket);

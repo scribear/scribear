@@ -22,16 +22,16 @@ let failed = 0;
 
 function assert(condition, label) {
     if (condition) {
-        console.log(`  ✅ ${label}`);
+        console.log(`  Pass: ${label}`);
         passed++;
     } else {
-        console.log(`  ❌ ${label}`);
+        console.log(` Fail: ${label}`);
         failed++;
     }
 }
 
 function log(label, data) {
-    console.log(`  📋 ${label}:`, JSON.stringify(data, null, 4).split('\n').join('\n     '));
+    console.log(`  ${label}:`, JSON.stringify(data, null, 4).split('\n').join('\n     '));
 }
 
 async function httpPost(url, body) {
@@ -74,7 +74,7 @@ function waitForMessage(ws, timeoutMs = 5000) {
 }
 
 // ─────────────────────────────────────────────────────────
-console.log('\n🧪 Integration Test: Session Manager + Node Server\n');
+console.log('\n Integration Test: Session Manager + Node Server\n');
 
 try {
     // ── Step 1: Health checks ──
@@ -95,7 +95,7 @@ try {
         enableJoinCode: true,
         maxClients: 0,
     };
-    console.log(`  📤 POST ${SM_URL}/api/v1/session/create`);
+    console.log(` POST ${SM_URL}/api/v1/session/create`);
     log('Request body', createBody);
 
     const createRes = await httpPost(`${SM_URL}/api/v1/session/create`, createBody);
@@ -109,7 +109,7 @@ try {
     // ── Step 3: Get tokens ──
     console.log('\nStep 3: Get tokens');
 
-    console.log(`  📤 POST ${SM_URL}/api/v1/session/token (source)`);
+    console.log(`POST ${SM_URL}/api/v1/session/token (source)`);
     const sourceTokenRes = await httpPost(`${SM_URL}/api/v1/session/token`, {
         sessionId,
         audioSourceSecret: AUDIO_SOURCE_SECRET,
@@ -125,7 +125,7 @@ try {
     });
     const sourceToken = sourceTokenRes.data.token;
 
-    console.log(`  📤 POST ${SM_URL}/api/v1/session/token (sink via joinCode)`);
+    console.log(`POST ${SM_URL}/api/v1/session/token (sink via joinCode)`);
     const sinkTokenRes = await httpPost(`${SM_URL}/api/v1/session/token`, {
         joinCode,
         scope: 'sink',
@@ -146,10 +146,36 @@ try {
     assert(roomsBefore.data.count === 0, `No rooms initially (count=${roomsBefore.data.count})`);
     log('GET /rooms', roomsBefore.data);
 
+    // ── Step 4b: Create room with transcription config ──
+    console.log('\nStep 4b: Create room with transcription config');
+    const createRoomRes = await httpPost(`${NS_URL}/rooms`, {
+        sessionId,
+        transcriptionConfig: {
+            providerKey: 'whisper',
+            useSsl: false,
+            sampleRate: 16000,
+            numChannels: 1,
+        },
+    });
+    assert(createRoomRes.status === 201, `Room created (${createRoomRes.status})`);
+    assert(
+        createRoomRes.data.transcriptionSessionConfig?.providerKey === 'whisper',
+        `Provider key is "whisper"`,
+    );
+    assert(
+        createRoomRes.data.transcriptionSessionConfig?.sampleRate === 16000,
+        `Sample rate is 16000`,
+    );
+    log('POST /rooms response', createRoomRes.data);
+
+    // Verify duplicate creation returns 409
+    const dupRes = await httpPost(`${NS_URL}/rooms`, { sessionId });
+    assert(dupRes.status === 409, `Duplicate room creation rejected (${dupRes.status})`);
+
     // ── Step 5: Connect subscriber (sink) ──
     console.log('\nStep 5: Connect subscriber');
     const subscriberUrl = `ws://localhost:8001/transcription/${sessionId}?token=${sinkToken}`;
-    console.log(`  🔌 WS ${subscriberUrl.substring(0, 60)}...`);
+    console.log(`WS ${subscriberUrl.substring(0, 60)}...`);
     let subscriberWs;
     try {
         subscriberWs = await connectWS(subscriberUrl);
@@ -161,7 +187,7 @@ try {
     // ── Step 6: Connect audio source ──
     console.log('\nStep 6: Connect audio source');
     const sourceUrl = `ws://localhost:8001/audio/${sessionId}?token=${sourceToken}`;
-    console.log(`  🔌 WS ${sourceUrl.substring(0, 60)}...`);
+    console.log(`WS ${sourceUrl.substring(0, 60)}...`);
     let sourceWs;
     try {
         sourceWs = await connectWS(sourceUrl);
@@ -180,7 +206,7 @@ try {
     log('GET /rooms', roomsAfter.data);
 
     // Check specific room info
-    console.log(`  📤 GET ${NS_URL}/rooms/${sessionId}`);
+    console.log(`GET ${NS_URL}/rooms/${sessionId}`);
     const roomInfo = await httpGet(`${NS_URL}/rooms/${sessionId}`);
     if (roomInfo.status === 200) {
         assert(true, `Room info retrieved for ${sessionId}`);
@@ -194,7 +220,7 @@ try {
 
     // ── Step 8: Test wrong scope rejection ──
     console.log('\nStep 8: Test auth scope enforcement');
-    console.log('  🔌 Attempting sink token on /audio endpoint (should be rejected)');
+    console.log(' Attempting sink token on /audio endpoint (should be rejected)');
     try {
         const badWs = await connectWS(`ws://localhost:8001/audio/${sessionId}?token=${sinkToken}`);
         const closeCode = await new Promise((resolve) => {
@@ -208,7 +234,7 @@ try {
 
     // ── Step 9: Test no-token rejection ──
     console.log('\nStep 9: Test missing token rejection');
-    console.log('  🔌 Attempting connection with no token (should get 401)');
+    console.log('Attempting connection with no token (should get 401)');
     try {
         await connectWS(`ws://localhost:8001/audio/${sessionId}`);
         assert(false, 'Should have rejected missing token');
@@ -218,7 +244,7 @@ try {
 
     // ── Step 10: Disconnect and verify cleanup ──
     console.log('\nStep 10: Disconnect and verify cleanup');
-    console.log('  🔌 Closing source and subscriber connections...');
+    console.log(' Closing source and subscriber connections...');
     if (sourceWs) await closeWS(sourceWs);
     console.log('  ↳ Source disconnected');
     if (subscriberWs) await closeWS(subscriberWs);
@@ -231,12 +257,12 @@ try {
     log('GET /rooms (after cleanup)', roomsFinal.data);
 
 } catch (err) {
-    console.error('\n💥 Unexpected error:', err);
+    console.error('\nUnexpected error:', err);
     failed++;
 }
 
 // ── Summary ──
 console.log(`\n${'─'.repeat(50)}`);
 console.log(`Results: ${passed} passed, ${failed} failed`);
-console.log(failed === 0 ? '🎉 All tests passed!' : '⚠️  Some tests failed');
+console.log(failed === 0 ? 'All tests passed!' : 'Some tests failed');
 process.exit(failed > 0 ? 1 : 0);

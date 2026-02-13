@@ -6,11 +6,35 @@ import TranscriptionStreamClient from '@scribear/transcription-service-client';
 import type { TranscriptionConfig } from '../../app-config/app-config.js';
 
 /**
+ * Per-session transcription configuration.
+ * Supplied at room creation time (e.g. via POST /rooms) and used when
+ * the TranscriptionStreamClient connects to the transcription service.
+ */
+export interface TranscriptionSessionConfig {
+    /** Transcription provider key (e.g. 'whisper', 'debug') */
+    providerKey: string;
+    /** Whether to use SSL when connecting to the transcription service */
+    useSsl: boolean;
+    /** Audio sample rate in Hz (e.g. 16000) */
+    sampleRate: number;
+    /** Number of audio channels (e.g. 1 for mono) */
+    numChannels: number;
+}
+
+export const DEFAULT_TRANSCRIPTION_SESSION_CONFIG: TranscriptionSessionConfig = {
+    providerKey: 'whisper',
+    useSsl: false,
+    sampleRate: 16000,
+    numChannels: 1,
+};
+
+/**
  * Represents a single active room (session)
  * Each room has one audio source (kiosk) and multiple transcript subscribers (students)
  */
 export interface Room {
     sessionId: string;
+    transcriptionSessionConfig: TranscriptionSessionConfig;
     transcriptionClient: TranscriptionStreamClient | null;
     sourceSocket: WebSocket | null;
     subscribers: Set<WebSocket>;
@@ -23,6 +47,7 @@ export interface RoomInfo {
     subscriberCount: number;
     createdAt: Date;
     transcriptionConnected: boolean;
+    transcriptionSessionConfig: TranscriptionSessionConfig;
 }
 
 /**
@@ -46,15 +71,26 @@ export class RoomManagerService {
 
     /**
      * Create a new room for a session
+     * @param sessionId Unique session identifier
+     * @param config Optional per-session transcription config; defaults applied for missing fields
      */
-    createRoom(sessionId: string): Room {
+    createRoom(
+        sessionId: string,
+        config?: Partial<TranscriptionSessionConfig>,
+    ): Room {
         if (this._rooms.has(sessionId)) {
             this._log.warn({ sessionId }, 'Room already exists for session');
             return this._rooms.get(sessionId)!;
         }
 
+        const transcriptionSessionConfig: TranscriptionSessionConfig = {
+            ...DEFAULT_TRANSCRIPTION_SESSION_CONFIG,
+            ...config,
+        };
+
         const room: Room = {
             sessionId,
+            transcriptionSessionConfig,
             transcriptionClient: null,
             sourceSocket: null,
             subscribers: new Set(),
@@ -62,7 +98,10 @@ export class RoomManagerService {
         };
 
         this._rooms.set(sessionId, room);
-        this._log.info({ sessionId }, 'Room created');
+        this._log.info(
+            { sessionId, transcriptionSessionConfig },
+            'Room created',
+        );
 
         return room;
     }
@@ -76,11 +115,16 @@ export class RoomManagerService {
 
     /**
      * Get or create a room for a session
+     * @param sessionId Unique session identifier
+     * @param config Optional per-session transcription config (only used when creating)
      */
-    getOrCreateRoom(sessionId: string): Room {
+    getOrCreateRoom(
+        sessionId: string,
+        config?: Partial<TranscriptionSessionConfig>,
+    ): Room {
         const existing = this._rooms.get(sessionId);
         if (existing) return existing;
-        return this.createRoom(sessionId);
+        return this.createRoom(sessionId, config);
     }
 
     /**
@@ -125,13 +169,16 @@ export class RoomManagerService {
 
         room.sourceSocket = socket;
 
-        // Create and connect transcription client for this room
+        // Create and connect transcription client using the room's session config
+        const { providerKey, useSsl, sampleRate, numChannels } =
+            room.transcriptionSessionConfig;
+
         const transcriptionClient = new TranscriptionStreamClient(
             this._transcriptionConfig.transcriptionServiceUrl,
             this._transcriptionConfig.transcriptionApiKey,
-            false, // use_ssl — configurable later
-            'debug', // provider_key — configurable later
-            { sample_rate: 16000, num_channels: 1 }, // default config
+            useSsl,
+            providerKey,
+            { sample_rate: sampleRate, num_channels: numChannels },
         );
 
         // Wire up transcript events to fan out to subscribers
@@ -256,6 +303,7 @@ export class RoomManagerService {
                 subscriberCount: room.subscribers.size,
                 createdAt: room.createdAt,
                 transcriptionConnected: room.transcriptionClient !== null,
+                transcriptionSessionConfig: room.transcriptionSessionConfig,
             });
         }
         return rooms;
