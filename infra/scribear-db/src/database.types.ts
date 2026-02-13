@@ -17,15 +17,11 @@ export interface Kiosks {
 }
 
 export interface ScheduledSessions {
-  created_at: Generated<Timestamp>;
-  enable_join_code: Generated<boolean>;
   id: Generated<string>;
-  max_clients: Generated<number>;
   recurrence_rule: string | null;
   scheduled_at: Timestamp;
   session_length: number;
   title: string;
-  updated_at: Generated<Timestamp>;
 }
 
 export interface DB {
