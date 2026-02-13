@@ -343,6 +343,27 @@ jobs:
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
+  build-webapp-container:
+    needs:
+      - changes
+      - check-formatting-node
+      - run-linter-node
+      - run-build-node
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Git repository
+        uses: actions/checkout@v4
+
+      - name: Build and Push Docker Image
+        uses: ./.github/actions/build-container
+        with:
+          image_name: "scribear/webapp"
+          build_context: "."
+          dockerfile: "./apps/webapp/Dockerfile"
+          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
   release-webapp:
     needs:
       - changes
