@@ -9,11 +9,26 @@ export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S, I | undefined, U>
   : ColumnType<T, T | undefined, T>;
 
+export type Timestamp = ColumnType<Date, Date | string, Date | string>;
+
 export interface Kiosks {
   id: Generated<string>;
   secret_hash: string;
 }
 
+export interface ScheduledSessions {
+  created_at: Generated<Timestamp>;
+  enable_join_code: Generated<boolean>;
+  id: Generated<string>;
+  max_clients: Generated<number>;
+  recurrence_rule: string | null;
+  scheduled_at: Timestamp;
+  session_length: number;
+  title: string;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface DB {
   kiosks: Kiosks;
+  scheduled_sessions: ScheduledSessions;
 }
