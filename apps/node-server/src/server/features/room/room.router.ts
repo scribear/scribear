@@ -13,17 +13,20 @@ function roomRouter(fastify: BaseFastifyInstance) {
         handler: resolveHandler('roomController', 'createRoom'),
     });
 
-    fastify.route({
-        method: 'GET',
-        url: '/rooms',
-        handler: resolveHandler('roomController', 'listRooms'),
-    });
+    // Debug-only routes – not exposed in production
+    if (process.env['NODE_ENV'] !== 'production') {
+        fastify.route({
+            method: 'GET',
+            url: '/rooms',
+            handler: resolveHandler('roomController', 'listRooms'),
+        });
 
-    fastify.route({
-        method: 'GET',
-        url: '/rooms/:sessionId',
-        handler: resolveHandler('roomController', 'getRoom'),
-    });
+        fastify.route({
+            method: 'GET',
+            url: '/rooms/:sessionId',
+            handler: resolveHandler('roomController', 'getRoom'),
+        });
+    }
 }
 
 export default roomRouter;

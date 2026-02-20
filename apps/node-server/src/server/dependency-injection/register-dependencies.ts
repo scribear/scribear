@@ -12,8 +12,10 @@ import type { BaseDependencies } from '@scribear/base-fastify-server';
 
 import type AppConfig from '../../app-config/app-config.js';
 import type { TranscriptionConfig } from '../../app-config/app-config.js';
+import AudioController from '../features/audio/audio.controller.js';
 import HealthcheckController from '../features/healthcheck/healthcheck.controller.js';
 import RoomController from '../features/room/room.controller.js';
+import TranscriptionController from '../features/transcription/transcription.controller.js';
 import { JwtService, type JwtServiceConfig } from '../services/jwt.service.js';
 import { RoomManagerService } from '../services/room-manager.service.js';
 
@@ -31,8 +33,10 @@ interface AppDependencies extends BaseDependencies {
     roomManagerService: RoomManagerService;
 
     // Controllers
+    audioController: AudioController;
     healthcheckController: HealthcheckController;
     roomController: RoomController;
+    transcriptionController: TranscriptionController;
 }
 
 /**
@@ -74,10 +78,16 @@ function registerDependencies(
         }),
 
         // Controllers
+        audioController: asClass(AudioController, {
+            lifetime: Lifetime.SCOPED,
+        }),
         healthcheckController: asClass(HealthcheckController, {
             lifetime: Lifetime.SCOPED,
         }),
         roomController: asClass(RoomController, {
+            lifetime: Lifetime.SCOPED,
+        }),
+        transcriptionController: asClass(TranscriptionController, {
             lifetime: Lifetime.SCOPED,
         }),
     } as NameAndRegistrationPair<AppDependencies>);

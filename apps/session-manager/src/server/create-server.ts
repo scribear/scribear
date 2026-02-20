@@ -17,7 +17,7 @@ async function createServer(config: AppConfig) {
     config.baseConfig.logLevel,
   );
 
-  // Enable CORS so the webapp (different origin) can call our API
+  // enable cors to get web app working for now
   await fastify.register(cors, { origin: true });
 
   // Only include swagger docs if in development mode

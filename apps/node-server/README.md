@@ -92,8 +92,8 @@ Both have the shape: `{ type, text: string[], starts: number[] | null, ends: num
 |--------|----------|------|-------------|
 | `GET` | `/health` | None | Returns `{ reqId, status: "ok" }` |
 | `POST` | `/rooms` | None | Create a room with transcription config |
-| `GET` | `/rooms` | None | List all active rooms |
-| `GET` | `/rooms/:sessionId` | None | Get info for a specific room |
+| `GET` | `/rooms` | None | List all active rooms (**dev/test only — not available when `NODE_ENV=production`**) |
+| `GET` | `/rooms/:sessionId` | None | Get info for a specific room (**dev/test only — not available when `NODE_ENV=production`**) |
 
 #### `POST /rooms` Request Body
 
@@ -152,8 +152,8 @@ All fields in `transcriptionConfig` are optional — defaults are applied for an
 
 | File | Purpose |
 |------|---------|
-| `src/server/dependency-injection/register-dependencies.ts` | Configures the Awilix DI container. Registers config values as singletons, `JwtService` as scoped (new instance per request), `RoomManagerService` as a singleton (shared state across all requests), and controllers (`HealthcheckController`, `RoomController`) as scoped. Also extends the `@fastify/awilix` type declarations so `req.diScope.resolve()` is fully typed. |
-| `src/server/dependency-injection/resolve-handler.ts` | Helper that wraps controller methods for use as Fastify route handlers. It resolves the controller from the request's DI scope and calls the specified method, providing full type safety between controller names and method names. |
+| `src/server/dependency-injection/register-dependencies.ts` | Configures the Awilix DI container. Registers config values as singletons, `JwtService` as scoped (new instance per request), `RoomManagerService` as a singleton (shared state across all requests), and all controllers (`AudioController`, `HealthcheckController`, `RoomController`, `TranscriptionController`) as scoped. Also extends the `@fastify/awilix` type declarations so `req.diScope.resolve()` is fully typed. |
+| `src/server/dependency-injection/resolve-handler.ts` | Helper that wraps controller methods for use as Fastify route handlers. It resolves the controller from the request's DI scope and calls the specified method, providing full type safety between controller names and method names. Used by REST routes only — WebSocket routes resolve their controllers inline since the handler signature differs. |
 
 ### Hooks
 
@@ -172,19 +172,21 @@ All fields in `transcriptionConfig` are optional — defaults are applied for an
 
 | File | Purpose |
 |------|---------|
-| `src/server/features/audio/audio.router.ts` | Registers the `GET /audio/:sessionId` WebSocket route with the `authenticateWebsocket` pre-handler. After authentication, verifies the token scope is `"source"` or `"both"` (rejects with close code `4003` otherwise). Calls `RoomManagerService.setAudioSource()` to register the kiosk and start the transcription pipeline. Listens for binary messages and forwards them via `forwardAudio()`. On socket close, calls `removeAudioSource()`. Enforces one source per room (rejects with code `4001` if a source already exists). |
+| `src/server/features/audio/audio.router.ts` | Registers the `GET /audio/:sessionId` WebSocket route with the `authenticateWebsocket` pre-handler. Resolves `AudioController` from DI and delegates the connection to `handleConnection()`. |
+| `src/server/features/audio/audio.controller.ts` | Handles audio source WebSocket connections. Verifies the token scope is `"source"` or `"both"` (rejects with close code `4003` otherwise). Calls `RoomManagerService.setAudioSource()` to register the kiosk and start the transcription pipeline. Listens for binary messages and forwards them via `forwardAudio()`. On socket close, calls `removeAudioSource()`. Enforces one source per room (rejects with code `4001` if a source already exists). |
 
 ### Features — Transcript Delivery
 
 | File | Purpose |
 |------|---------|
-| `src/server/features/transcription/transcription.router.ts` | Registers the `GET /transcription/:sessionId` WebSocket route with the `authenticateWebsocket` pre-handler. After authentication, verifies the token scope is `"sink"` or `"both"` (rejects with close code `4003` otherwise). Calls `RoomManagerService.addSubscriber()` to register the student. On socket close, calls `removeSubscriber()`. The student receives JSON transcript messages pushed by the room manager — no messages are expected from the student. |
+| `src/server/features/transcription/transcription.router.ts` | Registers the `GET /transcription/:sessionId` WebSocket route with the `authenticateWebsocket` pre-handler. Resolves `TranscriptionController` from DI and delegates the connection to `handleConnection()`. |
+| `src/server/features/transcription/transcription.controller.ts` | Handles transcript subscriber WebSocket connections. Verifies the token scope is `"sink"` or `"both"` (rejects with close code `4003` otherwise). Calls `RoomManagerService.addSubscriber()` to register the student. On socket close, calls `removeSubscriber()`. The student receives JSON transcript messages pushed by the room manager — no messages are expected from the student. |
 
 ### Features — Room Management (REST)
 
 | File | Purpose |
 |------|---------|
-| `src/server/features/room/room.router.ts` | Registers three REST routes: `POST /rooms` (create room with config), `GET /rooms` (list all), `GET /rooms/:sessionId` (get one). All routes delegate to `RoomController` via the `resolveHandler` helper. |
+| `src/server/features/room/room.router.ts` | Registers `POST /rooms` (always) and, in non-production environments only, `GET /rooms` and `GET /rooms/:sessionId`. All routes delegate to `RoomController` via the `resolveHandler` helper. The GET routes are gated behind `NODE_ENV !== 'production'` since they are only needed for debugging and integration tests. |
 | `src/server/features/room/room.controller.ts` | Handles room REST endpoints. `createRoom` validates for duplicates (409 if exists) and delegates to `RoomManagerService.createRoom()` with optional `transcriptionConfig`. `listRooms` returns all room info with subscriber counts. `getRoom` returns detailed info for a single room including source status, subscriber count, transcription connection status, and the active transcription config. |
 
 ### Features — Healthcheck
