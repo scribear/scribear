@@ -260,6 +260,7 @@ class WhisperStreamingProviderJob(
         contexts: tuple[WhisperModel, SileroVadModelType],
         batch: list[AudioChunkPayload],
     ) -> TranscriptionResult:
+        # pylint: disable=too-many-locals
 
         tracker = LatencyTracker()
         tracker.mark("audio_received")
