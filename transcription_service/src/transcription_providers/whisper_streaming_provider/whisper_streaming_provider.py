@@ -1,9 +1,9 @@
 """
 Defines FasterWhisperStreamingProvider
 """
+
 import time
 import uuid
-
 from dataclasses import asdict
 
 from src.shared.logger import Logger
@@ -16,7 +16,9 @@ from src.transcription_provider_interface import (
     TranscriptionResult,
     TranscriptionSessionInterface,
 )
-from src.transcription_provider_interface.transcription_result import AudioChunkPayload
+from src.transcription_provider_interface.transcription_result import (
+    AudioChunkPayload,
+)
 
 from .whisper_streaming_config import whisper_streaming_config_adapter
 from .whisper_streaming_job import WhisperStreamingProviderJob
@@ -97,9 +99,9 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
             chunk_id = str(uuid.uuid4())
             received_time = time.perf_counter()
             payload = AudioChunkPayload(
-                chunk_id = chunk_id,
-                received_time = received_time,
-                audio_bytes = chunk
+                chunk_id=chunk_id,
+                received_time=received_time,
+                audio_bytes=chunk,
             )
             self._job.queue_data([payload])
 

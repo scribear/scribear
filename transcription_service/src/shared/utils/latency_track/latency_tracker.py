@@ -19,9 +19,25 @@ class LatencyTracker:
         self.start_time = time.perf_counter()
 
     def mark(self, name: str) -> None:
+        """
+        Docstring for mark
+
+        :param self: Description
+        :param name: Description
+        :type name: str
+        """
         self._times[name] = time.perf_counter()
 
     def get(self, name: str) -> Optional[float]:
+        """
+        Docstring for get
+
+        :param self: Description
+        :param name: Description
+        :type name: str
+        :return: Description
+        :rtype: float | None
+        """
         return self._times.get(name)
 
     def _delta_seconds(self, newer: str, older: str) -> Optional[float]:
@@ -64,11 +80,23 @@ class LatencyTracker:
         return {k: round(v, 6) for k, v in self._times.items()}
 
     def to_payload(self) -> Dict:
+        """
+        Docstring for to_payload
+
+        :param self: Description
+        :return: Description
+        :rtype: Dict
+        """
         return {
             "events": self.events_payload(),
             "deltas_ms": self.compute_deltas_ms(),
         }
 
     def reset(self) -> None:
+        """
+        Docstring for reset
+
+        :param self: Description
+        """
         self._times.clear()
         self.start_time = time.perf_counter()

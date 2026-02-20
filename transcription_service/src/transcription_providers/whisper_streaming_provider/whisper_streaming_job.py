@@ -2,12 +2,13 @@
 Defines WorkerPool job for DebugProvider that returns number of seconds of audio received
 """
 
-import numpy as np
-from dataclasses import dataclass
 import time
+
+import numpy as np
 
 from src.shared.logger import Logger
 from src.shared.utils.audio_decoder import AudioDecoder, TargetFormat
+from src.shared.utils.latency_track import LatencyTracker
 from src.shared.utils.local_agree import LocalAgree, TranscriptionSegment
 from src.shared.utils.np_circular_buffer import NPCircularBuffer
 from src.shared.utils.silence_filter import RMSSilenceDetection
@@ -19,10 +20,9 @@ from src.transcription_provider_interface import (
     TranscriptionSequence,
 )
 from src.transcription_provider_interface.transcription_result import (
+    AudioChunkPayload,
     TranscriptionResult,
-    AudioChunkPayload
 )
-from src.shared.utils.latency_track import LatencyTracker
 
 from .whisper_streaming_config import WhisperStreamingProviderConfig
 
@@ -32,7 +32,9 @@ NUM_CHANNELS = 1
 
 class WhisperStreamingProviderJob(
     JobInterface[
-        tuple[WhisperModel, SileroVadModelType], AudioChunkPayload, TranscriptionResult
+        tuple[WhisperModel, SileroVadModelType],
+        AudioChunkPayload,
+        TranscriptionResult,
     ]
 ):
     """
@@ -51,7 +53,7 @@ class WhisperStreamingProviderJob(
         )
         self._buffer_offset_samples = 0
 
-        self._total_decoded_samples = 0 
+        self._total_decoded_samples = 0
         self._chunk_ledger = []
 
         self._local_agree = LocalAgree(config.local_agree_dim)
@@ -88,14 +90,16 @@ class WhisperStreamingProviderJob(
                 samples = self._decoder.decode(chunk)
             except ValueError as e:
                 raise TranscriptionClientError(str(e)) from e
-            
+
             num_samples = len(samples)
-            self._chunk_ledger.append({
-                "chunk_id": chunk.chunk_id,
-                "received_time": chunk.received_time,
-                "start_sample": self._total_decoded_samples,
-                "end_sample": self._total_decoded_samples + num_samples
-            })
+            self._chunk_ledger.append(
+                {
+                    "chunk_id": chunk.chunk_id,
+                    "received_time": chunk.received_time,
+                    "start_sample": self._total_decoded_samples,
+                    "end_sample": self._total_decoded_samples + num_samples,
+                }
+            )
 
             self._total_decoded_samples += num_samples
 
@@ -111,6 +115,7 @@ class WhisperStreamingProviderJob(
                     raise TranscriptionClientError(
                         "Client sent audio too quickly."
                     )
+
     def _extract_meta_for_time(self, end_time_sec: float) -> dict:
         """
         Calculating the chunks' latency based on the ending time of the content
@@ -128,11 +133,17 @@ class WhisperStreamingProviderJob(
                 associated_ids.append(record["chunk_id"])
                 latencies.append((now - record["received_time"]) * 1000)
 
-        self._chunk_ledger = [r for r in self._chunk_ledger if r["end_sample"] >= self._buffer_offset_samples]
+        self._chunk_ledger = [
+            r
+            for r in self._chunk_ledger
+            if r["end_sample"] >= self._buffer_offset_samples
+        ]
 
         return {
             "chunk_ids": associated_ids,
-            "latency_ms": sum(latencies) / len(latencies) if latencies else None
+            "latency_ms": (
+                sum(latencies) / len(latencies) if latencies else None
+            ),
         }
 
     def _detect_speech_ranges(
@@ -164,7 +175,7 @@ class WhisperStreamingProviderJob(
         whisper: WhisperModel,
         vad_context: SileroVadModelType,
         log: Logger,
-        tracker: LatencyTracker
+        tracker: LatencyTracker,
     ):
         """
         Pass the audio buffer into Silero VAD Model to separate audio segments
@@ -180,7 +191,7 @@ class WhisperStreamingProviderJob(
         buffer_samples = np.asarray(self._buffer.get())
         if buffer_samples.size == 0:
             return []
-        
+
         tracker.mark("vad_start")
         ranges = self._detect_speech_ranges(buffer_samples, vad_context, log)
         tracker.mark("vad_end")
@@ -249,7 +260,7 @@ class WhisperStreamingProviderJob(
         contexts: tuple[WhisperModel, SileroVadModelType],
         batch: list[AudioChunkPayload],
     ) -> TranscriptionResult:
-        
+
         tracker = LatencyTracker()
         tracker.mark("audio_received")
 
@@ -275,8 +286,10 @@ class WhisperStreamingProviderJob(
 
         # Transcribe the audio currently in the buffer
         log.debug("Last finalized: " + self._last_finalized)
-        
-        segments = self._transcribe_audio(whisper_model, vad_context, log, tracker)
+
+        segments = self._transcribe_audio(
+            whisper_model, vad_context, log, tracker
+        )
 
         if len(segments) == 0:
             log.info("No words transcribed in buffer.")
@@ -303,17 +316,21 @@ class WhisperStreamingProviderJob(
                 self._last_finalized = "".join(forced_final.text)
                 final = forced_final
         final_end_time = final.ends[-1] if final and final.ends else 0
-        in_progress_end_time = in_progress.ends[-1] if in_progress and in_progress.ends else final_end_time
+        in_progress_end_time = (
+            in_progress.ends[-1]
+            if in_progress and in_progress.ends
+            else final_end_time
+        )
 
         final_meta = self._extract_meta_for_time(final_end_time)
         in_progress_meta = self._extract_meta_for_time(in_progress_end_time)
 
         return TranscriptionResult(
-            in_progress=in_progress, 
+            in_progress=in_progress,
             final=final,
             final_chunk_ids=final_meta["chunk_ids"],
             final_latency_ms=final_meta["latency_ms"],
             in_progress_chunk_ids=in_progress_meta["chunk_ids"],
             in_progress_latency_ms=in_progress_meta["latency_ms"],
-            processing_stats=tracker.to_payload()
+            processing_stats=tracker.to_payload(),
         )
