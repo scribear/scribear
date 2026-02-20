@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export CI=1
 
 resolve_diff_base() {
   local upstream_ref=""
