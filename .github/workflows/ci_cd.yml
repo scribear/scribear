@@ -343,6 +343,49 @@ jobs:
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
+  deploy-webapp:
+    needs:
+      - changes
+      - check-formatting-node
+      - run-linter-node
+      - run-build-node
+    if: needs.changes.outputs.deploy_frontend == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: Build webapp
+        working-directory: "apps/webapp"
+        run: npm run build
+
+      - name: Add build info
+        working-directory: "apps/webapp"
+        run: |
+          date > dist/builddate.txt
+          git rev-parse --short HEAD > dist/commit.txt
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.WEBAPP_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          if [ -n "${{ secrets.WEBAPP_SSH_KNOWN_HOSTS }}" ]; then
+            printf '%s\n' "${{ secrets.WEBAPP_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+            chmod 600 ~/.ssh/known_hosts
+          fi
+
+      - name: Deploy webapp
+        env:
+          DEPLOY_HOST: scribear.illinois.edu
+          DEPLOY_USER: ${{ secrets.WEBAPP_SSH_USER }}
+          DEPLOY_PATH: ${{ secrets.WEBAPP_DEPLOY_PATH }}
+        run: |
+          rsync -az --delete -e "ssh -o StrictHostKeyChecking=accept-new" apps/webapp/dist/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+
   release-webapp:
     needs:
       - changes
