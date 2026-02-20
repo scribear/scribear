@@ -39,7 +39,7 @@ server {
     try_files $uri $uri/ /index.html;
   }
 
-  location = /healthz {
+  location = /healthcheck {
     access_log off;
     add_header Content-Type text/plain;
     return 200 'ok';
@@ -51,4 +51,4 @@ COPY --from=build-env /app/apps/webapp/dist/ ./
 
 EXPOSE 80
 
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --start-interval=1s --retries=3 CMD wget --quiet --tries=1 --spider http://127.0.0.1/healthz || exit 1
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --start-interval=1s --retries=3 CMD wget --quiet --tries=1 --spider http://127.0.0.1/healthcheck || exit 1
