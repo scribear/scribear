@@ -47,7 +47,6 @@ class TranscriptionSessionInterface(ABC, EventEmitter):
                 (e.g. misconfiguration, invalid audio, etc.)
             Any other Exception if error is server-side
         """
-
     def end_session(self):
         """
         Called when a transcription session ends to cleanup resources
