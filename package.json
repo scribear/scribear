@@ -16,7 +16,10 @@
     "format:fix": "npm run format:fix --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "lint:fix": "npm run lint:fix --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "hooks:pre-commit": "bash ./scripts/hooks/pre-commit.sh",
+    "hooks:pre-push": "bash ./scripts/hooks/pre-push.sh",
+    "test": "npm run test --workspaces --if-present",
+    "prepare": "husky"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -37,6 +40,7 @@
     "eslint-plugin-react-hooks": "7.0.0",
     "eslint-plugin-react-refresh": "0.4.24",
     "globals": "16.4.0",
+    "husky": "9.1.7",
     "nodemon": "3.1.10",
     "pino-pretty": "13.1.2",
     "prettier": "3.6.2",
