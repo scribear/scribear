@@ -5,7 +5,6 @@ import type { Static } from 'typebox';
 import { LogLevel } from '@scribear/base-fastify-server';
 
 import type { DBClientConfig } from '#src/db/db-client.js';
-import type { JwtServiceConfig } from '#src/server/services/jwt.service.js';
 
 const CONFIG_SCHEMA = Type.Object({
   LOG_LEVEL: Type.Enum(LogLevel),
@@ -51,14 +50,6 @@ class AppConfig {
       dbName: this._env.DB_NAME,
       dbUser: this._env.DB_USER,
       dbPassword: this._env.DB_PASSWORD,
-    };
-  }
-
-  get jwtServiceConfig(): JwtServiceConfig {
-    return {
-      jwtSecret: this._env.JWT_SECRET,
-      jwtIssuer: this._env.JWT_ISSUER,
-      jwtExpiresIn: this._env.JWT_EXPIRES_IN,
     };
   }
 
