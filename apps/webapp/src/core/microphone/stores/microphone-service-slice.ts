@@ -1,7 +1,7 @@
 import { type PayloadAction, createSlice } from '@reduxjs/toolkit';
 
-import { MicrophoneServiceStatus } from '@/core/microphone/services/microphone-service';
-import type { RootState } from '@/stores/store';
+import { MicrophoneServiceStatus } from '#src/core/microphone/services/microphone-service';
+import type { RootState } from '#src/stores/store';
 
 export interface MicrophoneServiceSliceState {
   microphoneServiceStatus: MicrophoneServiceStatus;

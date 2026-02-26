@@ -5,7 +5,7 @@
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports
 import { useDispatch, useSelector } from 'react-redux';
 
-import type { AppDispatch } from '@/stores/store';
+import type { AppDispatch } from '#src/stores/store';
 
 import type { RootState } from './store';
 

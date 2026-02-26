@@ -3,8 +3,8 @@
  */
 import { createSelector, createSlice } from '@reduxjs/toolkit';
 
-import { selectAppMode } from '@/core/app-mode/store/app-mode-slice';
-import type { RootState } from '@/stores/store';
+import { selectAppMode } from '#src/core/app-mode/store/app-mode-slice';
+import type { RootState } from '#src/stores/store';
 
 import { MICROPHONE_ENABLED_APP_MODES } from '../config/microphone-enabled-app-modes';
 

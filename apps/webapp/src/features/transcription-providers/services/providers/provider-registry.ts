@@ -1,4 +1,4 @@
-import type { MicrophoneService } from '@/core/microphone/services/microphone-service';
+import type { MicrophoneService } from '#src/core/microphone/services/microphone-service';
 
 import {
   type AzureConfig,

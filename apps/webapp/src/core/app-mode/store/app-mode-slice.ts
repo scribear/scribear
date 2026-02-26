@@ -3,9 +3,9 @@
  */
 import { type PayloadAction, createSlice } from '@reduxjs/toolkit';
 
-import { DEFAULT_APP_MODE } from '@/config/app-mode-paths';
-import type { RootState } from '@/stores/store';
-import { AppMode } from '@/types/app-mode';
+import { DEFAULT_APP_MODE } from '#src/config/app-mode-paths';
+import type { RootState } from '#src/stores/store';
+import { AppMode } from '#src/types/app-mode';
 
 export interface ApplicationModeSlice {
   appMode: AppMode;

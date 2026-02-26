@@ -2,12 +2,12 @@ import { useState } from 'react';
 
 import TextField from '@mui/material/TextField';
 
-import { ProviderConfigContainer } from '@/features/transcription-providers/components/provider-config-container';
+import { ProviderConfigContainer } from '#src/features/transcription-providers/components/provider-config-container';
 import {
   selectProviderConfig,
   updateProviderConfig,
-} from '@/features/transcription-providers/stores/provider-config-slice';
-import { useAppDispatch, useAppSelector } from '@/stores/use-redux';
+} from '#src/features/transcription-providers/stores/provider-config-slice';
+import { useAppDispatch, useAppSelector } from '#src/stores/use-redux';
 
 import {
   type ProviderConfigMenuProps,

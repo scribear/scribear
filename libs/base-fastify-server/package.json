@@ -5,6 +5,9 @@
   "author": "scribear",
   "main": "dist/src/index.js",
   "type": "module",
+  "imports": {
+    "#src/*": "./dist/src/*"
+  },
   "scripts": {
     "build": "tsc --build",
     "dev": "tsc --build --watch",

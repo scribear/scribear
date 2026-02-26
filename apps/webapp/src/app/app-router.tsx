@@ -6,10 +6,10 @@ import type { ComponentType } from 'react';
 import { createBrowserRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 
-import { MainErrorFallback } from '@/components/ui/main-error-fallback';
-import { PageLoadSpinner } from '@/components/ui/page-load-spinner';
-import { PATHS } from '@/config/paths';
-import { AppModeObserver } from '@/core/app-mode/components/app-mode-observer';
+import { MainErrorFallback } from '#src/components/ui/main-error-fallback';
+import { PageLoadSpinner } from '#src/components/ui/page-load-spinner';
+import { PATHS } from '#src/config/paths';
+import { AppModeObserver } from '#src/core/app-mode/components/app-mode-observer';
 
 // Helper to map the default export to 'Component' for React Router lazy loading
 const lazyLoad = async (importPromise: Promise<{ default: ComponentType }>) => {

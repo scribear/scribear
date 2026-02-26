@@ -2,10 +2,10 @@ import { asValue } from 'awilix';
 import type { AwilixContainer } from 'awilix';
 import { beforeEach, describe, expect } from 'vitest';
 
-import { LogLevel } from '@/index.js';
-import createBaseServer from '@/server/create-base-server.js';
-import type { BaseDependencies } from '@/server/types/base-dependencies.js';
-import type { BaseFastifyInstance } from '@/server/types/base-fastify-types.js';
+import { LogLevel } from '#src/index.js';
+import createBaseServer from '#src/server/create-base-server.js';
+import type { BaseDependencies } from '#src/server/types/base-dependencies.js';
+import type { BaseFastifyInstance } from '#src/server/types/base-fastify-types.js';
 
 interface TestDependencies extends BaseDependencies {
   test: string;

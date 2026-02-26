@@ -4,8 +4,8 @@ import {
   BASE_ACCENT_COLOR,
   BASE_BACKGROUND_COLOR,
   BASE_TRANSCRIPTION_COLOR,
-} from '@/config/base-theme';
-import type { RootState } from '@/stores/store';
+} from '#src/config/base-theme';
+import type { RootState } from '#src/stores/store';
 
 import type { ThemeColors } from '../types/theme';
 

@@ -10,7 +10,7 @@ import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
-import { useAppDispatch } from '@/stores/use-redux';
+import { useAppDispatch } from '#src/stores/use-redux';
 
 import { PRESET_THEMES } from '../config/preset-themes';
 import { setTheme } from '../stores/theme-preferences-slice';

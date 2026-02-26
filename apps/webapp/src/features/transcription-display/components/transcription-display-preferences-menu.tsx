@@ -1,8 +1,8 @@
 import SubtitlesIcon from '@mui/icons-material/Subtitles';
 import Button from '@mui/material/Button';
 
-import { DrawerMenuGroup } from '@/components/ui/drawer-menu-group';
-import { useAppDispatch } from '@/stores/use-redux';
+import { DrawerMenuGroup } from '#src/components/ui/drawer-menu-group';
+import { useAppDispatch } from '#src/stores/use-redux';
 
 import { resetTranscriptionDisplayPreferences } from '../stores/transcription-display-preferences-slice';
 import { FontSizeControl } from './preference-controls/font-size-control';

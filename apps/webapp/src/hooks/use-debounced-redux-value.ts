@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 
 import type { Action } from '@reduxjs/toolkit';
 
-import { useDebouncedCallback } from '@/hooks/use-debounced-callback';
-import type { RootState } from '@/stores/store';
-import { useAppDispatch, useAppSelector } from '@/stores/use-redux';
+import { useDebouncedCallback } from '#src/hooks/use-debounced-callback';
+import type { RootState } from '#src/stores/store';
+import { useAppDispatch, useAppSelector } from '#src/stores/use-redux';
 
 export const useDebouncedReduxValue = <T>(
   selector: (state: RootState) => T,

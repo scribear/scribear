@@ -14,14 +14,14 @@ import '@fontsource/roboto/700.css';
 import { ErrorBoundary } from 'react-error-boundary';
 import { Provider } from 'react-redux';
 
-import { RehydrateGate } from '@/components/rehydrate-gate';
-import { MainErrorFallback } from '@/components/ui/main-error-fallback';
-import { PageLoadSpinner } from '@/components/ui/page-load-spinner';
-import { BASE_THEME } from '@/config/base-theme';
-import { MicrophoneServiceProvider } from '@/core/microphone/contexts/microphone-service-provider';
-import { CustomThemeProvider } from '@/features/theme-customization/contexts/custom-theme/custom-theme-provider';
-import { TranscriptionDisplayProvider } from '@/features/transcription-display/contexts/transcription-display/transcription-display-provider';
-import { store } from '@/stores/store';
+import { RehydrateGate } from '#src/components/rehydrate-gate';
+import { MainErrorFallback } from '#src/components/ui/main-error-fallback';
+import { PageLoadSpinner } from '#src/components/ui/page-load-spinner';
+import { BASE_THEME } from '#src/config/base-theme';
+import { MicrophoneServiceProvider } from '#src/core/microphone/contexts/microphone-service-provider';
+import { CustomThemeProvider } from '#src/features/theme-customization/contexts/custom-theme/custom-theme-provider';
+import { TranscriptionDisplayProvider } from '#src/features/transcription-display/contexts/transcription-display/transcription-display-provider';
+import { store } from '#src/stores/store';
 
 interface AppProviderProps {
   children: React.ReactNode;

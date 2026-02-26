@@ -3,9 +3,9 @@
  */
 import { type Middleware } from '@reduxjs/toolkit';
 
-import { appModeChange } from '@/core/app-mode/store/app-mode-slice';
-import { rememberRehydrated } from '@/stores/slices/redux-remember-slice';
-import { type RootState, appInitialization } from '@/stores/store';
+import { appModeChange } from '#src/core/app-mode/store/app-mode-slice';
+import { rememberRehydrated } from '#src/stores/slices/redux-remember-slice';
+import { type RootState, appInitialization } from '#src/stores/store';
 
 import { microphoneService } from '../services/microphone-service';
 import {

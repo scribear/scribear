@@ -1,6 +1,6 @@
 import FormatPaintIcon from '@mui/icons-material/FormatPaint';
 
-import { DrawerMenuGroup } from '@/components/ui/drawer-menu-group';
+import { DrawerMenuGroup } from '#src/components/ui/drawer-menu-group';
 
 import { AccentColorSelector } from './color-controls/accent-color-selector';
 import { BackgroundColorSelector } from './color-controls/background-color-selector';

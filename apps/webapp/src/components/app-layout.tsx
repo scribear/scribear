@@ -21,14 +21,14 @@ import Typography from '@mui/material/Typography';
 import { type Breakpoint, useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 
-import { USER_ACTIVITY_TIMEOUT } from '@/config/contants';
-import { useFullscreen } from '@/hooks/use-fullscreen';
-import { useInactivity } from '@/hooks/use-inactivity';
+import { USER_ACTIVITY_TIMEOUT } from '#src/config/contants';
+import { useFullscreen } from '#src/hooks/use-fullscreen';
+import { useInactivity } from '#src/hooks/use-inactivity';
 import {
   selectIsHeaderHideEnabled,
   toggleHeaderHide,
-} from '@/stores/slices/app-layout-preferences-slice';
-import { useAppDispatch, useAppSelector } from '@/stores/use-redux';
+} from '#src/stores/slices/app-layout-preferences-slice';
+import { useAppDispatch, useAppSelector } from '#src/stores/use-redux';
 
 interface MainLayoutProps {
   children?: React.ReactNode;

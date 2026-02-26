@@ -24,7 +24,7 @@ const config = {
     '^@mui/(.*)',
     '<THIRD_PARTY_MODULES>',
     '^@scribear/(.*)',
-    '^@/(.*)',
+    '^#src/(.*)',
     '^[./]',
   ],
   importOrderSeparation: true,
