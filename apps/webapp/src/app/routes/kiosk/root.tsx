@@ -15,7 +15,7 @@ import StopIcon from '@mui/icons-material/Stop';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import Chip from '@mui/material/Chip';
+import Chip, { type ChipProps } from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -50,7 +50,9 @@ const STATUS_LABELS: Record<AudioSourceStatus, string> = {
   disconnected: 'Disconnected',
 };
 
-const STATUS_COLORS: Record<AudioSourceStatus, 'default' | 'primary' | 'success' | 'error' | 'warning'> = {
+type StatusChipColor = NonNullable<ChipProps['color']>;
+
+const STATUS_COLORS: Record<AudioSourceStatus, StatusChipColor> = {
   idle: 'default',
   connecting: 'primary',
   streaming: 'success',
@@ -83,7 +85,11 @@ const KioskRoot = () => {
     [session],
   );
 
-  const { status, error: streamError, disconnect } = useAudioSource(audioOptions);
+  const {
+    status,
+    error: streamError,
+    disconnect,
+  } = useAudioSource(audioOptions);
 
   // ── Create session + room + token ──
 
@@ -121,7 +127,9 @@ const KioskRoot = () => {
         token: tokenRes.token,
       });
     } catch (err) {
-      setSetupError(err instanceof Error ? err.message : 'Failed to create session');
+      setSetupError(
+        err instanceof Error ? err.message : 'Failed to create session',
+      );
     } finally {
       setIsCreating(false);
     }
@@ -226,18 +234,16 @@ const KioskRoot = () => {
       {/* Status card */}
       <Paper sx={{ p: 3, maxWidth: 480, width: '100%' }}>
         <Stack spacing={2}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
+          <Stack
+            direction="row"
+            justifyContent="space-between"
+            alignItems="center"
+          >
             <Typography variant="subtitle1">Status</Typography>
             <Chip
               label={STATUS_LABELS[status]}
               color={STATUS_COLORS[status]}
-              icon={
-                status === 'streaming' ? (
-                  <MicIcon />
-                ) : (
-                  <MicOffIcon />
-                )
-              }
+              icon={status === 'streaming' ? <MicIcon /> : <MicOffIcon />}
               size="small"
             />
           </Stack>

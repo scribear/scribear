@@ -14,7 +14,7 @@ import LinkOffIcon from '@mui/icons-material/LinkOff';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import Chip from '@mui/material/Chip';
+import Chip, { type ChipProps } from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -50,7 +50,9 @@ const STATUS_LABELS: Record<TranscriptReceiverStatus, string> = {
   disconnected: 'Disconnected',
 };
 
-const STATUS_COLORS: Record<TranscriptReceiverStatus, 'default' | 'primary' | 'success' | 'error' | 'warning'> = {
+type StatusChipColor = NonNullable<ChipProps['color']>;
+
+const STATUS_COLORS: Record<TranscriptReceiverStatus, StatusChipColor> = {
   idle: 'default',
   connecting: 'primary',
   connected: 'success',
@@ -162,7 +164,11 @@ const ClientRoot = () => {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void handleJoin();
               }}
-              slotProps={{ htmlInput: { style: { letterSpacing: '0.15em', fontSize: '1.25rem' } } }}
+              slotProps={{
+                htmlInput: {
+                  style: { letterSpacing: '0.15em', fontSize: '1.25rem' },
+                },
+              }}
             />
 
             {joinError && <Alert severity="error">{joinError}</Alert>}

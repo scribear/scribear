@@ -7,7 +7,6 @@
  *
  * Returns connection state and a disconnect function.
  */
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { NODE_SERVER_WS_URL } from '@/config/api-urls';
@@ -66,8 +65,12 @@ registerProcessor('audio-chunk-processor', AudioChunkProcessor);
 export function useAudioSource(
   options: UseAudioSourceOptions | null,
 ): UseAudioSourceReturn {
-  const { sessionId, token, sampleRate = 16000, numChannels = 1 } =
-    options ?? { sessionId: '', token: '' };
+  const {
+    sessionId,
+    token,
+    sampleRate = 16000,
+    numChannels = 1,
+  } = options ?? { sessionId: '', token: '' };
 
   const [status, setStatus] = useState<AudioSourceStatus>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -248,8 +251,7 @@ export function useAudioSource(
   }, [options, sessionId, token, sampleRate, numChannels, cleanup]);
 
   // Derive connecting status: when options are set but streaming hasn't started
-  const derivedStatus =
-    options && status === 'idle' ? 'connecting' : status;
+  const derivedStatus = options && status === 'idle' ? 'connecting' : status;
 
   const disconnect = useCallback(() => {
     cleanup();

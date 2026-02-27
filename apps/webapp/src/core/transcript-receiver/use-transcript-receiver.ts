@@ -6,7 +6,6 @@
  *
  * Returns connection state and a disconnect function.
  */
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { NODE_SERVER_WS_URL } from '@/config/api-urls';
@@ -126,8 +125,7 @@ export function useTranscriptReceiver(
   }, [options, dispatch, cleanup]);
 
   // Derive connecting status: when options are set but WS hasn't opened yet
-  const derivedStatus =
-    options && status === 'idle' ? 'connecting' : status;
+  const derivedStatus = options && status === 'idle' ? 'connecting' : status;
 
   const disconnect = useCallback(() => {
     cleanup();
