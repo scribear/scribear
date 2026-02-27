@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { ChoiceModal } from '@/components/ui/choice-modal';
+import { ChoiceModal } from '#src/components/ui/choice-modal';
 
 import { getProviderConfigMenu } from '../services/providers/provider-component-registry';
 import { ProviderId } from '../services/providers/provider-registry';

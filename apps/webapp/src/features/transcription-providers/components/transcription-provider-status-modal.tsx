@@ -1,4 +1,4 @@
-import { useAppSelector } from '@/stores/use-redux';
+import { useAppSelector } from '#src/stores/use-redux';
 
 import { getProviderStatusModal } from '../services/providers/provider-component-registry';
 import { ProviderId } from '../services/providers/provider-registry';

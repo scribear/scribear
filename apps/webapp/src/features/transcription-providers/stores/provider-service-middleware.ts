@@ -1,19 +1,19 @@
 import type { Middleware } from '@reduxjs/toolkit';
 
-import { appModeChange } from '@/core/app-mode/store/app-mode-slice';
+import { appModeChange } from '#src/core/app-mode/store/app-mode-slice';
 import {
   selectIsMicrophoneServiceActive,
   setMicrophoneServiceStatus,
-} from '@/core/microphone/stores/microphone-service-slice';
+} from '#src/core/microphone/stores/microphone-service-slice';
 import {
   appendFinalizedTranscription,
   clearTranscription,
   commitInProgressTranscription,
   commitParagraphBreak,
   replaceInProgressTranscription,
-} from '@/core/transcription-content/store/transcription-content-slice';
-import { rememberRehydrated } from '@/stores/slices/redux-remember-slice';
-import { type RootState, appInitialization } from '@/stores/store';
+} from '#src/core/transcription-content/store/transcription-content-slice';
+import { rememberRehydrated } from '#src/stores/slices/redux-remember-slice';
+import { type RootState, appInitialization } from '#src/stores/store';
 
 import { providerService } from '../services/provider-service';
 import { ProviderId } from '../services/providers/provider-registry';

@@ -1,13 +1,16 @@
 import { Type } from 'typebox';
 
 import {
+  type BaseRouteDefinition,
   type BaseRouteSchema,
   SHARED_ERROR_REPLY_SCHEMA,
 } from '@scribear/base-schema';
 
+import { SESSION_MANAGEMENT_TAG } from '../tags.js';
+
 const CREATE_SESSION_SCHEMA = {
   description: 'Creates a new session with optional join code',
-  tags: ['Session'],
+  tags: [SESSION_MANAGEMENT_TAG],
   body: Type.Object(
     {
       sessionLength: Type.Integer({
@@ -55,9 +58,9 @@ const CREATE_SESSION_SCHEMA = {
     400: SHARED_ERROR_REPLY_SCHEMA[400],
     500: SHARED_ERROR_REPLY_SCHEMA[500],
   },
-};
+} satisfies BaseRouteSchema;
 
-const CREATE_SESSION_ROUTE: BaseRouteSchema = {
+const CREATE_SESSION_ROUTE: BaseRouteDefinition = {
   method: 'POST',
   url: '/api/v1/session/create',
 };

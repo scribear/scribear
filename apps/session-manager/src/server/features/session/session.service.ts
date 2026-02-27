@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
 import { randomBytes } from 'node:crypto';
 
-import type { AppDependencies } from '@/server/dependency-injection/register-dependencies.js';
+import type { AppDependencies } from '#src/server/dependency-injection/register-dependencies.js';
 
 const SALT_ROUNDS = 10;
 

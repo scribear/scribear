@@ -2,8 +2,8 @@ import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 
-import { AppLink } from '@/components/ui/app-link';
-import { PATHS } from '@/config/paths';
+import { AppLink } from '#src/components/ui/app-link';
+import { PATHS } from '#src/config/paths';
 
 /**
  * Root of landing page

@@ -1,4 +1,4 @@
-import { AppMode } from '@/types/app-mode';
+import { AppMode } from '#src/types/app-mode';
 
 import { PATHS } from './paths';
 

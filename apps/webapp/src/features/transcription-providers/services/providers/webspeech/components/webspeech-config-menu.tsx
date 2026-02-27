@@ -4,12 +4,12 @@ import InputLabel from '@mui/material/InputLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
 
-import { ProviderConfigContainer } from '@/features/transcription-providers/components/provider-config-container';
+import { ProviderConfigContainer } from '#src/features/transcription-providers/components/provider-config-container';
 import {
   selectProviderConfig,
   updateProviderConfig,
-} from '@/features/transcription-providers/stores/provider-config-slice';
-import { useAppDispatch, useAppSelector } from '@/stores/use-redux';
+} from '#src/features/transcription-providers/stores/provider-config-slice';
+import { useAppDispatch, useAppSelector } from '#src/stores/use-redux';
 
 import {
   type ProviderConfigMenuProps,

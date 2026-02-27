@@ -3,8 +3,8 @@ import { EventEmitter } from 'eventemitter3';
 import {
   type MicrophoneService,
   microphoneService,
-} from '@/core/microphone/services/microphone-service';
-import type { TranscriptionSequence } from '@/core/transcription-content/store/transcription-content-slice';
+} from '#src/core/microphone/services/microphone-service';
+import type { TranscriptionSequence } from '#src/core/transcription-content/store/transcription-content-slice';
 
 import {
   type ProviderConfigTypeMap,

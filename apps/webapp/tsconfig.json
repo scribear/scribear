@@ -5,10 +5,9 @@
     "rootDir": ".",
     "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "./src/*"
-      ]
+      "#src/*": ["./src/*"]
     },
+    
     // Vite/React specific configuration
     "types": [
       "vite/client",

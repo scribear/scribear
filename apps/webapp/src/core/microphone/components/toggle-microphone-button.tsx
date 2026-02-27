@@ -6,9 +6,9 @@ import Tooltip from '@mui/material/Tooltip';
 import {
   activateMicrophone,
   deactivateMicrophone,
-} from '@/core/microphone/stores/microphone-preferences-slice';
-import { selectIsMicrophoneServiceActive } from '@/core/microphone/stores/microphone-service-slice';
-import { useAppDispatch, useAppSelector } from '@/stores/use-redux';
+} from '#src/core/microphone/stores/microphone-preferences-slice';
+import { selectIsMicrophoneServiceActive } from '#src/core/microphone/stores/microphone-service-slice';
+import { useAppDispatch, useAppSelector } from '#src/stores/use-redux';
 
 export const ToggleMicrophoneButton = () => {
   const dispatch = useAppDispatch();

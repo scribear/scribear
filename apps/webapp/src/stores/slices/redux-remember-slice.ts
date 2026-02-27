@@ -4,7 +4,7 @@
 import { createAction, createSlice } from '@reduxjs/toolkit';
 import { REMEMBER_REHYDRATED } from 'redux-remember';
 
-import type { RootState } from '@/stores/store';
+import type { RootState } from '#src/stores/store';
 
 export interface ReduxRememberSlice {
   isRehydrated: boolean;
