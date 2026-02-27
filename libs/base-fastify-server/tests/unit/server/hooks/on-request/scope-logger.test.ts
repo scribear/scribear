@@ -1,3 +1,4 @@
+import type { Cradle, RequestCradle } from '@fastify/awilix';
 import type { AwilixContainer } from 'awilix';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
@@ -29,7 +30,8 @@ describe('Log Request Hook', (it) => {
       setter: () => mockLogger,
     });
     fastify.decorateRequest('diScope', {
-      getter: () => mockDiScope as unknown as AwilixContainer,
+      getter: () =>
+        mockDiScope as unknown as AwilixContainer<Cradle & RequestCradle>,
     });
 
     fastify.register(scopeLogger);

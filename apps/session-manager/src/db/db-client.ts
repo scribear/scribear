@@ -44,7 +44,7 @@ export class DBClient {
             },
             'Database query',
           );
-        } else if (event.level === 'error') {
+        } else {
           logger.error({ sql: event.query.sql }, 'Database query error');
         }
       },

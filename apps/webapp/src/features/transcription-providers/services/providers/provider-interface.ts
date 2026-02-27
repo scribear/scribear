@@ -10,8 +10,9 @@ export interface ProviderEvents<StatusType> {
   statusChange: (newStatus: StatusType) => void;
 }
 
-export interface ProviderInterface<ConfigType, StatusType>
-  extends EventEmitter<ProviderEvents<StatusType>> {
+export interface ProviderInterface<ConfigType, StatusType> extends EventEmitter<
+  ProviderEvents<StatusType>
+> {
   get status(): StatusType;
 
   activateProvider(config: ConfigType): Promise<void> | void;

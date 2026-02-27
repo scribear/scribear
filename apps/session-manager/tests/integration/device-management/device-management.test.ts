@@ -1,18 +1,20 @@
 import { afterAll, beforeAll, describe, expect, inject } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 
-import { type BaseFastifyInstance, LogLevel } from '@scribear/base-fastify-server';
+import {
+  type BaseFastifyInstance,
+  LogLevel,
+} from '@scribear/base-fastify-server';
 
 import { AppConfig } from '#src/app-config/app-config.js';
 import createServer from '#src/server/create-server.js';
-
-import { useDb } from '../../utils/use-db.js';
+import { useDb } from '#tests/utils/use-db.js';
 
 const TEST_API_KEY = 'TEST_API_KEY';
 const TEST_DEVICE_NAME = 'test-device';
 const ACTIVATION_CODE_PATTERN = /^[A-Z0-9]{8}$/;
 
-describe('Integration Tests - Device Management API', (it) => {
+describe('Integration Tests - Device Management API', () => {
   useDb(['devices']);
 
   let fastify: BaseFastifyInstance;
@@ -29,7 +31,7 @@ describe('Integration Tests - Device Management API', (it) => {
   });
 
   afterAll(async () => {
-    await fastify?.close();
+    await fastify.close();
   });
 
   describe('POST /api/v1/device-management/register-device', (it) => {
@@ -99,7 +101,10 @@ describe('Integration Tests - Device Management API', (it) => {
 
       // Assert
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({ deviceId, deviceName: TEST_DEVICE_NAME });
+      expect(response.json()).toEqual({
+        deviceId,
+        deviceName: TEST_DEVICE_NAME,
+      });
       expect(response.cookies).toContainEqual(
         expect.objectContaining({ name: 'device_token', httpOnly: true }),
       );
@@ -113,7 +118,9 @@ describe('Integration Tests - Device Management API', (it) => {
         headers: { authorization: `Bearer ${TEST_API_KEY}` },
         body: { deviceName: TEST_DEVICE_NAME },
       });
-      const { activationCode } = registerResponse.json<{ activationCode: string }>();
+      const { activationCode } = registerResponse.json<{
+        activationCode: string;
+      }>();
 
       await fastify.inject({
         method: 'POST',

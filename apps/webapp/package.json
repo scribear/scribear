@@ -6,7 +6,8 @@
   "main": "dist/src/index.js",
   "type": "module",
   "imports": {
-    "#src/*": "./dist/src/*"
+    "#src/*": "./dist/src/*",
+    "#tests/*": "./dist/tests/*"
   },
   "scripts": {
     "build": "tsc -b && vite build",
@@ -21,21 +22,25 @@
   "dependencies": {
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",
-    "@fontsource/roboto": "5.2.9",
-    "@mui/icons-material": "7.3.7",
-    "@mui/material": "7.3.7",
+    "@fontsource/roboto": "5.2.10",
+    "@mui/icons-material": "7.3.8",
+    "@mui/material": "7.3.8",
     "@reduxjs/toolkit": "2.11.2",
+    "eventemitter3": "5.0.4",
     "mui-color-input": "7.0.0",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "react-error-boundary": "6.0.3",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-error-boundary": "6.1.1",
     "react-redux": "9.2.0",
-    "react-router": "7.12.0",
-    "redux-remember": "5.4.0",
+    "react-router": "7.13.1",
+    "redux-remember": "6.0.2",
     "uuid": "13.0.0"
   },
   "devDependencies": {
+    "@eslint-react/eslint-plugin": "2.13.0",
     "@types/dom-speech-recognition": "0.0.7",
+    "eslint-plugin-react-hooks": "7.0.1",
+    "eslint-plugin-react-refresh": "0.5.2",
     "@types/uuid": "10.0.0"
   }
 } 

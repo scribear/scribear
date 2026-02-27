@@ -1,7 +1,6 @@
 import { asValue } from 'awilix';
 import fastifyPlugin from 'fastify-plugin';
 
-import type { BaseLogger } from '#src/server/create-logger.js';
 import type { BaseFastifyInstance } from '#src/server/types/base-fastify-types.js';
 
 /**
@@ -10,7 +9,7 @@ import type { BaseFastifyInstance } from '#src/server/types/base-fastify-types.j
  */
 export default fastifyPlugin((fastify: BaseFastifyInstance) => {
   fastify.addHook('onRequest', (req, reply, done) => {
-    req.diScope.register({ logger: asValue(req.log as BaseLogger) });
+    req.diScope.register({ logger: asValue(req.log) });
     done();
   });
 });

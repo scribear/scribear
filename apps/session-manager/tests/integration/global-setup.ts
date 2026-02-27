@@ -36,9 +36,8 @@ export async function setup({
   await db.destroy();
 
   if (error) {
-    console.error('Failed to migrate');
     console.error(error);
-    throw error;
+    throw new Error('Failed to migrate', error);
   }
 
   provide('dbConfig', {
@@ -51,5 +50,5 @@ export async function setup({
 }
 
 export async function teardown() {
-  await container?.stop();
+  await container.stop();
 }

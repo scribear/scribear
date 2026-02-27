@@ -1,5 +1,5 @@
 import { type Kysely } from 'kysely';
-import { afterAll, beforeAll, afterEach, inject } from 'vitest';
+import { afterAll, afterEach, beforeAll, inject } from 'vitest';
 
 import type { DB } from '@scribear/scribear-db';
 
@@ -7,7 +7,7 @@ import { DBClient } from '#src/db/db-client.js';
 
 import { createMockLogger } from './mock-logger.js';
 
-export function useDb(tablesToTruncate: Array<keyof DB> = []): {
+export function useDb(tablesToTruncate: (keyof DB)[] = []): {
   db: Kysely<DB>;
   dbClient: DBClient;
 } {
@@ -16,7 +16,7 @@ export function useDb(tablesToTruncate: Array<keyof DB> = []): {
     dbClient: null as unknown as DBClient,
   };
 
-  beforeAll(async () => {
+  beforeAll(() => {
     ctx.dbClient = new DBClient(
       createMockLogger() as never,
       inject('dbConfig'),
@@ -31,7 +31,7 @@ export function useDb(tablesToTruncate: Array<keyof DB> = []): {
   });
 
   afterAll(async () => {
-    await ctx.dbClient?.destroy();
+    await ctx.dbClient.destroy();
   });
 
   return ctx;

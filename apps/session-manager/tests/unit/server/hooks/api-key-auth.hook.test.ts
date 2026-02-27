@@ -8,8 +8,11 @@ describe('apiKeyAuthHook', (it) => {
   const TEST_AUTH_HEADER = 'Bearer TEST_API_KEY';
 
   let mockAuthService: { isValidApiKey: Mock };
-  let mockReq: { headers: { authorization: string | undefined }; diScope: { resolve: Mock } };
-  let mockRes: object;
+  let mockReq: {
+    headers: { authorization: string | undefined };
+    diScope: { resolve: Mock };
+  };
+  let mockDone: Mock;
 
   beforeEach(() => {
     mockAuthService = { isValidApiKey: vi.fn() };
@@ -17,40 +20,47 @@ describe('apiKeyAuthHook', (it) => {
       headers: { authorization: TEST_AUTH_HEADER },
       diScope: { resolve: vi.fn().mockReturnValue(mockAuthService) },
     };
-    mockRes = {};
+    mockDone = vi.fn();
   });
 
-  it('does not throw when API key is valid', async () => {
+  it('calls done with no error when API key is valid', () => {
     // Arrange
     mockAuthService.isValidApiKey.mockReturnValue(true);
 
-    // Act / Assert
-    await expect(
-      apiKeyAuthHook(mockReq as never, mockRes as never),
-    ).resolves.toBeUndefined();
+    // Act
+    apiKeyAuthHook(mockReq as never, {} as never, mockDone);
+
+    // Assert
+    expect(mockDone).toHaveBeenCalledExactlyOnceWith();
     expect(mockAuthService.isValidApiKey).toHaveBeenCalledExactlyOnceWith(
       TEST_AUTH_HEADER,
     );
   });
 
-  it('throws Unauthorized when API key is invalid', async () => {
+  it('calls done with Unauthorized error when API key is invalid', () => {
     // Arrange
     mockAuthService.isValidApiKey.mockReturnValue(false);
 
-    // Act / Assert
-    await expect(
-      apiKeyAuthHook(mockReq as never, mockRes as never),
-    ).rejects.toThrow(HttpError.Unauthorized);
+    // Act
+    apiKeyAuthHook(mockReq as never, {} as never, mockDone);
+
+    // Assert
+    expect(mockDone).toHaveBeenCalledExactlyOnceWith(
+      expect.any(HttpError.Unauthorized),
+    );
   });
 
-  it('throws Unauthorized when authorization header is missing', async () => {
+  it('calls done with Unauthorized error when authorization header is missing', () => {
     // Arrange
     mockReq.headers.authorization = undefined;
     mockAuthService.isValidApiKey.mockReturnValue(false);
 
-    // Act / Assert
-    await expect(
-      apiKeyAuthHook(mockReq as never, mockRes as never),
-    ).rejects.toThrow(HttpError.Unauthorized);
+    // Act
+    apiKeyAuthHook(mockReq as never, {} as never, mockDone);
+
+    // Assert
+    expect(mockDone).toHaveBeenCalledExactlyOnceWith(
+      expect.any(HttpError.Unauthorized),
+    );
   });
 });

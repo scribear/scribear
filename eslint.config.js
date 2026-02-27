@@ -1,9 +1,6 @@
-import eslintReact from '@eslint-react/eslint-plugin';
 import js from '@eslint/js';
 import eslintConfigPrettierFlat from 'eslint-config-prettier/flat';
 import checkFile from 'eslint-plugin-check-file';
-import reactHooks from 'eslint-plugin-react-hooks';
-import reactRefresh from 'eslint-plugin-react-refresh';
 import { defineConfig } from 'eslint/config';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
@@ -44,25 +41,6 @@ export default defineConfig([
        * Uses ESLint rules for Typescript best practices provided by typescript-eslint
        */
       tseslint.configs.stylisticTypeChecked,
-
-      /**
-       * @see https://react.dev/reference/rules/rules-of-hooks
-       * @see https://react.dev/learn/react-compiler/installation#eslint-integration
-       * Allows ESLint to enforce the "Rules of Hooks"
-       */
-      reactHooks.configs.flat.recommended,
-
-      /**
-       * @see https://github.com/ArnaudBarre/eslint-plugin-react-refresh
-       * Allows ESLint to ensure your components can be safely updated with Fast Refresh
-       */
-      reactRefresh.configs.vite,
-
-      /**
-       * @see https://eslint-react.xyz/docs/presets#typescript-specialized
-       * Allows ESLint to enforce rules that are recommended general purpose React + React DOM projects
-       */
-      eslintReact.configs['recommended-type-checked'],
 
       /**
        * @see https://github.com/prettier/eslint-config-prettier

@@ -1,10 +1,9 @@
 import { type Mock, beforeEach, describe, expect, vi } from 'vitest';
 
 import { AuthService } from '#src/server/services/auth.service.js';
+import { createMockLogger } from '#tests/utils/mock-logger.js';
 
-import { createMockLogger } from '../../../utils/mock-logger.js';
-
-describe('AuthService', (it) => {
+describe('AuthService', () => {
   const TEST_API_KEY = 'TEST_API_KEY';
 
   let mockAuthRepository: { findDeviceHash: Mock };

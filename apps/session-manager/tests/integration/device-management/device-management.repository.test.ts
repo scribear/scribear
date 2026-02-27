@@ -1,14 +1,13 @@
 import { beforeEach, describe, expect } from 'vitest';
 
 import { DeviceManagementRepository } from '#src/server/features/device-management/device-management.repository.js';
-
-import { useDb } from '../../utils/use-db.js';
+import { useDb } from '#tests/utils/use-db.js';
 
 const TEST_ACTIVATION_CODE = 'ABCD1234';
 const TEST_SECRET_HASH = 'x'.repeat(60);
 const FUTURE_DATE = new Date(Date.now() + 1000 * 60 * 60);
 
-describe('DeviceManagementRepository', (it) => {
+describe('DeviceManagementRepository', () => {
   const dbContext = useDb(['devices']);
   let repository: DeviceManagementRepository;
 

@@ -62,7 +62,7 @@ export class AppConfig {
     this._isDevelopment = process.argv.includes('--dev');
 
     this._env = envSchema<Static<typeof CONFIG_SCHEMA>>({
-      dotenv: path ? { path, quiet: true } : { quiet: true },
+      dotenv: path ? { path } : {},
       schema: CONFIG_SCHEMA,
     });
   }

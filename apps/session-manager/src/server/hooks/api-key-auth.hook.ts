@@ -1,13 +1,17 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { HookHandlerDoneFunction } from 'fastify/types/hooks.js';
 
 import { HttpError } from '@scribear/base-fastify-server';
 
-export async function apiKeyAuthHook(
+export function apiKeyAuthHook(
   req: FastifyRequest,
-  res: FastifyReply,
-): Promise<void> {
+  _reply: FastifyReply,
+  done: HookHandlerDoneFunction,
+) {
   const authService = req.diScope.resolve('authService');
   if (!authService.isValidApiKey(req.headers.authorization)) {
-    throw new HttpError.Unauthorized('Invalid or missing API key.');
+    done(new HttpError.Unauthorized('Invalid or missing API key.'));
+    return;
   }
+  done();
 }

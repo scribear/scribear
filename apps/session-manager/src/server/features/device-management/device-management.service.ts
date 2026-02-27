@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import type { AppDependencies } from '../../dependency-injection/register-dependencies.js';
+import type { AppDependencies } from '#src/server/dependency-injection/register-dependencies.js';
 
 const ACTIVATION_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const ACTIVATION_CODE_LENGTH = 8;
@@ -72,10 +72,6 @@ export class DeviceManagementService {
       activationCode,
       secretHash,
     );
-    if (!result) {
-      log.warn('Failed to activate device database entry');
-      return null;
-    }
 
     return {
       deviceId: result.id,
@@ -89,7 +85,7 @@ export class DeviceManagementService {
 
     for (let i = 0; i < ACTIVATION_CODE_LENGTH; i++) {
       const randCharIndex = crypto.randomInt(0, ACTIVATION_CODE_CHARS.length);
-      code += ACTIVATION_CODE_CHARS[randCharIndex];
+      code += ACTIVATION_CODE_CHARS.charAt(randCharIndex);
     }
 
     return code;

@@ -1,12 +1,11 @@
 import { beforeEach, describe, expect } from 'vitest';
 
 import { AuthRepository } from '#src/server/repositories/auth.repository.js';
-
-import { useDb } from '../../utils/use-db.js';
+import { useDb } from '#tests/utils/use-db.js';
 
 const TEST_HASH = 'x'.repeat(60);
 
-describe('AuthRepository', (it) => {
+describe('AuthRepository', () => {
   const dbContext = useDb(['devices']);
   let authRepository: AuthRepository;
 
