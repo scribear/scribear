@@ -30,7 +30,7 @@ export const selectTargetProviderId = createSelector(
   (appMode, preferredProviderId) => {
     if (appMode === AppMode.STANDALONE) return preferredProviderId;
 
-    return ProviderId.WEBSPEECH;
+    return ProviderId.STREAMTEXT; //changed the default provider to streamtext in standalone mode
   },
 );
 
