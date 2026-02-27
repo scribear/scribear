@@ -1,4 +1,4 @@
-import cors from '@fastify/cors';
+import fastifyCookie from '@fastify/cookie';
 
 import { createBaseServer } from '@scribear/base-fastify-server';
 
@@ -18,13 +18,11 @@ async function createServer(config: AppConfig) {
     config.baseConfig.logLevel,
   );
 
-  // enable cors to get web app working for now
-  await fastify.register(cors, { origin: true });
-
   // Only include swagger docs if in development mode
   if (config.baseConfig.isDevelopment) {
     await fastify.register(swagger);
   }
+  fastify.register(fastifyCookie);
 
   registerDependencies(dependencyContainer, config);
 

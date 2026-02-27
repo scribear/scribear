@@ -1,5 +1,4 @@
 import { fastifyAwilixPlugin } from '@fastify/awilix';
-import fastifyCookie from '@fastify/cookie';
 import fastifyHelmet from '@fastify/helmet';
 import { fastifySensible } from '@fastify/sensible';
 import {
@@ -63,7 +62,6 @@ function createBaseServer(
   // Register plugins
   fastify.register(fastifySensible);
   fastify.register(fastifyHelmet);
-  fastify.register(fastifyCookie);
   fastify.register(errorHandler);
   fastify.register(jsonParser);
   fastify.register(notFoundHandler);

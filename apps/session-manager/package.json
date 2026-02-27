@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@fastify/awilix": "8.2.0",
+    "@fastify/cookie": "11.0.2",
     "@fastify/swagger": "9.7.0",
     "@fastify/swagger-ui": "5.2.5",
     "awilix": "13.0.0",

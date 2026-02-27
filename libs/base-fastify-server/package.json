@@ -21,7 +21,6 @@
   },
   "dependencies": {
     "@fastify/awilix": "8.2.0",
-    "@fastify/cookie": "11.0.2",
     "@fastify/error": "4.2.0",
     "@fastify/helmet": "13.0.2",
     "@fastify/sensible": "6.0.4",
