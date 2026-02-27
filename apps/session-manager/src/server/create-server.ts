@@ -1,4 +1,5 @@
 import cors from '@fastify/cors';
+
 import { createBaseServer } from '@scribear/base-fastify-server';
 
 import type AppConfig from '../app-config/app-config.js';
