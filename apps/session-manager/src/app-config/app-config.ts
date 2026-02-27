@@ -30,7 +30,7 @@ export interface BaseConfig {
 /**
  * Class that loads and provides application configuration
  */
-class AppConfig {
+export class AppConfig {
   private _isDevelopment: boolean;
   private _env: Static<typeof CONFIG_SCHEMA>;
 
@@ -62,5 +62,3 @@ class AppConfig {
     });
   }
 }
-
-export default AppConfig;

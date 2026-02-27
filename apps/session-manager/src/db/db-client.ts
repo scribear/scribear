@@ -3,6 +3,8 @@ import pg from 'pg';
 
 import type { DB } from '@scribear/scribear-db';
 
+import type { AppDependencies } from '#src/server/dependency-injection/register-dependencies.js';
+
 export interface DBClientConfig {
   dbHost: string;
   dbPort: number;
@@ -11,7 +13,7 @@ export interface DBClientConfig {
   dbPassword: string;
 }
 
-class DBClient {
+export class DBClient {
   private _db: Kysely<DB>;
 
   get db() {
@@ -40,5 +42,3 @@ class DBClient {
     await this._db.destroy();
   }
 }
-
-export default DBClient;

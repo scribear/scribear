@@ -10,15 +10,18 @@ import {
 
 import type { BaseDependencies } from '@scribear/base-fastify-server';
 
-import type AppConfig from '#src/app-config/app-config.js';
-import DBClient, { type DBClientConfig } from '#src/db/db-client.js';
+import type { AppConfig, BaseConfig } from '#src/app-config/app-config.js';
+import { DBClient, type DBClientConfig } from '#src/db/db-client.js';
 
-import HealthcheckController from '../features/healthcheck/healthcheck.controller.js';
+import { HealthcheckController } from '../features/healthcheck/healthcheck.controller.js';
 
 /**
  * Define types for entities in dependency container
  */
 interface AppDependencies extends BaseDependencies {
+  // Base Config
+  baseConfig: BaseConfig;
+
   // Database
   dbClientConfig: DBClientConfig;
   dbClient: DBClient;
@@ -49,8 +52,8 @@ function registerDependencies(
   config: AppConfig,
 ) {
   dependencyContainer.register({
-    // Config
-    config: asValue(config),
+    // Base Config
+    baseConfig: asValue(config.baseConfig),
 
     // Database
     dbClientConfig: asValue(config.dbClientConfig),
