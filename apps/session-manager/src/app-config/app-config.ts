@@ -5,14 +5,13 @@ import type { Static } from 'typebox';
 import { LogLevel } from '@scribear/base-fastify-server';
 
 import type { DBClientConfig } from '#src/db/db-client.js';
+import type { AuthServiceConfig } from '#src/server/services/auth.service.js';
 
 const CONFIG_SCHEMA = Type.Object({
   LOG_LEVEL: Type.Enum(LogLevel),
   PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
   HOST: Type.String(),
-  JWT_SECRET: Type.String({ minLength: 32 }),
-  JWT_ISSUER: Type.String({ default: 'scribear-session-manager' }),
-  JWT_EXPIRES_IN: Type.String({ default: '24h' }),
+  API_KEY: Type.String(),
   DB_HOST: Type.String(),
   DB_PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
   DB_NAME: Type.String(),
@@ -40,6 +39,12 @@ export class AppConfig {
       logLevel: this._env.LOG_LEVEL,
       port: this._env.PORT,
       host: this._env.HOST,
+    };
+  }
+
+  get authServiceConfig(): AuthServiceConfig {
+    return {
+      apiKey: this._env.API_KEY,
     };
   }
 

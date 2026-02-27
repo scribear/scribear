@@ -13,7 +13,16 @@ import type { BaseDependencies } from '@scribear/base-fastify-server';
 import type { AppConfig, BaseConfig } from '#src/app-config/app-config.js';
 import { DBClient, type DBClientConfig } from '#src/db/db-client.js';
 
+import { DeviceManagementController } from '../features/device-management/device-management.controller.js';
+import { DeviceManagementRepository } from '../features/device-management/device-management.repository.js';
+import { DeviceManagementService } from '../features/device-management/device-management.service.js';
 import { HealthcheckController } from '../features/healthcheck/healthcheck.controller.js';
+import { AuthRepository } from '../repositories/auth.repository.js';
+import {
+  AuthService,
+  type AuthServiceConfig,
+} from '../services/auth.service.js';
+import { HashService } from '../services/hash.service.js';
 
 /**
  * Define types for entities in dependency container
@@ -26,8 +35,21 @@ interface AppDependencies extends BaseDependencies {
   dbClientConfig: DBClientConfig;
   dbClient: DBClient;
 
+  // Auth
+  authServiceConfig: AuthServiceConfig;
+  authService: AuthService;
+  authRepository: AuthRepository;
+
+  // Hash
+  hashService: HashService;
+
   // Healthcheck
   healthcheckController: HealthcheckController;
+
+  // Device Management
+  deviceManagementController: DeviceManagementController;
+  deviceManagementService: DeviceManagementService;
+  deviceManagementRepository: DeviceManagementRepository;
 }
 
 /**
@@ -61,9 +83,28 @@ function registerDependencies(
       lifetime: Lifetime.SINGLETON,
     }),
 
+    // Auth
+    authServiceConfig: asValue(config.authServiceConfig),
+    authService: asClass(AuthService, { lifetime: Lifetime.SCOPED }),
+    authRepository: asClass(AuthRepository, { lifetime: Lifetime.SINGLETON }),
+
+    // Hash
+    hashService: asClass(HashService, { lifetime: Lifetime.SINGLETON }),
+
     // Healthcheck
     healthcheckController: asClass(HealthcheckController, {
       lifetime: Lifetime.SCOPED,
+    }),
+
+    // Device Management
+    deviceManagementController: asClass(DeviceManagementController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    deviceManagementService: asClass(DeviceManagementService, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    deviceManagementRepository: asClass(DeviceManagementRepository, {
+      lifetime: Lifetime.SINGLETON,
     }),
   } as NameAndRegistrationPair<AppDependencies>);
 }

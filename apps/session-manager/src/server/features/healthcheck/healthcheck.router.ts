@@ -10,12 +10,10 @@ import resolveHandler from '#src/server/dependency-injection/resolve-handler.js'
  * Registers healthcheck routes
  * @param fastify Fastify app instance
  */
-function healthcheckRouter(fastify: BaseFastifyInstance) {
+export function healthcheckRouter(fastify: BaseFastifyInstance) {
   fastify.route({
     ...HEALTHCHECK_ROUTE,
     schema: HEALTHCHECK_SCHEMA,
     handler: resolveHandler('healthcheckController', 'healthcheck'),
   });
 }
-
-export default healthcheckRouter;

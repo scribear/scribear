@@ -1,11 +1,5 @@
 import { type Mock, beforeEach, describe, expect, vi } from 'vitest';
 
-import type {
-  BaseFastifyReply,
-  BaseFastifyRequest,
-} from '@scribear/base-fastify-server';
-import type { HEALTHCHECK_SCHEMA } from '@scribear/session-manager-schema';
-
 import { HealthcheckController } from '#src/server/features/healthcheck/healthcheck.controller.js';
 
 describe('Healthcheck controller', (it) => {
@@ -33,10 +27,7 @@ describe('Healthcheck controller', (it) => {
     const mockReq = { id: testRequestId };
 
     // Act
-    healthcheckController.healthcheck(
-      mockReq as unknown as BaseFastifyRequest<typeof HEALTHCHECK_SCHEMA>,
-      mockReply as unknown as BaseFastifyReply<typeof HEALTHCHECK_SCHEMA>,
-    );
+    healthcheckController.healthcheck(mockReq as never, mockReply as never);
 
     // Assert
     expect(mockReply.code).toHaveBeenCalledExactlyOnceWith(200);

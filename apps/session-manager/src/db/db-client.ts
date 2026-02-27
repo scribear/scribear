@@ -20,7 +20,10 @@ export class DBClient {
     return this._db;
   }
 
-  constructor(dbClientConfig: DBClientConfig) {
+  constructor(
+    logger: AppDependencies['logger'],
+    dbClientConfig: AppDependencies['dbClientConfig'],
+  ) {
     this._db = new Kysely<DB>({
       dialect: new PostgresDialect({
         pool: new pg.Pool({
@@ -31,6 +34,20 @@ export class DBClient {
           password: dbClientConfig.dbPassword,
         }),
       }),
+      log: (event) => {
+        if (event.level === 'query') {
+          logger.debug(
+            {
+              sql: event.query.sql,
+              params: event.query.parameters,
+              durationMs: event.queryDurationMillis,
+            },
+            'Database query',
+          );
+        } else if (event.level === 'error') {
+          logger.error({ sql: event.query.sql }, 'Database query error');
+        }
+      },
     });
   }
 
