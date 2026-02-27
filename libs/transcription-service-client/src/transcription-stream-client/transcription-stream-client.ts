@@ -1,16 +1,14 @@
 import { EventEmitter } from 'eventemitter3';
 import WebSocket from 'isomorphic-ws';
 
-import type { TranscriptionStreamConfig } from './transcription-stream-configs.js';
 import {
   type AuthMessage,
   ClientMessageTypes,
   type ConfigMessage,
-} from './transcription-stream-messages/client-messages.js';
-import {
   ServerMessageTypes,
   ServerMessageValidator,
-} from './transcription-stream-messages/server-messages.js';
+  type TranscriptionStreamConfig,
+} from '@scribear/transcription-service-schema';
 
 const TRANSCRIPTION_STREAM_ROUTE = '/transcription_stream/';
 

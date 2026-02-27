@@ -13,9 +13,5 @@
     "tests",
   ],
   // Link to dependencies
-  "references": [
-    {
-      "path": "../transcription-service-schema/tsconfig.json"
-    }
-  ]
+  "references": []
 }
