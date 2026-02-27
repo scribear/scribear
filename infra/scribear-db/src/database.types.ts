@@ -9,11 +9,17 @@ export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S, I | undefined, U>
   : ColumnType<T, T | undefined, T>;
 
-export interface Kiosks {
+export type Timestamp = ColumnType<Date, Date | string, Date | string>;
+
+export interface Devices {
+  activation_code: string | null;
+  activation_expiry: Timestamp | null;
   id: Generated<string>;
-  secret_hash: string;
+  is_active: Generated<boolean | null>;
+  name: string;
+  secret_hash: string | null;
 }
 
 export interface DB {
-  kiosks: Kiosks;
+  devices: Devices;
 }
