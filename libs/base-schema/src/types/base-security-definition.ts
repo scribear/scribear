@@ -3,39 +3,72 @@
  */
 interface SharedSecurity {
   type: string;
-  description: string;
-}
-
-interface BasicSecurity extends SharedSecurity {
-  type: 'basic';
+  description?: string;
 }
 
 interface ApiKeySecurity extends SharedSecurity {
   type: 'apiKey';
-  in: 'query' | 'header';
+  in: 'query' | 'header' | 'cookie';
   name: string;
 }
 
-interface SharedOAuth2Security extends SharedSecurity {
-  type: 'oauth2';
-  flow: string;
+interface HttpSecurity extends SharedSecurity {
+  type: 'http';
+  scheme: string;
+  bearerFormat?: string;
+}
+
+interface MutualTLSSecurity extends SharedSecurity {
+  type: 'mutualTLS';
+}
+
+interface OAuthImplicitFlow {
+  authorizationUrl: string;
+  refreshUrl?: string;
   scopes: Record<string, string>;
 }
 
-interface OAuth2AuthorizationUrlSecurity extends SharedOAuth2Security {
-  flow: 'implicit' | 'accessCode';
-  authorizationUrl: string;
+interface OAuthPasswordFlow {
+  tokenUrl: string;
+  refreshUrl?: string;
+  scopes: Record<string, string>;
 }
 
-interface OAuth2TokenUrlSecurity extends SharedOAuth2Security {
-  flow: 'password' | 'application' | 'accessCode';
+interface OAuthClientCredentialsFlow {
   tokenUrl: string;
+  refreshUrl?: string;
+  scopes: Record<string, string>;
+}
+
+interface OAuthAuthorizationCodeFlow {
+  authorizationUrl: string;
+  tokenUrl: string;
+  refreshUrl?: string;
+  scopes: Record<string, string>;
+}
+
+interface OAuthFlows {
+  implicit?: OAuthImplicitFlow;
+  password?: OAuthPasswordFlow;
+  clientCredentials?: OAuthClientCredentialsFlow;
+  authorizationCode?: OAuthAuthorizationCodeFlow;
+}
+
+interface OAuth2Security extends SharedSecurity {
+  type: 'oauth2';
+  flows: OAuthFlows;
+}
+
+interface OpenIdConnectSecurity extends SharedSecurity {
+  type: 'openIdConnect';
+  openIdConnectUrl: string;
 }
 
 export type BaseSecurityDefinition = Record<
   string,
-  | BasicSecurity
   | ApiKeySecurity
-  | OAuth2AuthorizationUrlSecurity
-  | OAuth2TokenUrlSecurity
+  | HttpSecurity
+  | MutualTLSSecurity
+  | OAuth2Security
+  | OpenIdConnectSecurity
 >;
