@@ -17,6 +17,9 @@ import { DeviceManagementController } from '../features/device-management/device
 import { DeviceManagementRepository } from '../features/device-management/device-management.repository.js';
 import { DeviceManagementService } from '../features/device-management/device-management.service.js';
 import { HealthcheckController } from '../features/healthcheck/healthcheck.controller.js';
+import { SessionManagementController } from '../features/session-management/session-management.controller.js';
+import { SessionManagementRepository } from '../features/session-management/session-management.repository.js';
+import { SessionManagementService } from '../features/session-management/session-management.service.js';
 import { AuthRepository } from '../repositories/auth.repository.js';
 import {
   AuthService,
@@ -50,6 +53,11 @@ interface AppDependencies extends BaseDependencies {
   deviceManagementController: DeviceManagementController;
   deviceManagementService: DeviceManagementService;
   deviceManagementRepository: DeviceManagementRepository;
+
+  // Session Management
+  sessionManagementController: SessionManagementController;
+  sessionManagementService: SessionManagementService;
+  sessionManagementRepository: SessionManagementRepository;
 }
 
 /**
@@ -104,6 +112,17 @@ function registerDependencies(
       lifetime: Lifetime.SCOPED,
     }),
     deviceManagementRepository: asClass(DeviceManagementRepository, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+
+    // Session Management
+    sessionManagementController: asClass(SessionManagementController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    sessionManagementService: asClass(SessionManagementService, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    sessionManagementRepository: asClass(SessionManagementRepository, {
       lifetime: Lifetime.SINGLETON,
     }),
   } as NameAndRegistrationPair<AppDependencies>);

@@ -6,6 +6,7 @@ import type { AppConfig } from '../app-config/app-config.js';
 import registerDependencies from './dependency-injection/register-dependencies.js';
 import { deviceManagementRouter } from './features/device-management/device-management.router.js';
 import { healthcheckRouter } from './features/healthcheck/healthcheck.router.js';
+import { sessionManagementRouter } from './features/session-management/session-management.router.js';
 import swagger from './plugins/swagger.js';
 
 /**
@@ -29,6 +30,7 @@ async function createServer(config: AppConfig) {
   // Register routes
   fastify.register(healthcheckRouter);
   fastify.register(deviceManagementRouter);
+  fastify.register(sessionManagementRouter);
 
   return { logger, fastify };
 }

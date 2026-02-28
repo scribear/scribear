@@ -9,6 +9,18 @@ export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S, I | undefined, U>
   : ColumnType<T, T | undefined, T>;
 
+export type Json = JsonValue;
+
+export type JsonArray = JsonValue[];
+
+export type JsonObject = {
+  [x: string]: JsonValue | undefined;
+};
+
+export type JsonPrimitive = boolean | number | string | null;
+
+export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
+
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
 export interface Devices {
@@ -20,6 +32,16 @@ export interface Devices {
   secret_hash: string | null;
 }
 
+export interface Sessions {
+  end_time: Timestamp | null;
+  id: Generated<string>;
+  source_device_id: string;
+  start_time: Timestamp;
+  transcription_provider_config: Json;
+  transcription_provider_key: string;
+}
+
 export interface DB {
   devices: Devices;
+  sessions: Sessions;
 }
