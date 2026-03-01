@@ -22,6 +22,7 @@ describe('SessionManagementService', () => {
     createSession: Mock;
     getNextSessionEvent: Mock;
     findActiveSessionByJoinCode: Mock;
+    findActiveSessionBySourceDevice: Mock;
   };
   let mockEventBus: {
     addListener: Mock;
@@ -42,6 +43,7 @@ describe('SessionManagementService', () => {
       createSession: vi.fn(),
       getNextSessionEvent: vi.fn(),
       findActiveSessionByJoinCode: vi.fn(),
+      findActiveSessionBySourceDevice: vi.fn(),
     };
     mockEventBus = {
       addListener: vi.fn(),
@@ -237,6 +239,83 @@ describe('SessionManagementService', () => {
         scopes: [SessionScope.RECEIVE_TRANSCRIPTIONS],
       });
       expect(result).toEqual({ sessionToken: TEST_SESSION_TOKEN });
+    });
+  });
+
+  describe('authenticateSourceDevice', (it) => {
+    it('returns SESSION_NOT_FOUND when no active session matches', async () => {
+      // Arrange
+      mockRepository.findActiveSessionBySourceDevice.mockResolvedValue(
+        undefined,
+      );
+
+      // Act
+      const result = await service.authenticateSourceDevice(
+        TEST_DEVICE_ID,
+        TEST_SESSION_ID,
+      );
+
+      // Assert
+      expect(result).toEqual({ error: 'SESSION_NOT_FOUND' });
+      expect(mockJwtService.signSessionToken).not.toHaveBeenCalled();
+    });
+
+    it('queries the repository with the correct deviceId and sessionId', async () => {
+      // Arrange
+      mockRepository.findActiveSessionBySourceDevice.mockResolvedValue(
+        undefined,
+      );
+
+      // Act
+      await service.authenticateSourceDevice(TEST_DEVICE_ID, TEST_SESSION_ID);
+
+      // Assert
+      expect(
+        mockRepository.findActiveSessionBySourceDevice,
+      ).toHaveBeenCalledExactlyOnceWith(TEST_DEVICE_ID, TEST_SESSION_ID);
+    });
+
+    it('returns sessionToken signed with both SEND_AUDIO and RECEIVE_TRANSCRIPTIONS scopes', async () => {
+      // Arrange
+      mockRepository.findActiveSessionBySourceDevice.mockResolvedValue({
+        id: TEST_SESSION_ID,
+        transcription_provider_key: TEST_PROVIDER_KEY,
+        transcription_provider_config: TEST_PROVIDER_CONFIG,
+      });
+
+      // Act
+      const result = await service.authenticateSourceDevice(
+        TEST_DEVICE_ID,
+        TEST_SESSION_ID,
+      );
+
+      // Assert
+      expect(mockJwtService.signSessionToken).toHaveBeenCalledExactlyOnceWith({
+        sessionId: TEST_SESSION_ID,
+        scopes: [SessionScope.RECEIVE_TRANSCRIPTIONS, SessionScope.SEND_AUDIO],
+      });
+      expect(result).toMatchObject({ sessionToken: TEST_SESSION_TOKEN });
+    });
+
+    it('returns transcriptionProviderKey and transcriptionProviderConfig from session', async () => {
+      // Arrange
+      mockRepository.findActiveSessionBySourceDevice.mockResolvedValue({
+        id: TEST_SESSION_ID,
+        transcription_provider_key: TEST_PROVIDER_KEY,
+        transcription_provider_config: TEST_PROVIDER_CONFIG,
+      });
+
+      // Act
+      const result = await service.authenticateSourceDevice(
+        TEST_DEVICE_ID,
+        TEST_SESSION_ID,
+      );
+
+      // Assert
+      expect(result).toMatchObject({
+        transcriptionProviderKey: TEST_PROVIDER_KEY,
+        transcriptionProviderConfig: TEST_PROVIDER_CONFIG,
+      });
     });
   });
 

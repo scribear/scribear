@@ -16,6 +16,7 @@ describe('SessionManagementController', () => {
     createOnDemandSession: Mock;
     getDeviceSessionEvent: Mock;
     authenticateWithJoinCode: Mock;
+    authenticateSourceDevice: Mock;
   };
   let mockReply: { send: Mock; code: Mock };
   let controller: SessionManagementController;
@@ -25,6 +26,7 @@ describe('SessionManagementController', () => {
       createOnDemandSession: vi.fn(),
       getDeviceSessionEvent: vi.fn(),
       authenticateWithJoinCode: vi.fn(),
+      authenticateSourceDevice: vi.fn(),
     };
     controller = new SessionManagementController(
       mockSessionManagementService as never,
@@ -235,6 +237,78 @@ describe('SessionManagementController', () => {
       await expect(
         controller.sessionAuth(mockReq as never, mockReply as never),
       ).rejects.toThrow(HttpError.BadRequest);
+    });
+  });
+
+  describe('sourceDeviceSessionAuth', (it) => {
+    it('calls service with deviceId from request and sessionId from body', async () => {
+      // Arrange
+      mockSessionManagementService.authenticateSourceDevice.mockResolvedValue({
+        sessionToken: 'signed.jwt.token',
+        transcriptionProviderKey: TEST_PROVIDER_KEY,
+        transcriptionProviderConfig: TEST_PROVIDER_CONFIG,
+      });
+      const mockReq = {
+        deviceId: TEST_DEVICE_ID,
+        body: { sessionId: TEST_SESSION_ID },
+      };
+
+      // Act
+      await controller.sourceDeviceSessionAuth(
+        mockReq as never,
+        mockReply as never,
+      );
+
+      // Assert
+      expect(
+        mockSessionManagementService.authenticateSourceDevice,
+      ).toHaveBeenCalledExactlyOnceWith(TEST_DEVICE_ID, TEST_SESSION_ID);
+    });
+
+    it('responds with sessionToken, transcriptionProviderKey, and transcriptionProviderConfig on success', async () => {
+      // Arrange
+      mockSessionManagementService.authenticateSourceDevice.mockResolvedValue({
+        sessionToken: 'signed.jwt.token',
+        transcriptionProviderKey: TEST_PROVIDER_KEY,
+        transcriptionProviderConfig: TEST_PROVIDER_CONFIG,
+      });
+      const mockReq = {
+        deviceId: TEST_DEVICE_ID,
+        body: { sessionId: TEST_SESSION_ID },
+      };
+
+      // Act
+      await controller.sourceDeviceSessionAuth(
+        mockReq as never,
+        mockReply as never,
+      );
+
+      // Assert
+      expect(mockReply.code).toHaveBeenCalledExactlyOnceWith(200);
+      expect(mockReply.send).toHaveBeenCalledExactlyOnceWith({
+        sessionToken: 'signed.jwt.token',
+        transcriptionProviderKey: TEST_PROVIDER_KEY,
+        transcriptionProviderConfig: TEST_PROVIDER_CONFIG,
+      });
+    });
+
+    it('throws Unauthorized when service returns SESSION_NOT_FOUND', async () => {
+      // Arrange
+      mockSessionManagementService.authenticateSourceDevice.mockResolvedValue({
+        error: 'SESSION_NOT_FOUND',
+      });
+      const mockReq = {
+        deviceId: TEST_DEVICE_ID,
+        body: { sessionId: TEST_SESSION_ID },
+      };
+
+      // Act / Assert
+      await expect(
+        controller.sourceDeviceSessionAuth(
+          mockReq as never,
+          mockReply as never,
+        ),
+      ).rejects.toThrow(HttpError.Unauthorized);
     });
   });
 });

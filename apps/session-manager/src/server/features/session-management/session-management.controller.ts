@@ -6,7 +6,8 @@ import { HttpError } from '@scribear/base-fastify-server';
 import {
   CREATE_SESSION_SCHEMA,
   DEVICE_SESSION_EVENTS_SCHEMA,
-  SESSION_AUTH_SCHEMA,
+  type SESSION_JOIN_CODE_AUTH_SCHEMA,
+  type SOURCE_DEVICE_SESSION_AUTH_SCHEMA,
 } from '@scribear/session-manager-schema';
 
 import type { AppDependencies } from '#src/server/dependency-injection/register-dependencies.js';
@@ -57,8 +58,8 @@ export class SessionManagementController {
   }
 
   async sessionAuth(
-    req: BaseFastifyRequest<typeof SESSION_AUTH_SCHEMA>,
-    res: BaseFastifyReply<typeof SESSION_AUTH_SCHEMA>,
+    req: BaseFastifyRequest<typeof SESSION_JOIN_CODE_AUTH_SCHEMA>,
+    res: BaseFastifyReply<typeof SESSION_JOIN_CODE_AUTH_SCHEMA>,
   ) {
     const { joinCode } = req.body;
 
@@ -72,6 +73,29 @@ export class SessionManagementController {
     }
 
     res.code(200).send({ sessionToken: result.sessionToken });
+  }
+
+  async sourceDeviceSessionAuth(
+    req: BaseFastifyRequest<typeof SOURCE_DEVICE_SESSION_AUTH_SCHEMA>,
+    res: BaseFastifyReply<typeof SOURCE_DEVICE_SESSION_AUTH_SCHEMA>,
+  ) {
+    const { sessionId } = req.body;
+
+    const result =
+      await this._sessionManagementService.authenticateSourceDevice(
+        req.deviceId,
+        sessionId,
+      );
+
+    if ('error' in result) {
+      throw new HttpError.Unauthorized('Session not found or not accessible.');
+    }
+
+    res.code(200).send({
+      sessionToken: result.sessionToken,
+      transcriptionProviderKey: result.transcriptionProviderKey,
+      transcriptionProviderConfig: result.transcriptionProviderConfig,
+    });
   }
 
   async getDeviceSessionEvents(

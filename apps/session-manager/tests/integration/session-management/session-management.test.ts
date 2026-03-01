@@ -6,7 +6,15 @@ import {
   type BaseFastifyInstance,
   LogLevel,
 } from '@scribear/base-fastify-server';
-import { SessionScope } from '@scribear/session-manager-schema';
+import {
+  ACTIVATE_DEVICE_ROUTE,
+  CREATE_SESSION_ROUTE,
+  DEVICE_SESSION_EVENTS_ROUTE,
+  REGISTER_DEVICE_ROUTE,
+  SESSION_JOIN_CODE_AUTH_ROUTE,
+  SOURCE_DEVICE_SESSION_AUTH_ROUTE,
+  SessionScope,
+} from '@scribear/session-manager-schema';
 
 import { AppConfig } from '#src/app-config/app-config.js';
 import createServer from '#src/server/create-server.js';
@@ -16,7 +24,7 @@ const TEST_API_KEY = 'TEST_API_KEY';
 const TEST_JWT_SECRET = 'test-jwt-secret-must-be-at-least-32-chars!!';
 const TEST_DEVICE_NAME = 'test-device';
 const TEST_PROVIDER_KEY = 'whisper';
-const TEST_PROVIDER_CONFIG = { apiKey: 'test-api-key' };
+const TEST_PROVIDER_CONFIG = {};
 
 describe('Integration Tests - Session Management API', () => {
   useDb(['session_events', 'sessions', 'devices']);
@@ -41,8 +49,7 @@ describe('Integration Tests - Session Management API', () => {
 
   async function registerDevice() {
     const response = await fastify.inject({
-      method: 'POST',
-      url: '/api/v1/device-management/register-device',
+      ...REGISTER_DEVICE_ROUTE,
       headers: { authorization: `Bearer ${TEST_API_KEY}` },
       body: { deviceName: TEST_DEVICE_NAME },
     });
@@ -51,8 +58,7 @@ describe('Integration Tests - Session Management API', () => {
 
   async function activateDevice(activationCode: string) {
     const response = await fastify.inject({
-      method: 'POST',
-      url: '/api/v1/device-management/activate-device',
+      ...ACTIVATE_DEVICE_ROUTE,
       body: { activationCode },
     });
     const { deviceId } = response.json<{ deviceId: string }>();
@@ -65,8 +71,7 @@ describe('Integration Tests - Session Management API', () => {
     options?: { endTimeUnixMs?: number; enableJoinCode?: boolean },
   ) {
     const response = await fastify.inject({
-      method: 'POST',
-      url: '/api/v1/session-management/create-session',
+      ...CREATE_SESSION_ROUTE,
       headers: { authorization: `Bearer ${TEST_API_KEY}` },
       body: {
         sourceDeviceId: deviceId,
@@ -86,13 +91,13 @@ describe('Integration Tests - Session Management API', () => {
     const query =
       prevEventId !== undefined ? `?prevEventId=${prevEventId.toString()}` : '';
     return fastify.inject({
-      method: 'GET',
-      url: `/api/v1/session-management/device-session-events${query}`,
+      ...DEVICE_SESSION_EVENTS_ROUTE,
+      url: `${DEVICE_SESSION_EVENTS_ROUTE.url}${query}`,
       cookies: { device_token: deviceToken },
     });
   }
 
-  describe('POST /api/v1/session-management/create-session', (it) => {
+  describe(`${CREATE_SESSION_ROUTE.method} ${CREATE_SESSION_ROUTE.url}`, (it) => {
     it('returns 400 when api key is missing', async () => {
       // Arrange
       const { deviceId, activationCode } = await registerDevice();
@@ -100,8 +105,7 @@ describe('Integration Tests - Session Management API', () => {
 
       // Act
       const response = await fastify.inject({
-        method: 'POST',
-        url: '/api/v1/session-management/create-session',
+        ...CREATE_SESSION_ROUTE,
         body: {
           sourceDeviceId: deviceId,
           transcriptionProviderKey: TEST_PROVIDER_KEY,
@@ -121,8 +125,7 @@ describe('Integration Tests - Session Management API', () => {
 
       // Act
       const response = await fastify.inject({
-        method: 'POST',
-        url: '/api/v1/session-management/create-session',
+        ...CREATE_SESSION_ROUTE,
         headers: { authorization: 'Bearer WRONGKEY' },
         body: {
           sourceDeviceId: deviceId,
@@ -143,8 +146,7 @@ describe('Integration Tests - Session Management API', () => {
 
       // Act
       const response = await fastify.inject({
-        method: 'POST',
-        url: '/api/v1/session-management/create-session',
+        ...CREATE_SESSION_ROUTE,
         headers: { authorization: `Bearer ${TEST_API_KEY}` },
         body: {
           sourceDeviceId: deviceId,
@@ -164,8 +166,7 @@ describe('Integration Tests - Session Management API', () => {
     it('returns 400 when sourceDeviceId does not exist', async () => {
       // Act
       const response = await fastify.inject({
-        method: 'POST',
-        url: '/api/v1/session-management/create-session',
+        ...CREATE_SESSION_ROUTE,
         headers: { authorization: `Bearer ${TEST_API_KEY}` },
         body: {
           sourceDeviceId: '00000000-0000-0000-0000-000000000000',
@@ -211,12 +212,11 @@ describe('Integration Tests - Session Management API', () => {
     });
   });
 
-  describe('GET /api/v1/session-management/device-session-events', (it) => {
+  describe(`${DEVICE_SESSION_EVENTS_ROUTE.method} ${DEVICE_SESSION_EVENTS_ROUTE.url}`, (it) => {
     it('returns 401 when device cookie is missing', async () => {
       // Arrange / Act
       const response = await fastify.inject({
-        method: 'GET',
-        url: '/api/v1/session-management/device-session-events',
+        ...DEVICE_SESSION_EVENTS_ROUTE,
       });
 
       // Assert
@@ -301,11 +301,10 @@ describe('Integration Tests - Session Management API', () => {
     });
   });
 
-  describe('POST /api/v1/session-management/session-auth', (it) => {
+  describe(`${SESSION_JOIN_CODE_AUTH_ROUTE.method} ${SESSION_JOIN_CODE_AUTH_ROUTE.url}`, (it) => {
     it('returns 400 when joinCode is missing', async () => {
       const response = await fastify.inject({
-        method: 'POST',
-        url: '/api/v1/session-management/session-auth',
+        ...SESSION_JOIN_CODE_AUTH_ROUTE,
         body: {},
       });
 
@@ -314,8 +313,7 @@ describe('Integration Tests - Session Management API', () => {
 
     it('returns 400 when joinCode does not match any active session', async () => {
       const response = await fastify.inject({
-        method: 'POST',
-        url: '/api/v1/session-management/session-auth',
+        ...SESSION_JOIN_CODE_AUTH_ROUTE,
         body: { joinCode: 'NOTFOUND' },
       });
 
@@ -335,8 +333,7 @@ describe('Integration Tests - Session Management API', () => {
 
       // Act
       const response = await fastify.inject({
-        method: 'POST',
-        url: '/api/v1/session-management/session-auth',
+        ...SESSION_JOIN_CODE_AUTH_ROUTE,
         body: { joinCode },
       });
 
@@ -365,12 +362,132 @@ describe('Integration Tests - Session Management API', () => {
 
       // Act
       const response = await fastify.inject({
-        method: 'POST',
-        url: '/api/v1/session-management/session-auth',
+        ...SESSION_JOIN_CODE_AUTH_ROUTE,
         body: { joinCode },
       });
 
       expect(response.statusCode).toBe(400);
+    });
+  });
+
+  describe(`${SOURCE_DEVICE_SESSION_AUTH_ROUTE.method} ${SOURCE_DEVICE_SESSION_AUTH_ROUTE.url}`, (it) => {
+    async function sourceDeviceSessionAuth(
+      deviceToken: string,
+      sessionId: string,
+    ) {
+      return fastify.inject({
+        ...SOURCE_DEVICE_SESSION_AUTH_ROUTE,
+        cookies: { device_token: deviceToken },
+        body: { sessionId },
+      });
+    }
+
+    it('returns 401 when device cookie is missing', async () => {
+      // Arrange
+      const { deviceId, activationCode } = await registerDevice();
+      await activateDevice(activationCode);
+      const { sessionId } = await createSession(deviceId);
+
+      // Act
+      const response = await fastify.inject({
+        ...SOURCE_DEVICE_SESSION_AUTH_ROUTE,
+        body: { sessionId },
+      });
+
+      // Assert
+      expect(response.statusCode).toBe(401);
+    });
+
+    it('returns 401 when device cookie is invalid', async () => {
+      // Arrange
+      const { deviceId, activationCode } = await registerDevice();
+      await activateDevice(activationCode);
+      const { sessionId } = await createSession(deviceId);
+
+      // Act
+      const response = await sourceDeviceSessionAuth(
+        'invalid-token',
+        sessionId,
+      );
+
+      // Assert
+      expect(response.statusCode).toBe(401);
+    });
+
+    it('returns 401 when sessionId does not belong to the authenticated device', async () => {
+      // Arrange
+      const { deviceId: deviceAId, activationCode: codeA } =
+        await registerDevice();
+      await activateDevice(codeA);
+
+      const { activationCode: codeB } = await registerDevice();
+      const { deviceToken: deviceBToken } = await activateDevice(codeB);
+
+      const { sessionId } = await createSession(deviceAId);
+
+      // Act — device B tries to auth for device A's session
+      const response = await sourceDeviceSessionAuth(deviceBToken, sessionId);
+
+      // Assert
+      expect(response.statusCode).toBe(401);
+    });
+
+    it('returns 401 when session has expired', async () => {
+      // Arrange
+      const { deviceId, activationCode } = await registerDevice();
+      const { deviceToken } = await activateDevice(activationCode);
+      const { sessionId } = await createSession(deviceId, {
+        endTimeUnixMs: Date.now() + 200,
+      });
+
+      // Wait for session to expire
+      await new Promise((r) => setTimeout(r, 300));
+
+      // Act
+      const response = await sourceDeviceSessionAuth(deviceToken, sessionId);
+
+      // Assert
+      expect(response.statusCode).toBe(401);
+    });
+
+    it('returns 200 with sessionToken containing both SEND_AUDIO and RECEIVE_TRANSCRIPTIONS scopes', async () => {
+      // Arrange
+      const { deviceId, activationCode } = await registerDevice();
+      const { deviceToken } = await activateDevice(activationCode);
+      const { sessionId } = await createSession(deviceId);
+
+      // Act
+      const response = await sourceDeviceSessionAuth(deviceToken, sessionId);
+
+      // Assert
+      expect(response.statusCode).toBe(200);
+      const { sessionToken } = response.json<{ sessionToken: string }>();
+      const payload = jwt.verify(sessionToken, TEST_JWT_SECRET) as {
+        sessionId: string;
+        scopes: string[];
+      };
+      expect(payload.sessionId).toBe(sessionId);
+      expect(payload.scopes).toContain(SessionScope.SEND_AUDIO);
+      expect(payload.scopes).toContain(SessionScope.RECEIVE_TRANSCRIPTIONS);
+    });
+
+    it('returns 200 with transcriptionProviderKey and transcriptionProviderConfig', async () => {
+      // Arrange
+      const { deviceId, activationCode } = await registerDevice();
+      const { deviceToken } = await activateDevice(activationCode);
+      const { sessionId } = await createSession(deviceId);
+
+      // Act
+      const response = await sourceDeviceSessionAuth(deviceToken, sessionId);
+
+      // Assert
+      expect(response.statusCode).toBe(200);
+      const body = response.json<{
+        transcriptionProviderKey: string;
+        transcriptionProviderConfig: object;
+      }>();
+      expect(body.transcriptionProviderKey).toBe(TEST_PROVIDER_KEY);
+      expect(body.transcriptionProviderConfig).toEqual(TEST_PROVIDER_CONFIG);
     });
   });
 });

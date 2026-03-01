@@ -5,6 +5,10 @@ import {
   type BaseFastifyInstance,
   LogLevel,
 } from '@scribear/base-fastify-server';
+import {
+  ACTIVATE_DEVICE_ROUTE,
+  REGISTER_DEVICE_ROUTE,
+} from '@scribear/session-manager-schema';
 
 import { AppConfig } from '#src/app-config/app-config.js';
 import createServer from '#src/server/create-server.js';
@@ -34,12 +38,11 @@ describe('Integration Tests - Device Management API', () => {
     await fastify.close();
   });
 
-  describe('POST /api/v1/device-management/register-device', (it) => {
+  describe(`${REGISTER_DEVICE_ROUTE.method} ${REGISTER_DEVICE_ROUTE.url}`, (it) => {
     it('returns 200 with deviceId and activationCode', async () => {
       // Act
       const response = await fastify.inject({
-        method: 'POST',
-        url: '/api/v1/device-management/register-device',
+        ...REGISTER_DEVICE_ROUTE,
         headers: { authorization: `Bearer ${TEST_API_KEY}` },
         body: { deviceName: TEST_DEVICE_NAME },
       });
@@ -55,8 +58,7 @@ describe('Integration Tests - Device Management API', () => {
     it('returns 401 when api key is incorrect', async () => {
       // Act
       const response = await fastify.inject({
-        method: 'POST',
-        url: '/api/v1/device-management/register-device',
+        ...REGISTER_DEVICE_ROUTE,
         headers: { authorization: 'Bearer WRONGKEY' },
         body: { deviceName: TEST_DEVICE_NAME },
       });
@@ -66,12 +68,11 @@ describe('Integration Tests - Device Management API', () => {
     });
   });
 
-  describe('POST /api/v1/device-management/activate-device', (it) => {
+  describe(`${ACTIVATE_DEVICE_ROUTE.method} ${ACTIVATE_DEVICE_ROUTE.url}`, (it) => {
     it('returns 400 when activation code does not exist', async () => {
       // Act
       const response = await fastify.inject({
-        method: 'POST',
-        url: '/api/v1/device-management/activate-device',
+        ...ACTIVATE_DEVICE_ROUTE,
         body: { activationCode: 'NOTFOUND' },
       });
 
@@ -82,8 +83,7 @@ describe('Integration Tests - Device Management API', () => {
     it('returns 200 and sets device_token cookie after register and activate', async () => {
       // Arrange
       const registerResponse = await fastify.inject({
-        method: 'POST',
-        url: '/api/v1/device-management/register-device',
+        ...REGISTER_DEVICE_ROUTE,
         headers: { authorization: `Bearer ${TEST_API_KEY}` },
         body: { deviceName: TEST_DEVICE_NAME },
       });
@@ -94,8 +94,7 @@ describe('Integration Tests - Device Management API', () => {
 
       // Act
       const response = await fastify.inject({
-        method: 'POST',
-        url: '/api/v1/device-management/activate-device',
+        ...ACTIVATE_DEVICE_ROUTE,
         body: { activationCode },
       });
 
@@ -113,8 +112,7 @@ describe('Integration Tests - Device Management API', () => {
     it('returns 400 when activation code has already been used', async () => {
       // Arrange
       const registerResponse = await fastify.inject({
-        method: 'POST',
-        url: '/api/v1/device-management/register-device',
+        ...REGISTER_DEVICE_ROUTE,
         headers: { authorization: `Bearer ${TEST_API_KEY}` },
         body: { deviceName: TEST_DEVICE_NAME },
       });
@@ -123,15 +121,13 @@ describe('Integration Tests - Device Management API', () => {
       }>();
 
       await fastify.inject({
-        method: 'POST',
-        url: '/api/v1/device-management/activate-device',
+        ...ACTIVATE_DEVICE_ROUTE,
         body: { activationCode },
       });
 
       // Act
       const response = await fastify.inject({
-        method: 'POST',
-        url: '/api/v1/device-management/activate-device',
+        ...ACTIVATE_DEVICE_ROUTE,
         body: { activationCode },
       });
 

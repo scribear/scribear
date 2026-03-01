@@ -20,12 +20,12 @@ const SESSION_JWT_PAYLOAD_SCHEMA = Type.Object({
 
 type SessionJwtPayload = Type.Static<typeof SESSION_JWT_PAYLOAD_SCHEMA>;
 
-const SESSION_AUTH_SCHEMA = {
+const SESSION_JOIN_CODE_AUTH_SCHEMA = {
   description:
     'Authenticates a session participant via join code, returning a scoped JWT.',
   tags: [SESSION_MANAGEMENT_TAG],
   body: Type.Object({
-    joinCode: Type.String({ minLength: 1 }),
+    joinCode: Type.String({ maxLength: 8 }),
   }),
   response: {
     200: Type.Object(
@@ -41,15 +41,15 @@ const SESSION_AUTH_SCHEMA = {
   },
 } satisfies BaseRouteSchema;
 
-const SESSION_AUTH_ROUTE: BaseRouteDefinition = {
+const SESSION_JOIN_CODE_AUTH_ROUTE: BaseRouteDefinition = {
   method: 'POST',
-  url: '/api/v1/session-management/session-auth',
+  url: '/api/v1/session-management/session-join-code-auth',
 };
 
 export {
   SessionScope,
   SESSION_JWT_PAYLOAD_SCHEMA,
-  SESSION_AUTH_SCHEMA,
-  SESSION_AUTH_ROUTE,
+  SESSION_JOIN_CODE_AUTH_SCHEMA,
+  SESSION_JOIN_CODE_AUTH_ROUTE,
 };
 export type { SessionScope as SessionScopeType, SessionJwtPayload };

@@ -48,6 +48,40 @@ export class SessionManagementService {
     return { sessionToken };
   }
 
+  async authenticateSourceDevice(
+    deviceId: string,
+    sessionId: string,
+  ): Promise<
+    | {
+        sessionToken: string;
+        transcriptionProviderKey: string;
+        transcriptionProviderConfig: TranscriptionProviderConfig;
+      }
+    | { error: 'SESSION_NOT_FOUND' }
+  > {
+    const session =
+      await this._sessionManagementRepository.findActiveSessionBySourceDevice(
+        deviceId,
+        sessionId,
+      );
+
+    if (!session) {
+      return { error: 'SESSION_NOT_FOUND' };
+    }
+
+    const sessionToken = this._jwtService.signSessionToken({
+      sessionId: session.id,
+      scopes: [SessionScope.RECEIVE_TRANSCRIPTIONS, SessionScope.SEND_AUDIO],
+    });
+
+    return {
+      sessionToken,
+      transcriptionProviderKey: session.transcription_provider_key,
+      transcriptionProviderConfig:
+        session.transcription_provider_config as TranscriptionProviderConfig,
+    };
+  }
+
   async createOnDemandSession(
     sourceDeviceId: string,
     transcriptionProviderKey: string,

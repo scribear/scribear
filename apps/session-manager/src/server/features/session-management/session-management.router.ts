@@ -4,8 +4,10 @@ import {
   CREATE_SESSION_SCHEMA,
   DEVICE_SESSION_EVENTS_ROUTE,
   DEVICE_SESSION_EVENTS_SCHEMA,
-  SESSION_AUTH_ROUTE,
-  SESSION_AUTH_SCHEMA,
+  SESSION_JOIN_CODE_AUTH_ROUTE,
+  SESSION_JOIN_CODE_AUTH_SCHEMA,
+  SOURCE_DEVICE_SESSION_AUTH_ROUTE,
+  SOURCE_DEVICE_SESSION_AUTH_SCHEMA,
 } from '@scribear/session-manager-schema';
 
 import resolveHandler from '#src/server/dependency-injection/resolve-handler.js';
@@ -35,8 +37,18 @@ export function sessionManagementRouter(fastify: BaseFastifyInstance) {
   });
 
   fastify.route({
-    ...SESSION_AUTH_ROUTE,
-    schema: SESSION_AUTH_SCHEMA,
+    ...SESSION_JOIN_CODE_AUTH_ROUTE,
+    schema: SESSION_JOIN_CODE_AUTH_SCHEMA,
     handler: resolveHandler('sessionManagementController', 'sessionAuth'),
+  });
+
+  fastify.route({
+    ...SOURCE_DEVICE_SESSION_AUTH_ROUTE,
+    schema: SOURCE_DEVICE_SESSION_AUTH_SCHEMA,
+    preHandler: deviceCookieAuthHook,
+    handler: resolveHandler(
+      'sessionManagementController',
+      'sourceDeviceSessionAuth',
+    ),
   });
 }

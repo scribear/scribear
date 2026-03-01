@@ -188,6 +188,121 @@ describe('SessionManagementRepository', () => {
     });
   });
 
+  describe('findActiveSessionBySourceDevice', (it) => {
+    it('returns undefined when no session exists', async () => {
+      // Act
+      const result = await repository.findActiveSessionBySourceDevice(
+        '00000000-0000-0000-0000-000000000000',
+        '00000000-0000-0000-0000-000000000001',
+      );
+
+      // Assert
+      expect(result).toBeUndefined();
+    });
+
+    it('returns the session when deviceId and sessionId match an active session', async () => {
+      // Arrange
+      const deviceId = await insertDevice();
+      const startTime = new Date(Date.now() - 1000);
+      const endTime = new Date(Date.now() + 60_000);
+      const { session } = await repository.createSession(
+        deviceId,
+        TEST_PROVIDER_KEY,
+        TEST_PROVIDER_CONFIG,
+        startTime,
+        endTime,
+        null,
+      );
+
+      // Act
+      const result = await repository.findActiveSessionBySourceDevice(
+        deviceId,
+        session.id,
+      );
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result!.id).toBe(session.id);
+      expect(result!.transcription_provider_key).toBe(TEST_PROVIDER_KEY);
+      expect(result!.transcription_provider_config).toEqual(
+        TEST_PROVIDER_CONFIG,
+      );
+    });
+
+    it('returns undefined when sessionId belongs to a different device', async () => {
+      // Arrange
+      const deviceId = await insertDevice('device-a');
+      const otherDeviceId = await insertDevice('device-b');
+      const startTime = new Date(Date.now() - 1000);
+      const endTime = new Date(Date.now() + 60_000);
+      const { session } = await repository.createSession(
+        deviceId,
+        TEST_PROVIDER_KEY,
+        TEST_PROVIDER_CONFIG,
+        startTime,
+        endTime,
+        null,
+      );
+
+      // Act
+      const result = await repository.findActiveSessionBySourceDevice(
+        otherDeviceId,
+        session.id,
+      );
+
+      // Assert
+      expect(result).toBeUndefined();
+    });
+
+    it('returns undefined when session has expired', async () => {
+      // Arrange
+      const deviceId = await insertDevice();
+      const startTime = new Date(Date.now() - 2000);
+      const endTime = new Date(Date.now() - 1000);
+      const { session } = await repository.createSession(
+        deviceId,
+        TEST_PROVIDER_KEY,
+        TEST_PROVIDER_CONFIG,
+        startTime,
+        endTime,
+        null,
+      );
+
+      // Act
+      const result = await repository.findActiveSessionBySourceDevice(
+        deviceId,
+        session.id,
+      );
+
+      // Assert
+      expect(result).toBeUndefined();
+    });
+
+    it('returns undefined when session has not started yet', async () => {
+      // Arrange
+      const deviceId = await insertDevice();
+      const startTime = new Date(Date.now() + 10_000);
+      const endTime = new Date(Date.now() + 60_000);
+      const { session } = await repository.createSession(
+        deviceId,
+        TEST_PROVIDER_KEY,
+        TEST_PROVIDER_CONFIG,
+        startTime,
+        endTime,
+        null,
+      );
+
+      // Act
+      const result = await repository.findActiveSessionBySourceDevice(
+        deviceId,
+        session.id,
+      );
+
+      // Assert
+      expect(result).toBeUndefined();
+    });
+  });
+
   describe('getNextSessionEvent', (it) => {
     it('returns undefined when there are no events', async () => {
       // Act

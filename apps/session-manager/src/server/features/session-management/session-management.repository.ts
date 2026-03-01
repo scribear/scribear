@@ -59,6 +59,22 @@ export class SessionManagementRepository {
     });
   }
 
+  async findActiveSessionBySourceDevice(deviceId: string, sessionId: string) {
+    const now = new Date();
+    return await this._dbClient.db
+      .selectFrom('sessions')
+      .select([
+        'id',
+        'transcription_provider_key',
+        'transcription_provider_config',
+      ])
+      .where('id', '=', sessionId)
+      .where('source_device_id', '=', deviceId)
+      .where('start_time', '<=', now)
+      .where('end_time', '>', now)
+      .executeTakeFirst();
+  }
+
   async findActiveSessionByJoinCode(joinCode: string) {
     const now = new Date();
     return await this._dbClient.db
