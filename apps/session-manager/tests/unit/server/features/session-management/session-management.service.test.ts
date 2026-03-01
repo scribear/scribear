@@ -197,12 +197,15 @@ describe('SessionManagementService', () => {
       );
 
       // Assert
-      expect(mockEventBus.emit).toHaveBeenCalledExactlyOnceWith(TEST_DEVICE_ID, {
-        eventId: TEST_START_EVENT_ID,
-        eventType: DeviceSessionEventType.START_SESSION,
-        sessionId: TEST_SESSION_ID,
-        timestampUnixMs: FAKE_NOW.getTime(),
-      });
+      expect(mockEventBus.emit).toHaveBeenCalledExactlyOnceWith(
+        TEST_DEVICE_ID,
+        {
+          eventId: TEST_START_EVENT_ID,
+          eventType: DeviceSessionEventType.START_SESSION,
+          sessionId: TEST_SESSION_ID,
+          timestampUnixMs: FAKE_NOW.getTime(),
+        },
+      );
     });
   });
 
@@ -250,7 +253,10 @@ describe('SessionManagementService', () => {
       mockRepository.getNextSessionEvent.mockResolvedValue(dbEvent);
 
       // Act
-      const result = await service.getDeviceSessionEvent(TEST_DEVICE_ID, undefined);
+      const result = await service.getDeviceSessionEvent(
+        TEST_DEVICE_ID,
+        undefined,
+      );
 
       // Assert
       expect(result).toEqual({
@@ -283,7 +289,10 @@ describe('SessionManagementService', () => {
       mockRepository.getNextSessionEvent.mockResolvedValue(undefined);
 
       // Act
-      const resultPromise = service.getDeviceSessionEvent(TEST_DEVICE_ID, undefined);
+      const resultPromise = service.getDeviceSessionEvent(
+        TEST_DEVICE_ID,
+        undefined,
+      );
 
       // Listener is registered synchronously; emit immediately
       capturedListener!(busEvent);
@@ -299,7 +308,10 @@ describe('SessionManagementService', () => {
       mockRepository.getNextSessionEvent.mockResolvedValue(undefined);
 
       // Act
-      const resultPromise = service.getDeviceSessionEvent(TEST_DEVICE_ID, undefined);
+      const resultPromise = service.getDeviceSessionEvent(
+        TEST_DEVICE_ID,
+        undefined,
+      );
 
       // Fast-forward past the 25s poll timeout
       await Promise.resolve();
@@ -322,29 +334,28 @@ describe('SessionManagementService', () => {
       await resultPromise;
 
       // Assert
-      expect(mockRepository.getNextSessionEvent).toHaveBeenCalledExactlyOnceWith(
-        TEST_DEVICE_ID,
-        5,
-        expect.any(Date),
-      );
+      expect(
+        mockRepository.getNextSessionEvent,
+      ).toHaveBeenCalledExactlyOnceWith(TEST_DEVICE_ID, 5, expect.any(Date));
     });
 
     it('passes null as afterEventId when prevEventId is undefined', async () => {
       // Arrange
       mockRepository.getNextSessionEvent.mockResolvedValue(undefined);
 
-      const resultPromise = service.getDeviceSessionEvent(TEST_DEVICE_ID, undefined);
+      const resultPromise = service.getDeviceSessionEvent(
+        TEST_DEVICE_ID,
+        undefined,
+      );
 
       await Promise.resolve();
       vi.advanceTimersByTime(25_000);
       await resultPromise;
 
       // Assert
-      expect(mockRepository.getNextSessionEvent).toHaveBeenCalledExactlyOnceWith(
-        TEST_DEVICE_ID,
-        null,
-        expect.any(Date),
-      );
+      expect(
+        mockRepository.getNextSessionEvent,
+      ).toHaveBeenCalledExactlyOnceWith(TEST_DEVICE_ID, null, expect.any(Date));
     });
 
     it('resolves with future event after its delay', async () => {
@@ -360,7 +371,10 @@ describe('SessionManagementService', () => {
       mockRepository.getNextSessionEvent.mockResolvedValue(dbEvent);
 
       // Act
-      const resultPromise = service.getDeviceSessionEvent(TEST_DEVICE_ID, undefined);
+      const resultPromise = service.getDeviceSessionEvent(
+        TEST_DEVICE_ID,
+        undefined,
+      );
 
       await Promise.resolve();
       vi.advanceTimersByTime(delayMs);

@@ -71,7 +71,9 @@ export class SessionManagementService {
     }
 
     const endTime = new Date(endTimeUnixMs);
-    const joinCode = enableJoinCode ? generateRandomCode(JOIN_CODE_LENGTH) : null;
+    const joinCode = enableJoinCode
+      ? generateRandomCode(JOIN_CODE_LENGTH)
+      : null;
 
     const { session, startEvent } =
       await this._sessionManagementRepository.createSession(
@@ -123,7 +125,7 @@ export class SessionManagementService {
         resolve(event);
       };
 
-      const rejectOnce = (err: unknown) => {
+      const rejectOnce = (err: Error) => {
         if (resolved) return;
         resolved = true;
         cleanup();
@@ -144,7 +146,9 @@ export class SessionManagementService {
         .then((dbEvent) => {
           if (!dbEvent) {
             // Nothing scheduled within the window; wait for bus or timeout
-            timer = setTimeout(() => resolveOnce(null), POLL_TIMEOUT_MS);
+            timer = setTimeout(() => {
+              resolveOnce(null);
+            }, POLL_TIMEOUT_MS);
             return;
           }
 
@@ -162,7 +166,9 @@ export class SessionManagementService {
             // Event is in the future within the window, set a timer
             const delay = dbEvent.timestamp.getTime() - Date.now();
             timer = setTimeout(
-              () => resolveOnce(sessionEvent),
+              () => {
+                resolveOnce(sessionEvent);
+              },
               Math.max(0, delay),
             );
           }

@@ -35,7 +35,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {
-  await db.schema.dropIndex('session_events_device_id_timestamp_index').execute();
+  await db.schema
+    .dropIndex('session_events_device_id_timestamp_index')
+    .execute();
   await db.schema.dropTable('session_events').execute();
   await db.schema.dropType('session_event_type').execute();
 }

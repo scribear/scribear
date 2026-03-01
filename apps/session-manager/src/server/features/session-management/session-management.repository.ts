@@ -95,7 +95,7 @@ export class SessionManagementRepository {
       .select(['id', 'session_id', 'event_type', 'timestamp'])
       .where('device_id', '=', deviceId)
       .where('timestamp', '<=', beforeTimestamp)
-      .$if(afterEventId !== null, (qb) => qb.where('id', '>', afterEventId!))
+      .$if(afterEventId !== null, (qb) => qb.where('id', '>', afterEventId))
       .orderBy('timestamp', 'asc')
       .limit(1)
       .executeTakeFirst();

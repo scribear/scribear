@@ -51,7 +51,9 @@ export class SessionManagementController {
       ]);
     }
 
-    res.code(200).send({ sessionId: result.sessionId, joinCode: result.joinCode });
+    res
+      .code(200)
+      .send({ sessionId: result.sessionId, joinCode: result.joinCode });
   }
 
   async sessionAuth(

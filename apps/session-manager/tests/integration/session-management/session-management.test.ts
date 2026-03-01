@@ -84,7 +84,7 @@ describe('Integration Tests - Session Management API', () => {
     prevEventId?: number,
   ) {
     const query =
-      prevEventId !== undefined ? `?prevEventId=${prevEventId}` : '';
+      prevEventId !== undefined ? `?prevEventId=${prevEventId.toString()}` : '';
     return fastify.inject({
       method: 'GET',
       url: `/api/v1/session-management/device-session-events${query}`,

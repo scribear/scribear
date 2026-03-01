@@ -7,7 +7,7 @@ import {
   type ConfigMessage,
   ServerMessageTypes,
   ServerMessageValidator,
-  type TranscriptionStreamConfig,
+  type TranscriptionProviderConfig,
 } from '@scribear/transcription-service-schema';
 
 const TRANSCRIPTION_STREAM_ROUTE = '/transcription_stream/';
@@ -43,7 +43,7 @@ class TranscriptionStreamClient extends EventEmitter<ClientEvents> {
     private _api_key: string,
     private _use_ssl: boolean,
     private _provider_key: string,
-    private _config: TranscriptionStreamConfig,
+    private _config: TranscriptionProviderConfig,
   ) {
     super();
   }

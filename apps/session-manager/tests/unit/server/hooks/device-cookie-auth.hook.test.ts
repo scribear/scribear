@@ -15,6 +15,7 @@ describe('deviceCookieAuthHook', (it) => {
     diScope: { resolve: Mock };
     deviceId: string | undefined;
   };
+  let mockDone: Mock;
 
   beforeEach(() => {
     mockAuthService = { verifyDeviceToken: vi.fn() };
@@ -23,42 +24,52 @@ describe('deviceCookieAuthHook', (it) => {
       diScope: { resolve: vi.fn().mockReturnValue(mockAuthService) },
       deviceId: undefined,
     };
+    mockDone = vi.fn();
   });
 
-  it('sets req.deviceId when token is valid', async () => {
+  it('calls done with no error when token is valid', async () => {
     // Arrange
-    mockAuthService.verifyDeviceToken.mockResolvedValue({
-      deviceId: TEST_DEVICE_ID,
-    });
+    const verifyPromise = Promise.resolve({ deviceId: TEST_DEVICE_ID });
+    mockAuthService.verifyDeviceToken.mockReturnValue(verifyPromise);
 
     // Act
-    await deviceCookieAuthHook(mockReq as never, {} as never);
+    deviceCookieAuthHook(mockReq as never, {} as never, mockDone);
+    await verifyPromise;
 
     // Assert
     expect(mockAuthService.verifyDeviceToken).toHaveBeenCalledExactlyOnceWith(
       TEST_TOKEN,
     );
     expect(mockReq.deviceId).toBe(TEST_DEVICE_ID);
+    expect(mockDone).toHaveBeenCalledExactlyOnceWith();
   });
 
-  it('throws Unauthorized when cookie is missing', async () => {
+  it('calls done with Unauthorized when cookie is missing', () => {
     // Arrange
     mockReq.cookies = {};
 
-    // Act / Assert
-    await expect(
-      deviceCookieAuthHook(mockReq as never, {} as never),
-    ).rejects.toThrow(HttpError.Unauthorized);
+    // Act
+    deviceCookieAuthHook(mockReq as never, {} as never, mockDone);
+
+    // Assert
     expect(mockAuthService.verifyDeviceToken).not.toHaveBeenCalled();
+    expect(mockDone).toHaveBeenCalledExactlyOnceWith(
+      expect.any(HttpError.Unauthorized),
+    );
   });
 
-  it('throws Unauthorized when token verification fails', async () => {
+  it('calls done with Unauthorized when token verification fails', async () => {
     // Arrange
-    mockAuthService.verifyDeviceToken.mockResolvedValue(null);
+    const verifyPromise = Promise.resolve(null);
+    mockAuthService.verifyDeviceToken.mockReturnValue(verifyPromise);
 
-    // Act / Assert
-    await expect(
-      deviceCookieAuthHook(mockReq as never, {} as never),
-    ).rejects.toThrow(HttpError.Unauthorized);
+    // Act
+    deviceCookieAuthHook(mockReq as never, {} as never, mockDone);
+    await verifyPromise;
+
+    // Assert
+    expect(mockDone).toHaveBeenCalledExactlyOnceWith(
+      expect.any(HttpError.Unauthorized),
+    );
   });
 });

@@ -11,8 +11,10 @@ import type { ProvidedContext } from 'vitest';
 
 import { getMigrator } from '@scribear/scribear-db';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DOCKERFILE_DIR = path.resolve(__dirname, '../../../../infra/scribear-db');
+const DOCKERFILE_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../../infra/scribear-db',
+);
 
 const DB_NAME = 'test';
 const DB_USER = 'test';

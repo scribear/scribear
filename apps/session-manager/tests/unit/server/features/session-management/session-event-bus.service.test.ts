@@ -61,7 +61,9 @@ describe('SessionEventBusService', () => {
 
     it('does nothing when no listeners are registered', () => {
       // Arrange Act / Assert
-      expect(() => bus.emit(TEST_DEVICE_ID, TEST_EVENT)).not.toThrow();
+      expect(() => {
+        bus.emit(TEST_DEVICE_ID, TEST_EVENT);
+      }).not.toThrow();
     });
   });
 
@@ -97,7 +99,9 @@ describe('SessionEventBusService', () => {
 
     it('does nothing when removing a listener that was never added', () => {
       // Arrange / Act / Assert
-      expect(() => bus.removeListener(TEST_DEVICE_ID, vi.fn())).not.toThrow();
+      expect(() => {
+        bus.removeListener(TEST_DEVICE_ID, vi.fn());
+      }).not.toThrow();
     });
   });
 });
