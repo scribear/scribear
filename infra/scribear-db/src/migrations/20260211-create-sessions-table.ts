@@ -36,5 +36,6 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 
 export async function down(db: Kysely<unknown>): Promise<void> {
   await sql`SELECT cron.unschedule('delete-old-sessions')`.execute(db);
+  await db.schema.dropIndex('session_source_device_id_index').execute();
   await db.schema.dropTable('sessions').execute();
 }

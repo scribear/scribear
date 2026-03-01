@@ -2,7 +2,11 @@ import type {
   BaseFastifyReply,
   BaseFastifyRequest,
 } from '@scribear/base-fastify-server';
-import { CREATE_SESSION_SCHEMA } from '@scribear/session-manager-schema';
+import { HttpError } from '@scribear/base-fastify-server';
+import {
+  CREATE_SESSION_SCHEMA,
+  DEVICE_SESSION_EVENTS_SCHEMA,
+} from '@scribear/session-manager-schema';
 
 import type { AppDependencies } from '#src/server/dependency-injection/register-dependencies.js';
 
@@ -26,14 +30,38 @@ export class SessionManagementController {
       endTimeUnixMs,
     } = req.body;
 
-    const { sessionId } =
-      await this._sessionManagementService.createOnDemandSession(
-        sourceDeviceId,
-        transcriptionProviderKey,
-        transcriptionProviderConfig,
-        endTimeUnixMs,
-      );
+    const result = await this._sessionManagementService.createOnDemandSession(
+      sourceDeviceId,
+      transcriptionProviderKey,
+      transcriptionProviderConfig,
+      endTimeUnixMs,
+    );
 
-    res.code(200).send({ sessionId });
+    if ('error' in result) {
+      if (result.error === 'INVALID_END_TIME') {
+        throw new HttpError.BadRequest([
+          { key: 'endTimeUnixMs', message: 'End time must be in the future.' },
+        ]);
+      }
+      throw new HttpError.BadRequest([
+        { key: 'sourceDeviceId', message: 'Device not found.' },
+      ]);
+    }
+
+    res.code(200).send({ sessionId: result.sessionId });
+  }
+
+  async getDeviceSessionEvents(
+    req: BaseFastifyRequest<typeof DEVICE_SESSION_EVENTS_SCHEMA>,
+    res: BaseFastifyReply<typeof DEVICE_SESSION_EVENTS_SCHEMA>,
+  ) {
+    const { prevEventId } = req.query;
+
+    const event = await this._sessionManagementService.getDeviceSessionEvent(
+      req.deviceId,
+      prevEventId,
+    );
+
+    res.code(200).send(event ?? null);
   }
 }

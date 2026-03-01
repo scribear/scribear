@@ -5,6 +5,7 @@ import type {
 import { HttpError } from '@scribear/base-fastify-server';
 import {
   ACTIVATE_DEVICE_SCHEMA,
+  DEVICE_COOKIE_NAME,
   REGISTER_DEVICE_SCHEMA,
 } from '@scribear/session-manager-schema';
 
@@ -58,7 +59,7 @@ export class DeviceManagementController {
       result.deviceId,
       result.deviceSecret,
     );
-    res.setCookie('device_token', cookieValue, {
+    res.setCookie(DEVICE_COOKIE_NAME, cookieValue, {
       httpOnly: true,
       path: '/',
       secure: this._useSecureCookie,

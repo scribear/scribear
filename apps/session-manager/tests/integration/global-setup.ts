@@ -1,14 +1,25 @@
-import {
-  PostgreSqlContainer,
-  type StartedPostgreSqlContainer,
-} from '@testcontainers/postgresql';
 import { Kysely, PostgresDialect } from 'kysely';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import {
+  GenericContainer,
+  type StartedTestContainer,
+  Wait,
+} from 'testcontainers';
 import type { ProvidedContext } from 'vitest';
 
 import { getMigrator } from '@scribear/scribear-db';
 
-let container: StartedPostgreSqlContainer;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DOCKERFILE_DIR = path.resolve(__dirname, '../../../../infra/scribear-db');
+
+const DB_NAME = 'test';
+const DB_USER = 'test';
+const DB_PASSWORD = 'test';
+const DB_PORT = 5432;
+
+let container: StartedTestContainer;
 
 export async function setup({
   provide,
@@ -18,16 +29,44 @@ export async function setup({
     value: ProvidedContext[T],
   ) => void;
 }) {
-  container = await new PostgreSqlContainer('postgres:18.1-alpine3.23').start();
+  container = await GenericContainer.fromDockerfile(DOCKERFILE_DIR)
+    .build()
+    .then((image) =>
+      image
+        .withEnvironment({
+          POSTGRES_DB: DB_NAME,
+          POSTGRES_USER: DB_USER,
+          POSTGRES_PASSWORD: DB_PASSWORD,
+        })
+        .withCommand([
+          'postgres',
+          '-c',
+          'shared_preload_libraries=pg_cron',
+          '-c',
+          `cron.database_name=${DB_NAME}`,
+        ])
+        .withExposedPorts(DB_PORT)
+        .withWaitStrategy(Wait.forHealthCheck())
+        .withHealthCheck({
+          test: ['CMD-SHELL', `pg_isready -U ${DB_USER} -d ${DB_NAME}`],
+          interval: 5_000,
+          timeout: 5_000,
+          retries: 5,
+        })
+        .start(),
+    );
+
+  const dbHost = container.getHost();
+  const dbPort = container.getMappedPort(DB_PORT);
 
   const db = new Kysely<unknown>({
     dialect: new PostgresDialect({
       pool: new pg.Pool({
-        host: container.getHost(),
-        port: container.getPort(),
-        database: container.getDatabase(),
-        user: container.getUsername(),
-        password: container.getPassword(),
+        host: dbHost,
+        port: dbPort,
+        database: DB_NAME,
+        user: DB_USER,
+        password: DB_PASSWORD,
       }),
     }),
   });
@@ -41,11 +80,11 @@ export async function setup({
   }
 
   provide('dbConfig', {
-    dbHost: container.getHost(),
-    dbPort: container.getPort(),
-    dbName: container.getDatabase(),
-    dbUser: container.getUsername(),
-    dbPassword: container.getPassword(),
+    dbHost,
+    dbPort,
+    dbName: DB_NAME,
+    dbUser: DB_USER,
+    dbPassword: DB_PASSWORD,
   });
 }
 

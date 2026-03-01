@@ -17,6 +17,7 @@ import { DeviceManagementController } from '../features/device-management/device
 import { DeviceManagementRepository } from '../features/device-management/device-management.repository.js';
 import { DeviceManagementService } from '../features/device-management/device-management.service.js';
 import { HealthcheckController } from '../features/healthcheck/healthcheck.controller.js';
+import { SessionEventBusService } from '../features/session-management/session-event-bus.service.js';
 import { SessionManagementController } from '../features/session-management/session-management.controller.js';
 import { SessionManagementRepository } from '../features/session-management/session-management.repository.js';
 import { SessionManagementService } from '../features/session-management/session-management.service.js';
@@ -55,6 +56,7 @@ interface AppDependencies extends BaseDependencies {
   deviceManagementRepository: DeviceManagementRepository;
 
   // Session Management
+  sessionEventBusService: SessionEventBusService;
   sessionManagementController: SessionManagementController;
   sessionManagementService: SessionManagementService;
   sessionManagementRepository: SessionManagementRepository;
@@ -116,6 +118,9 @@ function registerDependencies(
     }),
 
     // Session Management
+    sessionEventBusService: asClass(SessionEventBusService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
     sessionManagementController: asClass(SessionManagementController, {
       lifetime: Lifetime.SCOPED,
     }),
