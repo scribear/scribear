@@ -14,15 +14,18 @@ const POLL_TIMEOUT_MS = 25_000;
 const JOIN_CODE_LENGTH = 8;
 
 export class SessionManagementService {
+  private _log: AppDependencies['logger'];
   private _sessionManagementRepository: AppDependencies['sessionManagementRepository'];
   private _sessionEventBusService: AppDependencies['sessionEventBusService'];
   private _jwtService: AppDependencies['jwtService'];
 
   constructor(
+    logger: AppDependencies['logger'],
     sessionManagementRepository: AppDependencies['sessionManagementRepository'],
     sessionEventBusService: AppDependencies['sessionEventBusService'],
     jwtService: AppDependencies['jwtService'],
   ) {
+    this._log = logger;
     this._sessionManagementRepository = sessionManagementRepository;
     this._sessionEventBusService = sessionEventBusService;
     this._jwtService = jwtService;
@@ -30,14 +33,15 @@ export class SessionManagementService {
 
   async authenticateWithJoinCode(
     joinCode: string,
-  ): Promise<{ sessionToken: string } | { error: 'INVALID_JOIN_CODE' }> {
+  ): Promise<{ sessionToken: string } | null> {
     const session =
       await this._sessionManagementRepository.findActiveSessionByJoinCode(
         joinCode,
       );
 
     if (!session) {
-      return { error: 'INVALID_JOIN_CODE' };
+      this._log.warn('Join code not found');
+      return null;
     }
 
     const sessionToken = this._jwtService.signSessionToken({
@@ -51,14 +55,11 @@ export class SessionManagementService {
   async authenticateSourceDevice(
     deviceId: string,
     sessionId: string,
-  ): Promise<
-    | {
-        sessionToken: string;
-        transcriptionProviderKey: string;
-        transcriptionProviderConfig: TranscriptionProviderConfig;
-      }
-    | { error: 'SESSION_NOT_FOUND' }
-  > {
+  ): Promise<{
+    sessionToken: string;
+    transcriptionProviderKey: string;
+    transcriptionProviderConfig: TranscriptionProviderConfig;
+  } | null> {
     const session =
       await this._sessionManagementRepository.findActiveSessionBySourceDevice(
         deviceId,
@@ -66,7 +67,11 @@ export class SessionManagementService {
       );
 
     if (!session) {
-      return { error: 'SESSION_NOT_FOUND' };
+      this._log.warn(
+        { deviceId, sessionId },
+        'Session not found for source device',
+      );
+      return null;
     }
 
     const sessionToken = this._jwtService.signSessionToken({
@@ -88,20 +93,19 @@ export class SessionManagementService {
     transcriptionProviderConfig: TranscriptionProviderConfig,
     endTimeUnixMs: number,
     enableJoinCode: boolean,
-  ): Promise<
-    | { sessionId: string; joinCode: string | null }
-    | { error: 'INVALID_END_TIME' | 'INVALID_SOURCE_DEVICE' }
-  > {
+  ): Promise<{ sessionId: string; joinCode: string | null } | null> {
     const startTime = new Date();
 
     if (endTimeUnixMs <= startTime.getTime()) {
-      return { error: 'INVALID_END_TIME' };
+      this._log.warn('Session end time is not in the future');
+      return null;
     }
 
     const deviceExists =
       await this._sessionManagementRepository.deviceExists(sourceDeviceId);
     if (!deviceExists) {
-      return { error: 'INVALID_SOURCE_DEVICE' };
+      this._log.warn({ sourceDeviceId }, 'Source device not found');
+      return null;
     }
 
     const endTime = new Date(endTimeUnixMs);
@@ -140,6 +144,8 @@ export class SessionManagementService {
     deviceId: string,
     prevEventId: number | undefined,
   ): Promise<SessionEvent | null> {
+    const log = this._log.child({ deviceId });
+
     const nowMs = Date.now();
     const windowEndMs = new Date(nowMs + POLL_TIMEOUT_MS);
 
@@ -168,6 +174,7 @@ export class SessionManagementService {
 
       // Wake up if a new session is created while we are waiting
       const onBusEvent = (event: SessionEvent) => {
+        log.info('Event triggered via session event bus');
         resolveOnce(event);
       };
 
@@ -181,6 +188,7 @@ export class SessionManagementService {
           if (!dbEvent) {
             // Nothing scheduled within the window; wait for bus or timeout
             timer = setTimeout(() => {
+              log.info('Event long poll timed out');
               resolveOnce(null);
             }, POLL_TIMEOUT_MS);
             return;
@@ -195,12 +203,14 @@ export class SessionManagementService {
 
           if (dbEvent.timestamp.getTime() <= nowMs) {
             // Event is in the past, resolve immediately
+            log.info('Past scheduled event triggered immediately');
             resolveOnce(sessionEvent);
           } else {
             // Event is in the future within the window, set a timer
             const delay = dbEvent.timestamp.getTime() - Date.now();
             timer = setTimeout(
               () => {
+                log.info('Scheduled event triggered after timeout');
                 resolveOnce(sessionEvent);
               },
               Math.max(0, delay),

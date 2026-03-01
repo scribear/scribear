@@ -65,7 +65,7 @@ describe('DeviceManagementController', () => {
   });
 
   describe('activateDevice', (it) => {
-    it('throws BadRequest when service returns null', async () => {
+    it('throws UnprocessableEntity when service returns null', async () => {
       // Arrange
       mockDeviceManagementService.activateDevice.mockResolvedValue(null);
       const controller = makeController(false);
@@ -74,7 +74,7 @@ describe('DeviceManagementController', () => {
       // Act / Assert
       await expect(
         controller.activateDevice(mockReq as never, mockReply as never),
-      ).rejects.toThrow(HttpError.BadRequest);
+      ).rejects.toThrow(HttpError.UnprocessableEntity);
     });
 
     it('sets httpOnly cookie and responds with deviceId and deviceName on success', async () => {

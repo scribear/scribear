@@ -23,6 +23,11 @@ describe('Error Handler Plugin', (it) => {
     { httpError: HttpError.Forbidden, code: 403, name: 'Forbidden' },
     { httpError: HttpError.NotFound, code: 404, name: 'NotFound' },
     {
+      httpError: HttpError.UnprocessableEntity,
+      code: 422,
+      name: 'UnprocessableEntity',
+    },
+    {
       httpError: HttpError.TooManyRequests,
       code: 429,
       name: 'TooManyRequests',

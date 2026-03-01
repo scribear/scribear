@@ -139,7 +139,7 @@ describe('Integration Tests - Session Management API', () => {
       expect(response.statusCode).toBe(401);
     });
 
-    it('returns 400 when endTimeUnixMs is in the past', async () => {
+    it('returns 422 when endTimeUnixMs is in the past', async () => {
       // Arrange
       const { deviceId, activationCode } = await registerDevice();
       await activateDevice(activationCode);
@@ -157,13 +157,10 @@ describe('Integration Tests - Session Management API', () => {
       });
 
       // Assert
-      expect(response.statusCode).toBe(400);
-      expect(response.json().requestErrors).toContainEqual(
-        expect.objectContaining({ key: 'endTimeUnixMs' }),
-      );
+      expect(response.statusCode).toBe(422);
     });
 
-    it('returns 400 when sourceDeviceId does not exist', async () => {
+    it('returns 422 when sourceDeviceId does not exist', async () => {
       // Act
       const response = await fastify.inject({
         ...CREATE_SESSION_ROUTE,
@@ -177,10 +174,7 @@ describe('Integration Tests - Session Management API', () => {
       });
 
       // Assert
-      expect(response.statusCode).toBe(400);
-      expect(response.json().requestErrors).toContainEqual(
-        expect.objectContaining({ key: 'sourceDeviceId' }),
-      );
+      expect(response.statusCode).toBe(422);
     });
 
     it('returns 200 with sessionId and null joinCode when enableJoinCode is not set', async () => {
@@ -311,16 +305,13 @@ describe('Integration Tests - Session Management API', () => {
       expect(response.statusCode).toBe(400);
     });
 
-    it('returns 400 when joinCode does not match any active session', async () => {
+    it('returns 422 when joinCode does not match any active session', async () => {
       const response = await fastify.inject({
         ...SESSION_JOIN_CODE_AUTH_ROUTE,
         body: { joinCode: 'NOTFOUND' },
       });
 
-      expect(response.statusCode).toBe(400);
-      expect(response.json().requestErrors).toContainEqual(
-        expect.objectContaining({ key: 'joinCode' }),
-      );
+      expect(response.statusCode).toBe(422);
     });
 
     it('returns 200 with a signed JWT containing sessionId and receive_transcriptions scope', async () => {
@@ -348,7 +339,7 @@ describe('Integration Tests - Session Management API', () => {
       expect(payload.scopes).toEqual([SessionScope.RECEIVE_TRANSCRIPTIONS]);
     });
 
-    it('returns 400 when session has expired', async () => {
+    it('returns 422 when session has expired', async () => {
       // Arrange
       const { deviceId, activationCode } = await registerDevice();
       await activateDevice(activationCode);
@@ -366,7 +357,7 @@ describe('Integration Tests - Session Management API', () => {
         body: { joinCode },
       });
 
-      expect(response.statusCode).toBe(400);
+      expect(response.statusCode).toBe(422);
     });
   });
 

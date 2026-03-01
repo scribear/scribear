@@ -41,15 +41,8 @@ export class SessionManagementController {
       enableJoinCode ?? false,
     );
 
-    if ('error' in result) {
-      if (result.error === 'INVALID_END_TIME') {
-        throw new HttpError.BadRequest([
-          { key: 'endTimeUnixMs', message: 'End time must be in the future.' },
-        ]);
-      }
-      throw new HttpError.BadRequest([
-        { key: 'sourceDeviceId', message: 'Device not found.' },
-      ]);
+    if (!result) {
+      throw new HttpError.UnprocessableEntity('Invalid session parameters.');
     }
 
     res
@@ -66,10 +59,8 @@ export class SessionManagementController {
     const result =
       await this._sessionManagementService.authenticateWithJoinCode(joinCode);
 
-    if ('error' in result) {
-      throw new HttpError.BadRequest([
-        { key: 'joinCode', message: 'Invalid or expired join code.' },
-      ]);
+    if (!result) {
+      throw new HttpError.UnprocessableEntity('Invalid or expired join code.');
     }
 
     res.code(200).send({ sessionToken: result.sessionToken });
@@ -87,7 +78,7 @@ export class SessionManagementController {
         sessionId,
       );
 
-    if ('error' in result) {
+    if (!result) {
       throw new HttpError.Unauthorized('Session not found or not accessible.');
     }
 

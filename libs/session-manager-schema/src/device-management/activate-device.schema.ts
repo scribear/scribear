@@ -28,7 +28,7 @@ const ACTIVATE_DEVICE_SCHEMA = {
         },
       },
     ),
-    400: SHARED_ERROR_REPLY_SCHEMA[400],
+    422: SHARED_ERROR_REPLY_SCHEMA[422],
     500: SHARED_ERROR_REPLY_SCHEMA[500],
   },
 } satisfies BaseRouteSchema;

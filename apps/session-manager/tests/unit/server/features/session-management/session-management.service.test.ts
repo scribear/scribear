@@ -6,6 +6,7 @@ import {
 } from '@scribear/session-manager-schema';
 
 import { SessionManagementService } from '#src/server/features/session-management/session-management.service.js';
+import { createMockLogger } from '#tests/utils/mock-logger.js';
 
 const TEST_DEVICE_ID = 'test-device-id';
 const TEST_SESSION_ID = 'test-session-id';
@@ -55,6 +56,7 @@ describe('SessionManagementService', () => {
     };
 
     service = new SessionManagementService(
+      createMockLogger() as never,
       mockRepository as never,
       mockEventBus as never,
       mockJwtService as never,
@@ -66,7 +68,7 @@ describe('SessionManagementService', () => {
   });
 
   describe('createOnDemandSession', (it) => {
-    it('returns INVALID_END_TIME when endTimeUnixMs is in the past', async () => {
+    it('returns null when endTimeUnixMs is in the past', async () => {
       // Act
       const result = await service.createOnDemandSession(
         TEST_DEVICE_ID,
@@ -77,11 +79,11 @@ describe('SessionManagementService', () => {
       );
 
       // Assert
-      expect(result).toEqual({ error: 'INVALID_END_TIME' });
+      expect(result).toBeNull();
       expect(mockRepository.deviceExists).not.toHaveBeenCalled();
     });
 
-    it('returns INVALID_END_TIME when endTimeUnixMs equals now', async () => {
+    it('returns null when endTimeUnixMs equals now', async () => {
       // Act
       const result = await service.createOnDemandSession(
         TEST_DEVICE_ID,
@@ -92,10 +94,10 @@ describe('SessionManagementService', () => {
       );
 
       // Assert
-      expect(result).toEqual({ error: 'INVALID_END_TIME' });
+      expect(result).toBeNull();
     });
 
-    it('returns INVALID_SOURCE_DEVICE when device does not exist', async () => {
+    it('returns null when device does not exist', async () => {
       // Arrange
       mockRepository.deviceExists.mockResolvedValue(false);
       const futureMs = FAKE_NOW.getTime() + 60_000;
@@ -110,7 +112,7 @@ describe('SessionManagementService', () => {
       );
 
       // Assert
-      expect(result).toEqual({ error: 'INVALID_SOURCE_DEVICE' });
+      expect(result).toBeNull();
       expect(mockRepository.createSession).not.toHaveBeenCalled();
     });
 
@@ -165,19 +167,15 @@ describe('SessionManagementService', () => {
       );
 
       // Assert
-      expect(result).toMatchObject({ sessionId: TEST_SESSION_ID });
-      expect('joinCode' in result && typeof result.joinCode).toBe('string');
-      // Join code is 8 uppercase alphanumeric chars
       expect(result).toMatchObject({
+        sessionId: TEST_SESSION_ID,
         joinCode: expect.stringMatching(/^[A-Z0-9]{8}$/),
       });
 
       // The join code passed to repository should match what was returned
       const passedJoinCode = mockRepository.createSession.mock.calls[0]?.[5];
       expect(passedJoinCode).toMatch(/^[A-Z0-9]{8}$/);
-      expect(passedJoinCode).toBe(
-        (result as { sessionId: string; joinCode: string }).joinCode,
-      );
+      expect(passedJoinCode).toBe(result?.joinCode);
     });
 
     it('emits START_SESSION event on the bus after creating session', async () => {
@@ -212,7 +210,7 @@ describe('SessionManagementService', () => {
   });
 
   describe('authenticateWithJoinCode', (it) => {
-    it('returns INVALID_JOIN_CODE when no active session matches', async () => {
+    it('returns null when no active session matches', async () => {
       // Arrange
       mockRepository.findActiveSessionByJoinCode.mockResolvedValue(undefined);
 
@@ -220,7 +218,7 @@ describe('SessionManagementService', () => {
       const result = await service.authenticateWithJoinCode(TEST_JOIN_CODE);
 
       // Assert
-      expect(result).toEqual({ error: 'INVALID_JOIN_CODE' });
+      expect(result).toBeNull();
       expect(mockJwtService.signSessionToken).not.toHaveBeenCalled();
     });
 
@@ -243,7 +241,7 @@ describe('SessionManagementService', () => {
   });
 
   describe('authenticateSourceDevice', (it) => {
-    it('returns SESSION_NOT_FOUND when no active session matches', async () => {
+    it('returns null when no active session matches', async () => {
       // Arrange
       mockRepository.findActiveSessionBySourceDevice.mockResolvedValue(
         undefined,
@@ -256,7 +254,7 @@ describe('SessionManagementService', () => {
       );
 
       // Assert
-      expect(result).toEqual({ error: 'SESSION_NOT_FOUND' });
+      expect(result).toBeNull();
       expect(mockJwtService.signSessionToken).not.toHaveBeenCalled();
     });
 

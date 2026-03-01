@@ -69,7 +69,7 @@ describe('Integration Tests - Device Management API', () => {
   });
 
   describe(`${ACTIVATE_DEVICE_ROUTE.method} ${ACTIVATE_DEVICE_ROUTE.url}`, (it) => {
-    it('returns 400 when activation code does not exist', async () => {
+    it('returns 422 when activation code does not exist', async () => {
       // Act
       const response = await fastify.inject({
         ...ACTIVATE_DEVICE_ROUTE,
@@ -77,7 +77,7 @@ describe('Integration Tests - Device Management API', () => {
       });
 
       // Assert
-      expect(response.statusCode).toBe(400);
+      expect(response.statusCode).toBe(422);
     });
 
     it('returns 200 and sets device_token cookie after register and activate', async () => {
@@ -109,7 +109,7 @@ describe('Integration Tests - Device Management API', () => {
       );
     });
 
-    it('returns 400 when activation code has already been used', async () => {
+    it('returns 422 when activation code has already been used', async () => {
       // Arrange
       const registerResponse = await fastify.inject({
         ...REGISTER_DEVICE_ROUTE,
@@ -132,7 +132,7 @@ describe('Integration Tests - Device Management API', () => {
       });
 
       // Assert
-      expect(response.statusCode).toBe(400);
+      expect(response.statusCode).toBe(422);
     });
   });
 });

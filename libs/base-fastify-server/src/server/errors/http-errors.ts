@@ -1,4 +1,4 @@
-type HttpErrorCodes = 400 | 401 | 403 | 404 | 429 | 500;
+type HttpErrorCodes = 400 | 401 | 403 | 404 | 422 | 429 | 500;
 
 /**
  * Base class of errors thrown for fastify error handler use
@@ -53,6 +53,7 @@ const HttpError = {
   Unauthorized: createHttpError(401),
   Forbidden: createHttpError(403),
   NotFound: createHttpError(404),
+  UnprocessableEntity: createHttpError(422),
   TooManyRequests: createHttpError(429),
   ServerError: createHttpError(500),
 };

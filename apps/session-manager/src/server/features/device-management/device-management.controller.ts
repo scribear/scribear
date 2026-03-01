@@ -47,12 +47,9 @@ export class DeviceManagementController {
     const result =
       await this._deviceManagementService.activateDevice(activationCode);
     if (!result) {
-      throw new HttpError.BadRequest([
-        {
-          key: 'activationCode',
-          message: 'Invalid or expired activation code.',
-        },
-      ]);
+      throw new HttpError.UnprocessableEntity(
+        'Invalid or expired activation code.',
+      );
     }
 
     const cookieValue = this._authService.encodeDeviceToken(

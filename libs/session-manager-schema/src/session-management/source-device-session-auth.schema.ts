@@ -31,7 +31,6 @@ const SOURCE_DEVICE_SESSION_AUTH_SCHEMA = {
       },
       { description: 'Source device authenticated successfully' },
     ),
-    400: SHARED_ERROR_REPLY_SCHEMA[400],
     401: SHARED_ERROR_REPLY_SCHEMA[401],
     500: SHARED_ERROR_REPLY_SCHEMA[500],
   },

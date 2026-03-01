@@ -109,11 +109,11 @@ describe('SessionManagementController', () => {
       });
     });
 
-    it('throws BadRequest with endTimeUnixMs key when service returns INVALID_END_TIME', async () => {
+    it('throws UnprocessableEntity when service returns null', async () => {
       // Arrange
-      mockSessionManagementService.createOnDemandSession.mockResolvedValue({
-        error: 'INVALID_END_TIME',
-      });
+      mockSessionManagementService.createOnDemandSession.mockResolvedValue(
+        null,
+      );
       const mockReq = {
         body: {
           sourceDeviceId: TEST_DEVICE_ID,
@@ -126,27 +126,7 @@ describe('SessionManagementController', () => {
       // Act / Assert
       await expect(
         controller.createSession(mockReq as never, mockReply as never),
-      ).rejects.toThrow(HttpError.BadRequest);
-    });
-
-    it('throws BadRequest with sourceDeviceId key when service returns INVALID_SOURCE_DEVICE', async () => {
-      // Arrange
-      mockSessionManagementService.createOnDemandSession.mockResolvedValue({
-        error: 'INVALID_SOURCE_DEVICE',
-      });
-      const mockReq = {
-        body: {
-          sourceDeviceId: TEST_DEVICE_ID,
-          transcriptionProviderKey: TEST_PROVIDER_KEY,
-          transcriptionProviderConfig: TEST_PROVIDER_CONFIG,
-          endTimeUnixMs: TEST_END_TIME_MS,
-        },
-      };
-
-      // Act / Assert
-      await expect(
-        controller.createSession(mockReq as never, mockReply as never),
-      ).rejects.toThrow(HttpError.BadRequest);
+      ).rejects.toThrow(HttpError.UnprocessableEntity);
     });
   });
 
@@ -226,17 +206,17 @@ describe('SessionManagementController', () => {
       });
     });
 
-    it('throws BadRequest when service returns INVALID_JOIN_CODE', async () => {
+    it('throws UnprocessableEntity when service returns null', async () => {
       // Arrange
-      mockSessionManagementService.authenticateWithJoinCode.mockResolvedValue({
-        error: 'INVALID_JOIN_CODE',
-      });
+      mockSessionManagementService.authenticateWithJoinCode.mockResolvedValue(
+        null,
+      );
       const mockReq = { body: { joinCode: 'BADCODE1' } };
 
       // Act / Assert
       await expect(
         controller.sessionAuth(mockReq as never, mockReply as never),
-      ).rejects.toThrow(HttpError.BadRequest);
+      ).rejects.toThrow(HttpError.UnprocessableEntity);
     });
   });
 
@@ -292,11 +272,11 @@ describe('SessionManagementController', () => {
       });
     });
 
-    it('throws Unauthorized when service returns SESSION_NOT_FOUND', async () => {
+    it('throws Unauthorized when service returns null', async () => {
       // Arrange
-      mockSessionManagementService.authenticateSourceDevice.mockResolvedValue({
-        error: 'SESSION_NOT_FOUND',
-      });
+      mockSessionManagementService.authenticateSourceDevice.mockResolvedValue(
+        null,
+      );
       const mockReq = {
         deviceId: TEST_DEVICE_ID,
         body: { sessionId: TEST_SESSION_ID },
