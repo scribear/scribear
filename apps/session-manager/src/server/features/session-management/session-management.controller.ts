@@ -6,6 +6,7 @@ import { HttpError } from '@scribear/base-fastify-server';
 import {
   CREATE_SESSION_SCHEMA,
   DEVICE_SESSION_EVENTS_SCHEMA,
+  SESSION_AUTH_SCHEMA,
 } from '@scribear/session-manager-schema';
 
 import type { AppDependencies } from '#src/server/dependency-injection/register-dependencies.js';
@@ -28,6 +29,7 @@ export class SessionManagementController {
       transcriptionProviderKey,
       transcriptionProviderConfig,
       endTimeUnixMs,
+      enableJoinCode,
     } = req.body;
 
     const result = await this._sessionManagementService.createOnDemandSession(
@@ -35,6 +37,7 @@ export class SessionManagementController {
       transcriptionProviderKey,
       transcriptionProviderConfig,
       endTimeUnixMs,
+      enableJoinCode ?? false,
     );
 
     if ('error' in result) {
@@ -48,7 +51,25 @@ export class SessionManagementController {
       ]);
     }
 
-    res.code(200).send({ sessionId: result.sessionId });
+    res.code(200).send({ sessionId: result.sessionId, joinCode: result.joinCode });
+  }
+
+  async sessionAuth(
+    req: BaseFastifyRequest<typeof SESSION_AUTH_SCHEMA>,
+    res: BaseFastifyReply<typeof SESSION_AUTH_SCHEMA>,
+  ) {
+    const { joinCode } = req.body;
+
+    const result =
+      await this._sessionManagementService.authenticateWithJoinCode(joinCode);
+
+    if ('error' in result) {
+      throw new HttpError.BadRequest([
+        { key: 'joinCode', message: 'Invalid or expired join code.' },
+      ]);
+    }
+
+    res.code(200).send({ sessionToken: result.sessionToken });
   }
 
   async getDeviceSessionEvents(

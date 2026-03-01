@@ -15,6 +15,7 @@ export class SessionManagementRepository {
     transcriptionProviderConfig: TranscriptionProviderConfig,
     startTime: Date,
     endTime: Date,
+    joinCode: string | null,
   ) {
     return await this._dbClient.db.transaction().execute(async (trx) => {
       const session = await trx
@@ -27,6 +28,7 @@ export class SessionManagementRepository {
           ),
           start_time: startTime,
           end_time: endTime,
+          join_code: joinCode,
         })
         .returning('id')
         .executeTakeFirstOrThrow();
@@ -55,6 +57,17 @@ export class SessionManagementRepository {
 
       return { session, startEvent, endEvent };
     });
+  }
+
+  async findActiveSessionByJoinCode(joinCode: string) {
+    const now = new Date();
+    return await this._dbClient.db
+      .selectFrom('sessions')
+      .select('id')
+      .where('join_code', '=', joinCode)
+      .where('start_time', '<=', now)
+      .where('end_time', '>', now)
+      .executeTakeFirst();
   }
 
   async deviceExists(deviceId: string): Promise<boolean> {

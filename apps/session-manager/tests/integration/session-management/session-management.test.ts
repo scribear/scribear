@@ -1,3 +1,4 @@
+import jwt from 'jsonwebtoken';
 import { afterAll, beforeAll, describe, expect, inject } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 
@@ -5,14 +6,16 @@ import {
   type BaseFastifyInstance,
   LogLevel,
 } from '@scribear/base-fastify-server';
+import { SessionScope } from '@scribear/session-manager-schema';
 
 import { AppConfig } from '#src/app-config/app-config.js';
 import createServer from '#src/server/create-server.js';
 import { useDb } from '#tests/utils/use-db.js';
 
 const TEST_API_KEY = 'TEST_API_KEY';
+const TEST_JWT_SECRET = 'test-jwt-secret-must-be-at-least-32-chars!!';
 const TEST_DEVICE_NAME = 'test-device';
-const TEST_PROVIDER_KEY = 'deepgram';
+const TEST_PROVIDER_KEY = 'whisper';
 const TEST_PROVIDER_CONFIG = { apiKey: 'test-api-key' };
 
 describe('Integration Tests - Session Management API', () => {
@@ -24,6 +27,7 @@ describe('Integration Tests - Session Management API', () => {
     const mockConfig = mock<AppConfig>({
       baseConfig: { isDevelopment: false, logLevel: LogLevel.SILENT },
       authServiceConfig: { apiKey: TEST_API_KEY },
+      jwtServiceConfig: { jwtSecret: TEST_JWT_SECRET },
       dbClientConfig: inject('dbConfig'),
     });
 
@@ -56,7 +60,10 @@ describe('Integration Tests - Session Management API', () => {
     return { deviceId, deviceToken: cookie!.value };
   }
 
-  async function createSession(deviceId: string, endTimeUnixMs?: number) {
+  async function createSession(
+    deviceId: string,
+    options?: { endTimeUnixMs?: number; enableJoinCode?: boolean },
+  ) {
     const response = await fastify.inject({
       method: 'POST',
       url: '/api/v1/session-management/create-session',
@@ -65,10 +72,11 @@ describe('Integration Tests - Session Management API', () => {
         sourceDeviceId: deviceId,
         transcriptionProviderKey: TEST_PROVIDER_KEY,
         transcriptionProviderConfig: TEST_PROVIDER_CONFIG,
-        endTimeUnixMs: endTimeUnixMs ?? Date.now() + 60_000,
+        endTimeUnixMs: options?.endTimeUnixMs ?? Date.now() + 60_000,
+        enableJoinCode: options?.enableJoinCode,
       },
     });
-    return response.json<{ sessionId: string }>();
+    return response.json<{ sessionId: string; joinCode: string | null }>();
   }
 
   async function getDeviceSessionEvents(
@@ -174,29 +182,32 @@ describe('Integration Tests - Session Management API', () => {
       );
     });
 
-    it('returns 200 with sessionId after registering and activating a device', async () => {
+    it('returns 200 with sessionId and null joinCode when enableJoinCode is not set', async () => {
       // Arrange
       const { deviceId, activationCode } = await registerDevice();
       await activateDevice(activationCode);
 
       // Act
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/api/v1/session-management/create-session',
-        headers: { authorization: `Bearer ${TEST_API_KEY}` },
-        body: {
-          sourceDeviceId: deviceId,
-          transcriptionProviderKey: TEST_PROVIDER_KEY,
-          transcriptionProviderConfig: TEST_PROVIDER_CONFIG,
-          endTimeUnixMs: Date.now() + 60_000,
-        },
+      const { sessionId, joinCode } = await createSession(deviceId);
+
+      // Assert
+      expect(sessionId).toEqual(expect.any(String));
+      expect(joinCode).toBeNull();
+    });
+
+    it('returns 200 with sessionId and alphanumeric joinCode when enableJoinCode=true', async () => {
+      // Arrange
+      const { deviceId, activationCode } = await registerDevice();
+      await activateDevice(activationCode);
+
+      // Act
+      const { sessionId, joinCode } = await createSession(deviceId, {
+        enableJoinCode: true,
       });
 
       // Assert
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({
-        sessionId: expect.any(String),
-      });
+      expect(sessionId).toEqual(expect.any(String));
+      expect(joinCode).toMatch(/^[A-Z0-9]{8}$/);
     });
   });
 
@@ -268,7 +279,7 @@ describe('Integration Tests - Session Management API', () => {
       const { deviceToken } = await activateDevice(activationCode);
 
       // Create a session that ends very soon so END_SESSION falls within the poll window
-      await createSession(deviceId, Date.now() + 500);
+      await createSession(deviceId, { endTimeUnixMs: Date.now() + 500 });
 
       // Consume the START_SESSION event first
       const startResponse = await getDeviceSessionEvents(deviceToken);
@@ -287,6 +298,79 @@ describe('Integration Tests - Session Management API', () => {
         sessionId: expect.any(String),
         timestampUnixMs: expect.any(Number),
       });
+    });
+  });
+
+  describe('POST /api/v1/session-management/session-auth', (it) => {
+    it('returns 400 when joinCode is missing', async () => {
+      const response = await fastify.inject({
+        method: 'POST',
+        url: '/api/v1/session-management/session-auth',
+        body: {},
+      });
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('returns 400 when joinCode does not match any active session', async () => {
+      const response = await fastify.inject({
+        method: 'POST',
+        url: '/api/v1/session-management/session-auth',
+        body: { joinCode: 'NOTFOUND' },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json().requestErrors).toContainEqual(
+        expect.objectContaining({ key: 'joinCode' }),
+      );
+    });
+
+    it('returns 200 with a signed JWT containing sessionId and receive_transcriptions scope', async () => {
+      // Arrange
+      const { deviceId, activationCode } = await registerDevice();
+      await activateDevice(activationCode);
+      const { sessionId, joinCode } = await createSession(deviceId, {
+        enableJoinCode: true,
+      });
+
+      // Act
+      const response = await fastify.inject({
+        method: 'POST',
+        url: '/api/v1/session-management/session-auth',
+        body: { joinCode },
+      });
+
+      // Assert
+      expect(response.statusCode).toBe(200);
+      const { sessionToken } = response.json<{ sessionToken: string }>();
+      const payload = jwt.verify(sessionToken, TEST_JWT_SECRET) as {
+        sessionId: string;
+        scopes: string[];
+      };
+      expect(payload.sessionId).toBe(sessionId);
+      expect(payload.scopes).toEqual([SessionScope.RECEIVE_TRANSCRIPTIONS]);
+    });
+
+    it('returns 400 when session has expired', async () => {
+      // Arrange
+      const { deviceId, activationCode } = await registerDevice();
+      await activateDevice(activationCode);
+      const { joinCode } = await createSession(deviceId, {
+        enableJoinCode: true,
+        endTimeUnixMs: Date.now() + 500,
+      });
+
+      // Wait for session to expire
+      await new Promise((r) => setTimeout(r, 600));
+
+      // Act
+      const response = await fastify.inject({
+        method: 'POST',
+        url: '/api/v1/session-management/session-auth',
+        body: { joinCode },
+      });
+
+      expect(response.statusCode).toBe(400);
     });
   });
 });

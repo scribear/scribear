@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 
 import type { AppDependencies } from '#src/server/dependency-injection/register-dependencies.js';
+import { generateRandomCode } from '#src/server/utils/generate-random-code.js';
 
-const ACTIVATION_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const ACTIVATION_CODE_LENGTH = 8;
 const ACTIVATION_CODE_VALID_MIN = 5;
 
@@ -28,7 +28,7 @@ export class DeviceManagementService {
     const expiryMs = timeNowMs + ACTIVATION_CODE_VALID_MIN * 60 * 1000;
     const activationExpiry = new Date(expiryMs);
 
-    const activationCode = this._generateActivationCode();
+    const activationCode = generateRandomCode(ACTIVATION_CODE_LENGTH);
     const result = await this._deviceManagementRepository.createInactiveDevice(
       deviceName,
       activationCode,
@@ -78,16 +78,5 @@ export class DeviceManagementService {
       deviceName: result.name,
       deviceSecret,
     };
-  }
-
-  private _generateActivationCode() {
-    let code = '';
-
-    for (let i = 0; i < ACTIVATION_CODE_LENGTH; i++) {
-      const randCharIndex = crypto.randomInt(0, ACTIVATION_CODE_CHARS.length);
-      code += ACTIVATION_CODE_CHARS.charAt(randCharIndex);
-    }
-
-    return code;
   }
 }

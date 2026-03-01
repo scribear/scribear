@@ -65,6 +65,7 @@ describe('SessionManagementRepository', () => {
         TEST_PROVIDER_CONFIG,
         startTime,
         endTime,
+        null,
       );
 
       // Assert
@@ -80,6 +81,59 @@ describe('SessionManagementRepository', () => {
       expect(inserted.transcription_provider_key).toBe(TEST_PROVIDER_KEY);
     });
 
+    it('stores null join_code when joinCode is null', async () => {
+      // Arrange
+      const deviceId = await insertDevice();
+      const startTime = new Date();
+      const endTime = new Date(startTime.getTime() + 60_000);
+
+      // Act
+      const { session } = await repository.createSession(
+        deviceId,
+        TEST_PROVIDER_KEY,
+        TEST_PROVIDER_CONFIG,
+        startTime,
+        endTime,
+        null,
+      );
+
+      // Assert
+      const inserted = await dbContext.db
+        .selectFrom('sessions')
+        .select('join_code')
+        .where('id', '=', session.id)
+        .executeTakeFirstOrThrow();
+
+      expect(inserted.join_code).toBeNull();
+    });
+
+    it('stores join_code when a joinCode is provided', async () => {
+      // Arrange
+      const deviceId = await insertDevice();
+      const startTime = new Date();
+      const endTime = new Date(startTime.getTime() + 60_000);
+      const joinCode = 'ABCD1234';
+
+      // Act
+      const { session } = await repository.createSession(
+        deviceId,
+        TEST_PROVIDER_KEY,
+        TEST_PROVIDER_CONFIG,
+        startTime,
+        endTime,
+        joinCode,
+      );
+
+      // Assert
+      const inserted = await dbContext.db
+        .selectFrom('sessions')
+        .select('join_code')
+        .where('id', '=', session.id)
+        .executeTakeFirstOrThrow();
+
+      expect(inserted.join_code).toBe(joinCode);
+    });
+
     it('creates a START_SESSION event and an END_SESSION event', async () => {
       // Arrange
       const deviceId = await insertDevice();
@@ -93,6 +147,7 @@ describe('SessionManagementRepository', () => {
         TEST_PROVIDER_CONFIG,
         startTime,
         endTime,
+        null,
       );
 
       // Assert
@@ -115,6 +170,7 @@ describe('SessionManagementRepository', () => {
         TEST_PROVIDER_CONFIG,
         startTime,
         endTime,
+        null,
       );
 
       // Assert
@@ -156,6 +212,7 @@ describe('SessionManagementRepository', () => {
         TEST_PROVIDER_CONFIG,
         startTime,
         endTime,
+        null,
       );
 
       // Act
@@ -182,9 +239,10 @@ describe('SessionManagementRepository', () => {
         TEST_PROVIDER_CONFIG,
         startTime,
         endTime,
+        null,
       );
 
-      // Act – window ends before the event
+      // Act
       const result = await repository.getNextSessionEvent(
         deviceId,
         null,
@@ -206,9 +264,10 @@ describe('SessionManagementRepository', () => {
         TEST_PROVIDER_CONFIG,
         startTime,
         endTime,
+        null,
       );
 
-      // Act – skip the startEvent by passing its id as afterEventId
+      // Act
       const result = await repository.getNextSessionEvent(
         deviceId,
         startEvent.id,
@@ -232,6 +291,7 @@ describe('SessionManagementRepository', () => {
         TEST_PROVIDER_CONFIG,
         startTime,
         endTime,
+        null,
       );
 
       // Act

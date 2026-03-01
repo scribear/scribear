@@ -72,6 +72,7 @@ export interface SessionEvents {
 export interface Sessions {
   end_time: Timestamp | null;
   id: Generated<string>;
+  join_code: string | null;
   source_device_id: string;
   start_time: Timestamp;
   transcription_provider_config: Json;

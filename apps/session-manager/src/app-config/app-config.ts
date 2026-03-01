@@ -6,12 +6,14 @@ import { LogLevel } from '@scribear/base-fastify-server';
 
 import type { DBClientConfig } from '#src/db/db-client.js';
 import type { AuthServiceConfig } from '#src/server/services/auth.service.js';
+import type { JwtServiceConfig } from '#src/server/services/jwt.service.js';
 
 const CONFIG_SCHEMA = Type.Object({
   LOG_LEVEL: Type.Enum(LogLevel),
   PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
   HOST: Type.String(),
   API_KEY: Type.String(),
+  JWT_SECRET: Type.String({ minLength: 32 }),
   DB_HOST: Type.String(),
   DB_PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
   DB_NAME: Type.String(),
@@ -45,6 +47,12 @@ export class AppConfig {
   get authServiceConfig(): AuthServiceConfig {
     return {
       apiKey: this._env.API_KEY,
+    };
+  }
+
+  get jwtServiceConfig(): JwtServiceConfig {
+    return {
+      jwtSecret: this._env.JWT_SECRET,
     };
   }
 

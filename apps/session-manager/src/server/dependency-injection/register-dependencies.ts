@@ -27,6 +27,7 @@ import {
   type AuthServiceConfig,
 } from '../services/auth.service.js';
 import { HashService } from '../services/hash.service.js';
+import { JwtService } from '../services/jwt.service.js';
 
 /**
  * Define types for entities in dependency container
@@ -43,6 +44,10 @@ interface AppDependencies extends BaseDependencies {
   authServiceConfig: AuthServiceConfig;
   authService: AuthService;
   authRepository: AuthRepository;
+
+  // JWT
+  jwtServiceConfig: { jwtSecret: string };
+  jwtService: JwtService;
 
   // Hash
   hashService: HashService;
@@ -97,6 +102,10 @@ function registerDependencies(
     authServiceConfig: asValue(config.authServiceConfig),
     authService: asClass(AuthService, { lifetime: Lifetime.SCOPED }),
     authRepository: asClass(AuthRepository, { lifetime: Lifetime.SINGLETON }),
+
+    // JWT
+    jwtServiceConfig: asValue(config.jwtServiceConfig),
+    jwtService: asClass(JwtService, { lifetime: Lifetime.SINGLETON }),
 
     // Hash
     hashService: asClass(HashService, { lifetime: Lifetime.SINGLETON }),

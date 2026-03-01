@@ -1,22 +1,51 @@
-import { DeviceSessionEventType } from '@scribear/session-manager-schema';
+import {
+  DeviceSessionEventType,
+  SessionScope,
+} from '@scribear/session-manager-schema';
 import type { TranscriptionProviderConfig } from '@scribear/transcription-service-schema';
 
 import type { AppDependencies } from '#src/server/dependency-injection/register-dependencies.js';
+import { generateRandomCode } from '#src/server/utils/generate-random-code.js';
 
 import type { SessionEvent } from './session-event-bus.service.js';
 
 const POLL_TIMEOUT_MS = 25_000;
 
+const JOIN_CODE_LENGTH = 8;
+
 export class SessionManagementService {
   private _sessionManagementRepository: AppDependencies['sessionManagementRepository'];
   private _sessionEventBusService: AppDependencies['sessionEventBusService'];
+  private _jwtService: AppDependencies['jwtService'];
 
   constructor(
     sessionManagementRepository: AppDependencies['sessionManagementRepository'],
     sessionEventBusService: AppDependencies['sessionEventBusService'],
+    jwtService: AppDependencies['jwtService'],
   ) {
     this._sessionManagementRepository = sessionManagementRepository;
     this._sessionEventBusService = sessionEventBusService;
+    this._jwtService = jwtService;
+  }
+
+  async authenticateWithJoinCode(
+    joinCode: string,
+  ): Promise<{ sessionToken: string } | { error: 'INVALID_JOIN_CODE' }> {
+    const session =
+      await this._sessionManagementRepository.findActiveSessionByJoinCode(
+        joinCode,
+      );
+
+    if (!session) {
+      return { error: 'INVALID_JOIN_CODE' };
+    }
+
+    const sessionToken = this._jwtService.signSessionToken({
+      sessionId: session.id,
+      scopes: [SessionScope.RECEIVE_TRANSCRIPTIONS],
+    });
+
+    return { sessionToken };
   }
 
   async createOnDemandSession(
@@ -24,7 +53,11 @@ export class SessionManagementService {
     transcriptionProviderKey: string,
     transcriptionProviderConfig: TranscriptionProviderConfig,
     endTimeUnixMs: number,
-  ): Promise<{ sessionId: string } | { error: 'INVALID_END_TIME' | 'INVALID_SOURCE_DEVICE' }> {
+    enableJoinCode: boolean,
+  ): Promise<
+    | { sessionId: string; joinCode: string | null }
+    | { error: 'INVALID_END_TIME' | 'INVALID_SOURCE_DEVICE' }
+  > {
     const startTime = new Date();
 
     if (endTimeUnixMs <= startTime.getTime()) {
@@ -38,6 +71,7 @@ export class SessionManagementService {
     }
 
     const endTime = new Date(endTimeUnixMs);
+    const joinCode = enableJoinCode ? generateRandomCode(JOIN_CODE_LENGTH) : null;
 
     const { session, startEvent } =
       await this._sessionManagementRepository.createSession(
@@ -46,6 +80,7 @@ export class SessionManagementService {
         transcriptionProviderConfig,
         startTime,
         endTime,
+        joinCode,
       );
 
     // Emit START_SESSION so any waiting long-poll request is handled immediately.
@@ -57,7 +92,7 @@ export class SessionManagementService {
       timestampUnixMs: startTime.getTime(),
     });
 
-    return { sessionId: session.id };
+    return { sessionId: session.id, joinCode };
   }
 
   /**

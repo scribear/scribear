@@ -26,11 +26,13 @@ const CREATE_SESSION_SCHEMA = {
     transcriptionProviderKey: Type.String({ maxLength: 32 }),
     transcriptionProviderConfig: TranscriptionProviderConfigSchema,
     endTimeUnixMs: Type.Number(),
+    enableJoinCode: Type.Optional(Type.Boolean()),
   }),
   response: {
     200: Type.Object(
       {
         sessionId: Type.String(),
+        joinCode: Type.Union([Type.String(), Type.Null()]),
       },
       {
         description: 'Session created successfully',
