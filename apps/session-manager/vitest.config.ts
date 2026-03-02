@@ -1,4 +1,4 @@
-import { defineConfig, defineProject, mergeConfig } from 'vitest/config';
+import { defineConfig, mergeConfig } from 'vitest/config';
 
 import sharedConfig from '../../vitest.shared.js';
 

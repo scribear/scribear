@@ -38,6 +38,7 @@ const DEVICE_SESSION_EVENTS_SCHEMA = {
       ),
     ]),
     400: SHARED_ERROR_REPLY_SCHEMA[400],
+    401: SHARED_ERROR_REPLY_SCHEMA[401],
     500: SHARED_ERROR_REPLY_SCHEMA[500],
   },
 } satisfies BaseRouteSchema;

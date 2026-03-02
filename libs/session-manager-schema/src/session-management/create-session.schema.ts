@@ -38,6 +38,7 @@ const CREATE_SESSION_SCHEMA = {
         description: 'Session created successfully',
       },
     ),
+    400: SHARED_ERROR_REPLY_SCHEMA[400],
     422: SHARED_ERROR_REPLY_SCHEMA[422],
     500: SHARED_ERROR_REPLY_SCHEMA[500],
   },

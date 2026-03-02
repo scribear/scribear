@@ -142,11 +142,10 @@ function createEndpointClient<S extends BaseRouteSchema>(
 
     // 204 No Content has no body to parse.
     if (status === 204) {
-      return [{ status, data: null } as unknown as EndpointResponse<S>, null];
+      return [{ status, data: null } as EndpointResponse<S>, null];
     }
 
     const body: unknown = await response.json();
-
     if (!Value.Check(responseSchema, body)) {
       return [null, new SchemaValidationError(status)];
     }

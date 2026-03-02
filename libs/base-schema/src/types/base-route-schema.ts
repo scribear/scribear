@@ -1,4 +1,4 @@
-import type { TSchema } from "typebox";
+import type { TSchema } from 'typebox';
 
 type HttpStatusCode =
   | 200
