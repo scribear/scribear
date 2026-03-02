@@ -1,3 +1,5 @@
+import type { TSchema } from "typebox";
+
 type HttpStatusCode =
   | 200
   | 201
@@ -16,16 +18,14 @@ type HttpStatusCode =
 
 type SecurityRequirement = Record<string, string[]>[];
 
-type TypeBoxSchema = object;
-
 interface BaseRouteSchema {
   description: string;
   tags: string[];
-  body?: TypeBoxSchema;
-  querystring?: TypeBoxSchema;
-  params?: TypeBoxSchema;
-  headers?: TypeBoxSchema;
-  response: Partial<Record<HttpStatusCode, TypeBoxSchema>>;
+  body?: TSchema;
+  querystring?: TSchema;
+  params?: TSchema;
+  headers?: TSchema;
+  response: Partial<Record<HttpStatusCode, TSchema>>;
   security?: SecurityRequirement;
   hide?: boolean;
   summary?: string;
