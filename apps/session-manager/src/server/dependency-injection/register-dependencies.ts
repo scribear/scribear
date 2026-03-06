@@ -17,6 +17,11 @@ import SessionController from '../features/session/session.controller.js';
 import { SessionService } from '../features/session/session.service.js';
 import { JwtService, type JwtServiceConfig } from '../services/jwt.service.js';
 
+// Scheduled session
+import ScheduledSessionController from '../features/scheduled-session/scheduled-session.controller.js';
+import { ScheduledSessionRepository } from '../features/scheduled-session/scheduled-session.repository.js';
+import { ScheduledSessionService } from '../features/scheduled-session/scheduled-session.service.js';
+
 /**
  * Define types for entities in dependency container
  */
@@ -35,6 +40,11 @@ interface AppDependencies extends BaseDependencies {
   // Session
   sessionController: SessionController;
   sessionService: SessionService;
+
+  // Scheduled Session
+  scheduledSessionRepository: ScheduledSessionRepository;
+  scheduledSessionService: ScheduledSessionService;
+  scheduledSessionController: ScheduledSessionController;
 }
 
 /**
@@ -85,6 +95,17 @@ function registerDependencies(
     }),
     sessionService: asClass(SessionService, {
       lifetime: Lifetime.SINGLETON,
+    }),
+    
+    // Scheduled Session
+    scheduledSessionRepository: asClass(ScheduledSessionRepository, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    scheduledSessionService: asClass(ScheduledSessionService, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    scheduledSessionController: asClass(ScheduledSessionController, {
+      lifetime: Lifetime.SCOPED,
     }),
   } as NameAndRegistrationPair<AppDependencies>);
 }
