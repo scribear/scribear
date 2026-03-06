@@ -6,7 +6,7 @@
     "paths": {
       "#src/*": ["./src/*"]
     },
-    
+
     // Vite/React specific configuration
     "types": [
       "vite/client",
