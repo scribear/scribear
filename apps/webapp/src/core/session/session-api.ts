@@ -9,7 +9,7 @@
  * Client flow:
  *   1. createToken(joinCode, 'sink') → JWT + sessionId
  */
-import { NODE_SERVER_URL, SESSION_MANAGER_URL } from '@/config/api-urls';
+import { NODE_SERVER_URL, SESSION_MANAGER_URL } from '#src/config/api-urls';
 
 // ── Types ────────────────────────────────────────────────────
 

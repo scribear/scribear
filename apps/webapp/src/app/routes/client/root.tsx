@@ -21,17 +21,17 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 
-import { AppLayout } from '@/components/app-layout';
-import { createToken } from '@/core/session/session-api';
+import { AppLayout } from '#src/components/app-layout';
+import { createToken } from '#src/core/session/session-api';
 import {
   type TranscriptReceiverStatus,
   useTranscriptReceiver,
-} from '@/core/transcript-receiver/use-transcript-receiver';
-import { clearTranscription } from '@/core/transcription-content/store/transcription-content-slice';
-import { ThemeCustomizationMenu } from '@/features/theme-customization/components/theme-customization-menu';
-import { TranscriptionDisplayContainer } from '@/features/transcription-display/components/transcription-display-container';
-import { TranscriptionDisplayPreferencesMenu } from '@/features/transcription-display/components/transcription-display-preferences-menu';
-import { useAppDispatch } from '@/stores/use-redux';
+} from '#src/core/transcript-receiver/use-transcript-receiver';
+import { clearTranscription } from '#src/core/transcription-content/store/transcription-content-slice';
+import { ThemeCustomizationMenu } from '#src/features/theme-customization/components/theme-customization-menu';
+import { TranscriptionDisplayContainer } from '#src/features/transcription-display/components/transcription-display-container';
+import { TranscriptionDisplayPreferencesMenu } from '#src/features/transcription-display/components/transcription-display-preferences-menu';
+import { useAppDispatch } from '#src/stores/use-redux';
 
 // ── Types ─────────────────────────────────────────────────
 

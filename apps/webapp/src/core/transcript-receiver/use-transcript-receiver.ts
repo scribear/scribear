@@ -8,12 +8,12 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { NODE_SERVER_WS_URL } from '@/config/api-urls';
+import { NODE_SERVER_WS_URL } from '#src/config/api-urls';
 import {
   appendFinalizedTranscription,
   replaceInProgressTranscription,
-} from '@/core/transcription-content/store/transcription-content-slice';
-import { useAppDispatch } from '@/stores/use-redux';
+} from '#src/core/transcription-content/store/transcription-content-slice';
+import { useAppDispatch } from '#src/stores/use-redux';
 
 export type TranscriptReceiverStatus =
   | 'idle'

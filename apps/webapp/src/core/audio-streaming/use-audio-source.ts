@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { NODE_SERVER_WS_URL } from '@/config/api-urls';
+import { NODE_SERVER_WS_URL } from '#src/config/api-urls';
 
 import { downsample, encodeWav } from './wav-encoder';
 

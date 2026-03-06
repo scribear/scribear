@@ -25,12 +25,12 @@ import Typography from '@mui/material/Typography';
 import {
   type AudioSourceStatus,
   useAudioSource,
-} from '@/core/audio-streaming/use-audio-source';
+} from '#src/core/audio-streaming/use-audio-source';
 import {
   createRoom,
   createSession,
   createToken,
-} from '@/core/session/session-api';
+} from '#src/core/session/session-api';
 
 // ── Types ─────────────────────────────────────────────────
 
