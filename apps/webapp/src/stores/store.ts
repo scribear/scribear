@@ -8,6 +8,7 @@ import { microphonePreferencesReducer } from '#src/core/microphone/stores/microp
 import { microphoneServiceMiddleware } from '#src/core/microphone/stores/microphone-service-middleware';
 import { microphoneServiceReducer } from '#src/core/microphone/stores/microphone-service-slice';
 import { transcriptionContentReducer } from '#src/core/transcription-content/store/transcription-content-slice';
+import { splitScreenPreferencesReducer } from '#src/features/kiosk-split-screen/stores/split-screen-preferences-slice.js';
 import { themePreferencesReducer } from '#src/features/theme-customization/stores/theme-preferences-slice';
 import { transcriptionDisplayPreferencesReducer } from '#src/features/transcription-display/stores/transcription-display-preferences-slice';
 import { providerConfigReducer } from '#src/features/transcription-providers/stores/provider-config-slice';
@@ -30,6 +31,8 @@ const reducers = {
 
   transcriptionContent: transcriptionContentReducer,
 
+  splitScreenPreferences: splitScreenPreferencesReducer,
+
   themePreferences: themePreferencesReducer,
 
   transcriptionDisplayPreferences: transcriptionDisplayPreferencesReducer,
@@ -43,6 +46,7 @@ const reducers = {
 export const rememberedKeys: (keyof typeof reducers)[] = [
   'appLayoutPreferences',
   'microphonePreferences',
+  'splitScreenPreferences',
   'themePreferences',
   'transcriptionDisplayPreferences',
   'providerConfig',

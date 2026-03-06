@@ -7,11 +7,11 @@ import resolveHandler from '../../dependency-injection/resolve-handler.js';
  * @param fastify Fastify app instance
  */
 function healthcheckRouter(fastify: BaseFastifyInstance) {
-    fastify.route({
-        method: 'GET',
-        url: '/health',
-        handler: resolveHandler('healthcheckController', 'healthcheck'),
-    });
+  fastify.route({
+    method: 'GET',
+    url: '/health',
+    handler: resolveHandler('healthcheckController', 'healthcheck'),
+  });
 }
 
 export default healthcheckRouter;
