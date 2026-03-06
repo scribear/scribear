@@ -2,6 +2,7 @@
  * Redux slice for storing transcription text
  */
 import { type PayloadAction, createSlice } from '@reduxjs/toolkit';
+import { v4 as uuidv4 } from 'uuid';
 
 import type { RootState } from '#src/stores/store';
 
@@ -26,7 +27,7 @@ export interface TranscriptionContentSlice {
 
 const initialState: TranscriptionContentSlice = {
   commitedSections: [],
-  activeSection: { id: crypto.randomUUID(), text: '' },
+  activeSection: { id: uuidv4(), text: '' },
   finalizedTranscription: [],
   inProgressTranscription: null,
 };
@@ -51,7 +52,7 @@ export const transcriptionContentSlice = createSlice({
 
       state.commitedSections.push(state.activeSection);
       state.activeSection = {
-        id: crypto.randomUUID(),
+        id: uuidv4(),
         text: '',
       };
     },
@@ -78,7 +79,7 @@ export const transcriptionContentSlice = createSlice({
     clearTranscription: (state) => {
       state.commitedSections = [];
       state.activeSection = {
-        id: crypto.randomUUID(),
+        id: uuidv4(),
         text: '',
       };
       state.finalizedTranscription = [];
