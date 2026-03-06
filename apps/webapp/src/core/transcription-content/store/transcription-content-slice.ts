@@ -2,6 +2,7 @@
  * Redux slice for storing transcription text
  */
 import { type PayloadAction, createSlice } from '@reduxjs/toolkit';
+import { v4 as uuidv4 } from 'uuid';
 
 import type { RootState } from '#src/stores/store';
 
@@ -17,18 +18,31 @@ export interface TranscriptionSection {
   text: string;
 }
 
+export interface LatencyPayload {
+  type: 'final' | 'in_progress';
+  latency: number;
+}
+
 export interface TranscriptionContentSlice {
   commitedSections: TranscriptionSection[];
   activeSection: TranscriptionSection;
   finalizedTranscription: TranscriptionSequence[];
   inProgressTranscription: TranscriptionSequence | null;
+  recentFinalLatencies: number[];
+  recentInProgressLatencies: number[];
+  averageFinalLatency: number;
+  averageInProgressLatency: number;
 }
 
 const initialState: TranscriptionContentSlice = {
   commitedSections: [],
-  activeSection: { id: crypto.randomUUID(), text: '' },
+  activeSection: { id: uuidv4(), text: '' },
   finalizedTranscription: [],
   inProgressTranscription: null,
+  recentFinalLatencies: [],
+  recentInProgressLatencies: [],
+  averageFinalLatency: 0,
+  averageInProgressLatency: 0,
 };
 
 // Selectors
@@ -51,7 +65,7 @@ export const transcriptionContentSlice = createSlice({
 
       state.commitedSections.push(state.activeSection);
       state.activeSection = {
-        id: crypto.randomUUID(),
+        id: uuidv4(),
         text: '',
       };
     },
@@ -75,14 +89,38 @@ export const transcriptionContentSlice = createSlice({
     ) => {
       state.inProgressTranscription = action.payload;
     },
+    recordLatency: (state, action: PayloadAction<LatencyPayload>) => {
+      const WINDOW_SIZE = 50; // only calculate average of 50 times recently
+      const { type, latency } = action.payload;
+
+      if (type === 'final') {
+        state.recentFinalLatencies.push(latency);
+        if (state.recentFinalLatencies.length > WINDOW_SIZE) {
+          state.recentFinalLatencies.shift();
+        }
+        state.averageFinalLatency = 
+          state.recentFinalLatencies.reduce((a, b) => a + b, 0) / state.recentFinalLatencies.length;
+      } else if (type === 'in_progress') {
+        state.recentInProgressLatencies.push(latency);
+        if (state.recentInProgressLatencies.length > WINDOW_SIZE) {
+          state.recentInProgressLatencies.shift();
+        }
+        state.averageInProgressLatency = 
+          state.recentInProgressLatencies.reduce((a, b) => a + b, 0) / state.recentInProgressLatencies.length;
+      }
+    },
     clearTranscription: (state) => {
       state.commitedSections = [];
       state.activeSection = {
-        id: crypto.randomUUID(),
+        id: uuidv4(),
         text: '',
       };
       state.finalizedTranscription = [];
       state.inProgressTranscription = null;
+      state.recentFinalLatencies = [];
+      state.recentInProgressLatencies = [];
+      state.averageFinalLatency = 0;
+      state.averageInProgressLatency = 0;
     },
   },
 });
@@ -95,4 +133,5 @@ export const {
   commitInProgressTranscription,
   replaceInProgressTranscription,
   clearTranscription,
+  recordLatency,
 } = transcriptionContentSlice.actions;

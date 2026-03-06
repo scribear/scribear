@@ -11,6 +11,7 @@ import {
   commitInProgressTranscription,
   commitParagraphBreak,
   replaceInProgressTranscription,
+  recordLatency,
 } from '#src/core/transcription-content/store/transcription-content-slice';
 import { rememberRehydrated } from '#src/stores/slices/redux-remember-slice';
 import { type RootState, appInitialization } from '#src/stores/store';
@@ -65,6 +66,9 @@ export const providerServiceMiddleware: Middleware<object, RootState> = (
   });
   providerService.on('clearTranscription', () => {
     store.dispatch(clearTranscription());
+  });
+  providerService.on('latencyUpdate', (type, latency) => {
+    store.dispatch(recordLatency({ type, latency }));
   });
   providerService.on('statusChange', (providerId, newStatus) => {
     store.dispatch(

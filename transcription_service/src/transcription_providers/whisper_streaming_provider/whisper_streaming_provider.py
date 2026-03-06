@@ -95,8 +95,7 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
             )
             self.emit(self.TranscriptionResultEvent, result.value)
 
-        def handle_audio_chunk(self, chunk: bytes):
-            chunk_id = str(uuid.uuid4())
+        def handle_audio_chunk(self, chunk_id: str, chunk: bytes):
             received_time = time.perf_counter()
             payload = AudioChunkPayload(
                 chunk_id=chunk_id,

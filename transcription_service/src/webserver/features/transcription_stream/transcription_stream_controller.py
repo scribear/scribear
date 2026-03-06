@@ -134,6 +134,7 @@ class TranscriptionStreamController(WebsocketHandler):
                     text=result.final.text,
                     starts=result.final.starts,
                     ends=result.final.ends,
+                    chunk_ids=result.final_chunk_ids,
                 )
             )
         if result.in_progress is not None:
@@ -142,6 +143,7 @@ class TranscriptionStreamController(WebsocketHandler):
                     text=result.in_progress.text,
                     starts=result.in_progress.starts,
                     ends=result.in_progress.ends,
+                    chunk_ids=result.final_chunk_ids,
                 )
             )
 
@@ -159,8 +161,9 @@ class TranscriptionStreamController(WebsocketHandler):
         if not self._session:
             self.close(1008, "Audio chunk before configuration")
             return
-
-        self._session.handle_audio_chunk(chunk)
+        chunk_id = chunk[:36].decode("utf-8")
+        audio_bytes = chunk[36:]
+        self._session.handle_audio_chunk(chunk_id, audio_bytes)
 
     async def _handle_text_message(self, message: str):
         """

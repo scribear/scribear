@@ -28,6 +28,7 @@ interface ClientEvents {
     starts: number[] | null,
     ends: number[] | null,
   ) => void;
+  latencyUpdate: (type: 'final' | 'in_progress', latency: number) => void;
 }
 
 enum ClientState {
@@ -39,6 +40,8 @@ enum ClientState {
 class TranscriptionStreamClient extends EventEmitter<ClientEvents> {
   private _ws: WebSocket | null = null;
   private _client_state: ClientState = ClientState.DISCONNECTED;
+
+  private _pendingChunks: Map<string, number> = new Map();
 
   constructor(
     private _server_address: string,
@@ -66,7 +69,25 @@ class TranscriptionStreamClient extends EventEmitter<ClientEvents> {
 
   send_audio(chunk: ArrayBufferLike | Blob | ArrayBufferView) {
     if (this._client_state === ClientState.CONNECTED) {
-      this._ws?.send(chunk);
+      const chunkId = crypto.randomUUID(); 
+      this._pendingChunks.set(chunkId, Date.now());
+      const encoder = new TextEncoder();
+      const uuidBytes = encoder.encode(chunkId);
+
+      let payload: Blob | Uint8Array;
+      if (chunk instanceof Blob) {
+        payload = new Blob([uuidBytes, chunk]);
+      } else {
+        const audioBytes = new Uint8Array(
+          'buffer' in chunk ? chunk.buffer : (chunk as ArrayBuffer),
+          'byteOffset' in chunk ? chunk.byteOffset : 0,
+          'byteLength' in chunk ? chunk.byteLength : (chunk as ArrayBuffer).byteLength
+        );
+        payload = new Uint8Array(uuidBytes.length + audioBytes.length);
+        payload.set(uuidBytes, 0);
+        payload.set(audioBytes, uuidBytes.length);
+      }
+      this._ws?.send(payload);
     }
   }
 
@@ -74,7 +95,7 @@ class TranscriptionStreamClient extends EventEmitter<ClientEvents> {
     if (this._client_state === ClientState.DISCONNECTED) return;
 
     this._client_state = ClientState.DISCONNECTED;
-
+    this._pendingChunks.clear();
     this._ws?.close(1000);
     this._ws = null;
   }
@@ -102,7 +123,23 @@ class TranscriptionStreamClient extends EventEmitter<ClientEvents> {
 
     if (isBinary) return;
 
-    const serverMessage = ServerMessageValidator.Parse(JSON.parse(message));
+    const serverMessage = ServerMessageValidator.Parse(JSON.parse(message as string));
+    if (serverMessage.chunk_ids && serverMessage.chunk_ids.length > 0) {
+      const sourceId = serverMessage.chunk_ids[0];
+      if (sourceId) {
+        const sentTime = this._pendingChunks.get(sourceId);
+        if (sentTime) {
+          const latency = Date.now() - sentTime;
+          const msgType = serverMessage.type === ServerMessageTypes.IP_TRANSCRIPT ? 'in_progress' : 'final';
+          this.emit('latencyUpdate', msgType, latency);
+          for (const [id, time] of this._pendingChunks.entries()) {
+            if (time <= sentTime) {
+              this._pendingChunks.delete(id);
+            }
+          }
+        }
+      }
+    }
     if (serverMessage.type === ServerMessageTypes.IP_TRANSCRIPT) {
       this.emit(
         'ipTranscription',
@@ -123,10 +160,10 @@ class TranscriptionStreamClient extends EventEmitter<ClientEvents> {
   private _onclose(e: WebSocket.CloseEvent) {
     this._client_state = ClientState.DISCONNECTED;
     this.emit('disconnected', e.code, e.reason);
+    this._pendingChunks.clear();
 
     this._ws = null;
   }
-
   private _onerror(e: WebSocket.ErrorEvent) {
     this.emit('error', new Error(e.message));
   }

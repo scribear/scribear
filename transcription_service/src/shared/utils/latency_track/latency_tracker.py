@@ -5,6 +5,8 @@ Defines RealTimeLocationTracking
 import time
 from typing import Dict, Optional
 
+# Change to generic latency tracker
+# We can experiment with passing the object itself (not calling get metrics) as a result from worker process
 
 class LatencyTracker:
     """
