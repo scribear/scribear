@@ -98,15 +98,17 @@ export const transcriptionContentSlice = createSlice({
         if (state.recentFinalLatencies.length > WINDOW_SIZE) {
           state.recentFinalLatencies.shift();
         }
-        state.averageFinalLatency = 
-          state.recentFinalLatencies.reduce((a, b) => a + b, 0) / state.recentFinalLatencies.length;
-      } else if (type === 'in_progress') {
+        state.averageFinalLatency =
+          state.recentFinalLatencies.reduce((a, b) => a + b, 0) /
+          state.recentFinalLatencies.length;
+      } else {
         state.recentInProgressLatencies.push(latency);
         if (state.recentInProgressLatencies.length > WINDOW_SIZE) {
           state.recentInProgressLatencies.shift();
         }
-        state.averageInProgressLatency = 
-          state.recentInProgressLatencies.reduce((a, b) => a + b, 0) / state.recentInProgressLatencies.length;
+        state.averageInProgressLatency =
+          state.recentInProgressLatencies.reduce((a, b) => a + b, 0) /
+          state.recentInProgressLatencies.length;
       }
     },
     clearTranscription: (state) => {

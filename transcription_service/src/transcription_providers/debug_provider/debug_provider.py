@@ -80,7 +80,7 @@ class DebugProvider(TranscriptionProviderInterface):
                 ),
             )
 
-        def handle_audio_chunk(self, chunk_id:str, chunk: bytes):
+        def handle_audio_chunk(self, chunk_id: str, chunk: bytes):
             self._job.queue_data([chunk])
 
         def end_session(self):

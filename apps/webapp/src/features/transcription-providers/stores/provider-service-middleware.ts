@@ -10,8 +10,8 @@ import {
   clearTranscription,
   commitInProgressTranscription,
   commitParagraphBreak,
-  replaceInProgressTranscription,
   recordLatency,
+  replaceInProgressTranscription,
 } from '#src/core/transcription-content/store/transcription-content-slice';
 import { rememberRehydrated } from '#src/stores/slices/redux-remember-slice';
 import { type RootState, appInitialization } from '#src/stores/store';
