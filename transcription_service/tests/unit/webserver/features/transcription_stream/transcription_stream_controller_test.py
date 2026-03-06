@@ -66,7 +66,7 @@ class MockTranscriptionSession(TranscriptionSessionInterface):
     Dummy transcription session interface implementation for testing
     """
 
-    def handle_audio_chunk(self, chunk: bytes):
+    def handle_audio_chunk(self, chunk_id: str,chunk: bytes):
         return
 
 

@@ -90,7 +90,7 @@ class WhisperStreamingProviderJob(
                 samples = self._decoder.decode(chunk)
             except ValueError as e:
                 raise TranscriptionClientError(str(e)) from e
-            
+
             # Pure_silence detection:
             is_silent = self._silence_detector.detect(
                 samples, self._silence_threshold
@@ -106,17 +106,13 @@ class WhisperStreamingProviderJob(
                         "start_sample": self._total_decoded_samples,
                         "end_sample": self._total_decoded_samples + num_samples,
                     }
-                )  
+                )
                 extra = self._buffer.append(samples)
                 self._total_decoded_samples += num_samples
                 if len(extra) > 0:
                     raise TranscriptionClientError(
                         "Client sent audio too quickly."
                     )
-                else:
-                    pass
-
-            
 
     def _extract_meta_for_time(self, end_time_sec: float) -> dict:
         """

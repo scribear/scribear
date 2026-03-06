@@ -3,7 +3,6 @@ Defines FasterWhisperStreamingProvider
 """
 
 import time
-import uuid
 from dataclasses import asdict
 
 from src.shared.logger import Logger
