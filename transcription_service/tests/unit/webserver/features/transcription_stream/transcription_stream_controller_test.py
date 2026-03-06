@@ -545,7 +545,9 @@ async def test_controller_handles_in_progress_and_final_transcription_results(
 
     # Assert
     mock_send_method.assert_any_call(
-        FinalTranscriptMessage(final_text, final_starts, final_ends, chunk_ids=[])
+        FinalTranscriptMessage(
+            final_text, final_starts, final_ends, chunk_ids=[]
+        )
     )
     mock_send_method.assert_any_call(
         IPTranscriptMessage(ip_text, ip_starts, ip_ends, chunk_ids=[])
