@@ -8,18 +8,6 @@ import {
 
 import { SESSION_MANAGEMENT_TAG } from '../tags.js';
 
-enum SessionScope {
-  RECEIVE_TRANSCRIPTIONS = 'RECEIVE_TRANSCRIPTIONS',
-  SEND_AUDIO = 'SEND_AUDIO',
-}
-
-const SESSION_JWT_PAYLOAD_SCHEMA = Type.Object({
-  sessionId: Type.String(),
-  scopes: Type.Array(Type.Enum(SessionScope)),
-});
-
-type SessionJwtPayload = Type.Static<typeof SESSION_JWT_PAYLOAD_SCHEMA>;
-
 const SESSION_JOIN_CODE_AUTH_SCHEMA = {
   description:
     'Authenticates a session participant via join code, returning a scoped JWT.',
@@ -47,10 +35,4 @@ const SESSION_JOIN_CODE_AUTH_ROUTE: BaseRouteDefinition = {
   url: '/api/v1/session-management/session-join-code-auth',
 };
 
-export {
-  SessionScope,
-  SESSION_JWT_PAYLOAD_SCHEMA,
-  SESSION_JOIN_CODE_AUTH_SCHEMA,
-  SESSION_JOIN_CODE_AUTH_ROUTE,
-};
-export type { SessionScope as SessionScopeType, SessionJwtPayload };
+export { SESSION_JOIN_CODE_AUTH_SCHEMA, SESSION_JOIN_CODE_AUTH_ROUTE };

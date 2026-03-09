@@ -3,6 +3,7 @@
  */
 interface BaseRouteDefinition {
   method: 'GET' | 'HEAD' | 'DELETE' | 'OPTIONS' | 'PATCH' | 'PUT' | 'POST';
+  websocket?: boolean;
   url: string;
 }
 
