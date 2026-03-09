@@ -7,6 +7,7 @@ import {
   OPENAPI_INFO,
   OPENAPI_SECURITY_SCHEMES,
   OPENAPI_TAGS,
+  OPENAPI_VERSION,
 } from '@scribear/session-manager-schema';
 
 /**
@@ -15,7 +16,7 @@ import {
 export default fastifyPlugin(async (fastify: BaseFastifyInstance) => {
   await fastify.register(Swagger, {
     openapi: {
-      openapi: '3.1.0',
+      openapi: OPENAPI_VERSION,
       info: OPENAPI_INFO,
       tags: OPENAPI_TAGS,
       components: {

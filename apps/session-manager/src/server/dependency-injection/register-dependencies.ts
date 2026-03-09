@@ -27,7 +27,7 @@ import {
   type AuthServiceConfig,
 } from '../services/auth.service.js';
 import { HashService } from '../services/hash.service.js';
-import { JwtService } from '../services/jwt.service.js';
+import { JwtService } from '../features/session-management/jwt.service.js';
 
 /**
  * Define types for entities in dependency container

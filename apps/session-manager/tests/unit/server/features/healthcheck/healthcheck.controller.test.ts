@@ -3,7 +3,6 @@ import { type Mock, beforeEach, describe, expect, vi } from 'vitest';
 import { HealthcheckController } from '#src/server/features/healthcheck/healthcheck.controller.js';
 
 describe('Healthcheck controller', (it) => {
-  const testRequestId = 'TEST_REQUEST_ID';
   let mockReply: {
     send: Mock;
     code: Mock;
@@ -22,17 +21,15 @@ describe('Healthcheck controller', (it) => {
     healthcheckController = new HealthcheckController();
   });
 
-  it('responds with request id', () => {
+  it('responds with 200 code', () => {
     // Arrange
-    const mockReq = { id: testRequestId };
+    const mockReq = {};
 
     // Act
     healthcheckController.healthcheck(mockReq as never, mockReply as never);
 
     // Assert
     expect(mockReply.code).toHaveBeenCalledExactlyOnceWith(200);
-    expect(mockReply.send).toHaveBeenCalledExactlyOnceWith({
-      reqId: testRequestId,
-    });
+    expect(mockReply.send).toHaveBeenCalledExactlyOnceWith({});
   });
 });

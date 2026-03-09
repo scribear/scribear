@@ -9,6 +9,6 @@ export class HealthcheckController {
     req: BaseFastifyRequest<typeof HEALTHCHECK_SCHEMA>,
     res: BaseFastifyReply<typeof HEALTHCHECK_SCHEMA>,
   ) {
-    res.code(200).send({ reqId: req.id });
+    res.code(200).send({});
   }
 }

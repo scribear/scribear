@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 
-import type { SessionJwtPayload } from '@scribear/session-manager-schema';
+import type { SessionTokenPayload } from '@scribear/session-manager-schema';
 
 export interface JwtServiceConfig {
   jwtSecret: string;
@@ -13,7 +13,7 @@ export class JwtService {
     this._secret = jwtServiceConfig.jwtSecret;
   }
 
-  signSessionToken(payload: SessionJwtPayload): string {
+  signSessionToken(payload: SessionTokenPayload): string {
     return jwt.sign(payload, this._secret);
   }
 }
