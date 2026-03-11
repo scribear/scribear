@@ -2,7 +2,7 @@ import { type Mock, afterEach, beforeEach, describe, expect, vi } from 'vitest';
 
 import {
   DeviceSessionEventType,
-  SessionScope,
+  SessionTokenScope,
 } from '@scribear/session-manager-schema';
 
 import { SessionManagementService } from '#src/server/features/session-management/session-management.service.js';
@@ -234,7 +234,7 @@ describe('SessionManagementService', () => {
       // Assert
       expect(mockJwtService.signSessionToken).toHaveBeenCalledExactlyOnceWith({
         sessionId: TEST_SESSION_ID,
-        scopes: [SessionScope.RECEIVE_TRANSCRIPTIONS],
+        scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
       });
       expect(result).toEqual({ sessionToken: TEST_SESSION_TOKEN });
     });
@@ -290,7 +290,10 @@ describe('SessionManagementService', () => {
       // Assert
       expect(mockJwtService.signSessionToken).toHaveBeenCalledExactlyOnceWith({
         sessionId: TEST_SESSION_ID,
-        scopes: [SessionScope.RECEIVE_TRANSCRIPTIONS, SessionScope.SEND_AUDIO],
+        scopes: [
+          SessionTokenScope.RECEIVE_TRANSCRIPTIONS,
+          SessionTokenScope.SEND_AUDIO,
+        ],
       });
       expect(result).toMatchObject({ sessionToken: TEST_SESSION_TOKEN });
     });

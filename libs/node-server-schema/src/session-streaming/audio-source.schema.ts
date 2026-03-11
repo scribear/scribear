@@ -49,6 +49,14 @@ const AUDIO_SOURCE_SCHEMA = {
       ends: Type.Union([Type.Array(Type.Number()), Type.Null()]),
     }),
   ]),
+  closeCodes: {
+    1000: { description: 'Normal closure' },
+    1007: {
+      description: 'Invalid message format or configuration format received',
+    },
+    1008: { description: 'Authentication failure or timeout' },
+    1011: { description: 'Internal server error' },
+  },
 } satisfies BaseWebSocketRouteSchema;
 
 const AUDIO_SOURCE_ROUTE: BaseRouteDefinition = {

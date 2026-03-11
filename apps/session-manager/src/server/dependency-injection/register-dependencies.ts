@@ -17,6 +17,7 @@ import { DeviceManagementController } from '../features/device-management/device
 import { DeviceManagementRepository } from '../features/device-management/device-management.repository.js';
 import { DeviceManagementService } from '../features/device-management/device-management.service.js';
 import { HealthcheckController } from '../features/healthcheck/healthcheck.controller.js';
+import { JwtService } from '../features/session-management/jwt.service.js';
 import { SessionEventBusService } from '../features/session-management/session-event-bus.service.js';
 import { SessionManagementController } from '../features/session-management/session-management.controller.js';
 import { SessionManagementRepository } from '../features/session-management/session-management.repository.js';
@@ -27,7 +28,6 @@ import {
   type AuthServiceConfig,
 } from '../services/auth.service.js';
 import { HashService } from '../services/hash.service.js';
-import { JwtService } from '../features/session-management/jwt.service.js';
 
 /**
  * Define types for entities in dependency container

@@ -20,7 +20,7 @@ const SESSION_CLIENT_SCHEMA = {
   params: {
     sessionId: Type.String({ maxLength: 36 }),
   },
-  allowClientBinaryMessage: true,
+  allowClientBinaryMessage: false,
   clientMessage: Type.Union([
     Type.Object({
       type: Type.Literal(SessionClientClientMessageType.AUTH),
@@ -42,6 +42,14 @@ const SESSION_CLIENT_SCHEMA = {
       ends: Type.Union([Type.Array(Type.Number()), Type.Null()]),
     }),
   ]),
+  closeCodes: {
+    1000: { description: 'Normal closure' },
+    1007: {
+      description: 'Invalid message format or configuration format received',
+    },
+    1008: { description: 'Authentication failure or timeout' },
+    1011: { description: 'Internal server error' },
+  },
 } satisfies BaseWebSocketRouteSchema;
 
 const SESSION_CLIENT_ROUTE: BaseRouteDefinition = {

@@ -4,4 +4,7 @@ export type { BaseMetadataDefinition } from './types/base-metadata-definition.js
 export type { BaseTagsDefinition } from './types/base-tags-definition.js';
 export type { BaseSecurityDefinition } from './types/base-security-definition.js';
 export type { BaseRouteSchema } from './types/base-route-schema.js';
-export type { BaseWebSocketRouteSchema } from './types/base-websocket-route-schema.js';
+export type {
+  BaseWebSocketRouteSchema,
+  WsCloseCode,
+} from './types/base-websocket-route-schema.js';

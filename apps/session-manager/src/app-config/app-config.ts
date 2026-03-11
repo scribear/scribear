@@ -5,8 +5,8 @@ import type { Static } from 'typebox';
 import { LogLevel } from '@scribear/base-fastify-server';
 
 import type { DBClientConfig } from '#src/db/db-client.js';
-import type { AuthServiceConfig } from '#src/server/services/auth.service.js';
 import type { JwtServiceConfig } from '#src/server/features/session-management/jwt.service.js';
+import type { AuthServiceConfig } from '#src/server/services/auth.service.js';
 
 const CONFIG_SCHEMA = Type.Object({
   LOG_LEVEL: Type.Enum(LogLevel),

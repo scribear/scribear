@@ -1,6 +1,6 @@
 import {
   DeviceSessionEventType,
-  SessionScope,
+  SessionTokenScope,
 } from '@scribear/session-manager-schema';
 import type { TranscriptionProviderConfig } from '@scribear/transcription-service-schema';
 
@@ -46,7 +46,7 @@ export class SessionManagementService {
 
     const sessionToken = this._jwtService.signSessionToken({
       sessionId: session.id,
-      scopes: [SessionScope.RECEIVE_TRANSCRIPTIONS],
+      scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
     });
 
     return { sessionToken };
@@ -76,7 +76,10 @@ export class SessionManagementService {
 
     const sessionToken = this._jwtService.signSessionToken({
       sessionId: session.id,
-      scopes: [SessionScope.RECEIVE_TRANSCRIPTIONS, SessionScope.SEND_AUDIO],
+      scopes: [
+        SessionTokenScope.RECEIVE_TRANSCRIPTIONS,
+        SessionTokenScope.SEND_AUDIO,
+      ],
     });
 
     return {
