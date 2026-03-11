@@ -44,9 +44,15 @@ export class SessionManagementService {
       return null;
     }
 
+    if (!session.end_time) {
+      this._log.error('Session missing end_time');
+      return null;
+    }
+
     const sessionToken = this._jwtService.signSessionToken({
       sessionId: session.id,
       scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+      exp: Math.floor(session.end_time.getTime() / 1000),
     });
 
     return { sessionToken };
@@ -74,12 +80,18 @@ export class SessionManagementService {
       return null;
     }
 
+    if (!session.end_time) {
+      this._log.error({ deviceId, sessionId }, 'Session missing end_time');
+      return null;
+    }
+
     const sessionToken = this._jwtService.signSessionToken({
       sessionId: session.id,
       scopes: [
         SessionTokenScope.RECEIVE_TRANSCRIPTIONS,
         SessionTokenScope.SEND_AUDIO,
       ],
+      exp: Math.floor(session.end_time.getTime() / 1000),
     });
 
     return {

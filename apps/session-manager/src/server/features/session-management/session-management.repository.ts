@@ -65,6 +65,7 @@ export class SessionManagementRepository {
       .selectFrom('sessions')
       .select([
         'id',
+        'end_time',
         'transcription_provider_key',
         'transcription_provider_config',
       ])
@@ -79,7 +80,7 @@ export class SessionManagementRepository {
     const now = new Date();
     return await this._dbClient.db
       .selectFrom('sessions')
-      .select('id')
+      .select(['id', 'end_time'])
       .where('join_code', '=', joinCode)
       .where('start_time', '<=', now)
       .where('end_time', '>', now)

@@ -14,6 +14,7 @@ const TEST_START_EVENT_ID = 1;
 const TEST_PROVIDER_KEY = 'whisper';
 const TEST_PROVIDER_CONFIG = { apiKey: 'sk-test' };
 const FAKE_NOW = new Date('2025-01-01T00:00:00Z');
+const TEST_END_TIME = new Date('2025-01-01T01:00:00Z');
 const TEST_JOIN_CODE = 'ABCD1234';
 const TEST_SESSION_TOKEN = 'signed.jwt.token';
 
@@ -222,10 +223,11 @@ describe('SessionManagementService', () => {
       expect(mockJwtService.signSessionToken).not.toHaveBeenCalled();
     });
 
-    it('returns a sessionToken signed with sessionId and receive_transcriptions scope', async () => {
+    it('returns a sessionToken signed with sessionId, receive_transcriptions scope, and session expiry', async () => {
       // Arrange
       mockRepository.findActiveSessionByJoinCode.mockResolvedValue({
         id: TEST_SESSION_ID,
+        end_time: TEST_END_TIME,
       });
 
       // Act
@@ -235,8 +237,24 @@ describe('SessionManagementService', () => {
       expect(mockJwtService.signSessionToken).toHaveBeenCalledExactlyOnceWith({
         sessionId: TEST_SESSION_ID,
         scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        exp: Math.floor(TEST_END_TIME.getTime() / 1000),
       });
       expect(result).toEqual({ sessionToken: TEST_SESSION_TOKEN });
+    });
+
+    it('returns null when session has no end_time', async () => {
+      // Arrange
+      mockRepository.findActiveSessionByJoinCode.mockResolvedValue({
+        id: TEST_SESSION_ID,
+        end_time: null,
+      });
+
+      // Act
+      const result = await service.authenticateWithJoinCode(TEST_JOIN_CODE);
+
+      // Assert
+      expect(result).toBeNull();
+      expect(mockJwtService.signSessionToken).not.toHaveBeenCalled();
     });
   });
 
@@ -273,10 +291,11 @@ describe('SessionManagementService', () => {
       ).toHaveBeenCalledExactlyOnceWith(TEST_DEVICE_ID, TEST_SESSION_ID);
     });
 
-    it('returns sessionToken signed with both SEND_AUDIO and RECEIVE_TRANSCRIPTIONS scopes', async () => {
+    it('returns sessionToken signed with both SEND_AUDIO and RECEIVE_TRANSCRIPTIONS scopes and session expiry', async () => {
       // Arrange
       mockRepository.findActiveSessionBySourceDevice.mockResolvedValue({
         id: TEST_SESSION_ID,
+        end_time: TEST_END_TIME,
         transcription_provider_key: TEST_PROVIDER_KEY,
         transcription_provider_config: TEST_PROVIDER_CONFIG,
       });
@@ -294,14 +313,36 @@ describe('SessionManagementService', () => {
           SessionTokenScope.RECEIVE_TRANSCRIPTIONS,
           SessionTokenScope.SEND_AUDIO,
         ],
+        exp: Math.floor(TEST_END_TIME.getTime() / 1000),
       });
       expect(result).toMatchObject({ sessionToken: TEST_SESSION_TOKEN });
+    });
+
+    it('returns null when session has no end_time', async () => {
+      // Arrange
+      mockRepository.findActiveSessionBySourceDevice.mockResolvedValue({
+        id: TEST_SESSION_ID,
+        end_time: null,
+        transcription_provider_key: TEST_PROVIDER_KEY,
+        transcription_provider_config: TEST_PROVIDER_CONFIG,
+      });
+
+      // Act
+      const result = await service.authenticateSourceDevice(
+        TEST_DEVICE_ID,
+        TEST_SESSION_ID,
+      );
+
+      // Assert
+      expect(result).toBeNull();
+      expect(mockJwtService.signSessionToken).not.toHaveBeenCalled();
     });
 
     it('returns transcriptionProviderKey and transcriptionProviderConfig from session', async () => {
       // Arrange
       mockRepository.findActiveSessionBySourceDevice.mockResolvedValue({
         id: TEST_SESSION_ID,
+        end_time: TEST_END_TIME,
         transcription_provider_key: TEST_PROVIDER_KEY,
         transcription_provider_config: TEST_PROVIDER_CONFIG,
       });
