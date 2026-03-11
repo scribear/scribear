@@ -200,6 +200,14 @@ export class RoomManagerService {
             });
         });
 
+        transcriptionClient.on('latencyUpdate', (latencyType, latency) => {
+            this._broadcastToSubscribers(room, {
+                type: 'latency_update',
+                latencyType,
+                latency,
+            });
+        });
+
         transcriptionClient.on('connected', () => {
             this._log.info({ sessionId }, 'Transcription service connected');
         });
@@ -228,11 +236,11 @@ export class RoomManagerService {
     /**
      * Forward audio data from kiosk to transcription service
      */
-    forwardAudio(sessionId: string, audioData: ArrayBufferLike | Buffer): void {
+    forwardAudio(sessionId: string, audioData: ArrayBufferLike | Buffer, sentAtMs?: number, chunkId?: string): void {
         const room = this._rooms.get(sessionId);
         if (!room?.transcriptionClient) return;
 
-        room.transcriptionClient.send_audio(audioData);
+        room.transcriptionClient.send_audio(audioData, sentAtMs, chunkId);
     }
 
     /**

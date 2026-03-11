@@ -208,7 +208,18 @@ export function useAudioSource(
 
           // Encode as WAV and send
           const wavBuffer = encodeWav(resampled, sampleRate, numChannels);
-          ws.send(wavBuffer);
+          const sentAt = Date.now(); // ms
+          const chunkId = crypto.randomUUID();
+          const header = new ArrayBuffer(44);
+          const view = new DataView(header);
+          view.setFloat64(0, sentAt, true);
+
+          const encoder = new TextEncoder();
+          const idBytes = encoder.encode(chunkId); // 36 bytes
+          new Uint8Array(header, 8, 36).set(idBytes);
+
+          const payload = new Blob([header, wavBuffer]);
+          ws.send(payload);
         };
 
         source.connect(workletNode);

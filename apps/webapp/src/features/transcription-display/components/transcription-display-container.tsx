@@ -4,6 +4,8 @@ import Typography from '@mui/material/Typography';
 
 import {
   selectActiveSection,
+  selectAverageFinalLatency,
+  selectAverageInProgressLatency,
   selectCommitedSections,
   selectInProgressTranscriptionText,
 } from '#src/core/transcription-content/store/transcription-content-slice';
@@ -25,6 +27,10 @@ export const TranscriptionDisplayContainer = () => {
   const activeSection = useAppSelector(selectActiveSection);
   const inProgressTranscriptionText = useAppSelector(
     selectInProgressTranscriptionText,
+  );
+  const averageFinalLatency = useAppSelector(selectAverageFinalLatency);
+  const averageInProgressLatency = useAppSelector(
+    selectAverageInProgressLatency,
   );
 
   const { containerHeightPx, setContainerHeightPx } =
@@ -59,8 +65,31 @@ export const TranscriptionDisplayContainer = () => {
     lineHeight: `${lineHeightPx.toString()}px`,
   };
 
+  const formatLatency = (value: number) => {
+    if (!Number.isFinite(value) || value <= 0) return '—';
+    return Math.round(value).toString();
+  };
+
   return (
-    <Box sx={{ height: '100dvh', width: '100%', p: 2 }}>
+    <Box sx={{ height: '100dvh', width: '100%', p: 2, position: 'relative' }}>
+      <Box
+        sx={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          px: 1.5,
+          py: 0.75,
+          borderRadius: 1,
+          backgroundColor: 'rgba(0, 0, 0, 0.55)',
+          color: '#fff',
+          fontSize: '0.75rem',
+          lineHeight: 1.2,
+          zIndex: 1,
+        }}
+      >
+        <div>Final: {formatLatency(averageFinalLatency)} ms</div>
+        <div>In-progress: {formatLatency(averageInProgressLatency)} ms</div>
+      </Box>
       <Box ref={containerRef} sx={{ height: '100%' }}>
         <Stack direction="row">
           <Box

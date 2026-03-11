@@ -47,7 +47,15 @@ class AudioController {
         // Forward binary audio data to transcription service
         socket.on('message', (data: Buffer, isBinary: boolean) => {
             if (isBinary) {
-                this._roomManagerService.forwardAudio(sessionId, data);
+                const buf = Buffer.from(data);
+                if (buf.length < 44) {
+                    req.log.warn({ sessionId, len: buf.length }, 'Audio frame too short');
+                    return;
+                }
+                const sentAt = buf.readDoubleLE(0);
+                const chunkId = buf.subarray(8, 44).toString('utf8');
+                const audioBytes = buf.subarray(44);
+                this._roomManagerService.forwardAudio(sessionId, audioBytes, sentAt, chunkId);
             } else {
                 req.log.debug({ sessionId }, 'Received non-binary message from audio source');
             }

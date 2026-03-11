@@ -67,12 +67,12 @@ class TranscriptionStreamClient extends EventEmitter<ClientEvents> {
     this._ws.onerror = this._onerror.bind(this);
   }
 
-  send_audio(chunk: ArrayBufferLike | Blob | ArrayBufferView) {
+  send_audio(chunk: ArrayBufferLike | Blob | ArrayBufferView, sentAtMs?: number, chunkId?: string) {
     if (this._client_state === ClientState.CONNECTED) {
-      const chunkId = crypto.randomUUID();
-      this._pendingChunks.set(chunkId, Date.now());
+      const id = chunkId ?? crypto.randomUUID();
+      this._pendingChunks.set(id, sentAtMs ?? Date.now());
       const encoder = new TextEncoder();
-      const uuidBytes = encoder.encode(chunkId);
+      const uuidBytes = encoder.encode(id);
 
       let payload: Blob | Uint8Array;
       if (chunk instanceof Blob) {
@@ -149,15 +149,15 @@ class TranscriptionStreamClient extends EventEmitter<ClientEvents> {
       this.emit(
         'ipTranscription',
         serverMessage.text,
-        serverMessage.ends ?? null,
         serverMessage.starts ?? null,
+        serverMessage.ends ?? null,
       );
     } else {
       this.emit(
         'finalTranscription',
         serverMessage.text,
-        serverMessage.ends ?? null,
         serverMessage.starts ?? null,
+        serverMessage.ends ?? null,
       );
     }
   }

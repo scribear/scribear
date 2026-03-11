@@ -143,7 +143,7 @@ class TranscriptionStreamController(WebsocketHandler):
                     text=result.in_progress.text,
                     starts=result.in_progress.starts,
                     ends=result.in_progress.ends,
-                    chunk_ids=result.final_chunk_ids,
+                    chunk_ids=result.in_progress_chunk_ids,
                 )
             )
 

@@ -54,6 +54,10 @@ export const selectInProgressTranscriptionText = (state: RootState) => {
   if (state.transcriptionContent.inProgressTranscription === null) return '';
   return state.transcriptionContent.inProgressTranscription.text.join('');
 };
+export const selectAverageFinalLatency = (state: RootState) =>
+  state.transcriptionContent.averageFinalLatency;
+export const selectAverageInProgressLatency = (state: RootState) =>
+  state.transcriptionContent.averageInProgressLatency;
 
 export const transcriptionContentSlice = createSlice({
   name: 'transcriptionContent',
