@@ -7,7 +7,7 @@ import type { BaseFastifyInstance } from '@scribear/base-fastify-server';
  * Registers @fastify/websocket plugin for WebSocket support
  */
 export default fastifyPlugin(async (fastify: BaseFastifyInstance) => {
-    await fastify.register(fastifyWebsocket);
+  await fastify.register(fastifyWebsocket);
 
-    fastify.log.info('WebSocket support enabled');
+  fastify.log.info('WebSocket support enabled');
 });

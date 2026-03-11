@@ -7,26 +7,26 @@ import resolveHandler from '../../dependency-injection/resolve-handler.js';
  * @param fastify Fastify app instance
  */
 function roomRouter(fastify: BaseFastifyInstance) {
+  fastify.route({
+    method: 'POST',
+    url: '/rooms',
+    handler: resolveHandler('roomController', 'createRoom'),
+  });
+
+  // Debug-only routes – not exposed in production
+  if (process.env['NODE_ENV'] !== 'production') {
     fastify.route({
-        method: 'POST',
-        url: '/rooms',
-        handler: resolveHandler('roomController', 'createRoom'),
+      method: 'GET',
+      url: '/rooms',
+      handler: resolveHandler('roomController', 'listRooms'),
     });
 
-    // Debug-only routes – not exposed in production
-    if (process.env['NODE_ENV'] !== 'production') {
-        fastify.route({
-            method: 'GET',
-            url: '/rooms',
-            handler: resolveHandler('roomController', 'listRooms'),
-        });
-
-        fastify.route({
-            method: 'GET',
-            url: '/rooms/:sessionId',
-            handler: resolveHandler('roomController', 'getRoom'),
-        });
-    }
+    fastify.route({
+      method: 'GET',
+      url: '/rooms/:sessionId',
+      handler: resolveHandler('roomController', 'getRoom'),
+    });
+  }
 }
 
 export default roomRouter;

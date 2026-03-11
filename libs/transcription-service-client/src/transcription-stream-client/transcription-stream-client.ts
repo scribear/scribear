@@ -67,7 +67,11 @@ class TranscriptionStreamClient extends EventEmitter<ClientEvents> {
     this._ws.onerror = this._onerror.bind(this);
   }
 
-  send_audio(chunk: ArrayBufferLike | Blob | ArrayBufferView, sentAtMs?: number, chunkId?: string) {
+  send_audio(
+    chunk: ArrayBufferLike | Blob | ArrayBufferView,
+    sentAtMs?: number,
+    chunkId?: string,
+  ) {
     if (this._client_state === ClientState.CONNECTED) {
       const id = chunkId ?? crypto.randomUUID();
       this._pendingChunks.set(id, sentAtMs ?? Date.now());
