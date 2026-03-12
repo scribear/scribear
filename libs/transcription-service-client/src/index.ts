@@ -1,3 +1,1 @@
-import TranscriptionStreamClient from './transcription-stream-client.js';
-
-export default TranscriptionStreamClient;
+export { createTranscriptionServiceClient } from './create-transcription-service-client.js';

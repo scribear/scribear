@@ -11,13 +11,18 @@ import {
 import type { BaseDependencies } from '@scribear/base-fastify-server';
 
 import type AppConfig from '../../app-config/app-config.js';
-import type { TranscriptionConfig } from '../../app-config/app-config.js';
-import AudioController from '../features/audio/audio.controller.js';
-import HealthcheckController from '../features/healthcheck/healthcheck.controller.js';
-import RoomController from '../features/room/room.controller.js';
-import TranscriptionController from '../features/transcription/transcription.controller.js';
-import { JwtService, type JwtServiceConfig } from '../services/jwt.service.js';
-import { RoomManagerService } from '../services/room-manager.service.js';
+import { HealthcheckController } from '../features/healthcheck/healthcheck.controller.js';
+import {
+  JwtService,
+  type JwtServiceConfig,
+} from '../features/session-streaming/jwt.service.js';
+import { SessionStreamingController } from '../features/session-streaming/session-streaming.controller.js';
+import { SessionStreamingService } from '../features/session-streaming/session-streaming.service.js';
+import { StreamingEventBusService } from '../features/session-streaming/streaming-event-bus.service.js';
+import {
+  TranscriptionService,
+  type TranscriptionServiceConfig,
+} from '../features/session-streaming/transcription.service.js';
 
 /**
  * Define types for entities in dependency container
@@ -25,18 +30,20 @@ import { RoomManagerService } from '../services/room-manager.service.js';
 interface AppDependencies extends BaseDependencies {
   // Config
   config: AppConfig;
-  jwtServiceConfig: JwtServiceConfig;
-  transcriptionConfig: TranscriptionConfig;
 
-  // Services
-  jwtService: JwtService;
-  roomManagerService: RoomManagerService;
-
-  // Controllers
-  audioController: AudioController;
+  // Healthcheck
   healthcheckController: HealthcheckController;
-  roomController: RoomController;
-  transcriptionController: TranscriptionController;
+
+  // JWT Service
+  jwtServiceConfig: JwtServiceConfig;
+  jwtService: JwtService;
+
+  // Session Streaming
+  transcriptionServiceConfig: TranscriptionServiceConfig;
+  streamingEventBusService: StreamingEventBusService;
+  transcriptionService: TranscriptionService;
+  sessionStreamingService: SessionStreamingService;
+  sessionStreamingController: SessionStreamingController;
 }
 
 /**
@@ -63,31 +70,28 @@ function registerDependencies(
   dependencyContainer.register({
     // Config
     config: asValue(config),
-    jwtServiceConfig: asValue({
-      jwtSecret: config.jwtSecret,
-      jwtIssuer: config.jwtIssuer,
-    }),
-    transcriptionConfig: asValue(config.transcriptionConfig),
 
-    // Services
-    jwtService: asClass(JwtService, {
-      lifetime: Lifetime.SCOPED,
-    }),
-    roomManagerService: asClass(RoomManagerService, {
-      lifetime: Lifetime.SINGLETON,
-    }),
+    // JWT
+    jwtServiceConfig: asValue(config.jwtServiceConfig),
+    jwtService: asClass(JwtService, { lifetime: Lifetime.SINGLETON }),
 
-    // Controllers
-    audioController: asClass(AudioController, {
-      lifetime: Lifetime.SCOPED,
-    }),
+    // Healthcheck
     healthcheckController: asClass(HealthcheckController, {
       lifetime: Lifetime.SCOPED,
     }),
-    roomController: asClass(RoomController, {
+
+    // Session Streaming
+    transcriptionServiceConfig: asValue(config.transcriptionConfig),
+    streamingEventBusService: asClass(StreamingEventBusService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    transcriptionService: asClass(TranscriptionService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    sessionStreamingService: asClass(SessionStreamingService, {
       lifetime: Lifetime.SCOPED,
     }),
-    transcriptionController: asClass(TranscriptionController, {
+    sessionStreamingController: asClass(SessionStreamingController, {
       lifetime: Lifetime.SCOPED,
     }),
   } as NameAndRegistrationPair<AppDependencies>);

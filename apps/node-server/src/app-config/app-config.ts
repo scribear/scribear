@@ -4,6 +4,8 @@ import type { Static } from 'typebox';
 
 import { LogLevel } from '@scribear/base-fastify-server';
 
+import type { JwtServiceConfig } from '#src/server/features/session-streaming/jwt.service.js';
+
 export interface BaseConfig {
   isDevelopment: boolean;
   logLevel: LogLevel;
@@ -11,20 +13,13 @@ export interface BaseConfig {
   host: string;
 }
 
-export interface TranscriptionConfig {
-  transcriptionServiceUrl: string;
-  transcriptionApiKey: string;
-}
-
 const CONFIG_SCHEMA = Type.Object({
   LOG_LEVEL: Type.Enum(LogLevel),
   PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
   HOST: Type.String(),
   JWT_SECRET: Type.String({ minLength: 32 }),
-  JWT_ISSUER: Type.String({ default: 'scribear-session-manager' }),
-  TRANSCRIPTION_SERVICE_URL: Type.String(),
-  TRANSCRIPTION_API_KEY: Type.String(),
-  SESSION_MANAGER_URL: Type.String(),
+  TRANSCRIPTION_SERVICE_ADDRESS: Type.String(),
+  TRANSCRIPTION_SERVICE_API_KEY: Type.String(),
 });
 
 /**
@@ -43,30 +38,24 @@ class AppConfig {
     };
   }
 
-  get jwtSecret(): string {
-    return this._env.JWT_SECRET;
-  }
-
-  get jwtIssuer(): string {
-    return this._env.JWT_ISSUER;
-  }
-
-  get transcriptionConfig(): TranscriptionConfig {
+  get jwtServiceConfig(): JwtServiceConfig {
     return {
-      transcriptionServiceUrl: this._env.TRANSCRIPTION_SERVICE_URL,
-      transcriptionApiKey: this._env.TRANSCRIPTION_API_KEY,
+      jwtSecret: this._env.JWT_SECRET,
     };
   }
 
-  get sessionManagerUrl(): string {
-    return this._env.SESSION_MANAGER_URL;
+  get transcriptionConfig(): { address: string; apiKey: string } {
+    return {
+      address: this._env.TRANSCRIPTION_SERVICE_ADDRESS,
+      apiKey: this._env.TRANSCRIPTION_SERVICE_API_KEY,
+    };
   }
 
   constructor(path?: string) {
     this._isDevelopment = process.argv.includes('--dev');
 
     this._env = envSchema<Static<typeof CONFIG_SCHEMA>>({
-      dotenv: path ? { path, quiet: true } : { quiet: true },
+      dotenv: path ? { path } : {},
       schema: CONFIG_SCHEMA,
     });
   }

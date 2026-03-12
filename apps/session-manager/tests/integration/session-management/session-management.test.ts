@@ -336,7 +336,9 @@ describe('Integration Tests - Session Management API', () => {
         scopes: string[];
       };
       expect(payload.sessionId).toBe(sessionId);
-      expect(payload.scopes).toEqual([SessionTokenScope.RECEIVE_TRANSCRIPTIONS]);
+      expect(payload.scopes).toEqual([
+        SessionTokenScope.RECEIVE_TRANSCRIPTIONS,
+      ]);
     });
 
     it('returns 422 when session has expired', async () => {
@@ -459,7 +461,9 @@ describe('Integration Tests - Session Management API', () => {
       };
       expect(payload.sessionId).toBe(sessionId);
       expect(payload.scopes).toContain(SessionTokenScope.SEND_AUDIO);
-      expect(payload.scopes).toContain(SessionTokenScope.RECEIVE_TRANSCRIPTIONS);
+      expect(payload.scopes).toContain(
+        SessionTokenScope.RECEIVE_TRANSCRIPTIONS,
+      );
     });
 
     it('returns 200 with transcriptionProviderKey and transcriptionProviderConfig', async () => {

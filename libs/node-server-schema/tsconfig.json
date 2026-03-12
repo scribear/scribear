@@ -18,6 +18,9 @@
     },
     {
       "path": "../transcription-service-schema/tsconfig.json"
+    },
+      {
+      "path": "../session-manager-schema/tsconfig.json"
     }
   ]
 }

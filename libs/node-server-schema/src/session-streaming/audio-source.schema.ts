@@ -19,9 +19,9 @@ export enum AudioSourceServerMessageType {
 const AUDIO_SOURCE_SCHEMA = {
   description: 'Accepts a connection from an audio source to a session',
   tags: [SESSION_STREAMING_TAG],
-  params: {
+  params: Type.Object({
     sessionId: Type.String({ maxLength: 36 }),
-  },
+  }),
   allowClientBinaryMessage: true,
   clientMessage: Type.Union([
     Type.Object({

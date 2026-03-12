@@ -13,5 +13,9 @@
     "tests",
   ],
   // Link to dependencies
-  "references": []
+  "references": [
+    {
+      "path": "../base-schema/tsconfig.json"
+    }
+  ]
 }

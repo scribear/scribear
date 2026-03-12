@@ -3,40 +3,45 @@ import { Type } from 'typebox';
 import { type BaseRouteDefinition } from '@scribear/base-schema';
 import type { BaseWebSocketRouteSchema } from '@scribear/base-schema/src/types/base-websocket-route-schema.js';
 
-import { SESSION_STREAMING_TAG } from '../tags.js';
+import { TranscriptionProviderConfigSchema } from '#src/provider-configs/index.js';
 
-export enum SessionClientClientMessageType {
-  AUTH = 'AUTH',
+export enum TranscriptionStreamClientMessageType {
+  AUTH = 'auth',
+  CONFIG = 'config',
 }
 
-export enum SessionClientServerMessageType {
-  IP_TRANSCRIPT = 'IP_TRANSCRIPT',
-  FINAL_TRANSCRIPT = 'FINAL_TRANSCRIPT',
+export enum TranscriptionStreamServerMessageType {
+  IP_TRANSCRIPT = 'ip_transcript',
+  FINAL_TRANSCRIPT = 'final_transcript',
 }
 
-const SESSION_CLIENT_SCHEMA = {
-  description: 'Accepts a connection from an session client to a session',
-  tags: [SESSION_STREAMING_TAG],
+const TRANSCRIPTION_STREAM_SCHEMA = {
+  description: 'Accepts a connection from an client to a session',
+  tags: [],
   params: Type.Object({
-    sessionId: Type.String({ maxLength: 36 }),
+    providerKey: Type.String({ maxLength: 32 }),
   }),
-  allowClientBinaryMessage: false,
+  allowClientBinaryMessage: true,
   clientMessage: Type.Union([
     Type.Object({
-      type: Type.Literal(SessionClientClientMessageType.AUTH),
-      sessionToken: Type.String({ maxLength: 1024 }),
+      type: Type.Literal(TranscriptionStreamClientMessageType.AUTH),
+      api_key: Type.String({ maxLength: 1024 }),
+    }),
+    Type.Object({
+      type: Type.Literal(TranscriptionStreamClientMessageType.CONFIG),
+      config: TranscriptionProviderConfigSchema,
     }),
   ]),
   allowServerBinaryMessage: false,
   serverMessage: Type.Union([
     Type.Object({
-      type: Type.Literal(SessionClientServerMessageType.IP_TRANSCRIPT),
+      type: Type.Literal(TranscriptionStreamServerMessageType.IP_TRANSCRIPT),
       text: Type.Array(Type.String()),
       starts: Type.Union([Type.Array(Type.Number()), Type.Null()]),
       ends: Type.Union([Type.Array(Type.Number()), Type.Null()]),
     }),
     Type.Object({
-      type: Type.Literal(SessionClientServerMessageType.FINAL_TRANSCRIPT),
+      type: Type.Literal(TranscriptionStreamServerMessageType.FINAL_TRANSCRIPT),
       text: Type.Array(Type.String()),
       starts: Type.Union([Type.Array(Type.Number()), Type.Null()]),
       ends: Type.Union([Type.Array(Type.Number()), Type.Null()]),
@@ -52,10 +57,10 @@ const SESSION_CLIENT_SCHEMA = {
   },
 } satisfies BaseWebSocketRouteSchema;
 
-const SESSION_CLIENT_ROUTE: BaseRouteDefinition = {
+const TRANSCRIPTION_STREAM_ROUTE: BaseRouteDefinition = {
   method: 'GET',
   websocket: true,
-  url: '/api/v1/session-streaming/session-client/:sessionId',
+  url: '/transcription_stream/:providerKey',
 };
 
-export { SESSION_CLIENT_SCHEMA, SESSION_CLIENT_ROUTE };
+export { TRANSCRIPTION_STREAM_SCHEMA, TRANSCRIPTION_STREAM_ROUTE };
