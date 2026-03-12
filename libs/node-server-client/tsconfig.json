@@ -1,0 +1,27 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "paths": {
+      "#src/*": ["./src/*"],
+      "#tests/*": ["./tests/*"]
+    }
+  },
+  "include": [
+    "src",
+    "tests",
+  ],
+  // Link to dependencies
+  "references": [
+    {
+      "path": "../base-api-client/tsconfig.json"
+    },
+    {
+      "path": "../base-websocket-client/tsconfig.json"
+    },
+    {
+      "path": "../node-server-schema/tsconfig.json"
+    }
+  ]
+}

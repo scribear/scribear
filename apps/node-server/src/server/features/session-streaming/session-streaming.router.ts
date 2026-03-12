@@ -17,18 +17,12 @@ export function sessionStreamingRouter(fastify: BaseFastifyInstance) {
   fastify.route({
     ...AUDIO_SOURCE_ROUTE,
     schema: AUDIO_SOURCE_SCHEMA,
-    handler: (req, res) => {
-      res.send();
-    },
-    wsHandler: resolveWsHandler('sessionStreamingController', 'audioSource'),
+    handler: resolveWsHandler('sessionStreamingController', 'audioSource'),
   });
 
   fastify.route({
     ...SESSION_CLIENT_ROUTE,
     schema: SESSION_CLIENT_SCHEMA,
-    handler: (req, res) => {
-      res.send();
-    },
-    wsHandler: resolveWsHandler('sessionStreamingController', 'sessionClient'),
+    handler: resolveWsHandler('sessionStreamingController', 'sessionClient'),
   });
 }
