@@ -39,7 +39,7 @@ const REGISTER_DEVICE_SCHEMA = {
 
 const REGISTER_DEVICE_ROUTE: BaseRouteDefinition = {
   method: 'POST',
-  url: '/api/v1/device-management/register-device',
+  url: '/api/session-manager/device-management/v1/register-device',
 };
 
 export { REGISTER_DEVICE_SCHEMA, REGISTER_DEVICE_ROUTE };

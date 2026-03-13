@@ -7,7 +7,6 @@
       "#src/*": ["./src/*"],
       "#tests/*": ["./tests/*"]
     },
-
     // Vite/React specific configuration
     "types": [
       "vite/client",
@@ -27,6 +26,27 @@
   "references": [
     {
       "path": "../../libs/transcription-service-client/tsconfig.json"
+    },
+    {
+      "path": "../../libs/base-api-client/tsconfig.json"
+    },
+    {
+      "path": "../../libs/session-manager-schema/tsconfig.json"
+    },
+    {
+      "path": "../../libs/session-manager-client/tsconfig.json"
+    },
+    {
+      "path": "../../libs/node-server-schema/tsconfig.json"
+    },
+    {
+      "path": "../../libs/node-server-client/tsconfig.json"
+    },
+    {
+      "path": "../../libs/transcription-service-schema/tsconfig.json"
+    },
+    {
+      "path": "../../libs/transcription-service-client/tsconfig.json"
     }
-  ],
+  ]
 }

@@ -45,7 +45,7 @@ const DEVICE_SESSION_EVENTS_SCHEMA = {
 
 const DEVICE_SESSION_EVENTS_ROUTE: BaseRouteDefinition = {
   method: 'GET',
-  url: '/api/v1/session-management/device-session-events',
+  url: '/api/session-manager/session-management/v1/device-session-events',
 };
 
 export {

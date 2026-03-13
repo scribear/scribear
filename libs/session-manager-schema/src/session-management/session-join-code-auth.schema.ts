@@ -32,7 +32,7 @@ const SESSION_JOIN_CODE_AUTH_SCHEMA = {
 
 const SESSION_JOIN_CODE_AUTH_ROUTE: BaseRouteDefinition = {
   method: 'POST',
-  url: '/api/v1/session-management/session-join-code-auth',
+  url: '/api/session-manager/session-management/v1/session-join-code-auth',
 };
 
 export { SESSION_JOIN_CODE_AUTH_SCHEMA, SESSION_JOIN_CODE_AUTH_ROUTE };

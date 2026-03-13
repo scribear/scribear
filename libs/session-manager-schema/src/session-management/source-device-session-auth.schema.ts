@@ -39,7 +39,7 @@ const SOURCE_DEVICE_SESSION_AUTH_SCHEMA = {
 
 const SOURCE_DEVICE_SESSION_AUTH_ROUTE: BaseRouteDefinition = {
   method: 'POST',
-  url: '/api/v1/session-management/source-device-session-auth',
+  url: '/api/session-manager/session-management/v1/source-device-session-auth',
 };
 
 export { SOURCE_DEVICE_SESSION_AUTH_SCHEMA, SOURCE_DEVICE_SESSION_AUTH_ROUTE };

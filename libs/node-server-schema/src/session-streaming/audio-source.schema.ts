@@ -51,6 +51,8 @@ const AUDIO_SOURCE_SCHEMA = {
   ]),
   closeCodes: {
     1000: { description: 'Normal closure' },
+    1001: { description: 'Normal closure, going away' },
+    1006: { description: 'Abnormal closure' },
     1007: {
       description: 'Invalid message format or configuration format received',
     },
@@ -62,7 +64,7 @@ const AUDIO_SOURCE_SCHEMA = {
 const AUDIO_SOURCE_ROUTE: BaseRouteDefinition = {
   method: 'GET',
   websocket: true,
-  url: '/api/v1/session-streaming/audio-source/:sessionId',
+  url: '/api/node-server/session-streaming/v1/audio-source/:sessionId',
 };
 
 export { AUDIO_SOURCE_SCHEMA, AUDIO_SOURCE_ROUTE };

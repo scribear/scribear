@@ -49,6 +49,8 @@ const TRANSCRIPTION_STREAM_SCHEMA = {
   ]),
   closeCodes: {
     1000: { description: 'Normal closure' },
+    1001: { description: 'Normal closure, going away' },
+    1006: { description: 'Abnormal closure' },
     1007: {
       description: 'Invalid message format or configuration format received',
     },

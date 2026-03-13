@@ -154,7 +154,7 @@ export class TranscriptionService {
 
     sessionState.unsubAudio = unsubAudio;
     sessionState.closeConnection = () => {
-      wsClient.close();
+      wsClient.close(1000);
     };
     this._sessions.set(sessionId, sessionState);
   }

@@ -24,7 +24,6 @@ interface BaseWebSocketRouteSchema {
   tags: string[];
   querystring?: TSchema;
   params?: TSchema;
-  headers?: TSchema;
   security?: SecurityRequirement;
   hide?: boolean;
   allowClientBinaryMessage: boolean;

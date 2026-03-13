@@ -8,8 +8,8 @@ import type { RootState } from '#src/stores/store';
 
 export interface TranscriptionSequence {
   text: string[];
-  starts?: number[];
-  ends?: number[];
+  starts?: number[] | null;
+  ends?: number[] | null;
 }
 
 export interface TranscriptionSection {

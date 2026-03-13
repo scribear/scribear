@@ -57,7 +57,7 @@ export class WebSocketClient<
     this._ws.onmessage = (event) => {
       const { data } = event;
 
-      if (data instanceof Buffer || data instanceof ArrayBuffer) {
+      if (data instanceof ArrayBuffer || (typeof Buffer !== 'undefined' && data instanceof Buffer)) {
         if (!this._schema.allowServerBinaryMessage) {
           this.emit(
             'error',
@@ -138,7 +138,7 @@ export class WebSocketClient<
   /**
    * Closes the underlying WebSocket connection.
    */
-  close(): void {
-    this._ws.close();
+  close(code?: number, reason?: string): void {
+    this._ws.close(code, reason);
   }
 }

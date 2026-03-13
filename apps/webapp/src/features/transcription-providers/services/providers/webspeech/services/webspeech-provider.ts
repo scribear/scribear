@@ -89,7 +89,7 @@ export class WebspeechProvider
     recognition.lang = config.languageTag;
 
     recognition.onresult = this._handleResult.bind(this);
-    recognition.onerror = this._handleEnd.bind(this);
+    recognition.onerror = this._handleError.bind(this);
     recognition.onend = this._handleEnd.bind(this);
 
     return recognition;

@@ -14,7 +14,7 @@ import { WebSocketClient } from './websocket-client.js';
  * Extracts a typed params object from a WebSocket route schema, including only the
  * keys (querystring, params, headers) that are defined in the schema.
  */
-type InputKey = 'querystring' | 'params' | 'headers';
+type InputKey = 'querystring' | 'params';
 type WebSocketConnectParams<S extends BaseWebSocketRouteSchema> = {
   [K in InputKey as undefined extends S[K] ? never : K]: S[K] extends TSchema
     ? Static<S[K]>
@@ -51,7 +51,6 @@ function createWebSocketClient<S extends BaseWebSocketRouteSchema>(
     const typedParams = params as {
       querystring?: Record<string, string>;
       params?: Record<string, string>;
-      headers?: Record<string, string>;
     };
 
     const url = buildWsUrl(
@@ -62,7 +61,7 @@ function createWebSocketClient<S extends BaseWebSocketRouteSchema>(
     );
 
     return new Promise((resolve) => {
-      const ws = new WebSocket(url, { headers: typedParams.headers });
+      const ws = new WebSocket(url);
 
       ws.onopen = () => {
         ws.onopen = null;

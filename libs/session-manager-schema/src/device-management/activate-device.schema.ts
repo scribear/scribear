@@ -36,7 +36,7 @@ const ACTIVATE_DEVICE_SCHEMA = {
 
 const ACTIVATE_DEVICE_ROUTE: BaseRouteDefinition = {
   method: 'POST',
-  url: '/api/v1/device-management/activate-device',
+  url: '/api/session-manager/device-management/v1/activate-device',
 };
 
 export { ACTIVATE_DEVICE_SCHEMA, ACTIVATE_DEVICE_ROUTE };

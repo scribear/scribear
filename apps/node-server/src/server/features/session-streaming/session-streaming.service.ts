@@ -19,7 +19,7 @@ interface SessionStreamingServiceEvents {
 /**
  * Manages the lifecycle of a single audio-source or session-client WebSocket connection.
  * Emits `close` and `send` events for the controller to forward to the socket.
- * Scoped per connection — one instance per WebSocket.
+ * Scoped per connection
  */
 export class SessionStreamingService extends EventEmitter<SessionStreamingServiceEvents> {
   private _jwtService: AppDependencies['jwtService'];
@@ -29,6 +29,7 @@ export class SessionStreamingService extends EventEmitter<SessionStreamingServic
   private _authenticated = false;
   private _sendAudioGranted = false;
   private _authTimeout: ReturnType<typeof setTimeout> | null = null;
+  private _jwtExpiryTimeout: ReturnType<typeof setTimeout> | null = null;
   private _cleanupFns: (() => void)[] = [];
 
   constructor(
@@ -77,6 +78,7 @@ export class SessionStreamingService extends EventEmitter<SessionStreamingServic
     }
 
     const payload = this._jwtService.verifySessionToken(sessionToken);
+
     if (payload?.sessionId !== sessionId) {
       this.emit('close', 1008, 'Invalid or expired token');
       return;
@@ -101,6 +103,11 @@ export class SessionStreamingService extends EventEmitter<SessionStreamingServic
     }
 
     this._authenticated = true;
+
+    const msUntilExpiry = payload.exp * 1000 - Date.now();
+    this._jwtExpiryTimeout = setTimeout(() => {
+      this.emit('close', 1008, 'Session token expired');
+    }, msUntilExpiry);
 
     if (hasSendAudio) {
       this._sendAudioGranted = true;
@@ -184,6 +191,10 @@ export class SessionStreamingService extends EventEmitter<SessionStreamingServic
     if (this._authTimeout) {
       clearTimeout(this._authTimeout);
       this._authTimeout = null;
+    }
+    if (this._jwtExpiryTimeout) {
+      clearTimeout(this._jwtExpiryTimeout);
+      this._jwtExpiryTimeout = null;
     }
     for (const fn of this._cleanupFns) {
       fn();

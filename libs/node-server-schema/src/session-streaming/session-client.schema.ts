@@ -44,6 +44,8 @@ const SESSION_CLIENT_SCHEMA = {
   ]),
   closeCodes: {
     1000: { description: 'Normal closure' },
+    1001: { description: 'Normal closure, going away' },
+    1006: { description: 'Abnormal closure' },
     1007: {
       description: 'Invalid message format or configuration format received',
     },
@@ -55,7 +57,7 @@ const SESSION_CLIENT_SCHEMA = {
 const SESSION_CLIENT_ROUTE: BaseRouteDefinition = {
   method: 'GET',
   websocket: true,
-  url: '/api/v1/session-streaming/session-client/:sessionId',
+  url: '/api/node-server/session-streaming/v1/session-client/:sessionId',
 };
 
 export { SESSION_CLIENT_SCHEMA, SESSION_CLIENT_ROUTE };

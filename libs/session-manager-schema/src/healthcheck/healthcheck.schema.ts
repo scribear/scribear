@@ -20,7 +20,7 @@ const HEALTHCHECK_SCHEMA = {
 
 const HEALTHCHECK_ROUTE: BaseRouteDefinition = {
   method: 'GET',
-  url: '/healthcheck',
+  url: '/api/session-manager/healthcheck/v1',
 };
 
 export { HEALTHCHECK_SCHEMA, HEALTHCHECK_ROUTE };

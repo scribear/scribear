@@ -7,6 +7,7 @@ import Stack from '@mui/material/Stack';
 import { AppLayout } from '#src/components/app-layout';
 import { MicrophoneModal } from '#src/core/microphone/components/microphone-modal';
 import { ToggleMicrophoneButton } from '#src/core/microphone/components/toggle-microphone-button';
+import { KioskStatusPanel } from '#src/features/kiosk-provider/components/kiosk-status-panel.js';
 import { KioskSplitLayout } from '#src/features/kiosk-split-screen/components/kiosk-split-layout';
 import { ThemeCustomizationMenu } from '#src/features/theme-customization/components/theme-customization-menu';
 import { TranscriptionDisplayContainer } from '#src/features/transcription-display/components/transcription-display-container.js';
@@ -35,8 +36,8 @@ const KioskRoot = () => {
       <KioskSplitLayout
         left={<TranscriptionDisplayContainer />}
         right={
-          <Box bgcolor={'background.main'} sx={{ height: '100%' }}>
-            Test
+          <Box sx={{ height: '100%' }}>
+            <KioskStatusPanel />
           </Box>
         }
       />
