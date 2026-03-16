@@ -1,3 +1,5 @@
+import List from '@mui/material/List';
+
 import type { MicrophoneService } from '#src/core/microphone/services/microphone-service';
 
 import { BaseProviderInterface } from '../../base-provider-interface';
@@ -16,6 +18,7 @@ interface StreamtextCaptionsResponse {
 // Poll interval mirrors StreamText recognizer cadence.
 const POLL_INTERVAL_MS = 1000;
 const DISCONNECTED_FAILURE_THRESHOLD = 3;
+const MAX_IN_PROGRESS_CHARS = 5000; //~800-1000 words
 
 export class StreamtextProvider
   extends BaseProviderInterface<StreamtextStatus>
@@ -93,9 +96,17 @@ export class StreamtextProvider
       const content = typeof json.content === 'string' ? json.content : '';
       if (content !== '') {
         this._inProgressText += content;
-        this._replaceInProgressTranscription({
-          text: [this._inProgressText],
-        });
+        if (this._inProgressText.length >= MAX_IN_PROGRESS_CHARS) {
+          // StreamText is incremental-only; chunking avoids large one-shot commits on stop.
+          this._appendFinalizedTranscription({
+            text: [this._inProgressText],
+          });
+          this._inProgressText = '';
+        } else {
+          this._replaceInProgressTranscription({
+            text: [this._inProgressText],
+          });
+        }
       }
 
       this._consecutiveFailureCount = 0;
