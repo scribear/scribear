@@ -1,5 +1,3 @@
-import List from '@mui/material/List';
-
 import type { MicrophoneService } from '#src/core/microphone/services/microphone-service';
 
 import { BaseProviderInterface } from '../../base-provider-interface';
