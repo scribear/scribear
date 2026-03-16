@@ -33,7 +33,7 @@ export const StreamtextStatusIcon = () => {
     tooltip = `${displayName} is transcribing`;
   } else if (streamtextStatus === StreamtextStatus.ACTIVE_MUTE) {
     icon = <PauseCircleOutlineIcon />;
-    tooltip = `${displayName} is not transcribing, microphone muted`;
+    tooltip = `${displayName} is paused`;
   } else if (streamtextStatus === StreamtextStatus.ERROR) {
     icon = <NotInterestedIcon />;
     tooltip = `${displayName} encountered an unexpected error`;

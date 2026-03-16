@@ -12,8 +12,13 @@ import { TranscriptionDisplayPreferencesMenu } from '#src/features/transcription
 import { TranscriptionProviderSelector } from '#src/features/transcription-providers/components/transcription-provider-selector';
 import { TranscriptionProviderStatusDisplay } from '#src/features/transcription-providers/components/transcription-provider-status-display';
 import { TranscriptionProviderStatusModal } from '#src/features/transcription-providers/components/transcription-provider-status-modal';
+import { ProviderId } from '#src/features/transcription-providers/services/providers/provider-registry';
+import { selectTargetProviderId } from '#src/features/transcription-providers/stores/provider-preferences-slice';
+import { useAppSelector } from '#src/stores/use-redux';
 
 const StandaloneRoot = () => {
+  const targetProviderId = useAppSelector(selectTargetProviderId);
+
   const DrawerMenus = (
     <>
       <ThemeCustomizationMenu />
@@ -21,7 +26,10 @@ const StandaloneRoot = () => {
     </>
   );
 
-  const HeaderButtons = [<ToggleMicrophoneButton key="mic" />];
+  const HeaderButtons =
+    targetProviderId === ProviderId.STREAMTEXT
+      ? []
+      : [<ToggleMicrophoneButton key="mic" />];
 
   const ProviderSelector = (
     <Stack direction="row" alignItems="center">

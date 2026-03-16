@@ -3,8 +3,8 @@ import type { MicrophoneService } from '#src/core/microphone/services/microphone
 import { BaseProviderInterface } from '../../base-provider-interface';
 import type { ProviderInterface } from '../../provider-interface';
 import {
-  type StreamtextConfig,
   INITIAL_STREAMTEXT_STATUS,
+  type StreamtextConfig,
 } from '../config/streamtext-config';
 import { StreamtextStatus } from '../types/streamtext-status';
 
@@ -21,7 +21,6 @@ export class StreamtextProvider
   extends BaseProviderInterface<StreamtextStatus>
   implements ProviderInterface<StreamtextConfig, StreamtextStatus>
 {
-  private _muted = true;
   private _microphoneService;
   private _pollTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private _abortController: AbortController | null = null;
@@ -39,7 +38,8 @@ export class StreamtextProvider
 
   private _resetSessionState(config: StreamtextConfig) {
     this._event = config.event.trim();
-    this._language = config.language.trim() === '' ? 'en' : config.language.trim();
+    this._language =
+      config.language.trim() === '' ? 'en' : config.language.trim();
     this._lastPosition = Math.max(0, Math.floor(config.startPosition));
     this._inProgressText = '';
     this._consecutiveFailureCount = 0;
@@ -136,7 +136,6 @@ export class StreamtextProvider
   }
 
   private _flushInProgressAsFinalized() {
-    
     // StreamText only yields incremental text, so we finalize the accumulated in-progress block on stop.
     if (this._inProgressText === '') return;
 
@@ -149,8 +148,7 @@ export class StreamtextProvider
   activateProvider(config: StreamtextConfig) {
     if (
       this.status === StreamtextStatus.CONNECTING ||
-      this.status === StreamtextStatus.ACTIVE ||
-      this.status === StreamtextStatus.ACTIVE_MUTE
+      this.status === StreamtextStatus.ACTIVE
     ) {
       return;
     }
@@ -161,12 +159,8 @@ export class StreamtextProvider
     }
 
     this._resetSessionState(config);
-    if (this._muted) {
-      this._setStatus(StreamtextStatus.ACTIVE_MUTE);
-    } else {
-      this._setStatus(StreamtextStatus.CONNECTING);
-      this._startPolling();
-    }
+    this._setStatus(StreamtextStatus.CONNECTING);
+    this._startPolling();
   }
 
   deactivateProvider() {
@@ -181,22 +175,12 @@ export class StreamtextProvider
   }
 
   unmute() {
-    this._muted = false;
-    if (this.status === StreamtextStatus.ACTIVE_MUTE) {
-      this._setStatus(StreamtextStatus.CONNECTING);
-      this._startPolling();
-    }
+    // StreamText does not use microphone input; muting is a no-op.
+    return;
   }
 
   mute() {
-    this._muted = true;
-    if (
-      this.status === StreamtextStatus.ACTIVE ||
-      this.status === StreamtextStatus.CONNECTING ||
-      this.status === StreamtextStatus.DISCONNECTED
-    ) {
-      this._stopPolling();
-      this._setStatus(StreamtextStatus.ACTIVE_MUTE);
-    }
+    // StreamText does not use microphone input; muting is a no-op.
+    return;
   }
 }

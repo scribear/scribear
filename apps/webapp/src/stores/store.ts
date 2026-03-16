@@ -10,11 +10,6 @@ import { microphoneServiceReducer } from '#src/core/microphone/stores/microphone
 import { transcriptionContentReducer } from '#src/core/transcription-content/store/transcription-content-slice';
 import { themePreferencesReducer } from '#src/features/theme-customization/stores/theme-preferences-slice';
 import { transcriptionDisplayPreferencesReducer } from '#src/features/transcription-display/stores/transcription-display-preferences-slice';
-import {
-  type ProviderConfigTypeMap,
-  ProviderId,
-  getInitialConfigState,
-} from '#src/features/transcription-providers/services/providers/provider-registry';
 import { providerConfigReducer } from '#src/features/transcription-providers/stores/provider-config-slice';
 import { providerPreferencesReducer } from '#src/features/transcription-providers/stores/provider-preferences-slice';
 import { providerServiceMiddleware } from '#src/features/transcription-providers/stores/provider-service-middleware';
@@ -67,38 +62,6 @@ export const store = configureStore({
     getDefaultEnhancers().prepend(
       rememberEnhancer(window.localStorage, rememberedKeys, {
         initActionType: appInitialization.type,
-        /**
-         * Rehydrate persisted Redux state from localStorage while preserving
-         * compatibility with newly added provider config fields/providers.
-         *
-         * Older persisted snapshots may not include the newest provider keys
-         * (STREAMTEXT) or newly introduced config properties.
-         * We merge defaults per provider with persisted values to backfill
-         * missing fields without overwriting user-saved values.
-         */
-        migrate: (state: RootState): RootState => {
-          const defaultProviderConfig = getInitialConfigState();
-          const mergedProviderConfig: ProviderConfigTypeMap = {
-            [ProviderId.WEBSPEECH]: {
-              ...defaultProviderConfig[ProviderId.WEBSPEECH],
-              ...state.providerConfig[ProviderId.WEBSPEECH],
-            },
-            [ProviderId.AZURE]: {
-              ...defaultProviderConfig[ProviderId.AZURE],
-              ...state.providerConfig[ProviderId.AZURE],
-            },
-            [ProviderId.STREAMTEXT]: {
-              ...defaultProviderConfig[ProviderId.STREAMTEXT],
-              ...state.providerConfig[ProviderId.STREAMTEXT],
-            },
-          };
-
-          return {
-            ...state,
-            // Merge per-provider config objects so newly added fields survive rehydration from older localStorage.
-            providerConfig: mergedProviderConfig,
-          };
-        },
       }),
     ),
 });
