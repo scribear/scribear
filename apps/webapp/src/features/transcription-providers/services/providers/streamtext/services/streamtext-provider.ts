@@ -31,10 +31,12 @@ export class StreamtextProvider
   private _language = 'en';
   private _lastPosition = 0;
   private _inProgressText = '';
+  private _inProgressTextDirty = false;
 
   constructor(microphoneService: MicrophoneService) {
     super(INITIAL_STREAMTEXT_STATUS);
     this._microphoneService = microphoneService;
+    this._microphoneService.deactivateMicrophone; //always mute the mic because it's a no-op in this provider.
   }
 
   private _resetSessionState(config: StreamtextConfig) {
@@ -44,6 +46,7 @@ export class StreamtextProvider
     this._lastPosition = Math.max(0, Math.floor(config.startPosition));
     this._inProgressText = '';
     this._consecutiveFailureCount = 0;
+    this._inProgressTextDirty = false;
   }
 
   private _buildCaptionsUrl() {
@@ -100,10 +103,12 @@ export class StreamtextProvider
             text: [this._inProgressText],
           });
           this._inProgressText = '';
+          this._inProgressTextDirty = false;
         } else {
           this._replaceInProgressTranscription({
             text: [this._inProgressText],
           });
+          this._inProgressTextDirty = true;
         }
       }
 
@@ -145,13 +150,15 @@ export class StreamtextProvider
   }
 
   private _flushInProgressAsFinalized() {
-    // StreamText only yields incremental text, so we finalize the accumulated in-progress block on stop.
+    //StreamText only yields incremental text, so we finalize the accumulated in-progress block on stop.
     if (this._inProgressText === '') return;
+    if (this._inProgressTextDirty) return;
 
     this._appendFinalizedTranscription({
       text: [this._inProgressText],
     });
     this._inProgressText = '';
+    this._inProgressTextDirty = false;
   }
 
   activateProvider(config: StreamtextConfig) {
