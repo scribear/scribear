@@ -40,4 +40,5 @@ export const kioskConfigSlice = createSlice({
 
 export const kioskConfigReducer = kioskConfigSlice.reducer;
 
-export const { setDeviceName, setActiveSessionId, setPrevEventId } = kioskConfigSlice.actions;
+export const { setDeviceName, setActiveSessionId, setPrevEventId } =
+  kioskConfigSlice.actions;

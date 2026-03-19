@@ -7,11 +7,11 @@ import Typography from '@mui/material/Typography';
 
 import { useAppDispatch, useAppSelector } from '#src/stores/use-redux.js';
 
+import { KioskServiceStatus } from '../services/kiosk-service-status';
 import {
   registerDevice,
   selectKioskServiceStatus,
 } from '../stores/kiosk-service-slice';
-import { KioskServiceStatus } from '../services/kiosk-service-status';
 
 export const KioskActivationForm = () => {
   const dispatch = useAppDispatch();

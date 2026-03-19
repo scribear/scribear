@@ -6,10 +6,10 @@ import type { AppDependencies } from './register-dependencies.js';
  * Creates a wrapper function around provided controller websocket route handler
  *  Wrapper function resolves controller from request dependency container scope
  *  and passes socket and request to handler
- * 
+ *
  * Need to cast to ((req: FastifyRequest, res: FastifyReply) => void) due to bug with @fastify/websocket
  * @see https://github.com/fastify/fastify-websocket/issues/314
- * 
+ *
  * @param controller Name of controller to resolve
  * @param method Name of method on controller to call
  * @returns Wrapped controller method
@@ -17,7 +17,10 @@ import type { AppDependencies } from './register-dependencies.js';
 export function resolveWsHandler<
   C extends keyof AppDependencies,
   M extends keyof AppDependencies[C],
->(controller: C, method: M): AppDependencies[C][M] & ((req: FastifyRequest, res: FastifyReply) => void) {
+>(
+  controller: C,
+  method: M,
+): AppDependencies[C][M] & ((req: FastifyRequest, res: FastifyReply) => void) {
   const wrapper = async (socket: WebSocket, req: FastifyRequest) => {
     const routeController = req.diScope.resolve(
       controller,
@@ -42,5 +45,6 @@ export function resolveWsHandler<
   };
 
   // Cast the type of the wrapper to be the same as the wrapped handler
-  return wrapper as unknown as AppDependencies[C][M] & ((req: FastifyRequest, res: FastifyReply) => void);
+  return wrapper as unknown as AppDependencies[C][M] &
+    ((req: FastifyRequest, res: FastifyReply) => void);
 }

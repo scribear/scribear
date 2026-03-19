@@ -57,7 +57,10 @@ export class WebSocketClient<
     this._ws.onmessage = (event) => {
       const { data } = event;
 
-      if (data instanceof ArrayBuffer || (typeof Buffer !== 'undefined' && data instanceof Buffer)) {
+      if (
+        data instanceof ArrayBuffer ||
+        (typeof Buffer !== 'undefined' && data instanceof Buffer)
+      ) {
         if (!this._schema.allowServerBinaryMessage) {
           this.emit(
             'error',

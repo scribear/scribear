@@ -306,7 +306,11 @@ class MicrophoneService extends EventEmitter<MicrophoneServiceEvents> {
       { processorOptions: { bufferSize } },
     );
 
-    const streamHandle: AudioStream = { audioContext, workletNode, closed: false };
+    const streamHandle: AudioStream = {
+      audioContext,
+      workletNode,
+      closed: false,
+    };
 
     workletNode.port.onmessage = (event: MessageEvent) => {
       if (streamHandle.closed || this._micStream === null) return;
