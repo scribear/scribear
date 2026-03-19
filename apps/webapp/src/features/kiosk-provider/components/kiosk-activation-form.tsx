@@ -32,7 +32,9 @@ export const KioskActivationForm = () => {
       <TextField
         label="Activation Code"
         value={activationCode}
-        onChange={(e) => setActivationCode(e.target.value)}
+        onChange={(e) => {
+          setActivationCode(e.target.value);
+        }}
         error={isError}
         helperText={
           isError &&

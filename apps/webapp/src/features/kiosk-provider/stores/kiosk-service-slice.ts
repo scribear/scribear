@@ -1,4 +1,8 @@
-import { type PayloadAction, createSlice } from '@reduxjs/toolkit';
+import {
+  type PayloadAction,
+  createAction,
+  createSlice,
+} from '@reduxjs/toolkit';
 
 import type { RootState } from '#src/stores/store';
 
@@ -26,10 +30,11 @@ export const kioskServiceSlice = createSlice({
     ) => {
       state.kioskServiceStatus = action.payload;
     },
-    registerDevice: (state, action: PayloadAction<string>) => {},
   },
 });
 export const kioskServiceReducer = kioskServiceSlice.reducer;
 
-export const { setKioskServiceStatus, registerDevice } =
-  kioskServiceSlice.actions;
+export const { setKioskServiceStatus } = kioskServiceSlice.actions;
+export const registerDevice = createAction<string>(
+  'kioskService/registerDevice',
+);

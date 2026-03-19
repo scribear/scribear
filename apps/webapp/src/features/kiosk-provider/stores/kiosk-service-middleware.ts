@@ -71,7 +71,7 @@ export const kioskServiceMiddleware: Middleware<object, RootState> = (
     }
 
     if (registerDevice.match(action)) {
-      kioskService.registerDevice(action.payload);
+      void kioskService.registerDevice(action.payload);
     }
 
     return result;

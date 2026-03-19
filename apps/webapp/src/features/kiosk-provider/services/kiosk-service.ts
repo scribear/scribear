@@ -1,8 +1,7 @@
 import EventEmitter from 'eventemitter3';
 
-import { NetworkError, SchemaValidationError } from '@scribear/base-api-client';
+import { NetworkError } from '@scribear/base-api-client';
 import {
-  ConnectionError,
   type WebSocketClient,
   SchemaValidationError as WsSchemaValidationError,
 } from '@scribear/base-websocket-client';
@@ -14,7 +13,6 @@ import {
 } from '@scribear/node-server-schema';
 import { createSessionManagerClient } from '@scribear/session-manager-client';
 import { DeviceSessionEventType } from '@scribear/session-manager-schema';
-import type { TranscriptionProviderConfig } from '@scribear/transcription-service-schema';
 
 import type {
   AudioStream,
@@ -152,7 +150,7 @@ export class KioskService extends EventEmitter {
     socket.send({
       type: AudioSourceClientMessageType.CONFIG,
       providerKey: transcriptionProviderKey,
-      config: transcriptionProviderConfig as TranscriptionProviderConfig,
+      config: transcriptionProviderConfig,
     });
 
     this._setStatus(
@@ -171,7 +169,7 @@ export class KioskService extends EventEmitter {
     socket.on('message', (message) => {
       if (message.type === AudioSourceServerMessageType.FINAL_TRANSCRIPT) {
         this._store.dispatch(appendFinalizedTranscription(message));
-      } else if (message.type === AudioSourceServerMessageType.IP_TRANSCRIPT) {
+      } else {
         this._store.dispatch(replaceInProgressTranscription(message));
       }
     });
@@ -213,13 +211,13 @@ export class KioskService extends EventEmitter {
       ? MIN_RETRY_DELAY_MS
       : Math.min(MAX_RETRY_DELAY_MS, this._sessionLoopDelayMs * 2);
 
-    setTimeout(async () => {
-      await this._executeSessionLoop(sessionId, token);
+    setTimeout(() => {
+      void this._executeSessionLoop(sessionId, token);
     }, delayMs);
   }
 
   private _startSessionLoop(sessionId: string) {
-    this._executeSessionLoop(sessionId, this._sessionLoopToken);
+    void this._executeSessionLoop(sessionId, this._sessionLoopToken);
   }
 
   private _stopSessionLoop() {
@@ -282,12 +280,12 @@ export class KioskService extends EventEmitter {
       ? MIN_RETRY_DELAY_MS
       : Math.min(MAX_RETRY_DELAY_MS, this._eventLoopDelayMs * 2);
 
-    setTimeout(async () => {
-      await this._executeEventLoop(token);
+    setTimeout(() => {
+      void this._executeEventLoop(token);
     }, delayMs);
   }
   private _startEventLoop() {
-    this._executeEventLoop(this._eventLoopToken);
+    void this._executeEventLoop(this._eventLoopToken);
   }
   private _stopEventLoop() {
     this._eventLoopToken++;
