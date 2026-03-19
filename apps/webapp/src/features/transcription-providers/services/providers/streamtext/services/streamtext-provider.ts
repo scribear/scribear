@@ -36,7 +36,6 @@ export class StreamtextProvider
   constructor(microphoneService: MicrophoneService) {
     super(INITIAL_STREAMTEXT_STATUS);
     this._microphoneService = microphoneService;
-    this._microphoneService.deactivateMicrophone; //always mute the mic because it's a no-op in this provider.
   }
 
   private _resetSessionState(config: StreamtextConfig) {
@@ -168,6 +167,9 @@ export class StreamtextProvider
     ) {
       return;
     }
+
+    //always mute the mic because it's a no-op in this provider.
+    this._microphoneService.deactivateMicrophone();
 
     if (config.event.trim() === '') {
       this._setStatus(StreamtextStatus.ERROR);
