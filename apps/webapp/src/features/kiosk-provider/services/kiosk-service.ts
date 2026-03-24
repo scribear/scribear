@@ -157,15 +157,6 @@ export class KioskService extends EventEmitter {
       this._muted ? KioskServiceStatus.ACTIVE_MUTE : KioskServiceStatus.ACTIVE,
     );
 
-    this._stream = await this._microphoneService.getAudioStream(
-      1,
-      16000,
-      100,
-      (buffer) => {
-        this._socket?.sendBinary(buffer);
-      },
-    );
-
     socket.on('message', (message) => {
       if (message.type === AudioSourceServerMessageType.FINAL_TRANSCRIPT) {
         this._store.dispatch(appendFinalizedTranscription(message));
@@ -175,7 +166,7 @@ export class KioskService extends EventEmitter {
     });
 
     // Await until the socket closes or encounters a terminal error
-    await new Promise<void>((resolve) => {
+    const socketDone = new Promise<void>((resolve) => {
       socket.on('close', (code, reason) => {
         console.log(
           'Session connection closed with code:',
@@ -183,7 +174,7 @@ export class KioskService extends EventEmitter {
           'and reason:',
           reason,
         );
-        this._socket = null;
+        this._closeSessionSocket();
         this._setStatus(KioskServiceStatus.SESSION_ERROR);
         resolve();
       });
@@ -193,10 +184,23 @@ export class KioskService extends EventEmitter {
         if (err instanceof WsSchemaValidationError) {
           this._setStatus(KioskServiceStatus.ERROR);
           this._suspend();
+        } else {
+          this._setStatus(KioskServiceStatus.SESSION_ERROR);
         }
         resolve();
       });
     });
+
+    this._stream = await this._microphoneService.getAudioStream(
+      1,
+      16000,
+      100,
+      (buffer) => {
+        this._socket?.sendBinary(buffer);
+      },
+    );
+
+    await socketDone;
 
     return true;
   }
@@ -234,7 +238,7 @@ export class KioskService extends EventEmitter {
       });
 
     // Prevent state changes if event loop has been stopped
-    if (token != this._eventLoopToken) return false;
+    if (token !== this._eventLoopToken) return false;
 
     // Handle errors
     if (error instanceof NetworkError) return false;
@@ -258,7 +262,7 @@ export class KioskService extends EventEmitter {
 
     this._store.dispatch(setPrevEventId(event.eventId));
 
-    if (event.eventType == DeviceSessionEventType.START_SESSION) {
+    if (event.eventType === DeviceSessionEventType.START_SESSION) {
       this._store.dispatch(setActiveSessionId(event.sessionId));
       this._startSessionLoop(event.sessionId);
     } else {
@@ -271,9 +275,9 @@ export class KioskService extends EventEmitter {
   }
 
   private async _executeEventLoop(token: number) {
-    if (token != this._eventLoopToken) return;
+    if (token !== this._eventLoopToken) return;
     const success = await this._fetchEvents(token);
-    if (token != this._eventLoopToken) return;
+    if (token !== this._eventLoopToken) return;
 
     const delayMs = success ? 0 : this._eventLoopDelayMs;
     this._eventLoopDelayMs = success
@@ -324,6 +328,8 @@ export class KioskService extends EventEmitter {
 
   activate() {
     this._suspend();
+    this._eventLoopDelayMs = MIN_RETRY_DELAY_MS;
+    this._sessionLoopDelayMs = MIN_RETRY_DELAY_MS;
 
     const state = this._store.getState();
     const deviceName = selectDeviceName(state);
