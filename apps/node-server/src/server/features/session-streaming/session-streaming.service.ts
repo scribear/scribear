@@ -9,7 +9,7 @@ import type { TranscriptionProviderConfig } from '@scribear/transcription-servic
 
 import type { AppDependencies } from '#src/server/dependency-injection/register-dependencies.js';
 
-const AUTH_TIMEOUT_MS = 10_000;
+const AUTH_TIMEOUT_MS = 1_000;
 
 interface SessionStreamingServiceEvents {
   close: [code: number, reason: string];

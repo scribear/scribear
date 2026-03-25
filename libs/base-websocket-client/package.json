@@ -17,7 +17,8 @@
     "lint": "eslint ./src ./tests",
     "lint:fix": "eslint ./src ./tests --fix",
     "test:dev": "vitest --ui --coverage",
-    "test": "vitest run"
+    "test:integration": "vitest --project integration",
+    "test:unit": "vitest --project unit"
   },
   "dependencies": {
     "eventemitter3": "5.0.4",

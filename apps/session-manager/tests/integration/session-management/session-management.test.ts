@@ -418,7 +418,7 @@ describe('Integration Tests - Session Management API', () => {
 
       const { sessionId } = await createSession(deviceAId);
 
-      // Act — device B tries to auth for device A's session
+      // Act
       const response = await sourceDeviceSessionAuth(deviceBToken, sessionId);
 
       // Assert

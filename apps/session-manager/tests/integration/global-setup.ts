@@ -49,12 +49,6 @@ export async function setup({
         ])
         .withExposedPorts(DB_PORT)
         .withWaitStrategy(Wait.forHealthCheck())
-        .withHealthCheck({
-          test: ['CMD-SHELL', `pg_isready -U ${DB_USER} -d ${DB_NAME}`],
-          interval: 5_000,
-          timeout: 5_000,
-          retries: 5,
-        })
         .start(),
     );
 

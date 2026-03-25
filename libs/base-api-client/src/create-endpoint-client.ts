@@ -33,7 +33,7 @@ type EndpointResponse<S extends BaseRouteSchema> = {
 
 /**
  * Result tuple returned by an endpoint client function.
- * Either a typed response or an error — never both.
+ * Either a typed response or an error
  */
 type EndpointResult<S extends BaseRouteSchema> =
   | [response: EndpointResponse<S>, error: null]
