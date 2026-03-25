@@ -387,15 +387,9 @@ jobs:
 
       - name: Deploy to Production
         env:
-          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY_2026 }}
           GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=no"
         run: |
-          mkdir -p ~/bin
-          export PATH="${HOME}/bin:${PATH}"
-          wget -O ~/bin/git-filter-repo https://raw.githubusercontent.com/newren/git-filter-repo/7b3e714b94a6e5b9f478cb981c7f560ef3f36506/git-filter-repo
-          chmod +x ~/bin/git-filter-repo
-
-          ls -la
           eval "$(ssh-agent -s)"
           ssh-add - <<< "${DEPLOY_KEY}"
           git clone git@github.com:scribear/v.git
@@ -405,19 +399,12 @@ jobs:
           ls -la
           export SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`
           
-          # git-filter-repo expects a fresh clone
-          # git-filter-repo --path latest --invert-paths
-          # TODO Need to debug why the above fails;
-          # we can get error later when git push origin master
-          # "fatal: 'origin' does not appear to be a git repository"
-          
-          # The following should not be required if git-filter-repo works
-          git rm -rf latest
+          git rm -rf latest-v2
           git commit -m "Removing previous latest dir"
           
-          mkdir -p latest
-          mv ../apps/webapp/dist/* latest
-          git add latest
+          mkdir -p latest-v2
+          mv ../apps/webapp/dist/* latest-v2
+          git add latest-v2
 
           git commit -m "Commit Deploy: ${SHORT_SHA}"
           git push origin master
