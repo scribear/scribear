@@ -9,6 +9,7 @@ import { selectProviderStatus } from '#src/features/transcription-providers/stor
 import { useAppDispatch, useAppSelector } from '#src/stores/use-redux';
 
 import { ProviderId } from '../../provider-registry';
+import { getLastWebspeechErrorDetail } from '../services/webspeech-provider';
 import { WebspeechStatus } from '../types/webspeech-status';
 
 export const WebspeechModal = () => {
@@ -18,6 +19,7 @@ export const WebspeechModal = () => {
   const webspeechStatus = useAppSelector((state) =>
     selectProviderStatus(state, ProviderId.WEBSPEECH),
   );
+  const errorDetail = getLastWebspeechErrorDetail();
 
   const cancelModal = () => {
     dispatch(setPreferredProviderId(null));
@@ -51,7 +53,11 @@ export const WebspeechModal = () => {
   const error = (
     <ChoiceModal
       isOpen={webspeechStatus === WebspeechStatus.ERROR}
-      message={`${displayName} encountered an unexpected error`}
+      message={
+        errorDetail
+          ? `${displayName} failed (${errorDetail}). Check browser microphone/speech permissions, then retry.`
+          : `${displayName} encountered an unexpected error`
+      }
       rightAction="Retry"
       onRightAction={retryActivation}
       onCancel={cancelModal}

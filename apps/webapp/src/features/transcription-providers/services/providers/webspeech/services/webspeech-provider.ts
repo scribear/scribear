@@ -2,9 +2,61 @@ import { BaseProviderInterface } from '../../base-provider-interface';
 import type { ProviderInterface } from '../../provider-interface';
 import {
   INITIAL_WEBSPEECH_STATUS,
+  languageTags,
   type WebspeechConfig,
 } from '../config/webspeech-config';
 import { WebspeechStatus } from '../types/webspeech-status';
+
+let lastWebspeechErrorDetail: string | null = null;
+
+export const getLastWebspeechErrorDetail = () => {
+  return lastWebspeechErrorDetail;
+};
+
+const resolveSupportedLanguageTag = (tag: string): string | null => {
+  if (tag in languageTags) return tag;
+
+  try {
+    const locale = new Intl.Locale(tag).maximize();
+    const maximizedTag =
+      locale.region !== undefined
+        ? `${locale.language}-${locale.region}`
+        : locale.language;
+
+    if (maximizedTag in languageTags) {
+      return maximizedTag;
+    }
+
+    const matchedTag = Object.keys(languageTags).find((supportedTag) =>
+      supportedTag.startsWith(`${locale.language}-`),
+    );
+    if (matchedTag) return matchedTag;
+  } catch {
+    const [baseLanguage] = tag.split('-');
+    if (!baseLanguage) return null;
+
+    const matchedTag = Object.keys(languageTags).find((supportedTag) =>
+      supportedTag.startsWith(`${baseLanguage}-`),
+    );
+    if (matchedTag) return matchedTag;
+  }
+
+  return null;
+};
+
+const resolveAutoLanguageTag = (): string | null => {
+  const candidates = [
+    ...(navigator.languages ?? []),
+    navigator.language,
+  ].filter((tag): tag is string => tag !== '');
+
+  for (const tag of candidates) {
+    const resolvedTag = resolveSupportedLanguageTag(tag);
+    if (resolvedTag !== null) return resolvedTag;
+  }
+
+  return null;
+};
 
 export class WebspeechProvider
   extends BaseProviderInterface<WebspeechStatus>
@@ -54,6 +106,23 @@ export class WebspeechProvider
       return;
     }
 
+    // Can happen during intentional stop/restart cycles.
+    if (event.error === 'aborted') {
+      if (
+        this._muted ||
+        this.status === WebspeechStatus.INACTIVE ||
+        this.status === WebspeechStatus.ACTIVE_MUTE
+      ) {
+        return;
+      }
+    }
+
+    const errorDetail =
+      event.message !== ''
+        ? `${event.error}: ${event.message}`
+        : `${event.error}`;
+    lastWebspeechErrorDetail = errorDetail;
+
     console.error('Webspeech encountered unexpected error', event);
     this._setStatus(WebspeechStatus.ERROR);
   }
@@ -86,10 +155,14 @@ export class WebspeechProvider
 
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = config.languageTag;
+    const resolvedLanguageTag =
+      config.languageTag !== '' ? config.languageTag : resolveAutoLanguageTag();
+    if (resolvedLanguageTag !== null) {
+      recognition.lang = resolvedLanguageTag;
+    }
 
     recognition.onresult = this._handleResult.bind(this);
-    recognition.onerror = this._handleEnd.bind(this);
+    recognition.onerror = this._handleError.bind(this);
     recognition.onend = this._handleEnd.bind(this);
 
     return recognition;
@@ -119,7 +192,18 @@ export class WebspeechProvider
     this._setStatus(WebspeechStatus.ACTIVE_MUTE);
   }
 
+  private _stopProvider() {
+    if (this._recognition && this._providerIsStarted) {
+      this._recognition.stop();
+    }
+
+    this._providerIsStarted = false;
+    this._finalizedResultCount = 0;
+    this._setStatus(WebspeechStatus.INACTIVE);
+  }
+
   activateProvider(config: WebspeechConfig) {
+    lastWebspeechErrorDetail = null;
     this._setStatus(WebspeechStatus.ACTIVATING);
 
     try {
@@ -143,8 +227,7 @@ export class WebspeechProvider
   }
 
   deactivateProvider() {
-    this._setStatus(WebspeechStatus.INACTIVE);
-    this._pauseProvider();
+    this._stopProvider();
     this._recognition = null;
   }
 

@@ -16,6 +16,7 @@
     "format:fix": "prettier --write ./src",
     "lint": "eslint ./src",
     "lint:fix": "eslint ./src --fix",
+    "test": "vitest run",
     "test:dev": "vitest --ui --coverage"
   },
   "dependencies": {
