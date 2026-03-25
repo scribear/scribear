@@ -370,7 +370,7 @@ jobs:
       - check-formatting-node
       - run-linter-node
       - run-build-node
-    if: needs.changes.outputs.frontend == 'true'
+    if: needs.changes.outputs.frontend == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -399,8 +399,8 @@ jobs:
           ls -la
           export SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`
           
-          # git rm -rf latest-v2
-          # git commit -m "Removing previous latest dir"
+          git rm -rf latest-v2
+          git commit -m "Removing previous latest dir"
           
           mkdir -p latest-v2
           mv ../apps/webapp/dist/* latest-v2
