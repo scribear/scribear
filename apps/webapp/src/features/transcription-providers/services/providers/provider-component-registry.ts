@@ -5,6 +5,10 @@ import { AzureModal } from './azure/components/azure-modal';
 import { AzureStatusIcon } from './azure/components/azure-status-icon';
 import { AZURE_DISPLAY_NAME } from './azure/config/azure-config';
 import { ProviderId } from './provider-registry';
+import { StreamtextConfigMenu } from './streamtext/components/streamtext-config-menu';
+import { StreamtextModal } from './streamtext/components/streamtext-modal';
+import { StreamtextStatusIcon } from './streamtext/components/streamtext-status-icon';
+import { STREAMTEXT_DISPLAY_NAME } from './streamtext/config/streamtext-config';
 import { WebspeechConfigMenu } from './webspeech/components/webspeech-config-menu';
 import { WebspeechModal } from './webspeech/components/webspeech-modal';
 import { WebspeechStatusIcon } from './webspeech/components/webspeech-status-icon';
@@ -36,6 +40,12 @@ export const providerComponentRegistry: ProviderComponentRegistry = {
     statusIcon: AzureStatusIcon,
     statusModal: AzureModal,
     configMenu: AzureConfigMenu,
+  },
+  [ProviderId.STREAMTEXT]: {
+    displayName: STREAMTEXT_DISPLAY_NAME,
+    statusIcon: StreamtextStatusIcon,
+    statusModal: StreamtextModal,
+    configMenu: StreamtextConfigMenu,
   },
 };
 

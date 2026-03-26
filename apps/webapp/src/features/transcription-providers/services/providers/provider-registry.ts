@@ -9,6 +9,13 @@ import { AzureProvider } from './azure/services/azure-provider';
 import type { AzureStatus } from './azure/types/azure-status';
 import type { ProviderInterface } from './provider-interface';
 import {
+  DEFAULT_STREAMTEXT_CONFIG,
+  INITIAL_STREAMTEXT_STATUS,
+  type StreamtextConfig,
+} from './streamtext/config/streamtext-config';
+import { StreamtextProvider } from './streamtext/services/streamtext-provider';
+import type { StreamtextStatus } from './streamtext/types/streamtext-status';
+import {
   DEFAULT_WEBSPEECH_CONFIG,
   INITIAL_WEBSPEECH_STATUS,
   type WebspeechConfig,
@@ -19,16 +26,19 @@ import type { WebspeechStatus } from './webspeech/types/webspeech-status';
 export enum ProviderId {
   WEBSPEECH = 'WEBSPEECH',
   AZURE = 'AZURE',
+  STREAMTEXT = 'STREAMTEXT',
 }
 
 export interface ProviderConfigTypeMap {
   [ProviderId.WEBSPEECH]: WebspeechConfig;
   [ProviderId.AZURE]: AzureConfig;
+  [ProviderId.STREAMTEXT]: StreamtextConfig;
 }
 
 export interface ProviderStatusTypeMap {
   [ProviderId.WEBSPEECH]: WebspeechStatus;
   [ProviderId.AZURE]: AzureStatus;
+  [ProviderId.STREAMTEXT]: StreamtextStatus;
 }
 
 export type ProviderInstance<K extends ProviderId> = ProviderInterface<
@@ -56,6 +66,11 @@ export const providerRegistry: ProviderRegistry = {
     initialConfig: DEFAULT_AZURE_CONFIG,
     initialStatus: INITIAL_AZURE_STATUS,
     constructor: AzureProvider,
+  },
+  [ProviderId.STREAMTEXT]: {
+    initialConfig: DEFAULT_STREAMTEXT_CONFIG,
+    initialStatus: INITIAL_STREAMTEXT_STATUS,
+    constructor: StreamtextProvider,
   },
 };
 
