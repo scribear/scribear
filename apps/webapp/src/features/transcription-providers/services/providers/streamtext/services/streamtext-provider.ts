@@ -16,7 +16,6 @@ interface StreamtextCaptionsResponse {
 // Poll interval mirrors StreamText recognizer cadence.
 const POLL_INTERVAL_MS = 1000;
 const DISCONNECTED_FAILURE_THRESHOLD = 3;
-const MAX_IN_PROGRESS_CHARS = 5000; //~800-1000 words
 
 export class StreamtextProvider
   extends BaseProviderInterface<StreamtextStatus>
@@ -30,8 +29,6 @@ export class StreamtextProvider
   private _event = '';
   private _language = 'en';
   private _lastPosition = 0;
-  private _inProgressText = '';
-  private _inProgressTextDirty = false;
 
   constructor(microphoneService: MicrophoneService) {
     super(INITIAL_STREAMTEXT_STATUS);
@@ -43,9 +40,7 @@ export class StreamtextProvider
     this._language =
       config.language.trim() === '' ? 'en' : config.language.trim();
     this._lastPosition = Math.max(0, Math.floor(config.startPosition));
-    this._inProgressText = '';
     this._consecutiveFailureCount = 0;
-    this._inProgressTextDirty = false;
   }
 
   private _buildCaptionsUrl() {
@@ -95,20 +90,7 @@ export class StreamtextProvider
 
       const content = typeof json.content === 'string' ? json.content : '';
       if (content !== '') {
-        this._inProgressText += content;
-        if (this._inProgressText.length >= MAX_IN_PROGRESS_CHARS) {
-          // StreamText is incremental-only; chunking avoids large one-shot commits on stop.
-          this._appendFinalizedTranscription({
-            text: [this._inProgressText],
-          });
-          this._inProgressText = '';
-          this._inProgressTextDirty = false;
-        } else {
-          this._replaceInProgressTranscription({
-            text: [this._inProgressText],
-          });
-          this._inProgressTextDirty = true;
-        }
+        this._appendFinalizedTranscription({ text: [content] });
       }
 
       this._consecutiveFailureCount = 0;
@@ -148,18 +130,6 @@ export class StreamtextProvider
     }
   }
 
-  private _flushInProgressAsFinalized() {
-    //StreamText only yields incremental text, so we finalize the accumulated in-progress block on stop.
-    if (this._inProgressText === '') return;
-    if (this._inProgressTextDirty) return;
-
-    this._appendFinalizedTranscription({
-      text: [this._inProgressText],
-    });
-    this._inProgressText = '';
-    this._inProgressTextDirty = false;
-  }
-
   activateProvider(config: StreamtextConfig) {
     if (
       this.status === StreamtextStatus.CONNECTING ||
@@ -168,7 +138,7 @@ export class StreamtextProvider
       return;
     }
 
-    //always mute the mic because it's a no-op in this provider.
+    // Always mute the mic because it's a no-op in this provider.
     this._microphoneService.deactivateMicrophone();
 
     if (config.event.trim() === '') {
@@ -183,7 +153,6 @@ export class StreamtextProvider
 
   deactivateProvider() {
     this._stopPolling();
-    this._flushInProgressAsFinalized();
 
     this._event = '';
     this._language = 'en';
