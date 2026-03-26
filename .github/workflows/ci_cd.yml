@@ -364,36 +364,47 @@ jobs:
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-  release-webapp:
+  deploy-webapp:
     needs:
       - changes
       - check-formatting-node
       - run-linter-node
       - run-build-node
-    if: startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.deploy_frontend == 'true'
+    if: needs.changes.outputs.frontend == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v5
       - name: Setup Node
         uses: ./.github/actions/setup-node
 
-      - name: Build webapp
-        working-directory: "apps/webapp"
-        run: npm run build
+      - name: Run build
+        run: npm run build --workspace @scribear/webapp
 
-      - name: Add build info
-        working-directory: "apps/webapp"
+      - name: Label buildate and commit hash
         run: |
-          date > dist/builddate.txt
-          git rev-parse --short HEAD > dist/commit.txt
+          date > apps/webapp/dist/builddate.txt
+          git rev-parse --short HEAD > apps/webapp/dist/commit.txt
 
-      - name: Package release artifact
+      - name: Deploy to Production
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY_2026 }}
+          GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=no"
         run: |
-          tar -czf "webapp-dist-${GITHUB_REF_NAME}.tgz" -C apps/webapp dist
+          eval "$(ssh-agent -s)"
+          ssh-add - <<< "${DEPLOY_KEY}"
+          git clone git@github.com:scribear/v.git
+          git config --global user.email "angrave@illinois.edu"
+          git config --global user.name "scribear-bot"
+          cd v
+          ls -la
+          export SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`
+          
+          git rm -rf latest-v2
+          git commit -m "Removing previous latest dir"
+          
+          mkdir -p latest-v2
+          mv ../apps/webapp/dist/* latest-v2
+          git add latest-v2
 
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: "webapp-dist-${{ github.ref_name }}.tgz"
+          git commit -m "Commit Deploy: ${SHORT_SHA}"
+          git push origin master
