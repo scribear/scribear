@@ -90,7 +90,6 @@ export const providerServiceMiddleware: Middleware<object, RootState> = (
 
       const state = store.getState();
       syncMicState(state);
-      syncTargetProvider(store.getState());
     }
 
     // After rehydration, attempt to enter target state
