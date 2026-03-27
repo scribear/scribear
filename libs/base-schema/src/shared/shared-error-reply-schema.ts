@@ -44,6 +44,15 @@ const SHARED_ERROR_REPLY_SCHEMA = {
       description: 'Response when request had no matching path on server.',
     },
   ),
+  422: Type.Object(
+    {
+      message: Type.String(),
+    },
+    {
+      description:
+        'Response when request data is syntactically valid but semantically invalid.',
+    },
+  ),
   429: Type.Object(
     {
       message: Type.String(),

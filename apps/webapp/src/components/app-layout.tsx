@@ -43,7 +43,7 @@ interface MainLayoutProps {
 export const AppLayout = ({
   children,
   providerSelector,
-  headerButtons = [],
+  headerButtons,
   drawerContent,
   headerBreakpoint = 'sm',
 }: MainLayoutProps) => {

@@ -6,7 +6,8 @@
   "main": "dist/src/index.js",
   "type": "module",
   "imports": {
-    "#src/*": "./dist/src/*"
+    "#src/*": "./dist/src/*",
+    "#tests/*": "./dist/tests/*"
   },
   "scripts": {
     "build": "tsc --build",
@@ -16,19 +17,20 @@
     "lint": "eslint ./src ./tests",
     "lint:fix": "eslint ./src ./tests --fix",
     "test:dev": "vitest --ui --coverage",
-    "test": "vitest run"
+    "test:integration": "vitest --project integration",
+    "test:unit": "vitest --project unit"
   },
   "dependencies": {
-    "@fastify/awilix": "8.0.0",
-    "@fastify/error": "4.0.0",
+    "@fastify/awilix": "8.2.0",
+    "@fastify/error": "4.2.0",
     "@fastify/helmet": "13.0.2",
-    "@fastify/sensible": "6.0.3",
+    "@fastify/sensible": "6.0.4",
     "@fastify/type-provider-typebox": "6.1.0",
-    "awilix": "12.0.5",
-    "fastify": "5.6.1",
+    "awilix": "13.0.0",
+    "fastify": "5.7.4",
     "fastify-plugin": "5.1.0",
-    "pino": "10.1.0",
-    "typebox": "1.0.41",
+    "pino": "10.3.1",
+    "typebox": "1.1.5",
     "uuid": "13.0.0"
   }
 }

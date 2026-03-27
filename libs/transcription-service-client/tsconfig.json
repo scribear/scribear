@@ -4,7 +4,8 @@
     "outDir": "./dist",
     "rootDir": ".",
     "paths": {
-      "#src/*": ["./src/*"]
+      "#src/*": ["./src/*"],
+      "#tests/*": ["./tests/*"]
     }
   },
   "include": [
@@ -14,7 +15,10 @@
   // Link to dependencies
   "references": [
     {
-      "path": "../base-schema/tsconfig.json"
+      "path": "../base-websocket-client/tsconfig.json"
+    },
+    {
+      "path": "../transcription-service-schema/tsconfig.json"
     }
   ]
 }

@@ -6,7 +6,8 @@
   "main": "dist/src/index.js",
   "type": "module",
   "imports": {
-    "#src/*": "./dist/src/*"
+    "#src/*": "./dist/src/*",
+    "#tests/*": "./dist/tests/*"
   },
   "scripts": {
     "build": "tsc --build",
@@ -20,13 +21,13 @@
     "generate:types": "npm run build && node ./dist/src/scripts/generate-types.js"
   },
   "dependencies": {
-    "env-schema": "6.1.0",
-    "kysely": "0.27.4",
-    "pg": "8.13.1",
-    "typebox": "1.0.41"
+    "env-schema": "7.0.0",
+    "kysely": "0.28.11",
+    "pg": "8.19.0",
+    "typebox": "1.1.5"
   },
   "devDependencies": {
-    "@types/pg": "8.11.10",
-    "kysely-codegen": "0.19.0"
+    "@types/pg": "8.16.0",
+    "kysely-codegen": "0.20.0"
   }
 }

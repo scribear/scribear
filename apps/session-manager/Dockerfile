@@ -19,6 +19,8 @@ ARG LIB="base-fastify-server"
 COPY libs/${LIB}/package*.json libs/${LIB}/
 ARG LIB="base-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
+ARG LIB="transcription-service-schema"
+COPY libs/${LIB}/package*.json libs/${LIB}/
 ARG LIB="session-manager-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
 RUN npm ci
@@ -33,6 +35,8 @@ COPY infra/${INFRA} infra/${INFRA}
 ARG LIB="base-fastify-server"
 COPY libs/${LIB} libs/${LIB}
 ARG LIB="base-schema"
+COPY libs/${LIB} libs/${LIB}
+ARG LIB="transcription-service-schema"
 COPY libs/${LIB} libs/${LIB}
 ARG LIB="session-manager-schema"
 COPY libs/${LIB} libs/${LIB}
@@ -56,6 +60,8 @@ ARG LIB="base-fastify-server"
 COPY libs/${LIB}/package*.json libs/${LIB}/
 ARG LIB="base-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
+ARG LIB="transcription-service-schema"
+COPY libs/${LIB}/package*.json libs/${LIB}/
 ARG LIB="session-manager-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
 
@@ -70,6 +76,8 @@ ARG LIB="base-fastify-server"
 COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
 ARG LIB="base-schema"
 COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
+ARG LIB="transcription-service-schema"
+COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
 ARG LIB="session-manager-schema"
 COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
 
@@ -80,6 +88,6 @@ WORKDIR /app/apps/session-manager
 ENV HOST=0.0.0.0
 ENV PORT=80
 
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --start-interval=1s --retries=3 CMD curl -f http://localhost:80/healthcheck || exit 1
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --start-interval=1s --retries=3 CMD curl -f http://localhost:80/api/session-manager/healthcheck/v1 || exit 1
 
 CMD ["npm", "start"]

@@ -2,16 +2,8 @@
  * Defines a route on server
  */
 interface BaseRouteDefinition {
-  method:
-    | 'GET'
-    | 'HEAD'
-    | 'TRACE'
-    | 'DELETE'
-    | 'OPTIONS'
-    | 'PATCH'
-    | 'PUT'
-    | 'POST';
-
+  method: 'GET' | 'HEAD' | 'DELETE' | 'OPTIONS' | 'PATCH' | 'PUT' | 'POST';
+  websocket?: boolean;
   url: string;
 }
 

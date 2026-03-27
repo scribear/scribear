@@ -38,7 +38,7 @@ class DatabaseConfig {
 
   constructor(path?: string) {
     this._env = envSchema<Static<typeof CONFIG_SCHEMA>>({
-      dotenv: path ? { path, quiet: true } : { quiet: true },
+      dotenv: path ? { path } : {},
       schema: CONFIG_SCHEMA,
     });
   }

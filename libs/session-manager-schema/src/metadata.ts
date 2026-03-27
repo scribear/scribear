@@ -3,3 +3,5 @@ export const OPENAPI_INFO = {
   description: 'The Swagger API documentation for Session Manager API.',
   version: '0.0.0',
 };
+
+export const OPENAPI_VERSION = '3.1.0';

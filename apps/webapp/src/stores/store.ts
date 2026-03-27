@@ -8,6 +8,10 @@ import { microphonePreferencesReducer } from '#src/core/microphone/stores/microp
 import { microphoneServiceMiddleware } from '#src/core/microphone/stores/microphone-service-middleware';
 import { microphoneServiceReducer } from '#src/core/microphone/stores/microphone-service-slice';
 import { transcriptionContentReducer } from '#src/core/transcription-content/store/transcription-content-slice';
+import { kioskConfigReducer } from '#src/features/kiosk-provider/stores/kiosk-config-slice.js';
+import { kioskServiceMiddleware } from '#src/features/kiosk-provider/stores/kiosk-service-middleware.js';
+import { kioskServiceReducer } from '#src/features/kiosk-provider/stores/kiosk-service-slice.js';
+import { splitScreenPreferencesReducer } from '#src/features/kiosk-split-screen/stores/split-screen-preferences-slice.js';
 import { themePreferencesReducer } from '#src/features/theme-customization/stores/theme-preferences-slice';
 import { transcriptionDisplayPreferencesReducer } from '#src/features/transcription-display/stores/transcription-display-preferences-slice';
 import { providerConfigReducer } from '#src/features/transcription-providers/stores/provider-config-slice';
@@ -30,6 +34,8 @@ const reducers = {
 
   transcriptionContent: transcriptionContentReducer,
 
+  splitScreenPreferences: splitScreenPreferencesReducer,
+
   themePreferences: themePreferencesReducer,
 
   transcriptionDisplayPreferences: transcriptionDisplayPreferencesReducer,
@@ -37,16 +43,21 @@ const reducers = {
   providerConfig: providerConfigReducer,
   providerPreferences: providerPreferencesReducer,
   providerStatus: providerStatusReducer,
+
+  kioskConfig: kioskConfigReducer,
+  kioskService: kioskServiceReducer,
 };
 
 // Keys to save to local storage
 export const rememberedKeys: (keyof typeof reducers)[] = [
   'appLayoutPreferences',
   'microphonePreferences',
+  'splitScreenPreferences',
   'themePreferences',
   'transcriptionDisplayPreferences',
   'providerConfig',
   'providerPreferences',
+  'kioskConfig',
 ];
 
 // Keys that are allowed to be configured by url fragment
@@ -73,7 +84,8 @@ export const store = configureStore({
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware()
       .concat(microphoneServiceMiddleware)
-      .concat(providerServiceMiddleware),
+      .concat(providerServiceMiddleware)
+      .concat(kioskServiceMiddleware),
   enhancers: (getDefaultEnhancers) =>
     getDefaultEnhancers().prepend(
       rememberEnhancer(urlFragmentDriver, rememberedKeys, {

@@ -17,7 +17,7 @@ class WhisperStreamingProviderConfig(BaseModel):
     job_period_ms: int
     max_buffer_len_sec: float
     local_agree_dim: int
-    vad_detector: bool = True
+    vad_detector: bool = False
     vad_threshold: float = 0.5
     vad_neg_threshold: Optional[float] = None
     silence_threshold: float = 0.01

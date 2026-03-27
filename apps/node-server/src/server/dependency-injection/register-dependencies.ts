@@ -1,42 +1,49 @@
 // Need to import so that declare module '@fastify/awilix' below works
 import '@fastify/awilix';
 import {
-    type AwilixContainer,
-    Lifetime,
-    type NameAndRegistrationPair,
-    asClass,
-    asValue,
+  type AwilixContainer,
+  Lifetime,
+  type NameAndRegistrationPair,
+  asClass,
+  asValue,
 } from 'awilix';
 
 import type { BaseDependencies } from '@scribear/base-fastify-server';
 
 import type AppConfig from '../../app-config/app-config.js';
-import type { TranscriptionConfig } from '../../app-config/app-config.js';
-import AudioController from '../features/audio/audio.controller.js';
-import HealthcheckController from '../features/healthcheck/healthcheck.controller.js';
-import RoomController from '../features/room/room.controller.js';
-import TranscriptionController from '../features/transcription/transcription.controller.js';
-import { JwtService, type JwtServiceConfig } from '../services/jwt.service.js';
-import { RoomManagerService } from '../services/room-manager.service.js';
+import { HealthcheckController } from '../features/healthcheck/healthcheck.controller.js';
+import {
+  JwtService,
+  type JwtServiceConfig,
+} from '../features/session-streaming/jwt.service.js';
+import { SessionStreamingController } from '../features/session-streaming/session-streaming.controller.js';
+import { SessionStreamingService } from '../features/session-streaming/session-streaming.service.js';
+import { StreamingEventBusService } from '../features/session-streaming/streaming-event-bus.service.js';
+import {
+  TranscriptionService,
+  type TranscriptionServiceConfig,
+} from '../features/session-streaming/transcription.service.js';
 
 /**
  * Define types for entities in dependency container
  */
 interface AppDependencies extends BaseDependencies {
-    // Config
-    config: AppConfig;
-    jwtServiceConfig: JwtServiceConfig;
-    transcriptionConfig: TranscriptionConfig;
+  // Config
+  config: AppConfig;
 
-    // Services
-    jwtService: JwtService;
-    roomManagerService: RoomManagerService;
+  // Healthcheck
+  healthcheckController: HealthcheckController;
 
-    // Controllers
-    audioController: AudioController;
-    healthcheckController: HealthcheckController;
-    roomController: RoomController;
-    transcriptionController: TranscriptionController;
+  // JWT Service
+  jwtServiceConfig: JwtServiceConfig;
+  jwtService: JwtService;
+
+  // Session Streaming
+  transcriptionServiceConfig: TranscriptionServiceConfig;
+  streamingEventBusService: StreamingEventBusService;
+  transcriptionService: TranscriptionService;
+  sessionStreamingService: SessionStreamingService;
+  sessionStreamingController: SessionStreamingController;
 }
 
 /**
@@ -44,11 +51,11 @@ interface AppDependencies extends BaseDependencies {
  * @see https://github.com/fastify/fastify-awilix?tab=readme-ov-file#typescript-usage
  */
 declare module '@fastify/awilix' {
-    // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-    interface Cradle extends AppDependencies { }
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+  interface Cradle extends AppDependencies {}
 
-    // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-    interface RequestCradle extends AppDependencies { }
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+  interface RequestCradle extends AppDependencies {}
 }
 
 /**
@@ -57,40 +64,37 @@ declare module '@fastify/awilix' {
  * @param config AppConfig to be registered into dependency controller
  */
 function registerDependencies(
-    dependencyContainer: AwilixContainer,
-    config: AppConfig,
+  dependencyContainer: AwilixContainer,
+  config: AppConfig,
 ) {
-    dependencyContainer.register({
-        // Config
-        config: asValue(config),
-        jwtServiceConfig: asValue({
-            jwtSecret: config.jwtSecret,
-            jwtIssuer: config.jwtIssuer,
-        }),
-        transcriptionConfig: asValue(config.transcriptionConfig),
+  dependencyContainer.register({
+    // Config
+    config: asValue(config),
 
-        // Services
-        jwtService: asClass(JwtService, {
-            lifetime: Lifetime.SCOPED,
-        }),
-        roomManagerService: asClass(RoomManagerService, {
-            lifetime: Lifetime.SINGLETON,
-        }),
+    // JWT
+    jwtServiceConfig: asValue(config.jwtServiceConfig),
+    jwtService: asClass(JwtService, { lifetime: Lifetime.SINGLETON }),
 
-        // Controllers
-        audioController: asClass(AudioController, {
-            lifetime: Lifetime.SCOPED,
-        }),
-        healthcheckController: asClass(HealthcheckController, {
-            lifetime: Lifetime.SCOPED,
-        }),
-        roomController: asClass(RoomController, {
-            lifetime: Lifetime.SCOPED,
-        }),
-        transcriptionController: asClass(TranscriptionController, {
-            lifetime: Lifetime.SCOPED,
-        }),
-    } as NameAndRegistrationPair<AppDependencies>);
+    // Healthcheck
+    healthcheckController: asClass(HealthcheckController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+
+    // Session Streaming
+    transcriptionServiceConfig: asValue(config.transcriptionConfig),
+    streamingEventBusService: asClass(StreamingEventBusService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    transcriptionService: asClass(TranscriptionService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    sessionStreamingService: asClass(SessionStreamingService, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    sessionStreamingController: asClass(SessionStreamingController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+  } as NameAndRegistrationPair<AppDependencies>);
 }
 
 export default registerDependencies;

@@ -3,6 +3,8 @@ import pg from 'pg';
 
 import type { DB } from '@scribear/scribear-db';
 
+import type { AppDependencies } from '#src/server/dependency-injection/register-dependencies.js';
+
 export interface DBClientConfig {
   dbHost: string;
   dbPort: number;
@@ -11,14 +13,17 @@ export interface DBClientConfig {
   dbPassword: string;
 }
 
-class DBClient {
+export class DBClient {
   private _db: Kysely<DB>;
 
   get db() {
     return this._db;
   }
 
-  constructor(dbClientConfig: DBClientConfig) {
+  constructor(
+    logger: AppDependencies['logger'],
+    dbClientConfig: AppDependencies['dbClientConfig'],
+  ) {
     this._db = new Kysely<DB>({
       dialect: new PostgresDialect({
         pool: new pg.Pool({
@@ -29,6 +34,20 @@ class DBClient {
           password: dbClientConfig.dbPassword,
         }),
       }),
+      log: (event) => {
+        if (event.level === 'query') {
+          logger.debug(
+            {
+              sql: event.query.sql,
+              params: event.query.parameters,
+              durationMs: event.queryDurationMillis,
+            },
+            'Database query',
+          );
+        } else {
+          logger.error({ sql: event.query.sql }, 'Database query error');
+        }
+      },
     });
   }
 
@@ -40,5 +59,3 @@ class DBClient {
     await this._db.destroy();
   }
 }
-
-export default DBClient;

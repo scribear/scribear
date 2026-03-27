@@ -8,7 +8,7 @@ export const useInactivity = (timeoutMs: number) => {
   const [isActive, setIsActive] = useState(true);
 
   useEffect(() => {
-    let timeoutId: number;
+    let timeoutId: NodeJS.Timeout;
 
     const setInactiveTimer = () => {
       clearTimeout(timeoutId);

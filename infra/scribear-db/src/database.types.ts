@@ -9,11 +9,80 @@ export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S, I | undefined, U>
   : ColumnType<T, T | undefined, T>;
 
-export interface Kiosks {
+export type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;
+
+export type Json = JsonValue;
+
+export type JsonArray = JsonValue[];
+
+export type JsonObject = {
+  [x: string]: JsonValue | undefined;
+};
+
+export type JsonPrimitive = boolean | number | string | null;
+
+export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
+
+export type SessionEventType = "END_SESSION" | "START_SESSION";
+
+export type Timestamp = ColumnType<Date, Date | string, Date | string>;
+
+export interface CronJob {
+  active: Generated<boolean>;
+  command: string;
+  database: Generated<string>;
+  jobid: Generated<Int8>;
+  jobname: string | null;
+  nodename: Generated<string>;
+  nodeport: Generated<number>;
+  schedule: string;
+  username: Generated<string>;
+}
+
+export interface CronJobRunDetails {
+  command: string | null;
+  database: string | null;
+  end_time: Timestamp | null;
+  job_pid: number | null;
+  jobid: Int8 | null;
+  return_message: string | null;
+  runid: Generated<Int8>;
+  start_time: Timestamp | null;
+  status: string | null;
+  username: string | null;
+}
+
+export interface Devices {
+  activation_code: string | null;
+  activation_expiry: Timestamp | null;
   id: Generated<string>;
-  secret_hash: string;
+  is_active: Generated<boolean | null>;
+  name: string;
+  secret_hash: string | null;
+}
+
+export interface SessionEvents {
+  device_id: string;
+  event_type: SessionEventType;
+  id: Generated<number>;
+  session_id: string;
+  timestamp: Timestamp;
+}
+
+export interface Sessions {
+  end_time: Timestamp | null;
+  id: Generated<string>;
+  join_code: string | null;
+  source_device_id: string;
+  start_time: Timestamp;
+  transcription_provider_config: Json;
+  transcription_provider_key: string;
 }
 
 export interface DB {
-  kiosks: Kiosks;
+  "cron.job": CronJob;
+  "cron.job_run_details": CronJobRunDetails;
+  devices: Devices;
+  session_events: SessionEvents;
+  sessions: Sessions;
 }

@@ -1,8 +1,7 @@
+import type { FastifyBaseLogger } from 'fastify';
 import { pino, stdSerializers } from 'pino';
-import type { Logger } from 'pino';
 
-// Alias type to decouple log provider from application
-type BaseLogger = Logger;
+type BaseLogger = FastifyBaseLogger;
 
 enum LogLevel {
   SILENT = 'silent',

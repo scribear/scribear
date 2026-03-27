@@ -4,7 +4,8 @@
     "outDir": "./dist",
     "rootDir": ".",
     "paths": {
-      "#src/*": ["./src/*"]
+      "#src/*": ["./src/*"],
+      "#tests/*": ["./tests/*"]
     }
   },
   "include": [
@@ -14,6 +15,9 @@
   "references": [
     {
       "path": "../base-schema/tsconfig.json"
+    },
+    {
+      "path": "../transcription-service-schema/tsconfig.json"
     }
   ]
 }

@@ -1,4 +1,4 @@
-import AppConfig from './app-config/app-config.js';
+import { AppConfig } from './app-config/app-config.js';
 import createServer from './server/create-server.js';
 
 /**

@@ -5,15 +5,15 @@ import type { Static } from 'typebox';
 import { LogLevel } from '@scribear/base-fastify-server';
 
 import type { DBClientConfig } from '#src/db/db-client.js';
-import type { JwtServiceConfig } from '#src/server/services/jwt.service.js';
+import type { JwtServiceConfig } from '#src/server/features/session-management/jwt.service.js';
+import type { AuthServiceConfig } from '#src/server/services/auth.service.js';
 
 const CONFIG_SCHEMA = Type.Object({
   LOG_LEVEL: Type.Enum(LogLevel),
   PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
   HOST: Type.String(),
+  API_KEY: Type.String(),
   JWT_SECRET: Type.String({ minLength: 32 }),
-  JWT_ISSUER: Type.String({ default: 'scribear-session-manager' }),
-  JWT_EXPIRES_IN: Type.String({ default: '24h' }),
   DB_HOST: Type.String(),
   DB_PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
   DB_NAME: Type.String(),
@@ -31,7 +31,7 @@ export interface BaseConfig {
 /**
  * Class that loads and provides application configuration
  */
-class AppConfig {
+export class AppConfig {
   private _isDevelopment: boolean;
   private _env: Static<typeof CONFIG_SCHEMA>;
 
@@ -41,6 +41,18 @@ class AppConfig {
       logLevel: this._env.LOG_LEVEL,
       port: this._env.PORT,
       host: this._env.HOST,
+    };
+  }
+
+  get authServiceConfig(): AuthServiceConfig {
+    return {
+      apiKey: this._env.API_KEY,
+    };
+  }
+
+  get jwtServiceConfig(): JwtServiceConfig {
+    return {
+      jwtSecret: this._env.JWT_SECRET,
     };
   }
 
@@ -54,22 +66,12 @@ class AppConfig {
     };
   }
 
-  get jwtServiceConfig(): JwtServiceConfig {
-    return {
-      jwtSecret: this._env.JWT_SECRET,
-      jwtIssuer: this._env.JWT_ISSUER,
-      jwtExpiresIn: this._env.JWT_EXPIRES_IN,
-    };
-  }
-
   constructor(path?: string) {
     this._isDevelopment = process.argv.includes('--dev');
 
     this._env = envSchema<Static<typeof CONFIG_SCHEMA>>({
-      dotenv: path ? { path, quiet: true } : { quiet: true },
+      dotenv: path ? { path } : {},
       schema: CONFIG_SCHEMA,
     });
   }
 }
-
-export default AppConfig;

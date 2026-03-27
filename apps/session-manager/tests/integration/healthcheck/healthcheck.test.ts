@@ -5,11 +5,12 @@ import {
   type BaseFastifyInstance,
   LogLevel,
 } from '@scribear/base-fastify-server';
+import { HEALTHCHECK_ROUTE } from '@scribear/session-manager-schema';
 
-import AppConfig from '#src/app-config/app-config.js';
+import { AppConfig } from '#src/app-config/app-config.js';
 import createServer from '#src/server/create-server.js';
 
-describe('Integration Tests - /healthcheck', (it) => {
+describe(`Integration Tests - ${HEALTHCHECK_ROUTE.method} ${HEALTHCHECK_ROUTE.url}`, (it) => {
   let fastify: BaseFastifyInstance;
   let mockConfig: MockProxy<AppConfig>;
 
@@ -25,12 +26,11 @@ describe('Integration Tests - /healthcheck', (it) => {
   /**
    * Test that server responds successfully on /healthcheck endpoint
    */
-  it('responds with 200 on /healthcheck', async () => {
+  it('responds with 200', async () => {
     // Arrange
     // Act
     const response = await fastify.inject({
-      method: 'GET',
-      url: '/healthcheck',
+      ...HEALTHCHECK_ROUTE,
     });
 
     // Assert

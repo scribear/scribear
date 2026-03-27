@@ -1,7 +1,13 @@
 services:
   postgres:
-    image: postgres:18.1-alpine3.23
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: scribear-db
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_cron
+      -c cron.database_name=${DB_NAME}
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}

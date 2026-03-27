@@ -10,32 +10,61 @@ import {
 
 import type { BaseDependencies } from '@scribear/base-fastify-server';
 
-import type AppConfig from '#src/app-config/app-config.js';
-import DBClient, { type DBClientConfig } from '#src/db/db-client.js';
+import type { AppConfig, BaseConfig } from '#src/app-config/app-config.js';
+import { DBClient, type DBClientConfig } from '#src/db/db-client.js';
 
-import HealthcheckController from '../features/healthcheck/healthcheck.controller.js';
-import SessionController from '../features/session/session.controller.js';
-import { SessionService } from '../features/session/session.service.js';
-import { JwtService, type JwtServiceConfig } from '../services/jwt.service.js';
+import { DeviceManagementController } from '../features/device-management/device-management.controller.js';
+import { DeviceManagementRepository } from '../features/device-management/device-management.repository.js';
+import { DeviceManagementService } from '../features/device-management/device-management.service.js';
+import { HealthcheckController } from '../features/healthcheck/healthcheck.controller.js';
+import { JwtService } from '../features/session-management/jwt.service.js';
+import { SessionEventBusService } from '../features/session-management/session-event-bus.service.js';
+import { SessionManagementController } from '../features/session-management/session-management.controller.js';
+import { SessionManagementRepository } from '../features/session-management/session-management.repository.js';
+import { SessionManagementService } from '../features/session-management/session-management.service.js';
+import { AuthRepository } from '../repositories/auth.repository.js';
+import {
+  AuthService,
+  type AuthServiceConfig,
+} from '../services/auth.service.js';
+import { HashService } from '../services/hash.service.js';
 
 /**
  * Define types for entities in dependency container
  */
 interface AppDependencies extends BaseDependencies {
+  // Base Config
+  baseConfig: BaseConfig;
+
   // Database
   dbClientConfig: DBClientConfig;
   dbClient: DBClient;
 
-  // Services
-  jwtServiceConfig: JwtServiceConfig;
+  // Auth
+  authServiceConfig: AuthServiceConfig;
+  authService: AuthService;
+  authRepository: AuthRepository;
+
+  // JWT
+  jwtServiceConfig: { jwtSecret: string };
   jwtService: JwtService;
+
+  // Hash
+  hashService: HashService;
 
   // Healthcheck
   healthcheckController: HealthcheckController;
 
-  // Session
-  sessionController: SessionController;
-  sessionService: SessionService;
+  // Device Management
+  deviceManagementController: DeviceManagementController;
+  deviceManagementService: DeviceManagementService;
+  deviceManagementRepository: DeviceManagementRepository;
+
+  // Session Management
+  sessionEventBusService: SessionEventBusService;
+  sessionManagementController: SessionManagementController;
+  sessionManagementService: SessionManagementService;
+  sessionManagementRepository: SessionManagementRepository;
 }
 
 /**
@@ -60,8 +89,8 @@ function registerDependencies(
   config: AppConfig,
 ) {
   dependencyContainer.register({
-    // Config
-    config: asValue(config),
+    // Base Config
+    baseConfig: asValue(config.baseConfig),
 
     // Database
     dbClientConfig: asValue(config.dbClientConfig),
@@ -69,22 +98,45 @@ function registerDependencies(
       lifetime: Lifetime.SINGLETON,
     }),
 
-    // Services
+    // Auth
+    authServiceConfig: asValue(config.authServiceConfig),
+    authService: asClass(AuthService, { lifetime: Lifetime.SCOPED }),
+    authRepository: asClass(AuthRepository, { lifetime: Lifetime.SINGLETON }),
+
+    // JWT
     jwtServiceConfig: asValue(config.jwtServiceConfig),
-    jwtService: asClass(JwtService, {
-      lifetime: Lifetime.SCOPED,
-    }),
+    jwtService: asClass(JwtService, { lifetime: Lifetime.SINGLETON }),
+
+    // Hash
+    hashService: asClass(HashService, { lifetime: Lifetime.SINGLETON }),
 
     // Healthcheck
     healthcheckController: asClass(HealthcheckController, {
       lifetime: Lifetime.SCOPED,
     }),
 
-    // Session
-    sessionController: asClass(SessionController, {
+    // Device Management
+    deviceManagementController: asClass(DeviceManagementController, {
       lifetime: Lifetime.SCOPED,
     }),
-    sessionService: asClass(SessionService, {
+    deviceManagementService: asClass(DeviceManagementService, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    deviceManagementRepository: asClass(DeviceManagementRepository, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+
+    // Session Management
+    sessionEventBusService: asClass(SessionEventBusService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    sessionManagementController: asClass(SessionManagementController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    sessionManagementService: asClass(SessionManagementService, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    sessionManagementRepository: asClass(SessionManagementRepository, {
       lifetime: Lifetime.SINGLETON,
     }),
   } as NameAndRegistrationPair<AppDependencies>);

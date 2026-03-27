@@ -10,6 +10,10 @@ export default defineConfig({
   plugins: [react(), viteTsconfigPaths()],
   server: {
     port: 3000,
+    proxy: {
+      '/api/session-manager': 'http://localhost:8001',
+      '/api/node-server': { target: 'http://localhost:8002', ws: true },
+    },
   },
   preview: {
     port: 3000,

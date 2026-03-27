@@ -10,35 +10,33 @@ import type { AppDependencies } from './register-dependencies.js';
  * @param method Name of method on controller to call
  * @returns Wrapped controller method
  */
-function resolveHandler<
-    C extends keyof AppDependencies,
-    M extends keyof AppDependencies[C],
+export function resolveHandler<
+  C extends keyof AppDependencies,
+  M extends keyof AppDependencies[C],
 >(controller: C, method: M): AppDependencies[C][M] {
-    const wrapper = async (req: FastifyRequest, res: FastifyReply) => {
-        const routeController = req.diScope.resolve(
-            controller,
-        ) as AppDependencies[C];
+  const wrapper = async (req: FastifyRequest, res: FastifyReply) => {
+    const routeController = req.diScope.resolve(
+      controller,
+    ) as AppDependencies[C];
 
-        // Throw exception if method is not a function
-        if (
-            !(method in routeController) ||
-            typeof routeController[method] !== 'function'
-        ) {
-            throw new Error(
-                `Failed to resolve handler: Property '${String(method)}' on controller '${controller}' is not a function.`,
-            );
-        }
+    // Throw exception if method is not a function
+    if (
+      !(method in routeController) ||
+      typeof routeController[method] !== 'function'
+    ) {
+      throw new Error(
+        `Failed to resolve handler: Property '${String(method)}' on controller '${controller}' is not a function.`,
+      );
+    }
 
-        const handler = routeController[method].bind(routeController) as (
-            req: FastifyRequest,
-            res: FastifyReply,
-        ) => unknown;
+    const handler = routeController[method].bind(routeController) as (
+      req: FastifyRequest,
+      res: FastifyReply,
+    ) => unknown;
 
-        return await handler(req, res);
-    };
+    return await handler(req, res);
+  };
 
-    // Cast the type of the wrapper to be the same as the wrapped handler
-    return wrapper as AppDependencies[C][M];
+  // Cast the type of the wrapper to be the same as the wrapped handler
+  return wrapper as AppDependencies[C][M];
 }
-
-export default resolveHandler;

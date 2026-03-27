@@ -66,7 +66,7 @@ class TranscriptionProviderConfigSchema(BaseModel):
     Base config schema for a transcription provider
     """
 
-    provider_key: str
+    provider_key: str = Field(max_length=32)
     provider_uid: TranscriptionProviderUID
     provider_config: Any
 
