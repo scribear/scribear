@@ -34,11 +34,7 @@ function parseFragment(): Record<string, unknown> | null {
   const json = atob(encoded);
   const parsed: unknown = JSON.parse(json);
 
-  if (
-    typeof parsed !== 'object' ||
-    parsed === null ||
-    Array.isArray(parsed)
-  ) {
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new Error('URL config must be a JSON object');
   }
 

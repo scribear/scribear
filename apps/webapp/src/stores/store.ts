@@ -59,7 +59,10 @@ export const urlConfigurableKeys: (keyof typeof reducers)[] = [
   'providerPreferences',
 ];
 
-const urlFragmentDriver = createUrlFragmentDriver(reducers, urlConfigurableKeys);
+const urlFragmentDriver = createUrlFragmentDriver(
+  reducers,
+  urlConfigurableKeys,
+);
 
 export const rootReducer = rememberReducer(reducers);
 

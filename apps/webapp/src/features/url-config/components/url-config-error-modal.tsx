@@ -16,7 +16,9 @@ export const UrlConfigErrorModal = () => {
     <CancelableInfoModal
       isOpen={isOpen}
       message="Invalid URL configuration"
-      onCancel={() => setIsOpen(false)}
+      onCancel={() => {
+        setIsOpen(false);
+      }}
     >
       <Typography variant="body2" component="ul" sx={{ pl: 2 }}>
         {errors.map((error) => (
