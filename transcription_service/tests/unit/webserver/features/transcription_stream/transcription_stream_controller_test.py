@@ -50,7 +50,9 @@ AUDIO_DIR = path.normpath(
 )
 with open(path.join(AUDIO_DIR, "mono_f64le.pcm"), "rb") as f:
     AUDIO_CHUNK = f.read()
-
+TEST_CHUNK_ID = "12345678-1234-1234-1234-123456789012"
+AUDIO_CHUNK_WITH_ID = TEST_CHUNK_ID.encode("utf-8") + AUDIO_CHUNK
+TEST_ID = "00000000-0000-0000-0000-000000000000"
 INIT_TIMEOUT_SEC = 0.1
 
 PROVIDER_UID = "TEST_PROVIDER_UID"
@@ -66,7 +68,7 @@ class MockTranscriptionSession(TranscriptionSessionInterface):
     Dummy transcription session interface implementation for testing
     """
 
-    def handle_audio_chunk(self, chunk: bytes):
+    def handle_audio_chunk(self, chunk_id: str, chunk: bytes):
         return
 
 
@@ -383,10 +385,12 @@ async def test_controller_handles_valid_audio_chunk(
     await controller._handle_text_message(VALID_CONFIG_MESSAGE)
 
     # Act
-    await controller._handle_binary_message(AUDIO_CHUNK)
+    await controller._handle_binary_message(AUDIO_CHUNK_WITH_ID)
 
     # Assert
-    mock_session.handle_audio_chunk.assert_called_once_with(AUDIO_CHUNK)
+    mock_session.handle_audio_chunk.assert_called_once_with(
+        TEST_CHUNK_ID, AUDIO_CHUNK
+    )
 
 
 @pytest.mark.asyncio
@@ -465,7 +469,7 @@ async def test_controller_handles_in_progress_transcription_results(
 
     # Assert
     mock_send_method.assert_called_once_with(
-        IPTranscriptMessage(text, starts, ends)
+        IPTranscriptMessage(text, starts, ends, chunk_ids=[])
     )
 
 
@@ -500,7 +504,7 @@ async def test_controller_handles_final_transcription_results(
 
     # Assert
     mock_send_method.assert_called_once_with(
-        FinalTranscriptMessage(text, starts, ends)
+        FinalTranscriptMessage(text, starts, ends, chunk_ids=[])
     )
 
 
@@ -541,10 +545,12 @@ async def test_controller_handles_in_progress_and_final_transcription_results(
 
     # Assert
     mock_send_method.assert_any_call(
-        FinalTranscriptMessage(final_text, final_starts, final_ends)
+        FinalTranscriptMessage(
+            final_text, final_starts, final_ends, chunk_ids=[]
+        )
     )
     mock_send_method.assert_any_call(
-        IPTranscriptMessage(ip_text, ip_starts, ip_ends)
+        IPTranscriptMessage(ip_text, ip_starts, ip_ends, chunk_ids=[])
     )
 
 
@@ -569,7 +575,7 @@ async def test_controller_handles_no_transcription_results(
     await controller._handle_text_message(VALID_CONFIG_MESSAGE)
 
     # Act
-    await controller._handle_binary_message(AUDIO_CHUNK)
+    await controller._handle_binary_message(AUDIO_CHUNK_WITH_ID)
 
     # Assert
     mock_send_method.assert_not_called()

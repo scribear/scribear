@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { NODE_SERVER_WS_URL } from '#src/config/api-urls';
 import {
   appendFinalizedTranscription,
+  recordLatency,
   replaceInProgressTranscription,
 } from '#src/core/transcription-content/store/transcription-content-slice';
 import { useAppDispatch } from '#src/stores/use-redux';
@@ -22,12 +23,18 @@ export type TranscriptReceiverStatus =
   | 'error'
   | 'disconnected';
 
-interface TranscriptMessage {
-  type: 'ip_transcript' | 'final_transcript';
-  text: string[];
-  starts: number[] | null;
-  ends: number[] | null;
-}
+type TranscriptMessage =
+  | {
+      type: 'ip_transcript' | 'final_transcript';
+      text: string[];
+      starts: number[] | null;
+      ends: number[] | null;
+    }
+  | {
+      type: 'latency_update';
+      latencyType: 'final' | 'in_progress';
+      latency: number;
+    };
 
 interface UseTranscriptReceiverOptions {
   sessionId: string;
@@ -84,17 +91,35 @@ export function useTranscriptReceiver(
         const msg = JSON.parse(event.data as string) as TranscriptMessage;
 
         // Build sequence, only including starts/ends if present
-        const sequence: { text: string[]; starts?: number[]; ends?: number[] } =
-          { text: msg.text };
-        if (msg.starts) sequence.starts = msg.starts;
-        if (msg.ends) sequence.ends = msg.ends;
-
         switch (msg.type) {
-          case 'final_transcript':
+          case 'final_transcript': {
+            const sequence = { text: msg.text } as {
+              text: string[];
+              starts?: number[];
+              ends?: number[];
+            };
+            if (msg.starts) sequence.starts = msg.starts;
+            if (msg.ends) sequence.ends = msg.ends;
             dispatch(appendFinalizedTranscription(sequence));
             break;
-          case 'ip_transcript':
+          }
+
+          case 'ip_transcript': {
+            const sequence = { text: msg.text } as {
+              text: string[];
+              starts?: number[];
+              ends?: number[];
+            };
+            if (msg.starts) sequence.starts = msg.starts;
+            if (msg.ends) sequence.ends = msg.ends;
             dispatch(replaceInProgressTranscription(sequence));
+            break;
+          }
+
+          case 'latency_update':
+            dispatch(
+              recordLatency({ type: msg.latencyType, latency: msg.latency }),
+            );
             break;
         }
       } catch {

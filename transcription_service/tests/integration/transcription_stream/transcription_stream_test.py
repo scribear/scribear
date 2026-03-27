@@ -27,6 +27,7 @@ TIMEOUT_SEC = 1
 AUDIO_DIR = path.normpath(
     path.join(__file__, "..", "..", "..", "..", "..", "test_audio_files/chords")
 )
+TEST_CHUNK_ID = "12345678-1234-1234-1234-123456789012"
 
 
 @pytest.fixture
@@ -139,6 +140,7 @@ async def test_transcription_stream_accepts_valid_auth_config(
             "starts": None,
             "ends": None,
             "type": "final_transcript",
+            "chunk_ids": [],
         }
 
 
@@ -163,7 +165,7 @@ async def test_transcription_stream_accepts_audio(test_client: TestClient):
                     "config": {"sample_rate": 48000, "num_channels": 1},
                 }
             )
-            websocket.send_bytes(chunk)
+            websocket.send_bytes(TEST_CHUNK_ID.encode("utf-8") + chunk)
             websocket.receive_json()
 
             # Allow async loop to run

@@ -18,11 +18,20 @@ export interface TranscriptionSection {
   text: string;
 }
 
+export interface LatencyPayload {
+  type: 'final' | 'in_progress';
+  latency: number;
+}
+
 export interface TranscriptionContentSlice {
   commitedSections: TranscriptionSection[];
   activeSection: TranscriptionSection;
   finalizedTranscription: TranscriptionSequence[];
   inProgressTranscription: TranscriptionSequence | null;
+  recentFinalLatencies: number[];
+  recentInProgressLatencies: number[];
+  averageFinalLatency: number;
+  averageInProgressLatency: number;
 }
 
 const initialState: TranscriptionContentSlice = {
@@ -30,6 +39,10 @@ const initialState: TranscriptionContentSlice = {
   activeSection: { id: uuidv4(), text: '' },
   finalizedTranscription: [],
   inProgressTranscription: null,
+  recentFinalLatencies: [],
+  recentInProgressLatencies: [],
+  averageFinalLatency: 0,
+  averageInProgressLatency: 0,
 };
 
 // Selectors
@@ -41,6 +54,10 @@ export const selectInProgressTranscriptionText = (state: RootState) => {
   if (state.transcriptionContent.inProgressTranscription === null) return '';
   return state.transcriptionContent.inProgressTranscription.text.join('');
 };
+export const selectAverageFinalLatency = (state: RootState) =>
+  state.transcriptionContent.averageFinalLatency;
+export const selectAverageInProgressLatency = (state: RootState) =>
+  state.transcriptionContent.averageInProgressLatency;
 
 export const transcriptionContentSlice = createSlice({
   name: 'transcriptionContent',
@@ -76,6 +93,28 @@ export const transcriptionContentSlice = createSlice({
     ) => {
       state.inProgressTranscription = action.payload;
     },
+    recordLatency: (state, action: PayloadAction<LatencyPayload>) => {
+      const WINDOW_SIZE = 60; // only calculate average of 60 samples recently
+      const { type, latency } = action.payload;
+
+      if (type === 'final') {
+        state.recentFinalLatencies.push(latency);
+        if (state.recentFinalLatencies.length > WINDOW_SIZE) {
+          state.recentFinalLatencies.shift();
+        }
+        state.averageFinalLatency =
+          state.recentFinalLatencies.reduce((a, b) => a + b, 0) /
+          state.recentFinalLatencies.length;
+      } else {
+        state.recentInProgressLatencies.push(latency);
+        if (state.recentInProgressLatencies.length > WINDOW_SIZE) {
+          state.recentInProgressLatencies.shift();
+        }
+        state.averageInProgressLatency =
+          state.recentInProgressLatencies.reduce((a, b) => a + b, 0) /
+          state.recentInProgressLatencies.length;
+      }
+    },
     clearTranscription: (state) => {
       state.commitedSections = [];
       state.activeSection = {
@@ -84,6 +123,10 @@ export const transcriptionContentSlice = createSlice({
       };
       state.finalizedTranscription = [];
       state.inProgressTranscription = null;
+      state.recentFinalLatencies = [];
+      state.recentInProgressLatencies = [];
+      state.averageFinalLatency = 0;
+      state.averageInProgressLatency = 0;
     },
   },
 });
@@ -96,4 +139,5 @@ export const {
   commitInProgressTranscription,
   replaceInProgressTranscription,
   clearTranscription,
+  recordLatency,
 } = transcriptionContentSlice.actions;

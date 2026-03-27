@@ -19,6 +19,7 @@ interface ProviderServiceEvents {
   appendFinalizedTranscription: (sequence: TranscriptionSequence) => void;
   replaceInProgressTranscription: (sequence: TranscriptionSequence) => void;
   clearTranscription: () => void;
+  latencyUpdate: (type: 'final' | 'in_progress', latency: number) => void;
   statusChange: <K extends ProviderId>(
     providerId: K,
     newStatus: ProviderStatusTypeMap[K],
@@ -96,6 +97,9 @@ class ProviderService extends EventEmitter<ProviderServiceEvents> {
       'clearTranscription',
       this._onClearTranscription.bind(this),
     );
+    currentProvider.on('latencyUpdate', (type, latency) => {
+      this.emit('latencyUpdate', type, latency);
+    });
 
     await currentProvider.activateProvider(config);
   }
@@ -126,6 +130,7 @@ class ProviderService extends EventEmitter<ProviderServiceEvents> {
     currentProvider.removeListener('appendFinalizedTranscription');
     currentProvider.removeListener('replaceInProgressTranscription');
     currentProvider.removeListener('clearTranscription');
+    currentProvider.removeListener('latencyUpdate');
 
     this._currentProviderId = null;
   }

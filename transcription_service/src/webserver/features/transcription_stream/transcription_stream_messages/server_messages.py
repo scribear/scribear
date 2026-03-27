@@ -27,6 +27,7 @@ class IPTranscriptMessage(JsonServerMessage):
     text: list[str]
     starts: list[float] | None = None
     ends: list[float] | None = None
+    chunk_ids: list[str] | None = None
     type: Literal[ServerMessageTypes.IP_TRANSCRIPT] = (
         ServerMessageTypes.IP_TRANSCRIPT
     )
@@ -41,6 +42,7 @@ class FinalTranscriptMessage(JsonServerMessage):
     text: list[str]
     starts: list[float] | None = None
     ends: list[float] | None = None
+    chunk_ids: list[str] | None = None
     type: Literal[ServerMessageTypes.FINAL_TRANSCRIPT] = (
         ServerMessageTypes.FINAL_TRANSCRIPT
     )

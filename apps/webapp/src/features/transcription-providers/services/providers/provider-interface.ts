@@ -7,6 +7,7 @@ export interface ProviderEvents<StatusType> {
   appendFinalizedTranscription: (sequence: TranscriptionSequence) => void;
   replaceInProgressTranscription: (sequence: TranscriptionSequence) => void;
   clearTranscription: () => void;
+  latencyUpdate: (type: 'final' | 'in_progress', latency: number) => void;
   statusChange: (newStatus: StatusType) => void;
 }
 

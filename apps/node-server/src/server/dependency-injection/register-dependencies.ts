@@ -1,11 +1,11 @@
 // Need to import so that declare module '@fastify/awilix' below works
 import '@fastify/awilix';
 import {
-    type AwilixContainer,
-    Lifetime,
-    type NameAndRegistrationPair,
-    asClass,
-    asValue,
+  type AwilixContainer,
+  Lifetime,
+  type NameAndRegistrationPair,
+  asClass,
+  asValue,
 } from 'awilix';
 
 import type { BaseDependencies } from '@scribear/base-fastify-server';
@@ -23,20 +23,20 @@ import { RoomManagerService } from '../services/room-manager.service.js';
  * Define types for entities in dependency container
  */
 interface AppDependencies extends BaseDependencies {
-    // Config
-    config: AppConfig;
-    jwtServiceConfig: JwtServiceConfig;
-    transcriptionConfig: TranscriptionConfig;
+  // Config
+  config: AppConfig;
+  jwtServiceConfig: JwtServiceConfig;
+  transcriptionConfig: TranscriptionConfig;
 
-    // Services
-    jwtService: JwtService;
-    roomManagerService: RoomManagerService;
+  // Services
+  jwtService: JwtService;
+  roomManagerService: RoomManagerService;
 
-    // Controllers
-    audioController: AudioController;
-    healthcheckController: HealthcheckController;
-    roomController: RoomController;
-    transcriptionController: TranscriptionController;
+  // Controllers
+  audioController: AudioController;
+  healthcheckController: HealthcheckController;
+  roomController: RoomController;
+  transcriptionController: TranscriptionController;
 }
 
 /**
@@ -44,11 +44,11 @@ interface AppDependencies extends BaseDependencies {
  * @see https://github.com/fastify/fastify-awilix?tab=readme-ov-file#typescript-usage
  */
 declare module '@fastify/awilix' {
-    // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-    interface Cradle extends AppDependencies { }
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+  interface Cradle extends AppDependencies {}
 
-    // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-    interface RequestCradle extends AppDependencies { }
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+  interface RequestCradle extends AppDependencies {}
 }
 
 /**
@@ -57,40 +57,40 @@ declare module '@fastify/awilix' {
  * @param config AppConfig to be registered into dependency controller
  */
 function registerDependencies(
-    dependencyContainer: AwilixContainer,
-    config: AppConfig,
+  dependencyContainer: AwilixContainer,
+  config: AppConfig,
 ) {
-    dependencyContainer.register({
-        // Config
-        config: asValue(config),
-        jwtServiceConfig: asValue({
-            jwtSecret: config.jwtSecret,
-            jwtIssuer: config.jwtIssuer,
-        }),
-        transcriptionConfig: asValue(config.transcriptionConfig),
+  dependencyContainer.register({
+    // Config
+    config: asValue(config),
+    jwtServiceConfig: asValue({
+      jwtSecret: config.jwtSecret,
+      jwtIssuer: config.jwtIssuer,
+    }),
+    transcriptionConfig: asValue(config.transcriptionConfig),
 
-        // Services
-        jwtService: asClass(JwtService, {
-            lifetime: Lifetime.SCOPED,
-        }),
-        roomManagerService: asClass(RoomManagerService, {
-            lifetime: Lifetime.SINGLETON,
-        }),
+    // Services
+    jwtService: asClass(JwtService, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    roomManagerService: asClass(RoomManagerService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
 
-        // Controllers
-        audioController: asClass(AudioController, {
-            lifetime: Lifetime.SCOPED,
-        }),
-        healthcheckController: asClass(HealthcheckController, {
-            lifetime: Lifetime.SCOPED,
-        }),
-        roomController: asClass(RoomController, {
-            lifetime: Lifetime.SCOPED,
-        }),
-        transcriptionController: asClass(TranscriptionController, {
-            lifetime: Lifetime.SCOPED,
-        }),
-    } as NameAndRegistrationPair<AppDependencies>);
+    // Controllers
+    audioController: asClass(AudioController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    healthcheckController: asClass(HealthcheckController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    roomController: asClass(RoomController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    transcriptionController: asClass(TranscriptionController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+  } as NameAndRegistrationPair<AppDependencies>);
 }
 
 export default registerDependencies;

@@ -40,9 +40,14 @@
             "provider_uid": "whisper-streaming",
             "provider_config": {
                 "context_tag": "whisper_cpu_context",
+                "vad_context_tag": "silero_vad",
                 "job_period_ms": 5000,
                 "max_buffer_len_sec": 30,
-                "local_agree_dim": 2
+                "local_agree_dim": 2,
+                "vad_detector": true,
+                "vad_threshold": 0.5,
+                "vad_neg_threshold": null,
+                "silence_threshold": 0.01
             }
         }
     ]
