@@ -187,24 +187,31 @@ jobs:
     needs: changes
     if: needs.changes.outputs.backend_db == 'true'
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:18-alpine3.23
-        env:
-          POSTGRES_DB: scribear-db
-          POSTGRES_USER: scribear
-          POSTGRES_PASSWORD: scribear
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U scribear -d scribear-db"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - uses: actions/checkout@v5
       - name: Setup Node
         uses: ./.github/actions/setup-node
+
+      - name: Build and start custom database
+        run: |
+          docker build -t scribear-db ./infra/scribear-db
+          docker run -d --name scribear-db \
+            -e POSTGRES_DB=scribear-db \
+            -e POSTGRES_USER=scribear \
+            -e POSTGRES_PASSWORD=scribear \
+            -p 5432:5432 \
+            scribear-db \
+            postgres -c shared_preload_libraries=pg_cron -c cron.database_name=scribear-db
+
+      - name: Wait for database to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if docker exec scribear-db pg_isready -U scribear -d scribear-db; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Database failed to start" && exit 1
 
       - name: Run build
         working-directory: "./infra/scribear-db"

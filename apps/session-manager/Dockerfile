@@ -19,6 +19,8 @@ ARG LIB="base-fastify-server"
 COPY libs/${LIB}/package*.json libs/${LIB}/
 ARG LIB="base-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
+ARG LIB="transcription-service-schema"
+COPY libs/${LIB}/package*.json libs/${LIB}/
 ARG LIB="session-manager-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
 RUN npm ci
@@ -33,6 +35,8 @@ COPY infra/${INFRA} infra/${INFRA}
 ARG LIB="base-fastify-server"
 COPY libs/${LIB} libs/${LIB}
 ARG LIB="base-schema"
+COPY libs/${LIB} libs/${LIB}
+ARG LIB="transcription-service-schema"
 COPY libs/${LIB} libs/${LIB}
 ARG LIB="session-manager-schema"
 COPY libs/${LIB} libs/${LIB}
@@ -56,6 +60,8 @@ ARG LIB="base-fastify-server"
 COPY libs/${LIB}/package*.json libs/${LIB}/
 ARG LIB="base-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
+ARG LIB="transcription-service-schema"
+COPY libs/${LIB}/package*.json libs/${LIB}/
 ARG LIB="session-manager-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
 
@@ -69,6 +75,8 @@ COPY --from=build-env /app/infra/${INFRA}/dist/src/ /app/infra/${INFRA}/dist/src
 ARG LIB="base-fastify-server"
 COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
 ARG LIB="base-schema"
+COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
+ARG LIB="transcription-service-schema"
 COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
 ARG LIB="session-manager-schema"
 COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
