@@ -6,7 +6,16 @@ export default mergeConfig(
   sharedConfig,
   defineProject({
     test: {
-      environment: 'node',
+      projects: [
+        {
+          extends: true,
+          test: {
+            name: 'unit',
+            environment: 'node',
+            exclude: ['tests/integration/**'],
+          },
+        },
+      ],
     },
   }),
 );

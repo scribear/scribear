@@ -67,5 +67,5 @@ export async function setup({
 }
 
 export async function teardown() {
-  await container?.stop();
+  await container.stop();
 }

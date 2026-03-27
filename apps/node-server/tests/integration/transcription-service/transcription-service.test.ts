@@ -3,8 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, inject, vi } from 'vitest';
 
-import { TranscriptionService } from '#src/server/features/session-streaming/transcription.service.js';
 import { StreamingEventBusService } from '#src/server/features/session-streaming/streaming-event-bus.service.js';
+import { TranscriptionService } from '#src/server/features/session-streaming/transcription.service.js';
 import { createMockLogger } from '#tests/utils/mock-logger.js';
 
 const TEST_SESSION_ID = 'transcription-integration-test';
@@ -27,19 +27,22 @@ function waitForEvent<T>(
       reject(new Error(`Timed out waiting for ${type} transcript`));
     }, timeoutMs);
 
-    const sub = type === 'final'
-      ? eventBus.onFinalTranscript(sessionId, (event) => {
-          clearTimeout(timeout);
-          unsub();
-          resolve(event as T);
-        })
-      : eventBus.onIpTranscript(sessionId, (event) => {
-          clearTimeout(timeout);
-          unsub();
-          resolve(event as T);
-        });
+    const sub =
+      type === 'final'
+        ? eventBus.onFinalTranscript(sessionId, (event) => {
+            clearTimeout(timeout);
+            unsub();
+            resolve(event as T);
+          })
+        : eventBus.onIpTranscript(sessionId, (event) => {
+            clearTimeout(timeout);
+            unsub();
+            resolve(event as T);
+          });
 
-    const unsub = () => { sub(); };
+    const unsub = () => {
+      sub();
+    };
   });
 }
 
@@ -74,7 +77,7 @@ describe('TranscriptionService Integration', () => {
       );
 
       // Assert
-      const event = await finalPromise as { text: string[] };
+      const event = (await finalPromise) as { text: string[] };
       expect(event.text).toEqual(
         expect.arrayContaining([expect.stringContaining('48000')]),
       );
@@ -83,7 +86,11 @@ describe('TranscriptionService Integration', () => {
     it('is a no-op when session is already configured', async () => {
       // Arrange
       service.addClient(TEST_SESSION_ID);
-      const firstFinalPromise = waitForEvent(eventBus, TEST_SESSION_ID, 'final');
+      const firstFinalPromise = waitForEvent(
+        eventBus,
+        TEST_SESSION_ID,
+        'final',
+      );
       await service.configureSession(
         TEST_SESSION_ID,
         DEBUG_PROVIDER_KEY,
@@ -126,7 +133,7 @@ describe('TranscriptionService Integration', () => {
       eventBus.emitAudioChunk(TEST_SESSION_ID, audioData);
 
       // Assert
-      const event = await ipPromise as { text: string[] };
+      const event = (await ipPromise) as { text: string[] };
       expect(event.text).toEqual(
         expect.arrayContaining([
           expect.stringMatching(/Processed \d+\.\d+ seconds of audio/),
@@ -158,7 +165,7 @@ describe('TranscriptionService Integration', () => {
         DEBUG_PROVIDER_KEY,
         DEBUG_PROVIDER_CONFIG as never,
       );
-      const event = await newFinalPromise as { text: string[] };
+      const event = (await newFinalPromise) as { text: string[] };
       expect(event.text).toEqual(
         expect.arrayContaining([expect.stringContaining('48000')]),
       );
@@ -184,7 +191,7 @@ describe('TranscriptionService Integration', () => {
       const audioData = fs.readFileSync(TEST_AUDIO_PATH);
       eventBus.emitAudioChunk(TEST_SESSION_ID, audioData);
 
-      const event = await ipPromise as { text: string[] };
+      const event = (await ipPromise) as { text: string[] };
       expect(event.text).toEqual(
         expect.arrayContaining([
           expect.stringMatching(/Processed \d+\.\d+ seconds of audio/),
