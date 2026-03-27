@@ -94,7 +94,7 @@ export const transcriptionContentSlice = createSlice({
       state.inProgressTranscription = action.payload;
     },
     recordLatency: (state, action: PayloadAction<LatencyPayload>) => {
-      const WINDOW_SIZE = 50; // only calculate average of 50 times recently
+      const WINDOW_SIZE = 60; // only calculate average of 60 samples recently
       const { type, latency } = action.payload;
 
       if (type === 'final') {
