@@ -168,8 +168,8 @@ jobs:
 
       - name: Run backend tests
         run: |
-          npm run test --workspace @scribear/base-fastify-server
-          npm run test --workspace @scribear/session-manager
+          npm run test:unit --workspace @scribear/base-fastify-server
+          npm run test:unit --workspace @scribear/session-manager
 
       - name: Code Coverage Report - Base Fastify Server
         uses: ./.github/actions/coverage-report
@@ -279,6 +279,28 @@ jobs:
         with:
           package_name: "Transcription Service"
           filename: "./transcription_service/coverage.xml"
+
+  build-node-server-container:
+    needs:
+      - changes
+      - check-formatting-node
+      - run-linter-node
+      - run-build-node
+      - run-tests-node
+    if: needs.changes.outputs.backend_node == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Git repository
+        uses: actions/checkout@v4
+
+      - name: Build and Push Docker Image
+        uses: ./.github/actions/build-container
+        with:
+          image_name: "scribear/node-server"
+          build_context: "."
+          dockerfile: "./apps/node-server/Dockerfile"
+          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
   build-session-manager-container:
     needs:
