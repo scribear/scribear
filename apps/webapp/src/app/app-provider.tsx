@@ -21,6 +21,7 @@ import { BASE_THEME } from '#src/config/base-theme';
 import { MicrophoneServiceProvider } from '#src/core/microphone/contexts/microphone-service-provider';
 import { CustomThemeProvider } from '#src/features/theme-customization/contexts/custom-theme/custom-theme-provider';
 import { TranscriptionDisplayProvider } from '#src/features/transcription-display/contexts/transcription-display/transcription-display-provider';
+import { UrlConfigErrorModal } from '#src/features/url-config/components/url-config-error-modal';
 import { store } from '#src/stores/store';
 
 interface AppProviderProps {
@@ -36,6 +37,7 @@ export const AppProvider = ({ children }: AppProviderProps) => {
             <RehydrateGate>
               <CustomThemeProvider>
                 <CssBaseline />
+                <UrlConfigErrorModal />
                 <TranscriptionDisplayProvider>
                   <MicrophoneServiceProvider>
                     {children}

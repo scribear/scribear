@@ -38,7 +38,6 @@ export const microphoneServiceMiddleware: Middleware<object, RootState> = (
     // One time initialization after store is created
     if (appInitialization.match(action)) {
       store.dispatch(setMicrophoneServiceStatus(microphoneService.status));
-      syncTargetStatus(store.getState());
     }
 
     // After rehydration, attempt to enter target state

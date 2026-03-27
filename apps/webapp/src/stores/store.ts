@@ -14,6 +14,7 @@ import { providerConfigReducer } from '#src/features/transcription-providers/sto
 import { providerPreferencesReducer } from '#src/features/transcription-providers/stores/provider-preferences-slice';
 import { providerServiceMiddleware } from '#src/features/transcription-providers/stores/provider-service-middleware';
 import { providerStatusReducer } from '#src/features/transcription-providers/stores/provider-status-slice';
+import { createUrlFragmentDriver } from '#src/features/url-config/url-fragment-driver';
 
 import { appModeReducer } from '../core/app-mode/store/app-mode-slice';
 import { appLayoutPreferencesReducer } from './slices/app-layout-preferences-slice';
@@ -48,6 +49,21 @@ export const rememberedKeys: (keyof typeof reducers)[] = [
   'providerPreferences',
 ];
 
+// Keys that are allowed to be configured by url fragment
+export const urlConfigurableKeys: (keyof typeof reducers)[] = [
+  'appLayoutPreferences',
+  'microphonePreferences',
+  'themePreferences',
+  'transcriptionDisplayPreferences',
+  'providerConfig',
+  'providerPreferences',
+];
+
+const urlFragmentDriver = createUrlFragmentDriver(
+  reducers,
+  urlConfigurableKeys,
+);
+
 export const rootReducer = rememberReducer(reducers);
 
 export const appInitialization = createAction('APP_INITIALIZATION');
@@ -60,7 +76,7 @@ export const store = configureStore({
       .concat(providerServiceMiddleware),
   enhancers: (getDefaultEnhancers) =>
     getDefaultEnhancers().prepend(
-      rememberEnhancer(window.localStorage, rememberedKeys, {
+      rememberEnhancer(urlFragmentDriver, rememberedKeys, {
         initActionType: appInitialization.type,
       }),
     ),
