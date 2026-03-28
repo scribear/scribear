@@ -1,5 +1,5 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": ".",
@@ -10,12 +10,17 @@
   },
   "include": [
     "src",
-    "tests",
   ],
   // Link to dependencies
   "references": [
     {
       "path": "../base-schema/tsconfig.json"
+    },
+    {
+      "path": "../transcription-service-schema/tsconfig.json"
+    },
+      {
+      "path": "../session-manager-schema/tsconfig.json"
     }
   ]
 }

@@ -11,29 +11,29 @@ WORKDIR /app
 # Install dependencies first so source-only changes can reuse cache.
 COPY package*.json ./
 COPY apps/webapp/package*.json apps/webapp/
-COPY libs/base-api-client/package*.json libs/base-api-client/
-COPY libs/base-schema/package*.json libs/base-schema/
-COPY libs/base-websocket-client/package*.json libs/base-websocket-client/
-COPY libs/node-server-client/package*.json libs/node-server-client/
-COPY libs/node-server-schema/package*.json libs/node-server-schema/
-COPY libs/session-manager-client/package*.json libs/session-manager-client/
-COPY libs/session-manager-schema/package*.json libs/session-manager-schema/
-COPY libs/transcription-service-client/package*.json libs/transcription-service-client/
-COPY libs/transcription-service-schema/package*.json libs/transcription-service-schema/
+COPY libs/clients/base-api-client/package*.json libs/clients/base-api-client/
+COPY libs/schemas/base-schema/package*.json libs/schemas/base-schema/
+COPY libs/clients/base-websocket-client/package*.json libs/clients/base-websocket-client/
+COPY libs/clients/node-server-client/package*.json libs/clients/node-server-client/
+COPY libs/schemas/node-server-schema/package*.json libs/schemas/node-server-schema/
+COPY libs/clients/session-manager-client/package*.json libs/clients/session-manager-client/
+COPY libs/schemas/session-manager-schema/package*.json libs/schemas/session-manager-schema/
+COPY libs/clients/transcription-service-client/package*.json libs/clients/transcription-service-client/
+COPY libs/schemas/transcription-service-schema/package*.json libs/schemas/transcription-service-schema/
 RUN npm ci
 
 # Copy source and build the webapp workspace.
 COPY tsconfig.base.json ./
 COPY apps/webapp apps/webapp
-COPY libs/base-api-client libs/base-api-client
-COPY libs/base-schema libs/base-schema
-COPY libs/base-websocket-client libs/base-websocket-client
-COPY libs/node-server-client libs/node-server-client
-COPY libs/node-server-schema libs/node-server-schema
-COPY libs/session-manager-client libs/session-manager-client
-COPY libs/session-manager-schema libs/session-manager-schema
-COPY libs/transcription-service-client libs/transcription-service-client
-COPY libs/transcription-service-schema libs/transcription-service-schema
+COPY libs/clients/base-api-client libs/clients/base-api-client
+COPY libs/schemas/base-schema libs/schemas/base-schema
+COPY libs/clients/base-websocket-client libs/clients/base-websocket-client
+COPY libs/clients/node-server-client libs/clients/node-server-client
+COPY libs/schemas/node-server-schema libs/schemas/node-server-schema
+COPY libs/clients/session-manager-client libs/clients/session-manager-client
+COPY libs/schemas/session-manager-schema libs/schemas/session-manager-schema
+COPY libs/clients/transcription-service-client libs/clients/transcription-service-client
+COPY libs/schemas/transcription-service-schema libs/schemas/transcription-service-schema
 RUN npm run build --workspace @scribear/webapp
 
 FROM nginx:${NGINX_VERSION}-alpine3.22

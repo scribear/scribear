@@ -18,7 +18,7 @@
       "path": "../../libs/base-fastify-server"
     },
     {
-      "path": "../../libs/session-manager-schema"
+      "path": "../../libs/schemas/session-manager-schema"
     },
     {
       "path": "../../infra/scribear-db"

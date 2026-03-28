@@ -18,13 +18,13 @@
       "path": "../../libs/base-fastify-server"
     },
     {
-      "path": "../../libs/node-server-schema",
+      "path": "../../libs/schemas/node-server-schema",
     },
     {
-      "path": "../../libs/transcription-service-client"
+      "path": "../../libs/clients/transcription-service-client"
     },
     {
-      "path": "../../libs/transcription-service-schema"
+      "path": "../../libs/schemas/transcription-service-schema"
     }
   ]
 }

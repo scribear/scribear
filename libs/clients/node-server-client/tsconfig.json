@@ -1,5 +1,5 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": ".",
@@ -15,10 +15,13 @@
   // Link to dependencies
   "references": [
     {
+      "path": "../base-api-client/tsconfig.json"
+    },
+    {
       "path": "../base-websocket-client/tsconfig.json"
     },
     {
-      "path": "../transcription-service-schema/tsconfig.json"
+      "path": "../../schemas/node-server-schema/tsconfig.json"
     }
   ]
 }

@@ -1,5 +1,5 @@
 {
-  "name": "@scribear/base-websocket-client",
+  "name": "@scribear/base-api-client",
   "version": "0.0.0",
   "description": "",
   "author": "scribear",
@@ -17,16 +17,10 @@
     "lint": "eslint ./src ./tests",
     "lint:fix": "eslint ./src ./tests --fix",
     "test:dev": "vitest --ui --coverage",
-    "test:integration": "vitest --project integration",
-    "test:unit": "vitest --project unit"
+    "test:integration": "vitest run --project integration",
+    "test:unit": "vitest run --project unit"
   },
   "dependencies": {
-    "eventemitter3": "5.0.4",
-    "isomorphic-ws": "5.0.0",
-    "typebox": "1.1.5",
-    "ws": "8.19.0"
-  },
-  "devDependencies": {
-    "@types/ws": "8.18.1"
+    "typebox": "1.1.5"
   }
 }

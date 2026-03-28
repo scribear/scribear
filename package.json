@@ -8,7 +8,10 @@
   "workspaces": [
     "apps/*",
     "infra/*",
-    "libs/*"
+    "libs/*",
+    "libs/clients/*",
+    "libs/schemas/*",
+    "libs/ui/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

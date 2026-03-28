@@ -25,28 +25,28 @@
   // Link to shared packages
   "references": [
     {
-      "path": "../../libs/transcription-service-client/tsconfig.json"
+      "path": "../../libs/clients/transcription-service-client/tsconfig.json"
     },
     {
-      "path": "../../libs/base-api-client/tsconfig.json"
+      "path": "../../libs/clients/base-api-client/tsconfig.json"
     },
     {
-      "path": "../../libs/session-manager-schema/tsconfig.json"
+      "path": "../../libs/schemas/session-manager-schema/tsconfig.json"
     },
     {
-      "path": "../../libs/session-manager-client/tsconfig.json"
+      "path": "../../libs/clients/session-manager-client/tsconfig.json"
     },
     {
-      "path": "../../libs/node-server-schema/tsconfig.json"
+      "path": "../../libs/schemas/node-server-schema/tsconfig.json"
     },
     {
-      "path": "../../libs/node-server-client/tsconfig.json"
+      "path": "../../libs/clients/node-server-client/tsconfig.json"
     },
     {
-      "path": "../../libs/transcription-service-schema/tsconfig.json"
+      "path": "../../libs/schemas/transcription-service-schema/tsconfig.json"
     },
     {
-      "path": "../../libs/transcription-service-client/tsconfig.json"
+      "path": "../../libs/clients/transcription-service-client/tsconfig.json"
     }
   ]
 }

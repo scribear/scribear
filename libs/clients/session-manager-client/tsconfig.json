@@ -1,5 +1,5 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": ".",
@@ -17,7 +17,7 @@
       "path": "../base-api-client/tsconfig.json"
     },
     {
-      "path": "../session-manager-schema/tsconfig.json"
+      "path": "../../schemas/session-manager-schema/tsconfig.json"
     }
   ]
 }

@@ -15,17 +15,17 @@ ARG SRC="node-server"
 COPY apps/${SRC}/package*.json apps/${SRC}/
 ARG LIB="base-fastify-server"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="base-schema"
+ARG LIB="schemas/base-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="node-server-schema"
+ARG LIB="schemas/node-server-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="base-websocket-client"
+ARG LIB="clients/base-websocket-client"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="transcription-service-schema"
+ARG LIB="schemas/transcription-service-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="transcription-service-client"
+ARG LIB="clients/transcription-service-client"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="session-manager-schema"
+ARG LIB="schemas/session-manager-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
 RUN npm ci
 
@@ -36,17 +36,17 @@ ARG SRC="node-server"
 COPY apps/${SRC} apps/${SRC}
 ARG LIB="base-fastify-server"
 COPY libs/${LIB} libs/${LIB}
-ARG LIB="base-schema"
+ARG LIB="schemas/base-schema"
 COPY libs/${LIB} libs/${LIB}
-ARG LIB="node-server-schema"
+ARG LIB="schemas/node-server-schema"
 COPY libs/${LIB} libs/${LIB}
-ARG LIB="base-websocket-client"
+ARG LIB="clients/base-websocket-client"
 COPY libs/${LIB} libs/${LIB}
-ARG LIB="transcription-service-schema"
+ARG LIB="schemas/transcription-service-schema"
 COPY libs/${LIB} libs/${LIB}
-ARG LIB="transcription-service-client"
+ARG LIB="clients/transcription-service-client"
 COPY libs/${LIB} libs/${LIB}
-ARG LIB="session-manager-schema"
+ARG LIB="schemas/session-manager-schema"
 COPY libs/${LIB} libs/${LIB}
 
 RUN npm run build
@@ -64,17 +64,17 @@ ARG SRC="node-server"
 COPY apps/${SRC}/package*.json apps/${SRC}/
 ARG LIB="base-fastify-server"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="base-schema"
+ARG LIB="schemas/base-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="node-server-schema"
+ARG LIB="schemas/node-server-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="base-websocket-client"
+ARG LIB="clients/base-websocket-client"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="transcription-service-schema"
+ARG LIB="schemas/transcription-service-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="transcription-service-client"
+ARG LIB="clients/transcription-service-client"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="session-manager-schema"
+ARG LIB="schemas/session-manager-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
 
 RUN npm ci --omit=dev
@@ -84,17 +84,17 @@ ARG SRC="node-server"
 COPY --from=build-env /app/apps/${SRC}/dist/src/ /app/apps/${SRC}/dist/src
 ARG LIB="base-fastify-server"
 COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
-ARG LIB="base-schema"
+ARG LIB="schemas/base-schema"
 COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
-ARG LIB="node-server-schema"
+ARG LIB="schemas/node-server-schema"
 COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
-ARG LIB="base-websocket-client"
+ARG LIB="clients/base-websocket-client"
 COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
-ARG LIB="transcription-service-schema"
+ARG LIB="schemas/transcription-service-schema"
 COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
-ARG LIB="transcription-service-client"
+ARG LIB="clients/transcription-service-client"
 COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
-ARG LIB="session-manager-schema"
+ARG LIB="schemas/session-manager-schema"
 COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
 
 WORKDIR /app/apps/node-server
