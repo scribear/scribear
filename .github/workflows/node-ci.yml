@@ -34,6 +34,7 @@ jobs:
     if: needs.changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-node
         with:
           node-version: "24.10.0"
@@ -54,6 +55,7 @@ jobs:
     if: needs.changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-node
 
       - name: Run linter
@@ -72,6 +74,7 @@ jobs:
     if: needs.changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-node
 
       - name: Run build
@@ -90,6 +93,7 @@ jobs:
     if: needs.changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-node
 
       - name: Run unit tests
@@ -129,6 +133,7 @@ jobs:
     if: contains(needs.changes.outputs.workspaces, 'infra/scribear-db')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-node
 
       - name: Build and start custom database
@@ -190,6 +195,7 @@ jobs:
     if: contains(needs.changes.outputs.workspaces, 'apps/standalone-webapp') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-node
 
       - name: Run build
