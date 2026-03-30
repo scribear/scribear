@@ -73,8 +73,8 @@ jobs:
           package_name: "Transcription Service"
           filename: "./transcription_service/coverage.xml"
 
-  docker-build:
-    needs: [changes, run-tests-python]
+  docker-build-transcription-service:
+    needs: [changes, test]
     if: needs.changes.outputs.transcription_service == 'true'
     runs-on: ubuntu-latest
     steps:

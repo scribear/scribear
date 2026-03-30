@@ -128,16 +128,13 @@ jobs:
           package_name: "Node Server"
           filename: "./apps/node-server/coverage/cobertura-coverage.xml"
 
-  docker-build:
+  docker-build-node-server:
     needs: [changes, build, test]
-    if: needs.changes.outputs.has_changes
+    if: needs.changes.outputs.has_changes && contains(needs.changes.outputs.workspaces, 'apps/node-server')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Build node-server Docker image
-        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
-        uses: ./.github/actions/build-container
+      - uses: ./.github/actions/build-container
         with:
           image_name: scribear/node-server
           build_context: .
@@ -145,9 +142,13 @@ jobs:
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: Build session-manager Docker image
-        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
-        uses: ./.github/actions/build-container
+  docker-build-session-manager:
+    needs: [changes, build, test]
+    if: needs.changes.outputs.has_changes && contains(needs.changes.outputs.workspaces, 'apps/session-manager')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-container
         with:
           image_name: scribear/session-manager
           build_context: .
@@ -155,9 +156,13 @@ jobs:
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: Build client-webapp Docker image
-        if: contains(needs.changes.outputs.workspaces, 'apps/client-webapp')
-        uses: ./.github/actions/build-container
+  docker-build-client-webapp:
+    needs: [changes, build, test]
+    if: needs.changes.outputs.has_changes && contains(needs.changes.outputs.workspaces, 'apps/client-webapp')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-container
         with:
           image_name: scribear/client-webapp
           build_context: .
@@ -165,9 +170,13 @@ jobs:
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: Build kiosk-webapp Docker image
-        if: contains(needs.changes.outputs.workspaces, 'apps/kiosk-webapp')
-        uses: ./.github/actions/build-container
+  docker-build-kiosk-webapp:
+    needs: [changes, build, test]
+    if: needs.changes.outputs.has_changes && contains(needs.changes.outputs.workspaces, 'apps/kiosk-webapp')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-container
         with:
           image_name: scribear/kiosk-webapp
           build_context: .
@@ -175,9 +184,13 @@ jobs:
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: Build standalone-webapp Docker image
-        if: contains(needs.changes.outputs.workspaces, 'apps/standalone-webapp')
-        uses: ./.github/actions/build-container
+  docker-build-standalone-webapp:
+    needs: [changes, build, test]
+    if: needs.changes.outputs.has_changes && contains(needs.changes.outputs.workspaces, 'apps/standalone-webapp')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-container
         with:
           image_name: scribear/standalone-webapp
           build_context: .
