@@ -113,7 +113,7 @@ if (changedFiles.length === 0 || changedFiles.some((f) => globalFiles.has(f))) {
 const workspaces = JSON.stringify(affected);
 const hasChanges = affected.length > 0 ? 'true' : 'false';
 
-console.log('Affected Workspaces:\n\t', workspaces.join('\n\t'));
+console.log('Affected Workspaces:\n\t', affected.join('\n\t'));
 
 appendFileSync(process.env.GITHUB_OUTPUT, `workspaces=${workspaces}\n`);
 appendFileSync(process.env.GITHUB_OUTPUT, `has_changes=${hasChanges}\n`);
