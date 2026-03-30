@@ -103,26 +103,40 @@ jobs:
             echo "::endgroup::"
           done < /tmp/workspaces.txt
 
-      - name: Code Coverage Report - Base Fastify Server
+      - name: Code Coverage Report - Base Fastify Server Unit Tests
         if: contains(needs.changes.outputs.workspaces, 'libs/base-fastify-server')
         uses: ./.github/actions/coverage-report
         with:
-          package_name: "Base Fastify Server"
+          package_name: "Base Fastify Server - Unit Tests"
           filename: "./libs/base-fastify-server/coverage/cobertura-coverage.xml"
 
-      - name: Code Coverage Report - Session Manager
+      - name: Code Coverage Report - Session Manager Unit Tests
         if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
         uses: ./.github/actions/coverage-report
         with:
-          package_name: "Session Manager"
+          package_name: "Session Manager - Unit Tests"
           filename: "./apps/session-manager/coverage/cobertura-coverage.xml"
 
-      - name: Code Coverage Report - Node Server
+      - name: Code Coverage Report - Node Server Unit Tests
         if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
         uses: ./.github/actions/coverage-report
         with:
-          package_name: "Node Server"
+          package_name: "Node Server - Unit Tests"
           filename: "./apps/node-server/coverage/cobertura-coverage.xml"
+
+      - name: Code Coverage Report - Base API Client Unit Tests
+        if: contains(needs.changes.outputs.workspaces, 'libs/clients/base-api-client')
+        uses: ./.github/actions/coverage-report
+        with:
+          package_name: "Base API Client - Unit Tests"
+          filename: "./libs/clients/base-api-client/coverage/cobertura-coverage.xml"
+
+      - name: Code Coverage Report - Base WebSocket Client Unit Tests
+        if: contains(needs.changes.outputs.workspaces, 'libs/clients/base-websocket-client')
+        uses: ./.github/actions/coverage-report
+        with:
+          package_name: "Base WebSocket Client - Unit Tests"
+          filename: "./libs/clients/base-websocket-client/coverage/cobertura-coverage.xml"
 
   integration-test-session-manager:
     needs: [changes, build, test]
@@ -142,6 +156,13 @@ jobs:
           SCRIBEAR_DB_IMAGE: scribear/scribear-db:test
         run: npm run test:integration --workspace apps/session-manager
 
+      - name: Code Coverage Report - Session Manager Integration Tests
+        uses: ./.github/actions/coverage-report
+        with:
+          package_name: "Session Manager - Integration Tests"
+          filename: "./apps/session-manager/coverage/cobertura-coverage.xml"
+
+
   integration-test-node-server:
     needs: [changes, build, test]
     if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
@@ -159,6 +180,12 @@ jobs:
         env:
           TRANSCRIPTION_SERVICE_IMAGE: scribear/transcription-service-cpu:test
         run: npm run test:integration --workspace apps/node-server
+
+      - name: Code Coverage Report - Node Server Integration Tests
+        uses: ./.github/actions/coverage-report
+        with:
+          package_name: "Node Server - Integration Tests"
+          filename: "./apps/node-server/coverage/cobertura-coverage.xml"
 
   docker-build-scribear-db:
     needs: [changes, build, test]
