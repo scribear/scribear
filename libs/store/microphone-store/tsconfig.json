@@ -1,0 +1,23 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "paths": {
+      "#src/*": [
+        "./src/*"
+      ],
+      "#tests/*": [
+        "./tests/*"
+      ]
+    }
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../redux-remember-store/tsconfig.json"
+    }
+  ]
+}

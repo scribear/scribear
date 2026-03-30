@@ -17,11 +17,11 @@ ARG INFRA="scribear-db"
 COPY infra/${INFRA}/package*.json infra/${INFRA}/
 ARG LIB="base-fastify-server"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="base-schema"
+ARG LIB="schemas/base-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="transcription-service-schema"
+ARG LIB="schemas/transcription-service-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="session-manager-schema"
+ARG LIB="schemas/session-manager-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
 RUN npm ci
 
@@ -34,11 +34,11 @@ ARG INFRA="scribear-db"
 COPY infra/${INFRA} infra/${INFRA}
 ARG LIB="base-fastify-server"
 COPY libs/${LIB} libs/${LIB}
-ARG LIB="base-schema"
+ARG LIB="schemas/base-schema"
 COPY libs/${LIB} libs/${LIB}
-ARG LIB="transcription-service-schema"
+ARG LIB="schemas/transcription-service-schema"
 COPY libs/${LIB} libs/${LIB}
-ARG LIB="session-manager-schema"
+ARG LIB="schemas/session-manager-schema"
 COPY libs/${LIB} libs/${LIB}
 
 RUN npm run build
@@ -58,11 +58,11 @@ ARG INFRA="scribear-db"
 COPY infra/${INFRA}/package*.json infra/${INFRA}/
 ARG LIB="base-fastify-server"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="base-schema"
+ARG LIB="schemas/base-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="transcription-service-schema"
+ARG LIB="schemas/transcription-service-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="session-manager-schema"
+ARG LIB="schemas/session-manager-schema"
 COPY libs/${LIB}/package*.json libs/${LIB}/
 
 RUN npm ci --omit=dev
@@ -74,11 +74,11 @@ ARG INFRA="scribear-db"
 COPY --from=build-env /app/infra/${INFRA}/dist/src/ /app/infra/${INFRA}/dist/src/
 ARG LIB="base-fastify-server"
 COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
-ARG LIB="base-schema"
+ARG LIB="schemas/base-schema"
 COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
-ARG LIB="transcription-service-schema"
+ARG LIB="schemas/transcription-service-schema"
 COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
-ARG LIB="session-manager-schema"
+ARG LIB="schemas/session-manager-schema"
 COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
 
 WORKDIR /app/apps/session-manager

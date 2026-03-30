@@ -4,27 +4,30 @@
     "outDir": "./dist",
     "rootDir": ".",
     "paths": {
-      "#src/*": ["./src/*"],
-      "#tests/*": ["./tests/*"]
+      "#src/*": [
+        "./src/*"
+      ],
+      "#tests/*": [
+        "./tests/*"
+      ]
     }
   },
   "include": [
     "src",
-    "tests",
+    "tests"
   ],
-  // Link to dependencies
   "references": [
     {
-      "path": "../../libs/base-fastify-server"
+      "path": "../../libs/base-fastify-server/tsconfig.json"
     },
     {
-      "path": "../../libs/node-server-schema",
+      "path": "../../libs/schemas/node-server-schema/tsconfig.json"
     },
     {
-      "path": "../../libs/transcription-service-client"
+      "path": "../../libs/clients/transcription-service-client/tsconfig.json"
     },
     {
-      "path": "../../libs/transcription-service-schema"
+      "path": "../../libs/schemas/transcription-service-schema/tsconfig.json"
     }
   ]
 }

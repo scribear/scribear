@@ -1,0 +1,27 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "paths": {
+      "#src/*": [
+        "./src/*"
+      ],
+      "#tests/*": [
+        "./tests/*"
+      ]
+    }
+  },
+  "include": [
+    "src",
+    "tests"
+  ],
+  "references": [
+    {
+      "path": "../base-api-client/tsconfig.json"
+    },
+    {
+      "path": "../../schemas/session-manager-schema/tsconfig.json"
+    }
+  ]
+}

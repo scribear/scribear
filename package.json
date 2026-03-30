@@ -1,6 +1,6 @@
 {
   "name": "scribear",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "",
   "author": "scribear",
   "private": true,
@@ -8,13 +8,17 @@
   "workspaces": [
     "apps/*",
     "infra/*",
-    "libs/*"
+    "libs/*",
+    "libs/clients/*",
+    "libs/schemas/*",
+    "libs/store/*",
+    "libs/ui/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "format": "npm run format --workspaces --if-present",
-    "format:fix": "npm run format:fix --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present",
+    "format": "npm run format --workspaces",
+    "format:fix": "npm run format:fix --workspaces",
+    "lint": "npm run lint --workspaces",
     "lint:fix": "npm run lint:fix --workspaces --if-present",
     "test:integration": "npm run test:integration --workspaces --if-present",
     "test:unit": "npm run test:unit --workspaces --if-present"

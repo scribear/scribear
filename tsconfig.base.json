@@ -3,12 +3,14 @@
   // Base tsconfig file all packages extend from
   "compilerOptions": {
     // Import settings
+    "allowJs": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "composite": true,
 
     // Module resolution for monorepo
     "moduleResolution": "nodenext",
+    "customConditions": ["development"],
 
     // Environment Settings
     // See also https://aka.ms/tsconfig/module
