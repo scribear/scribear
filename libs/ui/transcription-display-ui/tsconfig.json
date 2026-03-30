@@ -1,0 +1,30 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "paths": {
+      "#src/*": [
+        "./src/*"
+      ],
+      "#tests/*": [
+        "./tests/*"
+      ]
+    }
+  },
+  "include": [
+    "src"
+  ],
+  // Link to shared packages
+  "references": [
+    {
+      "path": "../core-ui/tsconfig.json"
+    },
+    {
+      "path": "../../store/transcription-content-store/tsconfig.json"
+    },
+    {
+      "path": "../../store/transcription-display-store/tsconfig.json"
+    }
+  ]
+}

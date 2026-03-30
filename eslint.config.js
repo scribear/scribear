@@ -91,19 +91,6 @@ export default defineConfig([
         },
       ],
       /**
-       * @see https://redux.js.org/usage/usage-with-typescript#use-typed-hooks-in-components
-       * Restrict use of useSelector and useDispatch in favor of useAppDispatch and useAppSelector
-       */
-      '@typescript-eslint/no-restricted-imports': [
-        'error',
-        {
-          name: 'react-redux',
-          importNames: ['useSelector', 'useDispatch'],
-          message:
-            'Use typed hooks `useAppDispatch` and `useAppSelector` instead.',
-        },
-      ],
-      /**
        * @see https://github.com/dukeluo/eslint-plugin-check-file
        * A collection of rules for consistent folder and file naming
        */

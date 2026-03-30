@@ -4,14 +4,18 @@
     "outDir": "./dist",
     "rootDir": ".",
     "paths": {
-      "#src/*": ["./src/*"],
-      "#tests/*": ["./tests/*"]
+      "#src/*": [
+        "./src/*"
+      ],
+      "#tests/*": [
+        "./tests/*"
+      ]
     }
   },
   "include": [
     "src",
+    "tests"
   ],
-  // Link to dependencies
   "references": [
     {
       "path": "../base-api-client/tsconfig.json"

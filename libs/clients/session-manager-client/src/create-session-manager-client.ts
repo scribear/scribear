@@ -19,7 +19,7 @@ import {
 /**
  * Creates a typed API client for the session manager service.
  *
- * @param baseUrl - Base URL of the session manager API (e.g. "http://localhost:3000").
+ * @param baseUrl - Base URL of the session manager API (e.g. "http://localhost:8001").
  * @returns An object containing typed endpoint functions for each session manager route.
  */
 function createSessionManagerClient(baseUrl: string) {

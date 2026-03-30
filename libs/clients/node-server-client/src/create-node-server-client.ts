@@ -12,7 +12,7 @@ import {
 /**
  * Creates a typed WebSocket client for node server.
  *
- * @param baseUrl - Base URL of the node server (e.g. "http://localhost:4000").
+ * @param baseUrl - Base URL of the node server (e.g. "http://localhost:8002").
  * @returns An object containing a typed connect function for the transcription stream.
  */
 function createNodeServerClient(baseUrl: string) {

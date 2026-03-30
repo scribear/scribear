@@ -1,8 +1,0 @@
-export enum WebspeechStatus {
-  INACTIVE = 'INACTIVE',
-  UNSUPPORTED = 'UNSUPPORTED',
-  ACTIVATING = 'ACTIVATING',
-  ACTIVE = 'ACTIVE',
-  ACTIVE_MUTE = 'ACTIVE_MUTE',
-  ERROR = 'ERROR',
-}

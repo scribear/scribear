@@ -1,6 +1,0 @@
-{
-  "typescript.preferences.autoImportSpecifierExcludeRegexes": [
-    "^@mui/[^/]+$"
-  ],
-  "remote.localPortHost": "allInterfaces"
-}

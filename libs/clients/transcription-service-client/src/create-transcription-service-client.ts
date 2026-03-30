@@ -7,7 +7,7 @@ import {
 /**
  * Creates a typed WebSocket client for the transcription service.
  *
- * @param baseUrl - Base URL of the transcription service (e.g. "http://localhost:4000").
+ * @param baseUrl - Base URL of the transcription service (e.g. "http://localhost:8000").
  * @returns An object containing a typed connect function for the transcription stream.
  */
 function createTranscriptionServiceClient(baseUrl: string) {

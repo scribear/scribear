@@ -4,14 +4,17 @@
     "outDir": "./dist",
     "rootDir": ".",
     "paths": {
-      "#src/*": ["./src/*"],
-      "#tests/*": ["./tests/*"]
+      "#src/*": [
+        "./src/*"
+      ],
+      "#tests/*": [
+        "./tests/*"
+      ]
     }
   },
   "include": [
-    "src",
+    "src"
   ],
-  // Link to dependencies
   "references": [
     {
       "path": "../base-schema/tsconfig.json"
@@ -19,7 +22,7 @@
     {
       "path": "../transcription-service-schema/tsconfig.json"
     },
-      {
+    {
       "path": "../session-manager-schema/tsconfig.json"
     }
   ]

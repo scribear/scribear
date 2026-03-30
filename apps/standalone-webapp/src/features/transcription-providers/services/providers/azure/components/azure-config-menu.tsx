@@ -1,0 +1,78 @@
+import { useState } from 'react';
+
+import TextField from '@mui/material/TextField';
+
+import { ProviderConfigContainer } from '#src/features/transcription-providers/components/provider-config-container';
+import {
+  selectProviderConfig,
+  updateProviderConfig,
+} from '#src/features/transcription-providers/stores/provider-config-slice';
+import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
+
+import {
+  type ProviderConfigMenuProps,
+  getProviderDisplayName,
+} from '../../provider-component-registry';
+import { ProviderId } from '../../provider-registry';
+
+/**
+ * Configuration menu for the Azure Speech-to-Text provider. Allows the user
+ * to enter a Region ID and API Key, with unsaved-change detection on close.
+ */
+export const AzureConfigMenu = ({ onClose }: ProviderConfigMenuProps) => {
+  const dispatch = useAppDispatch();
+  const displayName = getProviderDisplayName(ProviderId.AZURE);
+
+  const azureConfig = useAppSelector((state) =>
+    selectProviderConfig(state, ProviderId.AZURE),
+  );
+
+  const [apiKey, setApiKey] = useState(azureConfig.apiKey);
+  const [regionId, setRegionId] = useState(azureConfig.regionId);
+
+  const handleClose = () => {
+    const isEdited =
+      apiKey !== azureConfig.apiKey || regionId !== azureConfig.regionId;
+    onClose(isEdited);
+  };
+
+  const saveConfig = () => {
+    dispatch(
+      updateProviderConfig({
+        providerId: ProviderId.AZURE,
+        newConfig: {
+          apiKey,
+          regionId,
+        },
+      }),
+    );
+    onClose(false);
+  };
+
+  return (
+    <ProviderConfigContainer
+      onClose={handleClose}
+      onSave={saveConfig}
+      displayName={displayName}
+    >
+      <TextField
+        label="Region ID"
+        value={regionId}
+        onChange={(e) => {
+          setRegionId(e.target.value);
+        }}
+        sx={{ width: 300, pb: 4 }}
+      />
+      <br />
+      <TextField
+        label="API Key"
+        type="password"
+        value={apiKey}
+        onChange={(e) => {
+          setApiKey(e.target.value);
+        }}
+        sx={{ width: 300 }}
+      />
+    </ProviderConfigContainer>
+  );
+};

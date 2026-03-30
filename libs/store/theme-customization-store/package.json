@@ -1,0 +1,29 @@
+{
+  "name": "@scribear/theme-customization-store",
+  "version": "0.0.0",
+  "description": "",
+  "author": "scribear",
+  "main": "dist/src/index.js",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "type": "module",
+  "imports": {
+    "#src/*": "./dist/src/*",
+    "#tests/*": "./dist/tests/*"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "tsc --build --watch",
+    "format": "prettier --check ./src",
+    "format:fix": "prettier --write ./src",
+    "lint": "eslint ./src",
+    "lint:fix": "eslint ./src --fix"
+  },
+  "dependencies": {
+    "@reduxjs/toolkit": "2.11.2"
+  }
+}

@@ -4,6 +4,12 @@
   "description": "",
   "author": "scribear",
   "main": "dist/src/index.js",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
   "type": "module",
   "imports": {
     "#src/*": "./dist/src/*",

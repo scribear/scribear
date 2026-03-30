@@ -1,7 +1,9 @@
 import { Type } from 'typebox';
 
-import { type BaseRouteDefinition } from '@scribear/base-schema';
-import type { BaseWebSocketRouteSchema } from '@scribear/base-schema/src/types/base-websocket-route-schema.js';
+import {
+  type BaseRouteDefinition,
+  type BaseWebSocketRouteSchema,
+} from '@scribear/base-schema';
 
 import { TranscriptionProviderConfigSchema } from '#src/provider-configs/index.js';
 

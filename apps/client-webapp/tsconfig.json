@@ -1,0 +1,54 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "paths": {
+      "#src/*": [
+        "./src/*"
+      ],
+      "#tests/*": [
+        "./tests/*"
+      ]
+    },
+    // Vite/React specific configuration
+    "types": [
+      "vite/client"
+    ],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "jsx": "react-jsx"
+  },
+  "include": [
+    "src",
+    "tests"
+  ],
+  "references": [
+    {
+      "path": "../../libs/store/redux-remember-store/tsconfig.json"
+    },
+    {
+      "path": "../../libs/store/app-layout-store/tsconfig.json"
+    },
+    {
+      "path": "../../libs/store/theme-customization-store/tsconfig.json"
+    },
+    {
+      "path": "../../libs/store/transcription-content-store/tsconfig.json"
+    },
+    {
+      "path": "../../libs/store/transcription-display-store/tsconfig.json"
+    },
+    {
+      "path": "../../libs/ui/core-ui/tsconfig.json"
+    },
+    {
+      "path": "../../libs/ui/theme-customization-ui/tsconfig.json"
+    },
+    {
+      "path": "../../libs/ui/transcription-display-ui/tsconfig.json"
+    }
+  ]
+}

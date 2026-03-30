@@ -4,24 +4,27 @@
     "outDir": "./dist",
     "rootDir": ".",
     "paths": {
-      "#src/*": ["./src/*"],
-      "#tests/*": ["./tests/*"]
+      "#src/*": [
+        "./src/*"
+      ],
+      "#tests/*": [
+        "./tests/*"
+      ]
     }
   },
   "include": [
     "src",
-    "tests",
+    "tests"
   ],
-  // Link to dependencies
   "references": [
     {
-      "path": "../../libs/base-fastify-server"
+      "path": "../../libs/base-fastify-server/tsconfig.json"
     },
     {
-      "path": "../../libs/schemas/session-manager-schema"
+      "path": "../../libs/schemas/session-manager-schema/tsconfig.json"
     },
     {
-      "path": "../../infra/scribear-db"
+      "path": "../../infra/scribear-db/tsconfig.json"
     }
   ]
 }
