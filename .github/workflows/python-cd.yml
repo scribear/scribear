@@ -27,28 +27,28 @@ jobs:
               - 'transcription_service/**'
 
   docker-build:
-    needs: changes
+    needs: [changes]
     if: needs.changes.outputs.transcription_service == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image_name: scribear/transcription-service-cpu
+            build_context: transcription_service
+            dockerfile: transcription_service/Dockerfile_CPU
+          - image_name: scribear/transcription-service-cuda
+            build_context: transcription_service
+            dockerfile: transcription_service/Dockerfile_CUDA
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Transcription Service CPU Container
+      - name: Build Container
         uses: ./.github/actions/build-container
         with:
-          image_name: scribear/transcription-service-cpu
-          build_context: transcription_service
-          dockerfile: transcription_service/Dockerfile_CPU
-          cache_variant: ${{ github.ref_name }}
-          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-      - name: Build Transcription Service CUDA Container
-        uses: ./.github/actions/build-container
-        with:
-          image_name: scribear/transcription-service-cuda
-          build_context: transcription_service
-          dockerfile: transcription_service/Dockerfile_CUDA
+          image_name: ${{ matrix.image_name }}
+          build_context: ${{ matrix.build_context }}
+          dockerfile: ${{ matrix.dockerfile }}
           cache_variant: ${{ github.ref_name }}
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
