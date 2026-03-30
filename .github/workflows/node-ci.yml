@@ -141,72 +141,45 @@ jobs:
   docker-build:
     needs: [changes, format, lint, build, test]
     if: needs.changes.outputs.has_changes == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image_name: scribear/scribear-db
+            build_context: infra/scribear-db
+            dockerfile: infra/scribear-db/Dockerfile
+            workspace: infra/scribear-db
+          - image_name: scribear/client-webapp
+            build_context: .
+            dockerfile: apps/client-webapp/Dockerfile
+            workspace: apps/client-webapp
+          - image_name: scribear/kiosk-webapp
+            build_context: .
+            dockerfile: apps/kiosk-webapp/Dockerfile
+            workspace: apps/kiosk-webapp
+          - image_name: scribear/standalone-webapp
+            build_context: .
+            dockerfile: apps/standalone-webapp/Dockerfile
+            workspace: apps/standalone-webapp
+          - image_name: scribear/session-manager
+            build_context: .
+            dockerfile: apps/session-manager/Dockerfile
+            workspace: apps/session-manager
+          - image_name: scribear/node-server
+            build_context: .
+            dockerfile: apps/node-server/Dockerfile
+            workspace: apps/node-server
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Scribear DB Container
-        uses: ./.github/actions/build-container
-        if: contains(needs.changes.outputs.workspaces, 'infra/scribear-db')
-        with:
-          image_name: scribear/scribear-db
-          build_context: infra/scribear-db
-          dockerfile: infra/scribear-db/Dockerfile
-          cache_variant: pr
-          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-      - name: Build Client Webapp Container
-        if: contains(needs.changes.outputs.workspaces, 'apps/client-webapp')
+      - name: Build Container
+        if: contains(needs.changes.outputs.workspaces, matrix.workspace)
         uses: ./.github/actions/build-container
         with:
-          image_name: scribear/client-webapp
-          build_context: .
-          dockerfile: apps/client-webapp/Dockerfile
-          cache_variant: pr
-          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-      - name: Build Kiosk Webapp Container
-        if: contains(needs.changes.outputs.workspaces, 'apps/kiosk-webapp')
-        uses: ./.github/actions/build-container
-        with:
-          image_name: scribear/kiosk-webapp
-          build_context: .
-          dockerfile: apps/kiosk-webapp/Dockerfile
-          cache_variant: pr
-          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-      - name: Build Standalone Webapp Container
-        uses: ./.github/actions/build-container
-        if: contains(needs.changes.outputs.workspaces, 'apps/standalone-webapp')
-        with:
-          image_name: scribear/standalone-webapp
-          build_context: .
-          dockerfile: apps/standalone-webapp/Dockerfile
-          cache_variant: pr
-          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-      - name: Build Session Manager Container
-        uses: ./.github/actions/build-container
-        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
-        with:
-          image_name: scribear/session-manager
-          build_context: .
-          dockerfile: apps/session-manager/Dockerfile
-          cache_variant: pr
-          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-      - name: Build Node Server Container
-        uses: ./.github/actions/build-container
-        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
-        with:
-          image_name: scribear/node-server
-          build_context: .
-          dockerfile: apps/node-server/Dockerfile
+          image_name: ${{ matrix.image_name }}
+          build_context: ${{ matrix.build_context }}
+          dockerfile: ${{ matrix.dockerfile }}
           cache_variant: pr
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
@@ -219,7 +192,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-node
 
-      - uses: ./.github/actions/prepare-test-container
+      - name: Prepare Scribear DB Container
+        uses: ./.github/actions/prepare-test-container
         if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
         with:
           image_name: scribear/scribear-db
@@ -239,14 +213,13 @@ jobs:
           package_name: "Session Manager - Integration Tests"
           filename: "./apps/session-manager/coverage/cobertura-coverage.xml"
 
-
-      - uses: ./.github/actions/prepare-test-container
+      - name: Prepare Transcription Service CPU Container
+        uses: ./.github/actions/prepare-test-container
         if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
         with:
           image_name: scribear/transcription-service-cpu
           build_context: ./transcription_service
           dockerfile: ./transcription_service/Dockerfile_CPU
-
 
       - name: Run Node Server Integration Tests
         if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
@@ -262,22 +235,29 @@ jobs:
           filename: "./apps/node-server/coverage/cobertura-coverage.xml"
 
   check-database-types:
-    needs: changes
+    needs: [changes, docker-build]
     if: contains(needs.changes.outputs.workspaces, 'infra/scribear-db')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-node
 
-      - name: Build and start custom database
+      - name: Prepare Scribear DB Container
+        uses: ./.github/actions/prepare-test-container
+        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
+        with:
+          image_name: scribear/scribear-db
+          build_context: ./infra/scribear-db
+          dockerfile: infra/scribear-db/Dockerfile
+
+      - name: Start ScribeAR DB
         run: |
-          docker build -t scribear-db ./infra/scribear-db
           docker run -d --name scribear-db \
-            -e POSTGRES_DB=scribear-db \
+            -e POSTGRES_DB=scribear-db-test \
             -e POSTGRES_USER=scribear \
             -e POSTGRES_PASSWORD=scribear \
             -p 5432:5432 \
-            scribear-db
+            scribear/scribear-db:test
 
       - name: Wait for database to be ready
         run: |
@@ -298,7 +278,7 @@ jobs:
         env:
           DB_HOST: localhost
           DB_PORT: 5432
-          DB_NAME: scribear-db
+          DB_NAME: scribear-db-test
           DB_USER: scribear
           DB_PASSWORD: scribear
         run: npm run migrate:up
@@ -308,7 +288,7 @@ jobs:
         env:
           DB_HOST: localhost
           DB_PORT: 5432
-          DB_NAME: scribear-db
+          DB_NAME: scribear-db-test
           DB_USER: scribear
           DB_PASSWORD: scribear
         run: npm run generate:types
