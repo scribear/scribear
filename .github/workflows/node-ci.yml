@@ -138,62 +138,66 @@ jobs:
           package_name: "Base WebSocket Client - Unit Tests"
           filename: "./libs/clients/base-websocket-client/coverage/cobertura-coverage.xml"
 
-  integration-test-session-manager:
-    needs: [changes, build, test]
-    if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
+  integration-test:
+    needs: [changes, build, test, docker-build]
+    if: needs.changes.outputs.has_changes
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node
+
       - uses: ./.github/actions/prepare-test-container
+        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
         with:
           image_name: scribear/scribear-db
           build_context: ./infra/scribear-db
           dockerfile: infra/scribear-db/Dockerfile
 
-      - uses: ./.github/actions/setup-node
-
-      - name: Run integration tests
+      - name: Run Session Manager Integration Tests
+        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
         env:
           SCRIBEAR_DB_IMAGE: scribear/scribear-db:test
         run: npm run test:integration --workspace apps/session-manager
 
       - name: Code Coverage Report - Session Manager Integration Tests
         uses: ./.github/actions/coverage-report
+        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
         with:
           package_name: "Session Manager - Integration Tests"
           filename: "./apps/session-manager/coverage/cobertura-coverage.xml"
 
 
-  integration-test-node-server:
-    needs: [changes, build, test]
-    if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
-    runs-on: ubuntu-latest
-    steps:
       - uses: ./.github/actions/prepare-test-container
+        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
         with:
           image_name: scribear/transcription-service-cpu
           build_context: ./transcription_service
           dockerfile: ./transcription_service/Dockerfile_CPU
 
-      - uses: ./.github/actions/setup-node
 
-      - name: Run integration tests
+      - name: Run Node Server Integration Tests
+        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
         env:
           TRANSCRIPTION_SERVICE_IMAGE: scribear/transcription-service-cpu:test
         run: npm run test:integration --workspace apps/node-server
 
       - name: Code Coverage Report - Node Server Integration Tests
         uses: ./.github/actions/coverage-report
+        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
         with:
           package_name: "Node Server - Integration Tests"
           filename: "./apps/node-server/coverage/cobertura-coverage.xml"
 
-  docker-build-scribear-db:
-    needs: [changes, build, test]
-    if: contains(needs.changes.outputs.workspaces, 'infra/scribear-db')
+  docker-build:
+    needs: [changes, format, lint, build, test]
+    if: needs.changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-container
+
+      - name: Build Scribear DB Container
+        uses: ./.github/actions/build-container
+        if: contains(needs.changes.outputs.workspaces, 'infra/scribear-db')
         with:
           image_name: scribear/scribear-db
           build_context: .
@@ -202,43 +206,9 @@ jobs:
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-  docker-build-node-server:
-    needs: [changes, build, test]
-    if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-container
-        with:
-          image_name: scribear/node-server
-          build_context: .
-          dockerfile: apps/node-server/Dockerfile
-          cache_variant: pr
-          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-  docker-build-session-manager:
-    needs: [changes, build, test]
-    if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-container
-        with:
-          image_name: scribear/session-manager
-          build_context: .
-          dockerfile: apps/session-manager/Dockerfile
-          cache_variant: pr
-          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-  docker-build-client-webapp:
-    needs: [changes, build, test]
-    if: contains(needs.changes.outputs.workspaces, 'apps/client-webapp')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-container
+      - name: Build Client Webapp Container
+        if: contains(needs.changes.outputs.workspaces, 'apps/client-webapp')
+        uses: ./.github/actions/build-container
         with:
           image_name: scribear/client-webapp
           build_context: .
@@ -247,13 +217,9 @@ jobs:
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-  docker-build-kiosk-webapp:
-    needs: [changes, build, test]
-    if: contains(needs.changes.outputs.workspaces, 'apps/kiosk-webapp')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-container
+      - name: Build Kiosk Webapp Container
+        if: contains(needs.changes.outputs.workspaces, 'apps/kiosk-webapp')
+        uses: ./.github/actions/build-container
         with:
           image_name: scribear/kiosk-webapp
           build_context: .
@@ -262,17 +228,35 @@ jobs:
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-  docker-build-standalone-webapp:
-    needs: [changes, build, test]
-    if: contains(needs.changes.outputs.workspaces, 'apps/standalone-webapp')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-container
+      - name: Build Standalone Webapp Container
+        uses: ./.github/actions/build-container
+        if: contains(needs.changes.outputs.workspaces, 'apps/standalone-webapp')
         with:
           image_name: scribear/standalone-webapp
           build_context: .
           dockerfile: apps/standalone-webapp/Dockerfile
+          cache_variant: pr
+          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Build Session Manager Container
+        uses: ./.github/actions/build-container
+        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
+        with:
+          image_name: scribear/session-manager
+          build_context: .
+          dockerfile: apps/session-manager/Dockerfile
+          cache_variant: pr
+          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Build Node Server Container
+        uses: ./.github/actions/build-container
+        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
+        with:
+          image_name: scribear/node-server
+          build_context: .
+          dockerfile: apps/node-server/Dockerfile
           cache_variant: pr
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
