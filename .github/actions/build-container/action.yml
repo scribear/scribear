@@ -1,5 +1,5 @@
 name: "Build Containers"
-description: "Builds docker containers using provided config for linux/amd64 and linux/arm64."
+description: "Builds docker containers using provided config for linux/amd64 and linux/arm64. Pulls from and pushes to buildcaches to reduce build times."
 inputs:
   image_name:
     description: "Container image name (e.g., scribear/app)."
@@ -10,6 +10,10 @@ inputs:
   dockerfile:
     description: "Path to the Dockerfile."
     required: true
+  cache_variant:
+    description: "Cache variant to write to ('pr', 'staging', 'main'). All variants are always read from."
+    required: false
+    default: 'pr'
   dockerhub_username:
     description: "DockerHub username."
     required: true
@@ -29,9 +33,6 @@ runs:
           type=schedule
           type=ref,event=branch
           type=ref,event=pr
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=semver,pattern={{major}}
 
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
@@ -45,9 +46,10 @@ runs:
         username: ${{ inputs.dockerhub_username }}
         password: ${{ inputs.dockerhub_password }}
 
-    # Build different platforms first using independent buildcaches without pushing
-    #   This ensures buildcache isn't overritten by other architectures, so builds can 
-    #   take actually advantage of caching (vs buildcache always containg the wrong architecture image)
+    # Build different platforms first using independent buildcaches without pushing.
+    #   This ensures buildcache isn't overwritten by other architectures, so builds can
+    #   actually take advantage of caching (vs buildcache always containing the wrong architecture image).
+    #   All variants are read from so feature branches benefit from staging and main caches.
     - name: Build linux/amd64
       uses: docker/build-push-action@v6
       with:
@@ -55,10 +57,12 @@ runs:
         context: ${{ inputs.build_context }}
         file: ${{ inputs.dockerfile }}
         platforms: "linux/amd64"
-        # Use build cache for faster builds
         cache-from: |
           type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-linux-amd64
-        cache-to: type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-linux-amd64
+          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-pr-linux-amd64
+          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-staging-linux-amd64
+          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-main-linux-amd64
+        cache-to: type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-${{ inputs.cache_variant }}-linux-amd64
 
     - name: Build linux/arm64
       uses: docker/build-push-action@v6
@@ -67,15 +71,16 @@ runs:
         context: ${{ inputs.build_context }}
         file: ${{ inputs.dockerfile }}
         platforms: "linux/arm64"
-        # Use build cache for faster builds
         cache-from: |
           type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-linux-arm64
-        cache-to: type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-linux-arm64
+          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-pr-linux-arm64
+          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-staging-linux-arm64
+          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-main-linux-arm64
+        cache-to: type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-${{ inputs.cache_variant }}-linux-arm64
 
-    # After independent builds, build images with all architectures combined and push
-    #   Combining all architectures ensures that the final tagged image doesn't get overritten by the last architecture that pushes
-    #   Instead a single tagged image that supports all architectures are created
-    #   Since builds were run independently, this combined step can take advantage of all of the buildcaches
+    # After independent builds, combine all architectures and push.
+    #   A single multi-arch manifest is created rather than letting each architecture overwrite the tag.
+    #   Since the per-arch builds ran independently, this step can pull from all buildcaches.
     - name: Push Images
       uses: docker/build-push-action@v6
       with:
@@ -83,10 +88,12 @@ runs:
         context: ${{ inputs.build_context }}
         file: ${{ inputs.dockerfile }}
         platforms: "linux/amd64,linux/arm64"
-        # Tag image with generated tags and labels
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        # Use build cache for faster builds
         cache-from: |
-          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-linux-amd64
-          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-linux-arm64
+          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-pr-linux-amd64
+          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-pr-linux-arm64
+          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-staging-linux-amd64
+          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-staging-linux-arm64
+          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-main-linux-amd64
+          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-main-linux-arm64

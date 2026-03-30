@@ -1,0 +1,31 @@
+name: "Prepare Test Containers"
+description: "Builds docker containers locally with 'test' tag to prepare for integration and e2e tests. Pulls from buildcaches to reduce build times."
+inputs:
+  image_name:
+    description: "Container image name (e.g., scribear/app)."
+    required: true
+  build_context:
+    description: "Docker build context."
+    required: true
+  dockerfile:
+    description: "Path to the Dockerfile."
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Test Container
+      uses: docker/build-push-action@v6
+      with:
+        context: ${{ inputs.build_context }}
+        file: ${{ inputs.dockerfile }}
+        tags: ${{ inputs.image_name }}:test
+        push: false
+        cache-from: |
+          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-pr-linux-amd64
+          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-staging-linux-amd64
+          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-main-linux-amd64

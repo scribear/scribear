@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scribear_transcription_service"
-version = "0.0.1"
+version = "0.0.0"
 authors = [{ name = "scribear" }]
 description = "ScribeAR Server backend transcription service"
 requires-python = ">=3.12"

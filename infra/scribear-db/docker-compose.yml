@@ -4,10 +4,6 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: scribear-db
-    command: >
-      postgres
-      -c shared_preload_libraries=pg_cron
-      -c cron.database_name=${DB_NAME}
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
@@ -16,11 +12,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U scribear -d scribear-db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
 volumes:
   postgres_data:

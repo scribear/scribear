@@ -1,10 +1,6 @@
 name: Node.js CI
 
 on:
-  push:
-    branches:
-      - main
-      - staging
   pull_request:
   workflow_dispatch:
 
@@ -128,9 +124,60 @@ jobs:
           package_name: "Node Server"
           filename: "./apps/node-server/coverage/cobertura-coverage.xml"
 
+  integration-test-session-manager:
+    needs: [changes, build, test]
+    if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/prepare-test-container
+        with:
+          image_name: scribear/scribear-db
+          build_context: ./infra/scribear-db
+          dockerfile: infra/scribear-db/Dockerfile
+
+      - uses: ./.github/actions/setup-node
+
+      - name: Run integration tests
+        env:
+          SCRIBEAR_DB_IMAGE: scribear/scribear-db:test
+        run: npm run test:integration --workspace apps/session-manager
+
+  integration-test-node-server:
+    needs: [changes, build, test]
+    if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/prepare-test-container
+        with:
+          image_name: scribear/transcription-service-cpu
+          build_context: ./transcription_service
+          dockerfile: ./transcription_service/Dockerfile_CPU
+
+      - uses: ./.github/actions/setup-node
+
+      - name: Run integration tests
+        env:
+          TRANSCRIPTION_SERVICE_IMAGE: scribear/transcription-service-cpu:test
+        run: npm run test:integration --workspace apps/node-server
+
+  docker-build-scribear-db:
+    needs: [changes, build, test]
+    if: contains(needs.changes.outputs.workspaces, 'infra/scribear-db')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-container
+        with:
+          image_name: scribear/scribear-db
+          build_context: .
+          dockerfile: infra/scribear-db/Dockerfile
+          cache_variant: pr
+          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
   docker-build-node-server:
     needs: [changes, build, test]
-    if: needs.changes.outputs.has_changes && contains(needs.changes.outputs.workspaces, 'apps/node-server')
+    if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -139,12 +186,13 @@ jobs:
           image_name: scribear/node-server
           build_context: .
           dockerfile: apps/node-server/Dockerfile
+          cache_variant: pr
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
   docker-build-session-manager:
     needs: [changes, build, test]
-    if: needs.changes.outputs.has_changes && contains(needs.changes.outputs.workspaces, 'apps/session-manager')
+    if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -153,12 +201,13 @@ jobs:
           image_name: scribear/session-manager
           build_context: .
           dockerfile: apps/session-manager/Dockerfile
+          cache_variant: pr
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
   docker-build-client-webapp:
     needs: [changes, build, test]
-    if: needs.changes.outputs.has_changes && contains(needs.changes.outputs.workspaces, 'apps/client-webapp')
+    if: contains(needs.changes.outputs.workspaces, 'apps/client-webapp')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -167,12 +216,13 @@ jobs:
           image_name: scribear/client-webapp
           build_context: .
           dockerfile: apps/client-webapp/Dockerfile
+          cache_variant: pr
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
   docker-build-kiosk-webapp:
     needs: [changes, build, test]
-    if: needs.changes.outputs.has_changes && contains(needs.changes.outputs.workspaces, 'apps/kiosk-webapp')
+    if: contains(needs.changes.outputs.workspaces, 'apps/kiosk-webapp')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -181,12 +231,13 @@ jobs:
           image_name: scribear/kiosk-webapp
           build_context: .
           dockerfile: apps/kiosk-webapp/Dockerfile
+          cache_variant: pr
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
   docker-build-standalone-webapp:
     needs: [changes, build, test]
-    if: needs.changes.outputs.has_changes && contains(needs.changes.outputs.workspaces, 'apps/standalone-webapp')
+    if: contains(needs.changes.outputs.workspaces, 'apps/standalone-webapp')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -195,6 +246,7 @@ jobs:
           image_name: scribear/standalone-webapp
           build_context: .
           dockerfile: apps/standalone-webapp/Dockerfile
+          cache_variant: pr
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
@@ -214,13 +266,12 @@ jobs:
             -e POSTGRES_USER=scribear \
             -e POSTGRES_PASSWORD=scribear \
             -p 5432:5432 \
-            scribear-db \
-            postgres -c shared_preload_libraries=pg_cron -c cron.database_name=scribear-db
+            scribear-db
 
       - name: Wait for database to be ready
         run: |
           for i in $(seq 1 30); do
-            if docker exec scribear-db pg_isready -U scribear -d scribear-db; then
+            if [ "$(docker inspect --format='{{.State.Health.Status}}' scribear-db)" = "healthy" ]; then
               exit 0
             fi
             sleep 1
@@ -228,11 +279,11 @@ jobs:
           echo "Database failed to start" && exit 1
 
       - name: Run build
-        working-directory: "./infra/scribear-db"
+        working-directory: ./infra/scribear-db
         run: npm run build
 
       - name: Run migrations
-        working-directory: "./infra/scribear-db"
+        working-directory: ./infra/scribear-db
         env:
           DB_HOST: localhost
           DB_PORT: 5432
@@ -255,47 +306,3 @@ jobs:
         run: |
           git diff --exit-code infra/scribear-db/src/database.types.ts || \
           (echo "Error: Generated database types are out of date. Run 'npm run generate:types' in infra/scribear-db and commit the changes." && exit 1)
-
-  deploy-standalone-webapp:
-    needs:
-      - changes
-      - format
-      - lint
-      - build
-    if: contains(needs.changes.outputs.workspaces, 'apps/standalone-webapp') && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-node
-
-      - name: Run build
-        run: npm run build --workspace @scribear/standalone-webapp
-
-      - name: Label build date and commit hash
-        run: |
-          date > apps/standalone-webapp/dist/builddate.txt
-          git rev-parse --short HEAD > apps/standalone-webapp/dist/commit.txt
-
-      - name: Deploy to Production
-        env:
-          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY_2026 }}
-          GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=no"
-        run: |
-          eval "$(ssh-agent -s)"
-          ssh-add - <<< "${DEPLOY_KEY}"
-          git clone git@github.com:scribear/v.git
-          git config --global user.email "angrave@illinois.edu"
-          git config --global user.name "scribear-bot"
-          cd v
-          ls -la
-          export SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`
-
-          git rm -rf latest-v2
-          git commit -m "Removing previous latest dir"
-
-          mkdir -p latest-v2
-          mv ../apps/standalone-webapp/dist/* latest-v2
-          git add latest-v2
-
-          git commit -m "Commit Deploy: ${SHORT_SHA}"
-          git push origin master
