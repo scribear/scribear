@@ -39,7 +39,7 @@ jobs:
         if: contains(needs.changes.outputs.workspaces, 'infra/scribear-db')
         with:
           image_name: scribear/scribear-db
-          build_context: .
+          build_context: infra/scribear-db
           dockerfile: infra/scribear-db/Dockerfile
           cache_variant: ${{ github.ref_name }}
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}

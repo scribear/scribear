@@ -138,56 +138,6 @@ jobs:
           package_name: "Base WebSocket Client - Unit Tests"
           filename: "./libs/clients/base-websocket-client/coverage/cobertura-coverage.xml"
 
-  integration-test:
-    needs: [changes, build, test, docker-build]
-    if: needs.changes.outputs.has_changes
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-node
-
-      - uses: ./.github/actions/prepare-test-container
-        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
-        with:
-          image_name: scribear/scribear-db
-          build_context: ./infra/scribear-db
-          dockerfile: infra/scribear-db/Dockerfile
-
-      - name: Run Session Manager Integration Tests
-        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
-        env:
-          SCRIBEAR_DB_IMAGE: scribear/scribear-db:test
-        run: npm run test:integration --workspace apps/session-manager
-
-      - name: Code Coverage Report - Session Manager Integration Tests
-        uses: ./.github/actions/coverage-report
-        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
-        with:
-          package_name: "Session Manager - Integration Tests"
-          filename: "./apps/session-manager/coverage/cobertura-coverage.xml"
-
-
-      - uses: ./.github/actions/prepare-test-container
-        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
-        with:
-          image_name: scribear/transcription-service-cpu
-          build_context: ./transcription_service
-          dockerfile: ./transcription_service/Dockerfile_CPU
-
-
-      - name: Run Node Server Integration Tests
-        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
-        env:
-          TRANSCRIPTION_SERVICE_IMAGE: scribear/transcription-service-cpu:test
-        run: npm run test:integration --workspace apps/node-server
-
-      - name: Code Coverage Report - Node Server Integration Tests
-        uses: ./.github/actions/coverage-report
-        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
-        with:
-          package_name: "Node Server - Integration Tests"
-          filename: "./apps/node-server/coverage/cobertura-coverage.xml"
-
   docker-build:
     needs: [changes, format, lint, build, test]
     if: needs.changes.outputs.has_changes == 'true'
@@ -200,7 +150,7 @@ jobs:
         if: contains(needs.changes.outputs.workspaces, 'infra/scribear-db')
         with:
           image_name: scribear/scribear-db
-          build_context: .
+          build_context: infra/scribear-db
           dockerfile: infra/scribear-db/Dockerfile
           cache_variant: pr
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -260,6 +210,56 @@ jobs:
           cache_variant: pr
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+  integration-test:
+    needs: [changes, build, test, docker-build]
+    if: needs.changes.outputs.has_changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node
+
+      - uses: ./.github/actions/prepare-test-container
+        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
+        with:
+          image_name: scribear/scribear-db
+          build_context: ./infra/scribear-db
+          dockerfile: infra/scribear-db/Dockerfile
+
+      - name: Run Session Manager Integration Tests
+        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
+        env:
+          SCRIBEAR_DB_IMAGE: scribear/scribear-db:test
+        run: npm run test:integration --workspace apps/session-manager
+
+      - name: Code Coverage Report - Session Manager Integration Tests
+        uses: ./.github/actions/coverage-report
+        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
+        with:
+          package_name: "Session Manager - Integration Tests"
+          filename: "./apps/session-manager/coverage/cobertura-coverage.xml"
+
+
+      - uses: ./.github/actions/prepare-test-container
+        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
+        with:
+          image_name: scribear/transcription-service-cpu
+          build_context: ./transcription_service
+          dockerfile: ./transcription_service/Dockerfile_CPU
+
+
+      - name: Run Node Server Integration Tests
+        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
+        env:
+          TRANSCRIPTION_SERVICE_IMAGE: scribear/transcription-service-cpu:test
+        run: npm run test:integration --workspace apps/node-server
+
+      - name: Code Coverage Report - Node Server Integration Tests
+        uses: ./.github/actions/coverage-report
+        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
+        with:
+          package_name: "Node Server - Integration Tests"
+          filename: "./apps/node-server/coverage/cobertura-coverage.xml"
 
   check-database-types:
     needs: changes
