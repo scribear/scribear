@@ -58,7 +58,6 @@ runs:
         file: ${{ inputs.dockerfile }}
         platforms: "linux/amd64"
         cache-from: |
-          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-linux-amd64
           type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-pr-linux-amd64
           type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-staging-linux-amd64
           type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-main-linux-amd64
@@ -72,7 +71,6 @@ runs:
         file: ${{ inputs.dockerfile }}
         platforms: "linux/arm64"
         cache-from: |
-          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-linux-arm64
           type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-pr-linux-arm64
           type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-staging-linux-arm64
           type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-main-linux-arm64

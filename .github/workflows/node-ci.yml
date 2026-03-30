@@ -185,7 +185,7 @@ jobs:
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
   integration-test:
-    needs: [changes, build, test, docker-build]
+    needs: [changes, format, lint, build, test, docker-build]
     if: needs.changes.outputs.has_changes
     runs-on: ubuntu-latest
     steps:
