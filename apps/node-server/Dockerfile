@@ -1,109 +1,44 @@
 # Build in the root directory using:
-#   docker build . -f ./apps/node-server/Dockerfile
+#   docker build -f apps/node-server/Dockerfile .
 
 ARG NODE_VERSION=24.10.0
+
+FROM node:${NODE_VERSION} AS package-jsons
+
+WORKDIR /app
+
+COPY . .
+
+RUN find . -type f ! -name "package*.json" -delete && \
+  find . -empty -type d -delete
 
 FROM node:${NODE_VERSION} AS build-env
 
 WORKDIR /app
 
-# Install dependencies first
-# So build can use cached dependency layer if only source code changes
-COPY package*.json .
+COPY --from=package-jsons /app/ .
 
-ARG SRC="node-server"
-COPY apps/${SRC}/package*.json apps/${SRC}/
-ARG LIB="base-fastify-server"
-COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="schemas/base-schema"
-COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="schemas/node-server-schema"
-COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="clients/base-websocket-client"
-COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="schemas/transcription-service-schema"
-COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="clients/transcription-service-client"
-COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="schemas/session-manager-schema"
-COPY libs/${LIB}/package*.json libs/${LIB}/
 RUN npm ci
 
-# Copy source code and build
-COPY tsconfig.base.json .
+COPY . .
 
-ARG SRC="node-server"
-COPY apps/${SRC} apps/${SRC}
-ARG LIB="base-fastify-server"
-COPY libs/${LIB} libs/${LIB}
-ARG LIB="schemas/base-schema"
-COPY libs/${LIB} libs/${LIB}
-ARG LIB="schemas/node-server-schema"
-COPY libs/${LIB} libs/${LIB}
-ARG LIB="clients/base-websocket-client"
-COPY libs/${LIB} libs/${LIB}
-ARG LIB="schemas/transcription-service-schema"
-COPY libs/${LIB} libs/${LIB}
-ARG LIB="clients/transcription-service-client"
-COPY libs/${LIB} libs/${LIB}
-ARG LIB="schemas/session-manager-schema"
-COPY libs/${LIB} libs/${LIB}
-
-RUN npm run build
+RUN npm run build --workspace=@scribear/node-server
 
 FROM node:${NODE_VERSION}-alpine3.22
 
 WORKDIR /app
 
-# Install dependencies first
-# So build can use cached dependency layer if only source code changes
-# This time, only include production dependencies to keep image small
-COPY package*.json .
-
-ARG SRC="node-server"
-COPY apps/${SRC}/package*.json apps/${SRC}/
-ARG LIB="base-fastify-server"
-COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="schemas/base-schema"
-COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="schemas/node-server-schema"
-COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="clients/base-websocket-client"
-COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="schemas/transcription-service-schema"
-COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="clients/transcription-service-client"
-COPY libs/${LIB}/package*.json libs/${LIB}/
-ARG LIB="schemas/session-manager-schema"
-COPY libs/${LIB}/package*.json libs/${LIB}/
+COPY --from=package-jsons /app/ .
 
 RUN npm ci --omit=dev
 
-# Copy the build artifacts from build-env container
-ARG SRC="node-server"
-COPY --from=build-env /app/apps/${SRC}/dist/src/ /app/apps/${SRC}/dist/src
-ARG LIB="base-fastify-server"
-COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
-ARG LIB="schemas/base-schema"
-COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
-ARG LIB="schemas/node-server-schema"
-COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
-ARG LIB="clients/base-websocket-client"
-COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
-ARG LIB="schemas/transcription-service-schema"
-COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
-ARG LIB="clients/transcription-service-client"
-COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
-ARG LIB="schemas/session-manager-schema"
-COPY --from=build-env /app/libs/${LIB}/dist/src/ /app/libs/${LIB}/dist/src/
+COPY --from=build-env /app/apps/node-server/dist/bundle.mjs /app/apps/node-server/dist/bundle.mjs
 
 WORKDIR /app/apps/node-server
 
-# Ensure server listens on a defined interface and port inside container
-# This docker can map this to a real port on the host
 ENV HOST=0.0.0.0
 ENV PORT=80
 
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --start-interval=1s --retries=3 CMD curl -f http://localhost:80/api/node-server/healthcheck/v1 || exit 1
 
-CMD ["npm", "start"]
+CMD ["node", "dist/bundle.mjs"]
