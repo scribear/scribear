@@ -28,7 +28,7 @@ jobs:
             transcription_service:
               - 'transcription_service/**'
 
-  check-formatting-python:
+  format:
     needs: changes
     if: needs.changes.outputs.transcription_service == 'true'
     runs-on: ubuntu-latest
@@ -41,7 +41,7 @@ jobs:
         working-directory: "transcription_service"
         run: make format
 
-  run-linter-python:
+  lint:
     needs: changes
     if: needs.changes.outputs.transcription_service == 'true'
     runs-on: ubuntu-latest
@@ -54,7 +54,7 @@ jobs:
         working-directory: "transcription_service"
         run: make lint
 
-  run-tests-python:
+  test:
     needs: changes
     if: needs.changes.outputs.transcription_service == 'true'
     runs-on: ubuntu-latest
