@@ -28,7 +28,7 @@ jobs:
             transcription_service:
               - 'transcription_service/**'
 
-  check-formatting-python:
+  format:
     needs: changes
     if: needs.changes.outputs.transcription_service == 'true'
     runs-on: ubuntu-latest
@@ -41,7 +41,7 @@ jobs:
         working-directory: "transcription_service"
         run: make format
 
-  run-linter-python:
+  lint:
     needs: changes
     if: needs.changes.outputs.transcription_service == 'true'
     runs-on: ubuntu-latest
@@ -54,7 +54,7 @@ jobs:
         working-directory: "transcription_service"
         run: make lint
 
-  run-tests-python:
+  test:
     needs: changes
     if: needs.changes.outputs.transcription_service == 'true'
     runs-on: ubuntu-latest
@@ -72,3 +72,28 @@ jobs:
         with:
           package_name: "Transcription Service"
           filename: "./transcription_service/coverage.xml"
+
+  docker-build-transcription-service:
+    needs: [changes, test]
+    if: needs.changes.outputs.transcription_service == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build transcription-service CPU Docker image
+        uses: ./.github/actions/build-container
+        with:
+          image_name: scribear/transcription-service-cpu
+          build_context: transcription_service
+          dockerfile: transcription_service/Dockerfile_CPU
+          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Build transcription-service CUDA Docker image
+        uses: ./.github/actions/build-container
+        with:
+          image_name: scribear/transcription-service-cuda
+          build_context: transcription_service
+          dockerfile: transcription_service/Dockerfile_CUDA
+          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}

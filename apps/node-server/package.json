@@ -10,10 +10,9 @@
     "#tests/*": "./dist/tests/*"
   },
   "scripts": {
-    "build": "tsc --build",
+    "build": "tsc --build && node esbuild.config.mjs",
     "start": "node ./dist/src/index.js",
-    "start:dev": "node ./dist/src/index.js --dev | pino-pretty",
-    "dev": "nodemon --exec 'npm run build && npm run start:dev' --watch src --watch ../../libs/base-fastify-server/src --watch ../../libs/base-schema/src --watch ../../libs/node-server-schema/src --watch ../../libs/transcription-service-client/src src/index.ts",
+    "dev": "tsc --build && concurrently -k \"tsc --build --watch\" \"node --watch dist/src/index.js --dev | pino-pretty\"",
     "format": "prettier --check ./src ./tests",
     "format:fix": "prettier --write ./src ./tests",
     "lint": "eslint ./src ./tests",

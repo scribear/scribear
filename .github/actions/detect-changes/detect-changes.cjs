@@ -29,7 +29,13 @@ for (const wsDir of allWorkspaces) {
   if (!existsSync(tsconfigPath)) continue;
   let tsconfig;
   try {
-    tsconfig = JSON.parse(readFileSync(tsconfigPath, 'utf8'));
+    const raw = readFileSync(tsconfigPath, 'utf8');
+    // Strip comments and trailing commas (tsconfig is JSONC, not strict JSON)
+    const stripped = raw
+      .replace(/\/\/[^\n]*/g, '') // line comments
+      .replace(/\/\*[\s\S]*?\*\//g, '') // block comments
+      .replace(/,(\s*[}\]])/g, '$1'); // trailing commas
+    tsconfig = JSON.parse(stripped);
   } catch {
     continue;
   }
@@ -67,8 +73,15 @@ const changedFiles = readFileSync('/tmp/changed_files.txt', 'utf8')
   .map((f) => f.trim())
   .filter(Boolean);
 
+// Non-workspace directories whose changes imply a dependency on specific workspaces.
+// Used for directories (e.g. Python services) that aren't in package.json workspaces.
+const nonWorkspaceDependencies = /** @type {Record<string, string[]>} */ ({
+  'transcription_service': ['apps/node-server'],
+});
+
 // Global config files that trigger a full run across all workspaces
 const globalFiles = new Set([
+  '.dockerignore',
   'package-lock.json',
   'package.json',
   'tsconfig.base.json',
@@ -84,10 +97,17 @@ let affected;
 if (changedFiles.length === 0 || changedFiles.some((f) => globalFiles.has(f))) {
   affected = allWorkspaces;
 } else {
-  const directlyChanged = allWorkspaces.filter((dir) =>
-    changedFiles.some((f) => f.startsWith(dir + '/') || f === dir),
+  const directlyChanged = new Set(
+    allWorkspaces.filter((dir) =>
+      changedFiles.some((f) => f.startsWith(dir + '/') || f === dir),
+    ),
   );
-  affected = expandWithDependents(directlyChanged);
+  for (const [prefix, deps] of Object.entries(nonWorkspaceDependencies)) {
+    if (changedFiles.some((f) => f.startsWith(prefix + '/'))) {
+      for (const dep of deps) directlyChanged.add(dep);
+    }
+  }
+  affected = expandWithDependents([...directlyChanged]);
 }
 
 const workspaces = JSON.stringify(affected);
