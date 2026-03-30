@@ -36,7 +36,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # Optional dependencies used for development
-# Install them with `pip install -e .[dev]`
+# Install them with `uv sync --extra dev`
 dev = [
     # Hot reload
     "watchfiles==1.1.0",
@@ -59,11 +59,27 @@ dev = [
     "multiprocess-stubs==0.1.0",
 ]
 # Optional dependencies used by faster-whisper
-# Install them with `pip install -e .[faster-whisper]`
+# Install them with `uv sync --extra faster-whisper`
 faster-whisper = ["ctranslate2==4.4.0", "faster-whisper==1.1.0"]
-# Optional dependencies used by Silero VAD
-# install them with `pip install -e.[silero-vad]`
+# Optional dependencies used by Silero VAD (CUDA wheel, default)
+# install them with `uv sync --extra silero-vad`
 silero-vad = ["torch==2.9.1", "torchaudio==2.9.1"]
+# Optional dependencies used by Silero VAD (CPU-only wheel)
+# install them with `uv sync --extra silero-vad-cpu`
+# uv resolves torch/torchaudio from the pytorch-cpu index (see [tool.uv.sources])
+silero-vad-cpu = ["torch==2.9.1", "torchaudio==2.9.1"]
+
+[tool.uv]
+package = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", extra = "silero-vad-cpu" }]
+torchaudio = [{ index = "pytorch-cpu", extra = "silero-vad-cpu" }]
 
 [project.urls]
 Homepage = "https://github.com/scribear/scribear"

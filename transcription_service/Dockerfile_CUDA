@@ -1,26 +1,35 @@
+FROM ghcr.io/astral-sh/uv:0.11.2 AS uv
+
 FROM nvidia/cuda:12.2.2-cudnn8-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update -y
-RUN apt install software-properties-common -y
-
-RUN add-apt-repository ppa:deadsnakes/ppa
-RUN apt-get update -y
-
-RUN apt install python3.12 python3-pip python3.12-venv -y
-RUN apt install curl -y
+RUN apt-get update -y && \
+    apt-get install -y software-properties-common && \
+    add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get update -y && \
+    apt-get install -y python3.12 python3.12-venv curl && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-RUN python3.12 -m venv .venv
+COPY --from=uv /uv /usr/local/bin/uv
 
-COPY pyproject.toml .
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv
+ENV UV_PYTHON=/usr/bin/python3.12
 
-RUN /app/.venv/bin/python -m pip install .[faster-whisper,silero-vad]
+COPY pyproject.toml uv.lock ./
+
+RUN uv sync --frozen --no-install-project \
+    --extra faster-whisper \
+    --extra silero-vad
 
 COPY src ./src
 
-RUN /app/.venv/bin/python -m pip install .
+RUN uv sync --frozen --no-editable \
+    --extra faster-whisper \
+    --extra silero-vad
 
 ENV HOST=0.0.0.0
 ENV PORT=80

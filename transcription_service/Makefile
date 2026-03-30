@@ -1,38 +1,44 @@
 .DEFAULT_GOAL := start
 
-install_dev:
-	pip install -e .[dev,faster-whisper,silero-vad]
+install_uv:
+	@command -v uv >/dev/null 2>&1 || pip install uv
 
-install:
-	pip install .
+install_dev: install_uv
+	uv sync --extra dev --extra faster-whisper --extra silero-vad
+
+install_dev_cpu: install_uv
+	uv sync --extra dev --extra faster-whisper --extra silero-vad-cpu
+
+install: install_uv
+	uv sync
 
 # Run application in prod mode
 start:
-	python src/index.py
+	uv run python src/index.py
 
 # Run application in dev mode (hot reload + pretty print enabled)
 dev:
-	watchfiles "python src/index.py --dev"
+	uv run watchfiles "python src/index.py --dev"
 
 # Formatting without editing and run linter
 format:
-	isort --check ./src ./tests
-	black --check ./src ./tests
+	uv run isort --check ./src ./tests
+	uv run black --check ./src ./tests
 
 # Format source code
 format_fix:
-	isort ./src ./tests
-	black ./src ./tests
+	uv run isort ./src ./tests
+	uv run black ./src ./tests
 
 # Run linter
 lint:
-	pylint -j 0 --recursive=y --fail-under=10 ./src
-	pylint -j 0 --recursive=y --fail-under=10 --disable=redefined-outer-name ./tests
+	uv run pylint -j 0 --recursive=y --fail-under=10 ./src
+	uv run pylint -j 0 --recursive=y --fail-under=10 --disable=redefined-outer-name ./tests
 
 # Run tests in dev mode (hot reload)
 test_dev:
-	watchfiles "pytest tests/unit tests/integration"
+	uv run watchfiles "pytest tests/unit tests/integration"
 
 # Run tests
 test:
-	coverage run -m pytest tests/unit tests/integration && coverage xml --include=src/* && coverage report --include=src/*
+	uv run coverage run -m pytest tests/unit tests/integration && uv run coverage xml --include=src/* && uv run coverage report --include=src/*
