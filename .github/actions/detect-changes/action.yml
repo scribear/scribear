@@ -1,0 +1,44 @@
+name: Detect Changed Workspaces
+description: >
+  Determines which npm workspaces are affected relative to the base commit.
+  Walks tsconfig project references to include transitive dependents of changed
+  workspaces. If any global config file (package-lock.json, eslint.config.js,
+  etc.) changed, all workspaces are returned.
+  Requires: git checkout with fetch-depth: 0 and node already set up by caller.
+
+outputs:
+  workspaces:
+    description: JSON array of affected workspace paths relative to repo root
+    value: ${{ steps.compute.outputs.workspaces }}
+  has_changes:
+    description: '"true" if any workspaces are affected, "false" otherwise'
+    value: ${{ steps.compute.outputs.has_changes }}
+
+runs:
+  using: composite
+  steps:
+    - name: Compute affected workspaces
+      id: compute
+      shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        BEFORE_SHA: ${{ github.event.before }}
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        # Determine base commit to diff against
+        if [ "$EVENT_NAME" = "pull_request" ]; then
+          BASE="$PR_BASE_SHA"
+        elif [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ] || [ -z "$BEFORE_SHA" ]; then
+          BASE=""  # new branch or workflow_dispatch — run all workspaces
+        else
+          BASE="$BEFORE_SHA"
+        fi
+
+        # Get changed files (empty file = run all workspaces)
+        if [ -n "$BASE" ]; then
+          git diff --name-only "$BASE" HEAD > /tmp/changed_files.txt 2>/dev/null || echo "" > /tmp/changed_files.txt
+        else
+          echo "" > /tmp/changed_files.txt
+        fi
+
+        node "$GITHUB_ACTION_PATH/detect-changes.cjs"

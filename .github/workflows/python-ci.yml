@@ -1,0 +1,74 @@
+name: Python CI
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      transcription_service: ${{ steps.filter.outputs.transcription_service }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            transcription_service:
+              - 'transcription_service/**'
+
+  check-formatting-python:
+    needs: changes
+    if: needs.changes.outputs.transcription_service == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+
+      - name: Check formatting
+        working-directory: "transcription_service"
+        run: make format
+
+  run-linter-python:
+    needs: changes
+    if: needs.changes.outputs.transcription_service == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+
+      - name: Run linter
+        working-directory: "transcription_service"
+        run: make lint
+
+  run-tests-python:
+    needs: changes
+    if: needs.changes.outputs.transcription_service == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+
+      - name: Run tests
+        working-directory: "transcription_service"
+        run: make test
+
+      - name: Code Coverage Report - Transcription Service
+        uses: ./.github/actions/coverage-report
+        with:
+          package_name: "Transcription Service"
+          filename: "./transcription_service/coverage.xml"
