@@ -16,7 +16,8 @@ jobs:
       transcription_service: ${{ steps.filter.outputs.transcription_service }}
     steps:
       - uses: actions/checkout@v4
-      - name: Detect changed paths
+
+      - name: Detect Changed Paths
         id: filter
         uses: dorny/paths-filter@v3
         with:
@@ -59,14 +60,14 @@ jobs:
       - name: Setup Python
         uses: ./.github/actions/setup-python
 
-      - name: Run tests
+      - name: Run unit tests
         working-directory: "transcription_service"
-        run: make test
+        run: make test_unit
 
-      - name: Code Coverage Report - Transcription Service
+      - name: Code Coverage Report - Transcription Service Unit Tests
         uses: ./.github/actions/coverage-report
         with:
-          package_name: "Transcription Service"
+          package_name: "Transcription Service - Unit Tests"
           filename: "./transcription_service/coverage.xml"
 
   docker-build:
@@ -95,3 +96,22 @@ jobs:
           cache_variant: pr
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+  integration-test:
+    needs: [changes, format, lint, test, docker-build]
+    if: needs.changes.outputs.transcription_service == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+
+      - name: Run Transcription Service Integration Tests
+        working-directory: "transcription_service"
+        run: make test_integration
+
+      - name: Code Coverage Report - Transcription Service Integration Tests
+        uses: ./.github/actions/coverage-report
+        with:
+          package_name: "Transcription Service - Integration Tests"
+          filename: "./transcription_service/coverage.xml"

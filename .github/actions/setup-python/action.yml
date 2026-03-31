@@ -21,4 +21,4 @@ runs:
     - name: Install dependencies
       working-directory: "transcription_service"
       shell: bash
-      run: uv sync --frozen --extra dev --extra faster-whisper --extra silero-vad-cpu
+      run: make install_dev

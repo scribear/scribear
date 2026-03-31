@@ -40,5 +40,8 @@ test_dev:
 	uv run watchfiles "pytest tests/unit tests/integration"
 
 # Run tests
-test:
-	uv run coverage run -m pytest tests/unit tests/integration && uv run coverage xml --include=src/* && uv run coverage report --include=src/*
+test_unit:
+	uv run coverage run -m pytest tests/unit && uv run coverage xml --include=src/* && uv run coverage report --include=src/*
+
+test_integration:
+	uv run coverage run -m pytest tests/integration && uv run coverage xml --include=src/* && uv run coverage report --include=src/*
