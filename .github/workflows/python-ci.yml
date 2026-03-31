@@ -115,3 +115,18 @@ jobs:
         with:
           package_name: "Transcription Service - Integration Tests"
           filename: "./transcription_service/coverage.xml"
+
+  ci:
+    needs: [format, lint, test, docker-build, integration-test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check All Jobs Pass
+        run: |
+          results="${{ join(needs.*.result, ' ') }}"
+          for result in $results; do
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              echo "Job failed with result: $result"
+              exit 1
+            fi
+          done
