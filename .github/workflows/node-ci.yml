@@ -1,10 +1,6 @@
 name: Node.js CI
 
 on:
-  push:
-    branches:
-      - main
-      - staging
   pull_request:
   workflow_dispatch:
 
@@ -21,12 +17,10 @@ jobs:
       has_changes: ${{ steps.changes.outputs.has_changes }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - uses: actions/setup-node@v4
 
-      - id: changes
+      - name: Detech Changed Workspaces
+        id: changes
         uses: ./.github/actions/detect-changes
 
   format:
@@ -35,9 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-node
-        with:
-          node-version: "24.10.0"
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
 
       - name: Check formatting
         env:
@@ -56,7 +49,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-node
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
 
       - name: Run linter
         env:
@@ -75,7 +69,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-node
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
 
       - name: Run build
         env:
@@ -94,7 +89,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-node
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
 
       - name: Run unit tests
         env:
@@ -107,120 +103,167 @@ jobs:
             echo "::endgroup::"
           done < /tmp/workspaces.txt
 
-      - name: Code Coverage Report - Base Fastify Server
+      - name: Code Coverage Report - Base Fastify Server Unit Tests
         if: contains(needs.changes.outputs.workspaces, 'libs/base-fastify-server')
         uses: ./.github/actions/coverage-report
         with:
-          package_name: "Base Fastify Server"
+          package_name: "Base Fastify Server - Unit Tests"
           filename: "./libs/base-fastify-server/coverage/cobertura-coverage.xml"
 
-      - name: Code Coverage Report - Session Manager
+      - name: Code Coverage Report - Session Manager Unit Tests
         if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
         uses: ./.github/actions/coverage-report
         with:
-          package_name: "Session Manager"
+          package_name: "Session Manager - Unit Tests"
           filename: "./apps/session-manager/coverage/cobertura-coverage.xml"
 
-      - name: Code Coverage Report - Node Server
+      - name: Code Coverage Report - Node Server Unit Tests
         if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
         uses: ./.github/actions/coverage-report
         with:
-          package_name: "Node Server"
+          package_name: "Node Server - Unit Tests"
           filename: "./apps/node-server/coverage/cobertura-coverage.xml"
 
-  docker-build-node-server:
-    needs: [changes, build, test]
-    if: needs.changes.outputs.has_changes && contains(needs.changes.outputs.workspaces, 'apps/node-server')
+      - name: Code Coverage Report - Base API Client Unit Tests
+        if: contains(needs.changes.outputs.workspaces, 'libs/clients/base-api-client')
+        uses: ./.github/actions/coverage-report
+        with:
+          package_name: "Base API Client - Unit Tests"
+          filename: "./libs/clients/base-api-client/coverage/cobertura-coverage.xml"
+
+      - name: Code Coverage Report - Base WebSocket Client Unit Tests
+        if: contains(needs.changes.outputs.workspaces, 'libs/clients/base-websocket-client')
+        uses: ./.github/actions/coverage-report
+        with:
+          package_name: "Base WebSocket Client - Unit Tests"
+          filename: "./libs/clients/base-websocket-client/coverage/cobertura-coverage.xml"
+
+  docker-build:
+    needs: [changes, format, lint, build, test]
+    if: needs.changes.outputs.has_changes == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image_name: scribear/scribear-db
+            build_context: infra/scribear-db
+            dockerfile: infra/scribear-db/Dockerfile
+            workspace: infra/scribear-db
+          - image_name: scribear/client-webapp
+            build_context: .
+            dockerfile: apps/client-webapp/Dockerfile
+            workspace: apps/client-webapp
+          - image_name: scribear/kiosk-webapp
+            build_context: .
+            dockerfile: apps/kiosk-webapp/Dockerfile
+            workspace: apps/kiosk-webapp
+          - image_name: scribear/standalone-webapp
+            build_context: .
+            dockerfile: apps/standalone-webapp/Dockerfile
+            workspace: apps/standalone-webapp
+          - image_name: scribear/session-manager
+            build_context: .
+            dockerfile: apps/session-manager/Dockerfile
+            workspace: apps/session-manager
+          - image_name: scribear/node-server
+            build_context: .
+            dockerfile: apps/node-server/Dockerfile
+            workspace: apps/node-server
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-container
+
+      - name: Build Container
+        if: contains(needs.changes.outputs.workspaces, matrix.workspace)
+        uses: ./.github/actions/build-container
         with:
-          image_name: scribear/node-server
-          build_context: .
-          dockerfile: apps/node-server/Dockerfile
+          image_name: ${{ matrix.image_name }}
+          build_context: ${{ matrix.build_context }}
+          dockerfile: ${{ matrix.dockerfile }}
+          cache_variant: pr
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-  docker-build-session-manager:
-    needs: [changes, build, test]
-    if: needs.changes.outputs.has_changes && contains(needs.changes.outputs.workspaces, 'apps/session-manager')
+  integration-test:
+    needs: [changes, format, lint, build, test, docker-build]
+    if: needs.changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-container
-        with:
-          image_name: scribear/session-manager
-          build_context: .
-          dockerfile: apps/session-manager/Dockerfile
-          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
 
-  docker-build-client-webapp:
-    needs: [changes, build, test]
-    if: needs.changes.outputs.has_changes && contains(needs.changes.outputs.workspaces, 'apps/client-webapp')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-container
+      - name: Prepare Scribear DB Container
+        uses: ./.github/actions/prepare-test-container
+        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
         with:
-          image_name: scribear/client-webapp
-          build_context: .
-          dockerfile: apps/client-webapp/Dockerfile
-          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          image_name: scribear/scribear-db
+          build_context: ./infra/scribear-db
+          dockerfile: infra/scribear-db/Dockerfile
 
-  docker-build-kiosk-webapp:
-    needs: [changes, build, test]
-    if: needs.changes.outputs.has_changes && contains(needs.changes.outputs.workspaces, 'apps/kiosk-webapp')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-container
-        with:
-          image_name: scribear/kiosk-webapp
-          build_context: .
-          dockerfile: apps/kiosk-webapp/Dockerfile
-          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+      - name: Run Session Manager Integration Tests
+        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
+        env:
+          SCRIBEAR_DB_IMAGE: scribear/scribear-db:test
+        run: npm run test:integration --workspace apps/session-manager
 
-  docker-build-standalone-webapp:
-    needs: [changes, build, test]
-    if: needs.changes.outputs.has_changes && contains(needs.changes.outputs.workspaces, 'apps/standalone-webapp')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/build-container
+      - name: Code Coverage Report - Session Manager Integration Tests
+        uses: ./.github/actions/coverage-report
+        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
         with:
-          image_name: scribear/standalone-webapp
-          build_context: .
-          dockerfile: apps/standalone-webapp/Dockerfile
-          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          package_name: "Session Manager - Integration Tests"
+          filename: "./apps/session-manager/coverage/cobertura-coverage.xml"
+
+      - name: Prepare Transcription Service CPU Container
+        uses: ./.github/actions/prepare-test-container
+        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
+        with:
+          image_name: scribear/transcription-service-cpu
+          build_context: ./transcription_service
+          dockerfile: ./transcription_service/Dockerfile_CPU
+
+      - name: Run Node Server Integration Tests
+        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
+        env:
+          TRANSCRIPTION_SERVICE_IMAGE: scribear/transcription-service-cpu:test
+        run: npm run test:integration --workspace apps/node-server
+
+      - name: Code Coverage Report - Node Server Integration Tests
+        uses: ./.github/actions/coverage-report
+        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
+        with:
+          package_name: "Node Server - Integration Tests"
+          filename: "./apps/node-server/coverage/cobertura-coverage.xml"
 
   check-database-types:
-    needs: changes
+    needs: [changes, docker-build]
     if: contains(needs.changes.outputs.workspaces, 'infra/scribear-db')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-node
 
-      - name: Build and start custom database
+      - name: Prepare Scribear DB Container
+        uses: ./.github/actions/prepare-test-container
+        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
+        with:
+          image_name: scribear/scribear-db
+          build_context: ./infra/scribear-db
+          dockerfile: infra/scribear-db/Dockerfile
+
+      - name: Start ScribeAR DB
         run: |
-          docker build -t scribear-db ./infra/scribear-db
           docker run -d --name scribear-db \
-            -e POSTGRES_DB=scribear-db \
+            -e POSTGRES_DB=scribear-db-test \
             -e POSTGRES_USER=scribear \
             -e POSTGRES_PASSWORD=scribear \
             -p 5432:5432 \
-            scribear-db \
-            postgres -c shared_preload_libraries=pg_cron -c cron.database_name=scribear-db
+            scribear/scribear-db:test
 
       - name: Wait for database to be ready
         run: |
           for i in $(seq 1 30); do
-            if docker exec scribear-db pg_isready -U scribear -d scribear-db; then
+            if [ "$(docker inspect --format='{{.State.Health.Status}}' scribear-db)" = "healthy" ]; then
               exit 0
             fi
             sleep 1
@@ -228,15 +271,15 @@ jobs:
           echo "Database failed to start" && exit 1
 
       - name: Run build
-        working-directory: "./infra/scribear-db"
+        working-directory: ./infra/scribear-db
         run: npm run build
 
       - name: Run migrations
-        working-directory: "./infra/scribear-db"
+        working-directory: ./infra/scribear-db
         env:
           DB_HOST: localhost
           DB_PORT: 5432
-          DB_NAME: scribear-db
+          DB_NAME: scribear-db-test
           DB_USER: scribear
           DB_PASSWORD: scribear
         run: npm run migrate:up
@@ -246,7 +289,7 @@ jobs:
         env:
           DB_HOST: localhost
           DB_PORT: 5432
-          DB_NAME: scribear-db
+          DB_NAME: scribear-db-test
           DB_USER: scribear
           DB_PASSWORD: scribear
         run: npm run generate:types
@@ -256,46 +299,17 @@ jobs:
           git diff --exit-code infra/scribear-db/src/database.types.ts || \
           (echo "Error: Generated database types are out of date. Run 'npm run generate:types' in infra/scribear-db and commit the changes." && exit 1)
 
-  deploy-standalone-webapp:
-    needs:
-      - changes
-      - format
-      - lint
-      - build
-    if: contains(needs.changes.outputs.workspaces, 'apps/standalone-webapp') && github.ref == 'refs/heads/main'
+  ci:
+    needs: [format, lint, build, test, docker-build, integration-test, check-database-types]
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-node
-
-      - name: Run build
-        run: npm run build --workspace @scribear/standalone-webapp
-
-      - name: Label build date and commit hash
+      - name: Check All Jobs Pass
         run: |
-          date > apps/standalone-webapp/dist/builddate.txt
-          git rev-parse --short HEAD > apps/standalone-webapp/dist/commit.txt
-
-      - name: Deploy to Production
-        env:
-          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY_2026 }}
-          GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=no"
-        run: |
-          eval "$(ssh-agent -s)"
-          ssh-add - <<< "${DEPLOY_KEY}"
-          git clone git@github.com:scribear/v.git
-          git config --global user.email "angrave@illinois.edu"
-          git config --global user.name "scribear-bot"
-          cd v
-          ls -la
-          export SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`
-
-          git rm -rf latest-v2
-          git commit -m "Removing previous latest dir"
-
-          mkdir -p latest-v2
-          mv ../apps/standalone-webapp/dist/* latest-v2
-          git add latest-v2
-
-          git commit -m "Commit Deploy: ${SHORT_SHA}"
-          git push origin master
+          results="${{ join(needs.*.result, ' ') }}"
+          for result in $results; do
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              echo "Job failed with result: $result"
+              exit 1
+            fi
+          done

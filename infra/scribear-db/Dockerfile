@@ -17,3 +17,11 @@ RUN apk add --no-cache \
     && make install \
     && rm -rf /tmp/pg_cron.tar.gz "/tmp/pg_cron-${PG_CRON_VERSION}" \
     && apk del build-base clang19 llvm19-dev curl
+
+COPY entrypoint.sh /usr/local/bin/scribear-entrypoint.sh
+RUN chmod +x /usr/local/bin/scribear-entrypoint.sh
+ENTRYPOINT ["scribear-entrypoint.sh"]
+CMD []
+
+HEALTHCHECK --interval=5s --timeout=5s --retries=5 \
+    CMD pg_isready -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-postgres}"

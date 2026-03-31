@@ -33,29 +33,32 @@ export async function setup({
 }) {
   const providerConfig = fs.readFileSync(PROVIDER_CONFIG_PATH, 'utf-8');
 
-  container = await GenericContainer.fromDockerfile(
-    TRANSCRIPTION_SERVICE_DIR,
-    'Dockerfile_CPU',
-  )
-    .withCache(true)
-    .build('scribear/transcription-service-cpu:main')
-    .then((image) =>
-      image
-        .withEnvironment({
-          API_KEY,
-          WS_INIT_TIMEOUT_SEC: '5',
-          LOG_LEVEL: 'error',
-        })
-        .withCopyContentToContainer([
-          {
-            content: providerConfig,
-            target: '/app/provider_config.json',
-          },
-        ])
-        .withExposedPorts(PORT)
-        .withWaitStrategy(Wait.forHealthCheck())
-        .start(),
-    );
+  const prebuiltImage = process.env['TRANSCRIPTION_SERVICE_IMAGE'];
+  const image =
+    prebuiltImage != null
+      ? new GenericContainer(prebuiltImage)
+      : await GenericContainer.fromDockerfile(
+          TRANSCRIPTION_SERVICE_DIR,
+          'Dockerfile_CPU',
+        )
+          .withCache(true)
+          .build();
+
+  container = await image
+    .withEnvironment({
+      API_KEY,
+      WS_INIT_TIMEOUT_SEC: '5',
+      LOG_LEVEL: 'error',
+    })
+    .withCopyContentToContainer([
+      {
+        content: providerConfig,
+        target: '/app/provider_config.json',
+      },
+    ])
+    .withExposedPorts(PORT)
+    .withWaitStrategy(Wait.forHealthCheck())
+    .start();
 
   const host = container.getHost();
   const mappedPort = container.getMappedPort(PORT);

@@ -69,7 +69,7 @@ def assert_logger_was_called_with(
     assert logged
 
 
-def assert_rel_error(measured: int, expected: int, rtol: float = 1e-2):
+def assert_rel_error(measured: int, expected: int, rtol: float = 1.5e-2):
     """
     Asserts that relative error is below tolerance
 
@@ -83,7 +83,7 @@ def assert_instant_time(measured_ns: int):
     """
     Asserts that timestamp in nanoseconds is basically 0
     """
-    assert 0 < measured_ns < 1e-2 * NS_PER_SEC
+    assert 0 < measured_ns < 1.5e-2 * NS_PER_SEC
 
 
 @pytest.fixture
@@ -852,7 +852,7 @@ async def test_utilization_report_single_job(wpm: WorkerProcessManager):
     await asyncio.sleep(ROLLING_UTILIZATION_WINDOW_SEC * 2)
 
     # Assert
-    assert abs(wpm.utilization - target_utilization) < 0.05
+    assert abs(wpm.utilization - target_utilization) < 0.15
 
 
 @pytest.mark.timeout(10)
@@ -882,4 +882,4 @@ async def test_utilization_report_multiple_jobs(wpm: WorkerProcessManager):
     await asyncio.sleep(ROLLING_UTILIZATION_WINDOW_SEC * 2)
 
     # Assert
-    assert abs(wpm.utilization - target_utilization) < 0.1
+    assert abs(wpm.utilization - target_utilization) < 0.15

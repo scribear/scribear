@@ -1,0 +1,54 @@
+name: Python CD
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      transcription_service: ${{ steps.filter.outputs.transcription_service }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            transcription_service:
+              - 'transcription_service/**'
+
+  docker-build:
+    needs: [changes]
+    if: needs.changes.outputs.transcription_service == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image_name: scribear/transcription-service-cpu
+            build_context: transcription_service
+            dockerfile: transcription_service/Dockerfile_CPU
+          - image_name: scribear/transcription-service-cuda
+            build_context: transcription_service
+            dockerfile: transcription_service/Dockerfile_CUDA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Container
+        uses: ./.github/actions/build-container
+        with:
+          image_name: ${{ matrix.image_name }}
+          build_context: ${{ matrix.build_context }}
+          dockerfile: ${{ matrix.dockerfile }}
+          cache_variant: ${{ github.ref_name }}
+          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}

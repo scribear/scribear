@@ -1,0 +1,114 @@
+name: Node.js CD
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      workspaces: ${{ steps.changes.outputs.workspaces }}
+      has_changes: ${{ steps.changes.outputs.has_changes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+
+      - id: changes
+        uses: ./.github/actions/detect-changes
+
+  docker-build:
+    needs: [changes]
+    if: needs.changes.outputs.has_changes == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image_name: scribear/scribear-db
+            build_context: infra/scribear-db
+            dockerfile: infra/scribear-db/Dockerfile
+            workspace: infra/scribear-db
+          - image_name: scribear/client-webapp
+            build_context: .
+            dockerfile: apps/client-webapp/Dockerfile
+            workspace: apps/client-webapp
+          - image_name: scribear/kiosk-webapp
+            build_context: .
+            dockerfile: apps/kiosk-webapp/Dockerfile
+            workspace: apps/kiosk-webapp
+          - image_name: scribear/standalone-webapp
+            build_context: .
+            dockerfile: apps/standalone-webapp/Dockerfile
+            workspace: apps/standalone-webapp
+          - image_name: scribear/session-manager
+            build_context: .
+            dockerfile: apps/session-manager/Dockerfile
+            workspace: apps/session-manager
+          - image_name: scribear/node-server
+            build_context: .
+            dockerfile: apps/node-server/Dockerfile
+            workspace: apps/node-server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Container
+        if: contains(needs.changes.outputs.workspaces, matrix.workspace)
+        uses: ./.github/actions/build-container
+        with:
+          image_name: ${{ matrix.image_name }}
+          build_context: ${{ matrix.build_context }}
+          dockerfile: ${{ matrix.dockerfile }}
+          cache_variant: ${{ github.ref_name }}
+          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+  deploy-standalone-webapp:
+    needs: [changes, docker-build]
+    if: contains(needs.changes.outputs.workspaces, 'apps/standalone-webapp') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node
+
+      - name: Run build
+        run: npm run build --workspace @scribear/standalone-webapp
+
+      - name: Label build date and commit hash
+        run: |
+          date > apps/standalone-webapp/dist/builddate.txt
+          git rev-parse --short HEAD > apps/standalone-webapp/dist/commit.txt
+
+      - name: Deploy to Production
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY_2026 }}
+          GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=no"
+        run: |
+          eval "$(ssh-agent -s)"
+          ssh-add - <<< "${DEPLOY_KEY}"
+          git clone git@github.com:scribear/v.git
+          git config --global user.email "angrave@illinois.edu"
+          git config --global user.name "scribear-bot"
+          cd v
+          ls -la
+          export SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`
+
+          git rm -rf latest-v2
+          git commit -m "Removing previous latest dir"
+
+          mkdir -p latest-v2
+          mv ../apps/standalone-webapp/dist/* latest-v2
+          git add latest-v2
+
+          git commit -m "Commit Deploy: ${SHORT_SHA}"
+          git push origin master

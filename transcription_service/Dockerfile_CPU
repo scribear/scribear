@@ -1,15 +1,29 @@
-FROM python:3.12.11
+FROM ghcr.io/astral-sh/uv:0.11.2 AS uv
+
+FROM python:3.12.11-slim
 
 WORKDIR /app
 
-COPY pyproject.toml .
+COPY --from=uv /uv /usr/local/bin/uv
 
-RUN pip install .[faster-whisper,silero-vad]
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml uv.lock ./
+
+RUN uv sync --frozen --no-install-project \
+    --extra faster-whisper \
+    --extra silero-vad-cpu
 
 COPY src ./src
 
-RUN pip install .
+RUN uv sync --frozen --no-editable \
+    --extra faster-whisper \
+    --extra silero-vad-cpu
 
+ENV PATH="/app/.venv/bin:$PATH"
 ENV HOST=0.0.0.0
 ENV PORT=80
 ENV PROVIDER_CONFIG_PATH=/app/provider_config.json

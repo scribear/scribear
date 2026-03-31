@@ -31,26 +31,23 @@ export async function setup({
     value: ProvidedContext[T],
   ) => void;
 }) {
-  container = await GenericContainer.fromDockerfile(DOCKERFILE_DIR)
-    .build()
-    .then((image) =>
-      image
-        .withEnvironment({
-          POSTGRES_DB: DB_NAME,
-          POSTGRES_USER: DB_USER,
-          POSTGRES_PASSWORD: DB_PASSWORD,
-        })
-        .withCommand([
-          'postgres',
-          '-c',
-          'shared_preload_libraries=pg_cron',
-          '-c',
-          `cron.database_name=${DB_NAME}`,
-        ])
-        .withExposedPorts(DB_PORT)
-        .withWaitStrategy(Wait.forHealthCheck())
-        .start(),
-    );
+  const prebuiltImage = process.env['SCRIBEAR_DB_IMAGE'];
+  const image =
+    prebuiltImage != null
+      ? new GenericContainer(prebuiltImage)
+      : await GenericContainer.fromDockerfile(DOCKERFILE_DIR)
+          .withCache(true)
+          .build();
+
+  container = await image
+    .withEnvironment({
+      POSTGRES_DB: DB_NAME,
+      POSTGRES_USER: DB_USER,
+      POSTGRES_PASSWORD: DB_PASSWORD,
+    })
+    .withExposedPorts(DB_PORT)
+    .withWaitStrategy(Wait.forHealthCheck())
+    .start();
 
   const dbHost = container.getHost();
   const dbPort = container.getMappedPort(DB_PORT);

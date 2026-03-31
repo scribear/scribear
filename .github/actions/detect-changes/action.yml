@@ -29,7 +29,7 @@ runs:
         if [ "$EVENT_NAME" = "pull_request" ]; then
           BASE="$PR_BASE_SHA"
         elif [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ] || [ -z "$BEFORE_SHA" ]; then
-          BASE=""  # new branch or workflow_dispatch — run all workspaces
+          BASE=""  # new branch or workflow_dispatch - run all workspaces
         else
           BASE="$BEFORE_SHA"
         fi
@@ -40,5 +40,10 @@ runs:
         else
           echo "" > /tmp/changed_files.txt
         fi
+
+        echo "Comparing: ${BASE:-"(all)"} -> HEAD"
+        echo "::group::Changed files"
+        cat /tmp/changed_files.txt
+        echo "::endgroup::"
 
         node "$GITHUB_ACTION_PATH/detect-changes.cjs"
