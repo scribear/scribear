@@ -2,6 +2,9 @@ name: Python CI
 
 on:
   pull_request:
+    branches:
+      - main
+      - staging
   workflow_dispatch:
 
 permissions:
@@ -80,12 +83,20 @@ jobs:
           - image_name: scribear/transcription-service-cpu
             build_context: transcription_service
             dockerfile: transcription_service/Dockerfile_CPU
+            version_file: transcription_service/pyproject.toml
           - image_name: scribear/transcription-service-cuda
             build_context: transcription_service
             dockerfile: transcription_service/Dockerfile_CUDA
+            version_file: transcription_service/pyproject.toml
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve image tags
+        id: tags
+        uses: ./.github/actions/resolve-container-tags
+        with:
+          version_file: ${{ matrix.version_file }}
 
       - name: Build Container
         uses: ./.github/actions/build-container
@@ -94,6 +105,7 @@ jobs:
           build_context: ${{ matrix.build_context }}
           dockerfile: ${{ matrix.dockerfile }}
           cache_variant: pr
+          custom_tags: ${{ steps.tags.outputs.tags }}
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
