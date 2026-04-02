@@ -14,6 +14,10 @@ inputs:
     description: "Cache variant to write to ('pr', 'staging', 'main'). All variants are always read from."
     required: false
     default: 'pr'
+  custom_tags:
+    description: "Optional newline-delimited tags to publish instead of the default metadata tags."
+    required: false
+    default: ""
   dockerhub_username:
     description: "DockerHub username."
     required: true
@@ -23,16 +27,41 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Resolve Metadata Tags
+      id: resolved-tags
+      shell: bash
+      env:
+        CUSTOM_TAGS: ${{ inputs.custom_tags }}
+      run: |
+        if [ -n "$CUSTOM_TAGS" ]; then
+          {
+            echo 'tags<<EOF'
+            while IFS= read -r tag; do
+              if [ -n "$tag" ]; then
+                printf 'type=raw,value=%s\n' "$tag"
+              fi
+            done <<< "$CUSTOM_TAGS"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+        else
+          {
+            echo 'tags<<EOF'
+            cat <<'EOF'
+        type=schedule
+        type=ref,event=branch
+        type=ref,event=pr
+        EOF
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+        fi
+
     # Generate tags and labels for the Docker image
     - name: Generate Container Metadata
       id: meta
       uses: docker/metadata-action@v5
       with:
         images: ${{ inputs.image_name }}
-        tags: |
-          type=schedule
-          type=ref,event=branch
-          type=ref,event=pr
+        tags: ${{ steps.resolved-tags.outputs.tags }}
 
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3

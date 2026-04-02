@@ -1,0 +1,65 @@
+name: "Resolve Container Tags"
+description: "Resolves event-specific Docker tags for PR, staging, and main builds."
+inputs:
+  version_file:
+    description: "Path to package.json or pyproject.toml used for main release tags."
+    required: true
+outputs:
+  tags:
+    description: "Newline-delimited Docker tags."
+    value: ${{ steps.resolve.outputs.tags }}
+runs:
+  using: "composite"
+  steps:
+    - name: Resolve image tags
+      id: resolve
+      shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        GITHUB_REF: ${{ github.ref }}
+        GITHUB_SHA: ${{ github.sha }}
+        PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+        VERSION_FILE: ${{ inputs.version_file }}
+      run: |
+        python3 <<'PY'
+        import json
+        import os
+        from pathlib import Path
+        import tomllib
+
+        event_name = os.environ["EVENT_NAME"]
+        github_ref = os.environ["GITHUB_REF"]
+        short_sha = os.environ["GITHUB_SHA"][:7]
+        pr_number = os.environ.get("PR_NUMBER", "")
+        version_file = Path(os.environ["VERSION_FILE"])
+        tags: list[str] = []
+
+        def read_version(path: Path) -> str:
+            if path.suffix == ".json":
+                data = json.loads(path.read_text(encoding="utf-8"))
+                version = data.get("version")
+            elif path.suffix == ".toml":
+                data = tomllib.loads(path.read_text(encoding="utf-8"))
+                version = data.get("project", {}).get("version")
+            else:
+                raise SystemExit(f"Unsupported version file: {path}")
+
+            if not version:
+                raise SystemExit(f"Could not resolve version from {path}")
+
+            return str(version)
+
+        if event_name == "pull_request":
+            if pr_number:
+                tags.append(f"PR-{pr_number}")
+        elif event_name == "push" and github_ref == "refs/heads/staging":
+            tags.extend(["staging", f"staging-{short_sha}"])
+        elif event_name == "push" and github_ref == "refs/heads/main":
+            version = read_version(version_file)
+            tags.extend(["latest", f"v{version}"])
+
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output_file:
+            output_file.write("tags<<EOF\n")
+            output_file.write("\n".join(tags))
+            output_file.write("\nEOF\n")
+        PY

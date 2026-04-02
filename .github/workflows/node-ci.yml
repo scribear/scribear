@@ -2,6 +2,9 @@ name: Node.js CI
 
 on:
   pull_request:
+    branches:
+      - main
+      - staging
   workflow_dispatch:
 
 permissions:
@@ -149,29 +152,41 @@ jobs:
             build_context: infra/scribear-db
             dockerfile: infra/scribear-db/Dockerfile
             workspace: infra/scribear-db
+            version_file: infra/scribear-db/package.json
           - image_name: scribear/client-webapp
             build_context: .
             dockerfile: apps/client-webapp/Dockerfile
             workspace: apps/client-webapp
+            version_file: apps/client-webapp/package.json
           - image_name: scribear/kiosk-webapp
             build_context: .
             dockerfile: apps/kiosk-webapp/Dockerfile
             workspace: apps/kiosk-webapp
+            version_file: apps/kiosk-webapp/package.json
           - image_name: scribear/standalone-webapp
             build_context: .
             dockerfile: apps/standalone-webapp/Dockerfile
             workspace: apps/standalone-webapp
+            version_file: apps/standalone-webapp/package.json
           - image_name: scribear/session-manager
             build_context: .
             dockerfile: apps/session-manager/Dockerfile
             workspace: apps/session-manager
+            version_file: apps/session-manager/package.json
           - image_name: scribear/node-server
             build_context: .
             dockerfile: apps/node-server/Dockerfile
             workspace: apps/node-server
+            version_file: apps/node-server/package.json
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve image tags
+        id: tags
+        uses: ./.github/actions/resolve-container-tags
+        with:
+          version_file: ${{ matrix.version_file }}
 
       - name: Build Container
         if: contains(needs.changes.outputs.workspaces, matrix.workspace)
@@ -181,6 +196,7 @@ jobs:
           build_context: ${{ matrix.build_context }}
           dockerfile: ${{ matrix.dockerfile }}
           cache_variant: pr
+          custom_tags: ${{ steps.tags.outputs.tags }}
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
