@@ -30,6 +30,14 @@ import { registerDevice, setKioskServiceStatus } from './kiosk-service-slice';
 // Module-level reference for HMR cleanup.
 let _activeKioskService: KioskService | null = null;
 
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    _activeKioskService?.removeAllListeners();
+    _activeKioskService?.deactivate();
+    _activeKioskService = null;
+  });
+}
+
 /**
  * Reads the current microphone activation state from the Redux store and
  * forwards it to the kiosk service by calling `mute` or `unmute`.
@@ -118,11 +126,3 @@ export const createKioskServiceMiddleware =
       return result;
     };
   };
-
-if (import.meta.hot) {
-  import.meta.hot.dispose(() => {
-    _activeKioskService?.removeAllListeners();
-    _activeKioskService?.deactivate();
-    _activeKioskService = null;
-  });
-}

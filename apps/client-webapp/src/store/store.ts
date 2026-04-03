@@ -33,22 +33,26 @@ export const rememberedKeys: (keyof typeof reducers)[] = [
 // Combined root reducer with redux-remember support.
 export const rootReducer = rememberReducer(reducers);
 
-// Configured Redux store with localStorage persistence via redux-remember.
-export const store = configureStore({
-  reducer: rootReducer,
-  enhancers: (getDefaultEnhancers) =>
-    getDefaultEnhancers().prepend(
-      rememberEnhancer(window.localStorage, rememberedKeys, {
-        initActionType: appInitialization.type,
-      }),
-    ),
-});
+// Creates and returns the configured Redux store for the client webapp.
+export const createAppStore = () => {
+  const store = configureStore({
+    reducer: rootReducer,
+    enhancers: (getDefaultEnhancers) =>
+      getDefaultEnhancers().prepend(
+        rememberEnhancer(window.localStorage, rememberedKeys, {
+          initActionType: appInitialization.type,
+        }),
+      ),
+  });
+
+  store.dispatch(appInitialization());
+
+  return store;
+};
 
 // TypeScript type of the full Redux state tree for the client webapp.
 export type RootState = ReturnType<typeof rootReducer>;
 // TypeScript type of the store's `dispatch` function, including thunk support.
-export type AppDispatch = typeof store.dispatch;
+export type AppDispatch = ReturnType<typeof createAppStore>['dispatch'];
 // TypeScript type of the configured Redux store instance.
-export type AppStore = typeof store;
-
-store.dispatch(appInitialization());
+export type AppStore = ReturnType<typeof createAppStore>;
