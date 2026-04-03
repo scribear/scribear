@@ -89,8 +89,6 @@ const globalFiles = new Set([
   'prettier.config.js',
   'vitest.config.ts',
   'vitest.shared.ts',
-  '.npmrc',
-  '.editorconfig',
 ]);
 
 let affected;

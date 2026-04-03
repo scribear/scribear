@@ -1,20 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
+import Button from '@mui/material/Button';
 import InputLabel from '@mui/material/InputLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
+import Stack from '@mui/material/Stack';
 
-import { ProviderConfigContainer } from '#src/features/transcription-providers/components/provider-config-container';
 import {
   selectProviderConfig,
   updateProviderConfig,
 } from '#src/features/transcription-providers/stores/provider-config-slice';
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
-import {
-  type ProviderConfigMenuProps,
-  getProviderDisplayName,
-} from '../../provider-component-registry';
+import { type ProviderConfigMenuProps } from '../../provider-component-registry';
 import { ProviderId } from '../../provider-registry';
 import { languageTags } from '../config/webspeech-config';
 
@@ -23,9 +21,11 @@ import { languageTags } from '../config/webspeech-config';
  * select the recognition language from a dropdown, with unsaved-change
  * detection on close.
  */
-export const WebspeechConfigMenu = ({ onClose }: ProviderConfigMenuProps) => {
+export const WebspeechConfigMenu = ({
+  onClose,
+  onDirtyChange,
+}: ProviderConfigMenuProps) => {
   const dispatch = useAppDispatch();
-  const displayName = getProviderDisplayName(ProviderId.WEBSPEECH);
 
   const webspeechConfig = useAppSelector((state) =>
     selectProviderConfig(state, ProviderId.WEBSPEECH),
@@ -33,9 +33,13 @@ export const WebspeechConfigMenu = ({ onClose }: ProviderConfigMenuProps) => {
 
   const [languageTag, setLanguageTag] = useState(webspeechConfig.languageTag);
 
+  const isDirty = languageTag !== webspeechConfig.languageTag;
+  useEffect(() => {
+    onDirtyChange(isDirty);
+  }, [isDirty, onDirtyChange]);
+
   const handleClose = () => {
-    const isEdited = languageTag !== webspeechConfig.languageTag;
-    onClose(isEdited);
+    onClose(isDirty);
   };
 
   const saveConfig = () => {
@@ -51,11 +55,7 @@ export const WebspeechConfigMenu = ({ onClose }: ProviderConfigMenuProps) => {
   };
 
   return (
-    <ProviderConfigContainer
-      onClose={handleClose}
-      onSave={saveConfig}
-      displayName={displayName}
-    >
+    <>
       <InputLabel id="webspeech-language-select-label">Language</InputLabel>
       <Select
         labelId="webspeech-language-select-label"
@@ -75,6 +75,14 @@ export const WebspeechConfigMenu = ({ onClose }: ProviderConfigMenuProps) => {
           </MenuItem>
         ))}
       </Select>
-    </ProviderConfigContainer>
+      <Stack direction="row" justifyContent="flex-end" gap={1} pt={4}>
+        <Button color="error" variant="contained" onClick={handleClose}>
+          Cancel
+        </Button>
+        <Button color="success" variant="contained" onClick={saveConfig}>
+          Save
+        </Button>
+      </Stack>
+    </>
   );
 };

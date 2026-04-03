@@ -1,18 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
+import Button from '@mui/material/Button';
+import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 
-import { ProviderConfigContainer } from '#src/features/transcription-providers/components/provider-config-container';
+import { NumberField } from '@scribear/core-ui';
+
 import {
   selectProviderConfig,
   updateProviderConfig,
 } from '#src/features/transcription-providers/stores/provider-config-slice';
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
-import {
-  type ProviderConfigMenuProps,
-  getProviderDisplayName,
-} from '../../provider-component-registry';
+import { type ProviderConfigMenuProps } from '../../provider-component-registry';
 import { ProviderId } from '../../provider-registry';
 
 /**
@@ -20,9 +20,11 @@ import { ProviderId } from '../../provider-registry';
  * event name, language, and start position, with unsaved-change detection on
  * close and non-negative integer enforcement for the start position field.
  */
-export const StreamtextConfigMenu = ({ onClose }: ProviderConfigMenuProps) => {
+export const StreamtextConfigMenu = ({
+  onClose,
+  onDirtyChange,
+}: ProviderConfigMenuProps) => {
   const dispatch = useAppDispatch();
-  const displayName = getProviderDisplayName(ProviderId.STREAMTEXT);
 
   const streamtextConfig = useAppSelector((state) =>
     selectProviderConfig(state, ProviderId.STREAMTEXT),
@@ -30,28 +32,23 @@ export const StreamtextConfigMenu = ({ onClose }: ProviderConfigMenuProps) => {
 
   const [event, setEvent] = useState(streamtextConfig.event);
   const [language, setLanguage] = useState(streamtextConfig.language);
-  const [startPositionInput, setStartPositionInput] = useState(
-    streamtextConfig.startPosition.toString(),
+  const [startPosition, setStartPosition] = useState(
+    streamtextConfig.startPosition,
   );
 
-  // Keep startPosition non-negative so StreamText cursor is always valid.
-  const parseStartPosition = (value: string) => {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isNaN(parsed)) return 0;
-    return Math.max(0, parsed);
-  };
+  const isDirty =
+    event !== streamtextConfig.event ||
+    language !== streamtextConfig.language ||
+    startPosition !== streamtextConfig.startPosition;
+  useEffect(() => {
+    onDirtyChange(isDirty);
+  }, [isDirty, onDirtyChange]);
 
   const handleClose = () => {
-    const startPosition = parseStartPosition(startPositionInput);
-    const isEdited =
-      event !== streamtextConfig.event ||
-      language !== streamtextConfig.language ||
-      startPosition !== streamtextConfig.startPosition;
-    onClose(isEdited);
+    onClose(isDirty);
   };
 
   const saveConfig = () => {
-    const startPosition = parseStartPosition(startPositionInput);
     dispatch(
       updateProviderConfig({
         providerId: ProviderId.STREAMTEXT,
@@ -66,11 +63,7 @@ export const StreamtextConfigMenu = ({ onClose }: ProviderConfigMenuProps) => {
   };
 
   return (
-    <ProviderConfigContainer
-      onClose={handleClose}
-      onSave={saveConfig}
-      displayName={displayName}
-    >
+    <>
       <TextField
         label="Event"
         value={event}
@@ -89,20 +82,23 @@ export const StreamtextConfigMenu = ({ onClose }: ProviderConfigMenuProps) => {
         sx={{ width: 300, pb: 3 }}
       />
       <br />
-      <TextField
+      <NumberField
         label="Start Position"
-        type="number"
-        value={startPositionInput}
-        onChange={(e) => {
-          setStartPositionInput(e.target.value);
+        value={startPosition}
+        onValueChange={(val: number | null) => {
+          setStartPosition(val ?? 0);
         }}
-        slotProps={{
-          htmlInput: {
-            min: 0,
-          },
-        }}
-        sx={{ width: 300 }}
+        step={1}
+        style={{ width: 300 }}
       />
-    </ProviderConfigContainer>
+      <Stack direction="row" justifyContent="flex-end" gap={1} pt={4}>
+        <Button color="error" variant="contained" onClick={handleClose}>
+          Cancel
+        </Button>
+        <Button color="success" variant="contained" onClick={saveConfig}>
+          Save
+        </Button>
+      </Stack>
+    </>
   );
 };

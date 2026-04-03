@@ -17,7 +17,7 @@ import { transcriptionDisplayPreferencesReducer } from '@scribear/transcription-
 
 import { appMicrophoneService } from '#src/app-microphone-service';
 import { kioskConfigReducer } from '#src/features/kiosk-provider/stores/kiosk-config-slice';
-import { kioskServiceMiddleware } from '#src/features/kiosk-provider/stores/kiosk-service-middleware';
+import { createKioskServiceMiddleware } from '#src/features/kiosk-provider/stores/kiosk-service-middleware';
 import { kioskServiceReducer } from '#src/features/kiosk-provider/stores/kiosk-service-slice';
 import { splitScreenPreferencesReducer } from '#src/features/kiosk-split-screen/stores/split-screen-preferences-slice';
 
@@ -59,7 +59,7 @@ export const store = configureStore({
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware()
       .concat(createMicrophoneServiceMiddleware(appMicrophoneService))
-      .concat(kioskServiceMiddleware),
+      .concat(createKioskServiceMiddleware(appMicrophoneService)),
   enhancers: (getDefaultEnhancers) =>
     getDefaultEnhancers().prepend(
       rememberEnhancer(window.localStorage, rememberedKeys, {

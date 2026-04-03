@@ -1,3 +1,5 @@
+import type { MicrophoneService } from '@scribear/microphone-store';
+
 import { BaseProviderInterface } from '../../base-provider-interface';
 import type { ProviderInterface } from '../../provider-interface';
 import {
@@ -17,15 +19,14 @@ export class WebspeechProvider
   implements ProviderInterface<WebspeechConfig, WebspeechStatus>
 {
   private _muted = true;
-  private _recognition: SpeechRecognition | null;
-  private _finalizedResultCount: number;
-  private _providerIsStarted: boolean;
+  private _recognition: SpeechRecognition | null = null;
+  private _finalizedResultCount = 0;
+  private _providerIsStarted = false;
+  private readonly _microphoneService: MicrophoneService;
 
-  constructor() {
+  constructor(microphoneService: MicrophoneService) {
     super(INITIAL_WEBSPEECH_STATUS);
-    this._recognition = null;
-    this._finalizedResultCount = 0;
-    this._providerIsStarted = false;
+    this._microphoneService = microphoneService;
   }
 
   private _handleResult(event: SpeechRecognitionEvent) {
@@ -153,6 +154,7 @@ export class WebspeechProvider
     } else {
       this._startProvider();
     }
+    void this._microphoneService.activateMicrophone();
   }
 
   /**

@@ -1,8 +1,6 @@
 import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
 import Modal from '@mui/material/Modal';
 import Paper from '@mui/material/Paper';
-import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 
 /**
@@ -15,20 +13,17 @@ interface ProviderConfigContainer {
   children: React.ReactNode;
   // Called when the user dismisses the modal without saving.
   onClose: () => void;
-  // Called when the user presses the Save button.
-  onSave: () => void;
 }
 
 /**
  * Generic modal shell for provider configuration menus. Renders a centered
- * MUI `Paper` modal with a title derived from `displayName`, a slot for form
- * content, and a Save button.
+ * MUI `Paper` modal with a title derived from `displayName` and a slot for
+ * form content.
  */
 export const ProviderConfigContainer = ({
   displayName,
   children,
   onClose,
-  onSave,
 }: ProviderConfigContainer) => {
   return (
     <Modal open onClose={onClose}>
@@ -44,12 +39,7 @@ export const ProviderConfigContainer = ({
         }}
       >
         <Typography variant="h5">{displayName} Settings</Typography>
-        <Box paddingY={4}>{children}</Box>
-        <Stack direction="row" justifyContent="flex-end">
-          <Button color="success" variant="contained" onClick={onSave}>
-            Save
-          </Button>
-        </Stack>
+        <Box paddingTop={4}>{children}</Box>
       </Paper>
     </Modal>
   );

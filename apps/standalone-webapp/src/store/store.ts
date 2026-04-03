@@ -18,8 +18,9 @@ import { transcriptionDisplayPreferencesReducer } from '@scribear/transcription-
 import { appMicrophoneService } from '#src/app-microphone-service';
 import { providerConfigReducer } from '#src/features/transcription-providers/stores/provider-config-slice';
 import { providerPreferencesReducer } from '#src/features/transcription-providers/stores/provider-preferences-slice';
-import { providerServiceMiddleware } from '#src/features/transcription-providers/stores/provider-service-middleware';
+import { createProviderServiceMiddleware } from '#src/features/transcription-providers/stores/provider-service-middleware';
 import { providerStatusReducer } from '#src/features/transcription-providers/stores/provider-status-slice';
+import { providerUIReducer } from '#src/features/transcription-providers/stores/provider-ui-slice';
 import { createUrlFragmentDriver } from '#src/features/url-config/url-fragment-driver';
 
 // All Redux slice reducers combined into the root reducer map.
@@ -34,6 +35,7 @@ const reducers = {
   providerConfig: providerConfigReducer,
   providerPreferences: providerPreferencesReducer,
   providerStatus: providerStatusReducer,
+  providerUI: providerUIReducer,
 };
 
 // Slice keys that are persisted to localStorage via redux-remember.
@@ -70,7 +72,7 @@ export const store = configureStore({
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware()
       .concat(createMicrophoneServiceMiddleware(appMicrophoneService))
-      .concat(providerServiceMiddleware),
+      .concat(createProviderServiceMiddleware(appMicrophoneService)),
   enhancers: (getDefaultEnhancers) =>
     getDefaultEnhancers().prepend(
       rememberEnhancer(urlFragmentDriver, rememberedKeys, {
