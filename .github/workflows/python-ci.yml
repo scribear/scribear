@@ -128,7 +128,7 @@ jobs:
           package_name: "Transcription Service - Integration Tests"
           filename: "./transcription_service/coverage.xml"
 
-  ci:
+  python-ci:
     needs: [format, lint, test, docker-build, integration-test]
     if: always()
     runs-on: ubuntu-latest
