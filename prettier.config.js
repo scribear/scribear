@@ -21,7 +21,7 @@ const config = {
   // Enforce import grouping and ordering
   importOrder: [
     '^react$',
-    '^@mui/(.*)',
+    '^@(mui|emotion|base-ui)/(.*)',
     '<THIRD_PARTY_MODULES>',
     '^@scribear/(.*)',
     '^#(src|tests)/(.*)',

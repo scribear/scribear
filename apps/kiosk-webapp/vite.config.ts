@@ -21,6 +21,7 @@ export default defineConfig({
             '@mui/icons-material',
             '@emotion/react',
             '@emotion/styled',
+            '@base-ui/react',
           ],
           'vendor-redux': ['@reduxjs/toolkit', 'react-redux', 'redux-remember'],
         },

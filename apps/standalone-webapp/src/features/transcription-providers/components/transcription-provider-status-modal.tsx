@@ -42,6 +42,8 @@ export const TranscriptionProviderStatusModal = () => {
 
   return (
     <Suspense fallback={loadingFallback}>
+      {/* getProviderStatusModal returns a stable reference from the module-level registry, not a new component. */}
+      {/* eslint-disable-next-line react-hooks/static-components */}
       <StatusModal />
     </Suspense>
   );

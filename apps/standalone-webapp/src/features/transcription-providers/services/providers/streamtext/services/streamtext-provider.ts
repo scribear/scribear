@@ -46,10 +46,9 @@ export class StreamtextProvider
   }
 
   private _resetSessionState(config: StreamtextConfig) {
-    this._event = config.event.trim();
-    this._language =
-      config.language.trim() === '' ? 'en' : config.language.trim();
-    this._lastPosition = Math.max(0, Math.floor(config.startPosition));
+    this._event = config.event;
+    this._language = config.language;
+    this._lastPosition = config.startPosition;
     this._consecutiveFailureCount = 0;
   }
 
@@ -95,7 +94,7 @@ export class StreamtextProvider
 
       const parsedLastPosition = Number(json.lastPosition);
       if (Number.isFinite(parsedLastPosition)) {
-        this._lastPosition = Math.max(0, Math.floor(parsedLastPosition));
+        this._lastPosition = parsedLastPosition;
       }
 
       const content = typeof json.content === 'string' ? json.content : '';

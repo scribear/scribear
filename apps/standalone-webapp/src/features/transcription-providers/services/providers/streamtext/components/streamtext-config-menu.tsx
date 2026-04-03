@@ -4,6 +4,8 @@ import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 
+import { NumberField } from '@scribear/core-ui';
+
 import {
   selectProviderConfig,
   updateProviderConfig,
@@ -30,18 +32,10 @@ export const StreamtextConfigMenu = ({
 
   const [event, setEvent] = useState(streamtextConfig.event);
   const [language, setLanguage] = useState(streamtextConfig.language);
-  const [startPositionInput, setStartPositionInput] = useState(
-    streamtextConfig.startPosition.toString(),
+  const [startPosition, setStartPosition] = useState(
+    streamtextConfig.startPosition,
   );
 
-  // Keep startPosition non-negative so StreamText cursor is always valid.
-  const parseStartPosition = (value: string) => {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isNaN(parsed)) return 0;
-    return Math.max(0, parsed);
-  };
-
-  const startPosition = parseStartPosition(startPositionInput);
   const isDirty =
     event !== streamtextConfig.event ||
     language !== streamtextConfig.language ||
@@ -88,19 +82,14 @@ export const StreamtextConfigMenu = ({
         sx={{ width: 300, pb: 3 }}
       />
       <br />
-      <TextField
+      <NumberField
         label="Start Position"
-        type="number"
-        value={startPositionInput}
-        onChange={(e) => {
-          setStartPositionInput(e.target.value);
+        value={startPosition}
+        onValueChange={(val: number | null) => {
+          setStartPosition(val ?? 0);
         }}
-        slotProps={{
-          htmlInput: {
-            min: 0,
-          },
-        }}
-        sx={{ width: 300 }}
+        step={1}
+        style={{ width: 300 }}
       />
       <Stack direction="row" justifyContent="flex-end" gap={1} pt={4}>
         <Button color="error" variant="contained" onClick={handleClose}>

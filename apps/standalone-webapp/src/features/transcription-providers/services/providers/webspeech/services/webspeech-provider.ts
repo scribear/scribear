@@ -20,8 +20,8 @@ export class WebspeechProvider
 {
   private _muted = true;
   private _recognition: SpeechRecognition | null = null;
-  private _finalizedResultCount: number = 0;
-  private _providerIsStarted: boolean = false;
+  private _finalizedResultCount = 0;
+  private _providerIsStarted = false;
   private readonly _microphoneService: MicrophoneService;
 
   constructor(microphoneService: MicrophoneService) {

@@ -7,23 +7,23 @@ import { STREAMTEXT_DISPLAY_NAME } from './streamtext/config/streamtext-config';
 import { WebspeechStatusIcon } from './webspeech/components/webspeech-status-icon';
 import { WEBSPEECH_DISPLAY_NAME } from './webspeech/config/webspeech-config';
 
-const StreamtextConfigMenu = lazy(() =>
+export const StreamtextConfigMenu = lazy(() =>
   import('./streamtext/components/streamtext-config-menu').then((m) => ({
     default: m.StreamtextConfigMenu,
   })),
 );
-const StreamtextModal = lazy(() =>
+export const StreamtextModal = lazy(() =>
   import('./streamtext/components/streamtext-modal').then((m) => ({
     default: m.StreamtextModal,
   })),
 );
 
-const WebspeechConfigMenu = lazy(() =>
+export const WebspeechConfigMenu = lazy(() =>
   import('./webspeech/components/webspeech-config-menu').then((m) => ({
     default: m.WebspeechConfigMenu,
   })),
 );
-const WebspeechModal = lazy(() =>
+export const WebspeechModal = lazy(() =>
   import('./webspeech/components/webspeech-modal').then((m) => ({
     default: m.WebspeechModal,
   })),

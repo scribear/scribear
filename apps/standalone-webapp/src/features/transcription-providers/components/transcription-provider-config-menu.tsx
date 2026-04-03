@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useState } from 'react';
 
 import CircularProgress from '@mui/material/CircularProgress';
 import Stack from '@mui/material/Stack';
@@ -7,15 +7,16 @@ import { ChoiceModal } from '@scribear/core-ui';
 
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
-import { ProviderConfigContainer } from './provider-config-container';
 import {
   getProviderConfigMenu,
   getProviderDisplayName,
 } from '../services/providers/provider-component-registry';
+import type { ProviderId } from '../services/providers/provider-registry';
 import {
   closeConfigMenu,
   selectConfigMenuProviderId,
 } from '../stores/provider-ui-slice';
+import { ProviderConfigContainer } from './provider-config-container';
 
 /**
  * Renders the configuration menu for whichever provider is currently set in
@@ -27,14 +28,19 @@ export const TranscriptionProviderConfigMenu = () => {
   const dispatch = useAppDispatch();
   const configMenuProviderId = useAppSelector(selectConfigMenuProviderId);
   const [isConfirmPromptOpen, setIsConfirmPromptOpen] = useState(false);
-  const [isFormDirty, setIsFormDirty] = useState(false);
-
-  useEffect(() => {
-    setIsFormDirty(false);
-  }, [configMenuProviderId]);
+  // Track which provider the dirty state belongs to so it resets automatically
+  // when a different provider's menu is opened, without needing an effect.
+  const [dirtyForProviderId, setDirtyForProviderId] = useState<
+    ProviderId | null | undefined
+  >(null);
+  const isFormDirty = dirtyForProviderId === configMenuProviderId;
 
   const closeConfirmPrompt = () => {
     setIsConfirmPromptOpen(false);
+  };
+
+  const handleDirtyChange = (isDirty: boolean) => {
+    setDirtyForProviderId(isDirty ? configMenuProviderId : null);
   };
 
   const handleClose = (showConfirmPrompt: boolean) => {
@@ -42,6 +48,7 @@ export const TranscriptionProviderConfigMenu = () => {
       setIsConfirmPromptOpen(true);
     } else {
       setIsConfirmPromptOpen(false);
+      setDirtyForProviderId(null);
       dispatch(closeConfigMenu());
     }
   };
@@ -65,7 +72,9 @@ export const TranscriptionProviderConfigMenu = () => {
       />
       <ProviderConfigContainer
         displayName={getProviderDisplayName(configMenuProviderId)}
-        onClose={() => handleClose(isFormDirty)}
+        onClose={() => {
+          handleClose(isFormDirty);
+        }}
       >
         <Suspense
           fallback={
@@ -74,7 +83,9 @@ export const TranscriptionProviderConfigMenu = () => {
             </Stack>
           }
         >
-          <ConfigMenu onClose={handleClose} onDirtyChange={setIsFormDirty} />
+          {/* getProviderConfigMenu returns a stable reference from the module-level registry, not a new component. */}
+          {/* eslint-disable-next-line react-hooks/static-components */}
+          <ConfigMenu onClose={handleClose} onDirtyChange={handleDirtyChange} />
         </Suspense>
       </ProviderConfigContainer>
     </>

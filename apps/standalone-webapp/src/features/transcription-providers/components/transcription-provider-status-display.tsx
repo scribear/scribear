@@ -1,6 +1,3 @@
-import { Suspense } from 'react';
-
-import HourglassTopIcon from '@mui/icons-material/HourglassTop';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 
@@ -25,6 +22,8 @@ export const TranscriptionProviderStatusDisplay = () => {
 
   return (
     <Stack direction="row" alignItems="center">
+      {/* getProviderStatusIcon returns a stable reference from the module-level registry, not a new component. */}
+      {/* eslint-disable-next-line react-hooks/static-components */}
       {StatusIcon ? <StatusIcon /> : null}
       <Typography variant="h6">
         {targetProviderId
