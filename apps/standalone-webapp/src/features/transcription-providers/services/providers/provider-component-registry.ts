@@ -1,24 +1,11 @@
 import { lazy } from 'react';
 import type React from 'react';
 
-import { AzureStatusIcon } from './azure/components/azure-status-icon';
-import { AZURE_DISPLAY_NAME } from './azure/config/azure-config';
 import { ProviderId } from './provider-registry';
 import { StreamtextStatusIcon } from './streamtext/components/streamtext-status-icon';
 import { STREAMTEXT_DISPLAY_NAME } from './streamtext/config/streamtext-config';
 import { WebspeechStatusIcon } from './webspeech/components/webspeech-status-icon';
 import { WEBSPEECH_DISPLAY_NAME } from './webspeech/config/webspeech-config';
-
-const AzureConfigMenu = lazy(() =>
-  import('./azure/components/azure-config-menu').then((m) => ({
-    default: m.AzureConfigMenu,
-  })),
-);
-const AzureModal = lazy(() =>
-  import('./azure/components/azure-modal').then((m) => ({
-    default: m.AzureModal,
-  })),
-);
 
 const StreamtextConfigMenu = lazy(() =>
   import('./streamtext/components/streamtext-config-menu').then((m) => ({
@@ -76,12 +63,6 @@ export const providerComponentRegistry: ProviderComponentRegistry = {
     statusIcon: WebspeechStatusIcon,
     statusModal: WebspeechModal,
     configMenu: WebspeechConfigMenu,
-  },
-  [ProviderId.AZURE]: {
-    displayName: AZURE_DISPLAY_NAME,
-    statusIcon: AzureStatusIcon,
-    statusModal: AzureModal,
-    configMenu: AzureConfigMenu,
   },
   [ProviderId.STREAMTEXT]: {
     displayName: STREAMTEXT_DISPLAY_NAME,

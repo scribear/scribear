@@ -1,11 +1,5 @@
 import type { MicrophoneService } from '@scribear/microphone-store';
 
-import {
-  type AzureConfig,
-  DEFAULT_AZURE_CONFIG,
-  INITIAL_AZURE_STATUS,
-} from './azure/config/azure-config';
-import type { AzureStatus } from './azure/types/azure-status';
 import type { ProviderInterface } from './provider-interface';
 import {
   DEFAULT_STREAMTEXT_CONFIG,
@@ -26,7 +20,6 @@ import type { WebspeechStatus } from './webspeech/types/webspeech-status';
  */
 export enum ProviderId {
   WEBSPEECH = 'WEBSPEECH',
-  AZURE = 'AZURE',
   STREAMTEXT = 'STREAMTEXT',
 }
 
@@ -35,7 +28,6 @@ export enum ProviderId {
  */
 export interface ProviderConfigTypeMap {
   [ProviderId.WEBSPEECH]: WebspeechConfig;
-  [ProviderId.AZURE]: AzureConfig;
   [ProviderId.STREAMTEXT]: StreamtextConfig;
 }
 
@@ -44,7 +36,6 @@ export interface ProviderConfigTypeMap {
  */
 export interface ProviderStatusTypeMap {
   [ProviderId.WEBSPEECH]: WebspeechStatus;
-  [ProviderId.AZURE]: AzureStatus;
   [ProviderId.STREAMTEXT]: StreamtextStatus;
 }
 
@@ -78,12 +69,6 @@ export const providerRegistry: ProviderRegistry = {
       import('./webspeech/services/webspeech-provider').then(
         (m) => m.WebspeechProvider,
       ),
-  },
-  [ProviderId.AZURE]: {
-    initialConfig: DEFAULT_AZURE_CONFIG,
-    initialStatus: INITIAL_AZURE_STATUS,
-    loader: () =>
-      import('./azure/services/azure-provider').then((m) => m.AzureProvider),
   },
   [ProviderId.STREAMTEXT]: {
     initialConfig: DEFAULT_STREAMTEXT_CONFIG,
