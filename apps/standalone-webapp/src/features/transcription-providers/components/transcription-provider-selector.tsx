@@ -17,7 +17,7 @@ import {
   selectTargetProviderId,
   setPreferredProviderId,
 } from '../stores/provider-preferences-slice';
-import { TranscriptionProviderConfigMenu } from './transcription-provider-config-menu';
+import { openConfigMenu } from '../stores/provider-ui-slice';
 
 /**
  * Props for {@link TranscriptionProviderOption}.
@@ -68,9 +68,6 @@ export const TranscriptionProviderSelector = () => {
   const dispatch = useAppDispatch();
   const targetProviderId = useAppSelector(selectTargetProviderId);
 
-  const [configureProviderId, setConfigureProviderId] =
-    useState<ProviderId | null>(null);
-
   const [selectorMenuAnchorEl, setSelectorMenuAnchorEl] =
     useState<HTMLButtonElement | null>(null);
   const isSelectorMenuOpen = Boolean(selectorMenuAnchorEl);
@@ -116,7 +113,8 @@ export const TranscriptionProviderSelector = () => {
               handleSelectProvider(id);
             }}
             onConfigureProvider={() => {
-              setConfigureProviderId(id);
+              hideSelectorMenu();
+              dispatch(openConfigMenu(id));
             }}
           />
         ))}
@@ -130,14 +128,6 @@ export const TranscriptionProviderSelector = () => {
           <Typography>No Provider</Typography>
         </MenuItem>
       </Menu>
-      {configureProviderId ? (
-        <TranscriptionProviderConfigMenu
-          providerId={configureProviderId}
-          onClose={() => {
-            setConfigureProviderId(null);
-          }}
-        />
-      ) : null}
     </>
   );
 };

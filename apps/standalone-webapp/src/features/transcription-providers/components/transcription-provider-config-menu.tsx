@@ -2,40 +2,36 @@ import { useState } from 'react';
 
 import { ChoiceModal } from '@scribear/core-ui';
 
+import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
+
 import { getProviderConfigMenu } from '../services/providers/provider-component-registry';
 import { ProviderId } from '../services/providers/provider-registry';
+import {
+  closeConfigMenu,
+  selectConfigMenuProviderId,
+} from '../stores/provider-ui-slice';
 
 /**
- * Props for {@link TranscriptionProviderConfigMenu}.
+ * Renders the configuration menu for whichever provider is currently set in
+ * the `providerUI` Redux slice. Includes an unsaved-changes confirmation modal
+ * that is shown when the user tries to close the menu with pending edits.
+ * Renders nothing when no config menu is open.
  */
-interface TranscriptionProviderConfigMenuProps {
-  // The provider whose config menu to display.
-  providerId: ProviderId;
-  // Called when the menu should be closed.
-  onClose: () => void;
-}
-
-/**
- * Renders the configuration menu for the specified provider. Includes an
- * unsaved-changes confirmation modal that is shown when the user tries to
- * close the menu with pending edits.
- */
-export const TranscriptionProviderConfigMenu = ({
-  providerId,
-  onClose,
-}: TranscriptionProviderConfigMenuProps) => {
+export const TranscriptionProviderConfigMenu = () => {
+  const dispatch = useAppDispatch();
+  const configMenuProviderId = useAppSelector(selectConfigMenuProviderId);
   const [isConfirmPromptOpen, setIsConfirmPromptOpen] = useState(false);
 
   const closeConfirmPrompt = () => {
     setIsConfirmPromptOpen(false);
   };
 
-  const closeMenu = (showConfirmPrompt: boolean) => {
+  const handleClose = (showConfirmPrompt: boolean) => {
     if (showConfirmPrompt) {
       setIsConfirmPromptOpen(true);
     } else {
       setIsConfirmPromptOpen(false);
-      onClose();
+      dispatch(closeConfigMenu());
     }
   };
 
@@ -48,7 +44,7 @@ export const TranscriptionProviderConfigMenu = ({
       rightColor="error"
       rightAction="Close Menu"
       onRightAction={() => {
-        closeMenu(false);
+        handleClose(false);
       }}
     />
   );
@@ -56,14 +52,16 @@ export const TranscriptionProviderConfigMenu = ({
   const menus = Object.fromEntries(
     Object.values(ProviderId).map((id) => {
       const ConfigMenu = getProviderConfigMenu(id);
-      return [id, <ConfigMenu onClose={closeMenu} key={id} />];
+      return [id, <ConfigMenu onClose={handleClose} key={id} />];
     }),
   );
+
+  if (!configMenuProviderId) return null;
 
   return (
     <>
       {confirmPrompt}
-      {menus[providerId]}
+      {menus[configMenuProviderId]}
     </>
   );
 };

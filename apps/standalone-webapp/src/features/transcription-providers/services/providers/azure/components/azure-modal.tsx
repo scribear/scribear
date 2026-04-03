@@ -7,6 +7,7 @@ import { ChoiceModal } from '@scribear/core-ui';
 import { getProviderDisplayName } from '#src/features/transcription-providers/services/providers/provider-component-registry';
 import { setPreferredProviderId } from '#src/features/transcription-providers/stores/provider-preferences-slice';
 import { selectProviderStatus } from '#src/features/transcription-providers/stores/provider-status-slice';
+import { openConfigMenu } from '#src/features/transcription-providers/stores/provider-ui-slice';
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
 import { ProviderId } from '../../provider-registry';
@@ -14,7 +15,7 @@ import { AzureStatus } from '../types/azure-status';
 
 /**
  * Displays contextual status modals for the Azure provider. Shows a spinner
- * while connecting, a retry/cancel dialog when disconnected, and an error
+ * while connecting, a retry/configure dialog when disconnected, and an error
  * dialog when an unexpected error occurs.
  */
 export const AzureModal = () => {
@@ -34,6 +35,10 @@ export const AzureModal = () => {
     dispatch(setPreferredProviderId(ProviderId.AZURE));
   };
 
+  const configure = () => {
+    dispatch(openConfigMenu(ProviderId.AZURE));
+  };
+
   const connecting = (
     <CancelableInfoModal
       isOpen={azureStatus === AzureStatus.CONNECTING}
@@ -50,6 +55,9 @@ export const AzureModal = () => {
     <ChoiceModal
       isOpen={azureStatus === AzureStatus.DISCONNECTED}
       message={`Disconnected from ${displayName}`}
+      leftAction="Configure"
+      leftColor="info"
+      onLeftAction={configure}
       rightAction="Retry"
       onRightAction={retryActivation}
       onCancel={cancelModal}
@@ -58,8 +66,11 @@ export const AzureModal = () => {
 
   const error = (
     <ChoiceModal
-      isOpen={azureStatus === AzureStatus.DISCONNECTED}
+      isOpen={azureStatus === AzureStatus.ERROR}
       message={`${displayName} encountered an unexpected error`}
+      leftAction="Configure"
+      leftColor="info"
+      onLeftAction={configure}
       rightAction="Retry"
       onRightAction={retryActivation}
       onCancel={cancelModal}

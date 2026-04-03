@@ -3,8 +3,6 @@ import { EventEmitter } from 'eventemitter3';
 import { type MicrophoneService } from '@scribear/microphone-store';
 import type { TranscriptionSequenceInput } from '@scribear/transcription-content-store';
 
-import { appMicrophoneService } from '#src/app-microphone-service';
-
 import {
   type ProviderConfigTypeMap,
   ProviderId,
@@ -14,9 +12,12 @@ import {
 } from './providers/provider-registry';
 
 /**
- * Events emitted by {@link ProviderService} to communicate transcription output and status changes to the Redux middleware.
+ * Events emitted by {@link ProviderService} to communicate transcription output,
+ * status changes, and loading lifecycle to the Redux middleware.
  */
 interface ProviderServiceEvents {
+  loadingStarted: () => void;
+  loadingComplete: () => void;
   commitParagraphBreak: () => void;
   appendFinalizedTranscription: (sequence: TranscriptionSequenceInput) => void;
   replaceInProgressTranscription: (
@@ -29,63 +30,57 @@ interface ProviderServiceEvents {
   ) => void;
 }
 
-// Map that holds one instantiated provider per `ProviderId`.
-type ProviderStore = {
+// Lazily-populated map of instantiated providers, keyed by ProviderId.
+type ProviderCache = Partial<{
   [K in ProviderId]: ProviderInstance<K>;
-};
+}>;
 
 /**
- * Orchestrates all transcription provider instances. Maintains a pool of every
- * registered provider (one instance per `ProviderId`), routes activation /
- * deactivation calls to the currently-selected provider, and re-emits
- * provider events (transcription content, status changes) for the Redux
- * middleware to consume.
+ * Orchestrates transcription provider instances with lazy loading. Providers
+ * are dynamically imported and instantiated on first use. Routes activation /
+ * deactivation calls to the currently-selected provider, and re-emits provider
+ * events (transcription content, status changes) for the Redux middleware.
  */
-class ProviderService extends EventEmitter<ProviderServiceEvents> {
-  private _providers: ProviderStore;
+export class ProviderService extends EventEmitter<ProviderServiceEvents> {
+  private _providers: ProviderCache = {};
   private _currentProviderId: ProviderId | null = null;
-
-  /**
-   * Returns a snapshot of every provider's current status, keyed by `ProviderId`.
-   */
-  get providerStatuses() {
-    return Object.fromEntries(
-      Object.values(ProviderId).map((id) => [id, this._providers[id].status]),
-    ) as unknown as ProviderStatusTypeMap;
-  }
+  private _activationToken = 0;
+  private _loadingProvider = false;
+  private _isMuted = false;
+  private readonly _microphoneService: MicrophoneService;
 
   constructor(microphoneService: MicrophoneService) {
     super();
+    this._microphoneService = microphoneService;
+  }
 
-    this._providers = Object.fromEntries(
-      Object.values(ProviderId).map((id) => {
-        const Provider = providerRegistry[id].constructor;
-        return [id, new Provider(microphoneService)];
-      }),
-    ) as unknown as ProviderStore;
-
-    for (const providerId of Object.values(ProviderId)) {
-      this._providers[providerId].on('statusChange', (newStatus) => {
-        this.emit('statusChange', providerId, newStatus);
-      });
+  /**
+   * Returns the cached provider instance for `id`, dynamically importing and
+   * constructing it if this is the first time it has been requested.
+   */
+  private async _getOrLoadProvider<K extends ProviderId>(
+    id: K,
+  ): Promise<ProviderInstance<K>> {
+    if (this._providers[id]) {
+      return this._providers[id];
     }
-  }
 
-  private _onCommitParagraphBreak() {
-    this.emit('commitParagraphBreak');
-  }
-  private _onAppendFinalizedTranscription(
-    sequence: TranscriptionSequenceInput,
-  ) {
-    this.emit('appendFinalizedTranscription', sequence);
-  }
-  private _onReplaceInProgressTranscription(
-    sequence: TranscriptionSequenceInput,
-  ) {
-    this.emit('replaceInProgressTranscription', sequence);
-  }
-  private _onClearTranscription() {
-    this.emit('clearTranscription');
+    const Provider = await providerRegistry[id].loader();
+    const provider = new Provider(this._microphoneService);
+
+    provider.on('statusChange', (newStatus) => {
+      this.emit('statusChange', id, newStatus);
+    });
+
+    if (this._isMuted) {
+      provider.mute();
+    } else {
+      provider.unmute();
+    }
+
+    (this._providers as Record<ProviderId, ProviderInstance<ProviderId>>)[id] =
+      provider;
+    return provider;
   }
 
   private async _activateProvider<K extends ProviderId>(
@@ -93,38 +88,37 @@ class ProviderService extends EventEmitter<ProviderServiceEvents> {
     config: ProviderConfigTypeMap[K],
   ) {
     this.deactivate();
+    this._loadingProvider = true;
+    this.emit('loadingStarted');
 
+    const token = ++this._activationToken;
+    const provider = await this._getOrLoadProvider(id);
+
+    // A newer activation started while we were loading, abort this one.
+    if (this._activationToken !== token) return;
     this._currentProviderId = id;
-    const currentProvider = this._providers[
-      this._currentProviderId
-    ] as ProviderInstance<K>;
+    this._loadingProvider = false;
+    this.emit('loadingComplete');
 
-    currentProvider.on(
-      'commitParagraphBreak',
-      this._onCommitParagraphBreak.bind(this),
-    );
-    currentProvider.on(
-      'appendFinalizedTranscription',
-      this._onAppendFinalizedTranscription.bind(this),
-    );
-    currentProvider.on(
-      'replaceInProgressTranscription',
-      this._onReplaceInProgressTranscription.bind(this),
-    );
-    currentProvider.on(
-      'clearTranscription',
-      this._onClearTranscription.bind(this),
-    );
+    provider.on('commitParagraphBreak', () => {
+      this.emit('commitParagraphBreak');
+    });
+    provider.on('appendFinalizedTranscription', (sequence) => {
+      this.emit('appendFinalizedTranscription', sequence);
+    });
+    provider.on('replaceInProgressTranscription', (sequence) => {
+      this.emit('replaceInProgressTranscription', sequence);
+    });
+    provider.on('clearTranscription', () => {
+      this.emit('clearTranscription');
+    });
 
-    await currentProvider.activateProvider(config);
+    await provider.activateProvider(config);
   }
 
   /**
-   * Switches to the given provider if it is not already active.
-   * Deactivates the current provider before activating the new one.
-   *
-   * @param id - The provider to activate.
-   * @param config - Configuration to pass to the new provider.
+   * Switches to the given provider if it is not already active, lazy-loading
+   * the provider module on first use.
    */
   async switchProvider<K extends ProviderId>(
     id: K,
@@ -137,9 +131,6 @@ class ProviderService extends EventEmitter<ProviderServiceEvents> {
   /**
    * Re-activates the currently active provider with a new config.
    * No-op if the given provider is not the active one.
-   *
-   * @param id - The provider whose config has changed.
-   * @param config - The updated configuration to apply.
    */
   async updateConfig<K extends ProviderId>(
     id: K,
@@ -150,49 +141,44 @@ class ProviderService extends EventEmitter<ProviderServiceEvents> {
   }
 
   /**
-   * Deactivates the currently active provider and clears all its event listeners.
+   * Deactivates the currently active provider and clears its transcription
+   * event listeners.
    */
   deactivate() {
+    if (this._loadingProvider) {
+      this.emit('loadingComplete');
+      this._loadingProvider = false;
+    }
     if (this._currentProviderId === null) return;
+
     const currentProvider = this._providers[this._currentProviderId];
+    this._currentProviderId = null;
+    if (!currentProvider) return;
 
     currentProvider.deactivateProvider();
-
-    currentProvider.removeListener('commitParagraphBreak');
-    currentProvider.removeListener('appendFinalizedTranscription');
-    currentProvider.removeListener('replaceInProgressTranscription');
-    currentProvider.removeListener('clearTranscription');
-
-    this._currentProviderId = null;
+    currentProvider.removeAllListeners('commitParagraphBreak');
+    currentProvider.removeAllListeners('appendFinalizedTranscription');
+    currentProvider.removeAllListeners('replaceInProgressTranscription');
+    currentProvider.removeAllListeners('clearTranscription');
   }
 
   /**
-   * Unmutes all provider instances (called when the microphone becomes active).
+   * Unmutes all cached provider instances.
    */
   unmute() {
-    for (const providerId of Object.values(ProviderId)) {
-      this._providers[providerId].unmute();
+    this._isMuted = false;
+    for (const provider of Object.values(this._providers)) {
+      provider.unmute();
     }
   }
 
   /**
-   * Mutes all provider instances (called when the microphone is deactivated).
+   * Mutes all cached provider instances.
    */
   mute() {
-    for (const providerId of Object.values(ProviderId)) {
-      this._providers[providerId].mute();
+    this._isMuted = true;
+    for (const provider of Object.values(this._providers)) {
+      provider.mute();
     }
   }
-}
-
-export type { ProviderService };
-
-// Singleton `ProviderService` instance shared across the application.
-export const providerService = new ProviderService(appMicrophoneService);
-
-if (import.meta.hot) {
-  import.meta.hot.dispose(() => {
-    providerService.removeAllListeners();
-    providerService.deactivate();
-  });
 }

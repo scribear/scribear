@@ -9,13 +9,18 @@ import type { RootState } from '#src/store/store';
 import {
   type ProviderConfigTypeMap,
   ProviderId,
-  getInitialConfigState,
+  providerRegistry,
 } from '../services/providers/provider-registry';
 
 // Shape of the `providerConfig` Redux slice - one config entry per provider.
 export type ProviderConfigSlice = ProviderConfigTypeMap;
 
-const initialState: ProviderConfigSlice = getInitialConfigState();
+const initialState: ProviderConfigSlice = Object.fromEntries(
+  Object.values(ProviderId).map((id) => [
+    id,
+    providerRegistry[id].initialConfig,
+  ]),
+) as unknown as ProviderConfigTypeMap;
 
 /**
  * Selects the persisted configuration object for a given provider.

@@ -52,6 +52,8 @@ import {
   TranscriptionDisplayPreferencesMenu,
 } from '@scribear/transcription-display-ui';
 
+import { SwitchingProviderModal } from '#src/features/transcription-providers/components/switching-provider-modal';
+import { TranscriptionProviderConfigMenu } from '#src/features/transcription-providers/components/transcription-provider-config-menu';
 import { TranscriptionProviderSelector } from '#src/features/transcription-providers/components/transcription-provider-selector';
 import { TranscriptionProviderStatusDisplay } from '#src/features/transcription-providers/components/transcription-provider-status-display';
 import { TranscriptionProviderStatusModal } from '#src/features/transcription-providers/components/transcription-provider-status-modal';
@@ -178,6 +180,8 @@ export const Root = () => {
         deactivate={() => dispatch(deactivateMicrophone())}
       />
       <TranscriptionProviderStatusModal />
+      <TranscriptionProviderConfigMenu />
+      <SwitchingProviderModal />
       <TranscriptionDisplayContainer
         commitedSections={commitedSections}
         activeSection={activeSection}
