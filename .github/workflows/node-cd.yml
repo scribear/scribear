@@ -18,13 +18,8 @@ jobs:
       workspaces: ${{ steps.changes.outputs.workspaces }}
       has_changes: ${{ steps.changes.outputs.has_changes }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-node@v4
-
-      - id: changes
+      - name: Detect Changed Workspaces
+        id: changes
         uses: ./.github/actions/detect-changes
 
   docker-build:

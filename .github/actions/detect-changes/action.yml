@@ -4,7 +4,6 @@ description: >
   Walks tsconfig project references to include transitive dependents of changed
   workspaces. If any global config file (package-lock.json, eslint.config.js,
   etc.) changed, all workspaces are returned.
-  Requires: git checkout with fetch-depth: 0 and node already set up by caller.
 
 outputs:
   workspaces:
@@ -17,6 +16,14 @@ outputs:
 runs:
   using: composite
   steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '24.10.0'
+
     - name: Compute affected workspaces
       id: compute
       shell: bash
