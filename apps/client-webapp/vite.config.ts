@@ -15,15 +15,18 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'vendor-react': ['react', 'react-dom'],
-          'vendor-mui': [
+          'vendor': [
+            'react',
+            'react-dom',
             '@mui/material',
             '@mui/icons-material',
             '@emotion/react',
             '@emotion/styled',
             '@base-ui/react',
+            '@reduxjs/toolkit',
+            'react-redux',
+            'redux-remember',
           ],
-          'vendor-redux': ['@reduxjs/toolkit', 'react-redux', 'redux-remember'],
         },
       },
     },

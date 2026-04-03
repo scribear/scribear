@@ -314,7 +314,7 @@ jobs:
           git diff --exit-code infra/scribear-db/src/database.types.ts || \
           (echo "Error: Generated database types are out of date. Run 'npm run generate:types' in infra/scribear-db and commit the changes." && exit 1)
 
-  ci:
+  node-ci:
     needs: [format, lint, build, test, docker-build, integration-test, check-database-types]
     if: always()
     runs-on: ubuntu-latest
