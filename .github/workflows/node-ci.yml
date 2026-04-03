@@ -20,9 +20,8 @@ jobs:
       has_changes: ${{ steps.changes.outputs.has_changes }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
 
-      - name: Detech Changed Workspaces
+      - name: Detect Changed Workspaces
         id: changes
         uses: ./.github/actions/detect-changes
 
