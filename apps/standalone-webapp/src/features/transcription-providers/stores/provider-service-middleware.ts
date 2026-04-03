@@ -4,6 +4,7 @@ import {
   selectIsMicrophoneServiceActive,
   setMicrophoneServiceStatus,
 } from '@scribear/microphone-store';
+import type { MicrophoneService } from '@scribear/microphone-store';
 import {
   appInitialization,
   rememberRehydrated,
@@ -15,8 +16,6 @@ import {
   commitParagraphBreak,
   replaceInProgressTranscription,
 } from '@scribear/transcription-content-store';
-
-import type { MicrophoneService } from '@scribear/microphone-store';
 
 import type { RootState } from '#src/store/store';
 
@@ -78,83 +77,83 @@ const syncTargetProvider = (
  * event listeners that dispatch transcription and UI actions, and reacts to
  * store actions to activate, deactivate, or reconfigure the active provider.
  */
-export const createProviderServiceMiddleware = (
-  microphoneService: MicrophoneService,
-): Middleware<object, RootState> =>
+export const createProviderServiceMiddleware =
+  (microphoneService: MicrophoneService): Middleware<object, RootState> =>
   (store) => {
-  // Clean up any previous instance (handles HMR module replacement).
-  _activeProviderService?.removeAllListeners();
-  _activeProviderService?.deactivate();
+    // Clean up any previous instance (handles HMR module replacement).
+    _activeProviderService?.removeAllListeners();
+    _activeProviderService?.deactivate();
 
-  const providerService = new ProviderService(microphoneService);
-  _activeProviderService = providerService;
+    const providerService = new ProviderService(microphoneService);
+    _activeProviderService = providerService;
 
-  providerService.on('loadingStarted', () => {
-    store.dispatch(setIsLoadingProvider(true));
-  });
-  providerService.on('loadingComplete', () => {
-    store.dispatch(setIsLoadingProvider(false));
-  });
-  providerService.on('commitParagraphBreak', () => {
-    store.dispatch(commitParagraphBreak());
-  });
-  providerService.on('appendFinalizedTranscription', (sequence) => {
-    store.dispatch(appendFinalizedTranscription(sequence));
-  });
-  providerService.on('replaceInProgressTranscription', (sequence) => {
-    store.dispatch(replaceInProgressTranscription(sequence));
-  });
-  providerService.on('clearTranscription', () => {
-    store.dispatch(clearTranscription());
-  });
-  providerService.on('statusChange', (providerId, newStatus) => {
-    store.dispatch(
-      setProviderStatus({ providerId, newStatus } as SetProviderStatusPayload),
-    );
-  });
-
-  return (next) => (action) => {
-    const result = next(action);
-
-    // One-time initialization after store is created.
-    if (appInitialization.match(action)) {
-      syncMicState(providerService, store.getState());
-    }
-
-    if (setMicrophoneServiceStatus.match(action)) {
-      syncMicState(providerService, store.getState());
-    }
-
-    // After rehydration, attempt to enter target state.
-    if (rememberRehydrated.match(action)) {
-      syncTargetProvider(providerService, store.getState());
-    }
-
-    if (setPreferredProviderId.match(action)) {
-      store.dispatch(commitInProgressTranscription());
+    providerService.on('loadingStarted', () => {
+      store.dispatch(setIsLoadingProvider(true));
+    });
+    providerService.on('loadingComplete', () => {
+      store.dispatch(setIsLoadingProvider(false));
+    });
+    providerService.on('commitParagraphBreak', () => {
       store.dispatch(commitParagraphBreak());
+    });
+    providerService.on('appendFinalizedTranscription', (sequence) => {
+      store.dispatch(appendFinalizedTranscription(sequence));
+    });
+    providerService.on('replaceInProgressTranscription', (sequence) => {
+      store.dispatch(replaceInProgressTranscription(sequence));
+    });
+    providerService.on('clearTranscription', () => {
+      store.dispatch(clearTranscription());
+    });
+    providerService.on('statusChange', (providerId, newStatus) => {
+      store.dispatch(
+        setProviderStatus({
+          providerId,
+          newStatus,
+        } as SetProviderStatusPayload),
+      );
+    });
 
-      syncTargetProvider(providerService, store.getState());
-    }
+    return (next) => (action) => {
+      const result = next(action);
 
-    if (updateProviderConfig.match(action)) {
-      store.dispatch(commitInProgressTranscription());
-      store.dispatch(commitParagraphBreak());
-
-      const state = store.getState();
-      const targetProviderId = selectTargetProviderId(state);
-
-      if (targetProviderId) {
-        const config = selectProviderConfig(state, targetProviderId);
-        void providerService.updateConfig(targetProviderId, config);
-      } else {
-        providerService.deactivate();
+      // One-time initialization after store is created.
+      if (appInitialization.match(action)) {
+        syncMicState(providerService, store.getState());
       }
-    }
 
-    return result;
+      if (setMicrophoneServiceStatus.match(action)) {
+        syncMicState(providerService, store.getState());
+      }
+
+      // After rehydration, attempt to enter target state.
+      if (rememberRehydrated.match(action)) {
+        syncTargetProvider(providerService, store.getState());
+      }
+
+      if (setPreferredProviderId.match(action)) {
+        store.dispatch(commitInProgressTranscription());
+        store.dispatch(commitParagraphBreak());
+
+        syncTargetProvider(providerService, store.getState());
+      }
+
+      if (updateProviderConfig.match(action)) {
+        const state = store.getState();
+        const targetProviderId = selectTargetProviderId(state);
+
+        if (action.payload.providerId === targetProviderId) {
+          store.dispatch(commitInProgressTranscription());
+          store.dispatch(commitParagraphBreak());
+
+          const config = selectProviderConfig(state, targetProviderId);
+          void providerService.updateConfig(targetProviderId, config);
+        }
+      }
+
+      return result;
+    };
   };
-};
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {

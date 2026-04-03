@@ -1,3 +1,5 @@
+import { startTransition } from 'react';
+
 import CircularProgress from '@mui/material/CircularProgress';
 import Stack from '@mui/material/Stack';
 
@@ -36,7 +38,9 @@ export const AzureModal = () => {
   };
 
   const configure = () => {
-    dispatch(openConfigMenu(ProviderId.AZURE));
+    startTransition(() => {
+      dispatch(openConfigMenu(ProviderId.AZURE));
+    });
   };
 
   const connecting = (

@@ -1,3 +1,5 @@
+import { startTransition } from 'react';
+
 import CircularProgress from '@mui/material/CircularProgress';
 import Stack from '@mui/material/Stack';
 
@@ -31,7 +33,9 @@ export const WebspeechModal = () => {
   };
 
   const configure = () => {
-    dispatch(openConfigMenu(ProviderId.WEBSPEECH));
+    startTransition(() => {
+      dispatch(openConfigMenu(ProviderId.WEBSPEECH));
+    });
   };
 
   const activating = (

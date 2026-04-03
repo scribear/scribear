@@ -1,11 +1,17 @@
-import { useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+
+import CircularProgress from '@mui/material/CircularProgress';
+import Stack from '@mui/material/Stack';
 
 import { ChoiceModal } from '@scribear/core-ui';
 
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
-import { getProviderConfigMenu } from '../services/providers/provider-component-registry';
-import { ProviderId } from '../services/providers/provider-registry';
+import { ProviderConfigContainer } from './provider-config-container';
+import {
+  getProviderConfigMenu,
+  getProviderDisplayName,
+} from '../services/providers/provider-component-registry';
 import {
   closeConfigMenu,
   selectConfigMenuProviderId,
@@ -21,6 +27,11 @@ export const TranscriptionProviderConfigMenu = () => {
   const dispatch = useAppDispatch();
   const configMenuProviderId = useAppSelector(selectConfigMenuProviderId);
   const [isConfirmPromptOpen, setIsConfirmPromptOpen] = useState(false);
+  const [isFormDirty, setIsFormDirty] = useState(false);
+
+  useEffect(() => {
+    setIsFormDirty(false);
+  }, [configMenuProviderId]);
 
   const closeConfirmPrompt = () => {
     setIsConfirmPromptOpen(false);
@@ -35,33 +46,37 @@ export const TranscriptionProviderConfigMenu = () => {
     }
   };
 
-  const confirmPrompt = (
-    <ChoiceModal
-      isOpen={isConfirmPromptOpen}
-      message="You have unsaved changes. If you close the menu, your changes will be lost. Are you sure you want to close this menu?"
-      onCancel={closeConfirmPrompt}
-      leftColor="info"
-      rightColor="error"
-      rightAction="Close Menu"
-      onRightAction={() => {
-        handleClose(false);
-      }}
-    />
-  );
-
-  const menus = Object.fromEntries(
-    Object.values(ProviderId).map((id) => {
-      const ConfigMenu = getProviderConfigMenu(id);
-      return [id, <ConfigMenu onClose={handleClose} key={id} />];
-    }),
-  );
-
   if (!configMenuProviderId) return null;
+
+  const ConfigMenu = getProviderConfigMenu(configMenuProviderId);
 
   return (
     <>
-      {confirmPrompt}
-      {menus[configMenuProviderId]}
+      <ChoiceModal
+        isOpen={isConfirmPromptOpen}
+        message="You have unsaved changes. If you close the menu, your changes will be lost. Are you sure you want to close this menu?"
+        onCancel={closeConfirmPrompt}
+        leftColor="info"
+        rightColor="error"
+        rightAction="Close Menu"
+        onRightAction={() => {
+          handleClose(false);
+        }}
+      />
+      <ProviderConfigContainer
+        displayName={getProviderDisplayName(configMenuProviderId)}
+        onClose={() => handleClose(isFormDirty)}
+      >
+        <Suspense
+          fallback={
+            <Stack direction="row" justifyContent="space-around" py={4}>
+              <CircularProgress />
+            </Stack>
+          }
+        >
+          <ConfigMenu onClose={handleClose} onDirtyChange={setIsFormDirty} />
+        </Suspense>
+      </ProviderConfigContainer>
     </>
   );
 };

@@ -1,3 +1,5 @@
+import { startTransition } from 'react';
+
 import CircularProgress from '@mui/material/CircularProgress';
 import Stack from '@mui/material/Stack';
 
@@ -37,7 +39,9 @@ export const StreamtextModal = () => {
   };
 
   const configure = () => {
-    dispatch(openConfigMenu(ProviderId.STREAMTEXT));
+    startTransition(() => {
+      dispatch(openConfigMenu(ProviderId.STREAMTEXT));
+    });
   };
 
   const connecting = (

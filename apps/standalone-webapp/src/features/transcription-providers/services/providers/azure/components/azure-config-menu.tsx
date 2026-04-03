@@ -1,27 +1,27 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
+import Button from '@mui/material/Button';
+import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 
-import { ProviderConfigContainer } from '#src/features/transcription-providers/components/provider-config-container';
 import {
   selectProviderConfig,
   updateProviderConfig,
 } from '#src/features/transcription-providers/stores/provider-config-slice';
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
-import {
-  type ProviderConfigMenuProps,
-  getProviderDisplayName,
-} from '../../provider-component-registry';
+import { type ProviderConfigMenuProps } from '../../provider-component-registry';
 import { ProviderId } from '../../provider-registry';
 
 /**
  * Configuration menu for the Azure Speech-to-Text provider. Allows the user
  * to enter a Region ID and API Key, with unsaved-change detection on close.
  */
-export const AzureConfigMenu = ({ onClose }: ProviderConfigMenuProps) => {
+export const AzureConfigMenu = ({
+  onClose,
+  onDirtyChange,
+}: ProviderConfigMenuProps) => {
   const dispatch = useAppDispatch();
-  const displayName = getProviderDisplayName(ProviderId.AZURE);
 
   const azureConfig = useAppSelector((state) =>
     selectProviderConfig(state, ProviderId.AZURE),
@@ -30,10 +30,14 @@ export const AzureConfigMenu = ({ onClose }: ProviderConfigMenuProps) => {
   const [apiKey, setApiKey] = useState(azureConfig.apiKey);
   const [regionId, setRegionId] = useState(azureConfig.regionId);
 
+  const isDirty =
+    apiKey !== azureConfig.apiKey || regionId !== azureConfig.regionId;
+  useEffect(() => {
+    onDirtyChange(isDirty);
+  }, [isDirty, onDirtyChange]);
+
   const handleClose = () => {
-    const isEdited =
-      apiKey !== azureConfig.apiKey || regionId !== azureConfig.regionId;
-    onClose(isEdited);
+    onClose(isDirty);
   };
 
   const saveConfig = () => {
@@ -50,11 +54,7 @@ export const AzureConfigMenu = ({ onClose }: ProviderConfigMenuProps) => {
   };
 
   return (
-    <ProviderConfigContainer
-      onClose={handleClose}
-      onSave={saveConfig}
-      displayName={displayName}
-    >
+    <>
       <TextField
         label="Region ID"
         value={regionId}
@@ -73,6 +73,14 @@ export const AzureConfigMenu = ({ onClose }: ProviderConfigMenuProps) => {
         }}
         sx={{ width: 300 }}
       />
-    </ProviderConfigContainer>
+      <Stack direction="row" justifyContent="flex-end" gap={1} pt={4}>
+        <Button color="error" variant="contained" onClick={handleClose}>
+          Cancel
+        </Button>
+        <Button color="success" variant="contained" onClick={saveConfig}>
+          Save
+        </Button>
+      </Stack>
+    </>
   );
 };
