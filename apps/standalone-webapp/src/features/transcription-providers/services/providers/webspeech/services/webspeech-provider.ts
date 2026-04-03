@@ -160,7 +160,17 @@ export class WebspeechProvider
    */
   deactivateProvider() {
     this._setStatus(WebspeechStatus.INACTIVE);
-    this._pauseProvider();
+    if (this._recognition) {
+      // Detach handlers before stopping so the async `onend` does not
+      // trigger a restart attempt against the next recognition instance.
+      this._recognition.onresult = null;
+      this._recognition.onerror = null;
+      this._recognition.onend = null;
+      if (this._providerIsStarted) {
+        this._recognition.stop();
+      }
+    }
+    this._providerIsStarted = false;
     this._recognition = null;
   }
 
