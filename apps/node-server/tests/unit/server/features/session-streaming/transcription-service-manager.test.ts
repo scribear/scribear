@@ -270,7 +270,6 @@ describe('TranscriptionServiceManager', () => {
       expect(mockSessionManagerClient.getSessionConfig).not.toHaveBeenCalled();
     });
 
-
     it('cancels grace timer when a new client registers during grace period', async () => {
       // Arrange
       await manager.registerSession(TEST_SESSION_ID);
@@ -335,7 +334,10 @@ describe('TranscriptionServiceManager', () => {
       );
 
       // Assert - schedules retry
-      mockSessionManagerClient.getSessionConfig.mockResolvedValue([TEST_SESSION_CONFIG, null]);
+      mockSessionManagerClient.getSessionConfig.mockResolvedValue([
+        TEST_SESSION_CONFIG,
+        null,
+      ]);
       mockSessionManagerClient.getSessionConfig.mockClear();
       vi.advanceTimersByTime(1_000);
       await vi.advanceTimersByTimeAsync(0);

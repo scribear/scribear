@@ -11,7 +11,6 @@
         "./tests/*"
       ]
     },
-    // Vite/React specific configuration
     "types": [
       "vite/client"
     ],

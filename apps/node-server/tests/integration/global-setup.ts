@@ -85,7 +85,7 @@ export async function setup({
           /^\/api\/session-manager\/session-management\/v1\/session-config\/(.+)$/,
         );
         if (req.method === 'GET' && configRouteMatch?.[1]) {
-          const authHeader = req.headers['authorization'];
+          const authHeader = req.headers.authorization;
           if (authHeader !== `Bearer ${NODE_SERVER_KEY}`) {
             res.writeHead(401, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ message: 'Unauthorized' }));

@@ -13,9 +13,9 @@
     }
   },
   "include": [
-    "src"
+    "src",
+    "tests"
   ],
-  // Link to shared packages
   "references": [
     {
       "path": "../core-ui"

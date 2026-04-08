@@ -229,7 +229,7 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
         this.emit('appendFinalizedTranscription', message);
       } else if (message.type === AudioSourceServerMessageType.IP_TRANSCRIPT) {
         this.emit('replaceInProgressTranscription', message);
-      } else if (message.type === AudioSourceServerMessageType.SESSION_STATUS) {
+      } else {
         this.emit('sessionStatus', {
           transcriptionServiceConnected: message.transcriptionServiceConnected,
           sourceDeviceConnected: message.sourceDeviceConnected,
