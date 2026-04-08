@@ -4,6 +4,12 @@ import {
   CREATE_SESSION_SCHEMA,
   DEVICE_SESSION_EVENTS_ROUTE,
   DEVICE_SESSION_EVENTS_SCHEMA,
+  END_SESSION_ROUTE,
+  END_SESSION_SCHEMA,
+  GET_SESSION_CONFIG_ROUTE,
+  GET_SESSION_CONFIG_SCHEMA,
+  REFRESH_SESSION_TOKEN_ROUTE,
+  REFRESH_SESSION_TOKEN_SCHEMA,
   SESSION_JOIN_CODE_AUTH_ROUTE,
   SESSION_JOIN_CODE_AUTH_SCHEMA,
   SOURCE_DEVICE_SESSION_AUTH_ROUTE,
@@ -13,6 +19,7 @@ import {
 import resolveHandler from '#src/server/dependency-injection/resolve-handler.js';
 import { apiKeyAuthHook } from '#src/server/hooks/api-key-auth.hook.js';
 import { deviceCookieAuthHook } from '#src/server/hooks/device-cookie-auth.hook.js';
+import { nodeServerKeyAuthHook } from '#src/server/hooks/node-server-key-auth.hook.js';
 
 /**
  * Registers session management routes
@@ -50,5 +57,28 @@ export function sessionManagementRouter(fastify: BaseFastifyInstance) {
       'sessionManagementController',
       'sourceDeviceSessionAuth',
     ),
+  });
+
+  fastify.route({
+    ...REFRESH_SESSION_TOKEN_ROUTE,
+    schema: REFRESH_SESSION_TOKEN_SCHEMA,
+    handler: resolveHandler(
+      'sessionManagementController',
+      'refreshSessionToken',
+    ),
+  });
+
+  fastify.route({
+    ...GET_SESSION_CONFIG_ROUTE,
+    schema: GET_SESSION_CONFIG_SCHEMA,
+    preHandler: nodeServerKeyAuthHook,
+    handler: resolveHandler('sessionManagementController', 'getSessionConfig'),
+  });
+
+  fastify.route({
+    ...END_SESSION_ROUTE,
+    schema: END_SESSION_SCHEMA,
+    preHandler: apiKeyAuthHook,
+    handler: resolveHandler('sessionManagementController', 'endSession'),
   });
 }

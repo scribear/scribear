@@ -5,6 +5,7 @@ const DEVICE_TOKEN_SEPARATOR = ':';
 
 export interface AuthServiceConfig {
   apiKey: string;
+  nodeServerKey: string;
 }
 
 export class AuthService {
@@ -30,6 +31,13 @@ export class AuthService {
 
     const key = authorizationHeader.slice(BEARER_PREFIX.length);
     return key === this._authServiceConfig.apiKey;
+  }
+
+  isValidNodeServerKey(authorizationHeader: string | undefined) {
+    if (!authorizationHeader?.startsWith(BEARER_PREFIX)) return false;
+
+    const key = authorizationHeader.slice(BEARER_PREFIX.length);
+    return key === this._authServiceConfig.nodeServerKey;
   }
 
   encodeDeviceToken(deviceId: string, secret: string) {

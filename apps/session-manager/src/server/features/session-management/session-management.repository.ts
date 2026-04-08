@@ -14,7 +14,7 @@ export class SessionManagementRepository {
     transcriptionProviderKey: string,
     transcriptionProviderConfig: TranscriptionProviderConfig,
     startTime: Date,
-    endTime: Date,
+    endTime: Date | null,
     joinCode: string | null,
   ) {
     return await this._dbClient.db.transaction().execute(async (trx) => {
@@ -44,16 +44,20 @@ export class SessionManagementRepository {
         .returning(['id', 'session_id', 'event_type', 'timestamp'])
         .executeTakeFirstOrThrow();
 
-      const endEvent = await trx
-        .insertInto('session_events')
-        .values({
-          session_id: session.id,
-          device_id: sourceDeviceId,
-          event_type: 'END_SESSION',
-          timestamp: endTime,
-        })
-        .returning(['id', 'session_id', 'event_type', 'timestamp'])
-        .executeTakeFirstOrThrow();
+      // Only schedule an END_SESSION event if the session has a fixed end time
+      let endEvent = null;
+      if (endTime) {
+        endEvent = await trx
+          .insertInto('session_events')
+          .values({
+            session_id: session.id,
+            device_id: sourceDeviceId,
+            event_type: 'END_SESSION',
+            timestamp: endTime,
+          })
+          .returning(['id', 'session_id', 'event_type', 'timestamp'])
+          .executeTakeFirstOrThrow();
+      }
 
       return { session, startEvent, endEvent };
     });
@@ -72,7 +76,9 @@ export class SessionManagementRepository {
       .where('id', '=', sessionId)
       .where('source_device_id', '=', deviceId)
       .where('start_time', '<=', now)
-      .where('end_time', '>', now)
+      .where((eb) =>
+        eb.or([eb('end_time', 'is', null), eb('end_time', '>', now)]),
+      )
       .executeTakeFirst();
   }
 
@@ -83,8 +89,48 @@ export class SessionManagementRepository {
       .select(['id', 'end_time'])
       .where('join_code', '=', joinCode)
       .where('start_time', '<=', now)
-      .where('end_time', '>', now)
+      .where((eb) =>
+        eb.or([eb('end_time', 'is', null), eb('end_time', '>', now)]),
+      )
       .executeTakeFirst();
+  }
+
+  async findSessionById(sessionId: string) {
+    return await this._dbClient.db
+      .selectFrom('sessions')
+      .select([
+        'id',
+        'source_device_id',
+        'transcription_provider_key',
+        'transcription_provider_config',
+        'start_time',
+        'end_time',
+      ])
+      .where('id', '=', sessionId)
+      .executeTakeFirst();
+  }
+
+  /**
+   * Ends a session by setting its end_time and inserting an END_SESSION event.
+   */
+  async endSession(sessionId: string, sourceDeviceId: string, endTime: Date) {
+    await this._dbClient.db.transaction().execute(async (trx) => {
+      await trx
+        .updateTable('sessions')
+        .set({ end_time: endTime })
+        .where('id', '=', sessionId)
+        .execute();
+
+      await trx
+        .insertInto('session_events')
+        .values({
+          session_id: sessionId,
+          device_id: sourceDeviceId,
+          event_type: 'END_SESSION',
+          timestamp: endTime,
+        })
+        .execute();
+    });
   }
 
   async deviceExists(deviceId: string): Promise<boolean> {

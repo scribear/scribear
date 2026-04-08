@@ -5,6 +5,7 @@ import { createMockLogger } from '#tests/utils/mock-logger.js';
 
 describe('AuthService', () => {
   const TEST_API_KEY = 'TEST_API_KEY';
+  const TEST_NODE_SERVER_KEY = 'TEST_NODE_SERVER_KEY';
 
   let mockAuthRepository: { findDeviceHash: Mock };
   let mockHashService: { verify: Mock };
@@ -16,7 +17,7 @@ describe('AuthService', () => {
 
     authService = new AuthService(
       createMockLogger() as never,
-      { apiKey: TEST_API_KEY },
+      { apiKey: TEST_API_KEY, nodeServerKey: TEST_NODE_SERVER_KEY },
       mockAuthRepository as never,
       mockHashService as never,
     );
@@ -50,6 +51,34 @@ describe('AuthService', () => {
     it('returns false for an incorrect key', () => {
       // Arrange / Act
       const result = authService.isValidApiKey('Bearer WRONG_KEY');
+
+      // Assert
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('isValidNodeServerKey', (it) => {
+    it('returns true for a valid Bearer token', () => {
+      // Arrange / Act
+      const result = authService.isValidNodeServerKey(
+        `Bearer ${TEST_NODE_SERVER_KEY}`,
+      );
+
+      // Assert
+      expect(result).toBe(true);
+    });
+
+    it('returns false when header is undefined', () => {
+      // Arrange / Act
+      const result = authService.isValidNodeServerKey(undefined);
+
+      // Assert
+      expect(result).toBe(false);
+    });
+
+    it('returns false for an incorrect key', () => {
+      // Arrange / Act
+      const result = authService.isValidNodeServerKey('Bearer WRONG_KEY');
 
       // Assert
       expect(result).toBe(false);

@@ -6,8 +6,14 @@ import {
   CREATE_SESSION_SCHEMA,
   DEVICE_SESSION_EVENTS_ROUTE,
   DEVICE_SESSION_EVENTS_SCHEMA,
+  END_SESSION_ROUTE,
+  END_SESSION_SCHEMA,
+  GET_SESSION_CONFIG_ROUTE,
+  GET_SESSION_CONFIG_SCHEMA,
   HEALTHCHECK_ROUTE,
   HEALTHCHECK_SCHEMA,
+  REFRESH_SESSION_TOKEN_ROUTE,
+  REFRESH_SESSION_TOKEN_SCHEMA,
   REGISTER_DEVICE_ROUTE,
   REGISTER_DEVICE_SCHEMA,
   SESSION_JOIN_CODE_AUTH_ROUTE,
@@ -57,6 +63,21 @@ function createSessionManagerClient(baseUrl: string) {
     getDeviceSessionEvents: createEndpointClient(
       DEVICE_SESSION_EVENTS_SCHEMA,
       DEVICE_SESSION_EVENTS_ROUTE,
+      baseUrl,
+    ),
+    refreshSessionToken: createEndpointClient(
+      REFRESH_SESSION_TOKEN_SCHEMA,
+      REFRESH_SESSION_TOKEN_ROUTE,
+      baseUrl,
+    ),
+    getSessionConfig: createEndpointClient(
+      GET_SESSION_CONFIG_SCHEMA,
+      GET_SESSION_CONFIG_ROUTE,
+      baseUrl,
+    ),
+    endSession: createEndpointClient(
+      END_SESSION_SCHEMA,
+      END_SESSION_ROUTE,
       baseUrl,
     ),
   };
