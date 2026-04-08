@@ -34,6 +34,8 @@ export class SessionManagementController {
       transcriptionProviderConfig,
       endTimeUnixMs,
       enableJoinCode,
+      joinCodeLength,
+      enableJoinCodeRotation,
     } = req.body;
 
     const result = await this._sessionManagementService.createOnDemandSession(
@@ -42,15 +44,15 @@ export class SessionManagementController {
       transcriptionProviderConfig,
       endTimeUnixMs,
       enableJoinCode ?? false,
+      joinCodeLength,
+      enableJoinCodeRotation,
     );
 
     if (!result) {
       throw new HttpError.UnprocessableEntity('Invalid session parameters.');
     }
 
-    res
-      .code(200)
-      .send({ sessionId: result.sessionId, joinCode: result.joinCode });
+    res.code(200).send({ sessionId: result.sessionId });
   }
 
   async sessionAuth(

@@ -26,7 +26,6 @@ describe('SessionManagementService', () => {
     deviceExists: Mock;
     createSession: Mock;
     getNextSessionEvent: Mock;
-    findActiveSessionByJoinCode: Mock;
     findActiveSessionBySourceDevice: Mock;
     findSessionById: Mock;
     endSession: Mock;
@@ -34,6 +33,13 @@ describe('SessionManagementService', () => {
   let mockRefreshTokenRepository: {
     create: Mock;
     findById: Mock;
+    deleteBySessionId: Mock;
+  };
+  let mockJoinCodeRepository: {
+    create: Mock;
+    findActiveSessionByJoinCode: Mock;
+    getLatestValidCode: Mock;
+    getOrRotateJoinCode: Mock;
     deleteBySessionId: Mock;
   };
   let mockEventBus: {
@@ -62,7 +68,6 @@ describe('SessionManagementService', () => {
       deviceExists: vi.fn(),
       createSession: vi.fn(),
       getNextSessionEvent: vi.fn(),
-      findActiveSessionByJoinCode: vi.fn(),
       findActiveSessionBySourceDevice: vi.fn(),
       findSessionById: vi.fn(),
       endSession: vi.fn(),
@@ -70,6 +75,17 @@ describe('SessionManagementService', () => {
     mockRefreshTokenRepository = {
       create: vi.fn().mockResolvedValue({ id: TEST_REFRESH_TOKEN_ID }),
       findById: vi.fn(),
+      deleteBySessionId: vi.fn(),
+    };
+    mockJoinCodeRepository = {
+      create: vi.fn().mockResolvedValue({
+        id: 'join-code-id',
+        code: TEST_JOIN_CODE,
+        expires_at: new Date(FAKE_NOW.getTime() + 5 * 60 * 1000),
+      }),
+      findActiveSessionByJoinCode: vi.fn(),
+      getLatestValidCode: vi.fn(),
+      getOrRotateJoinCode: vi.fn(),
       deleteBySessionId: vi.fn(),
     };
     mockEventBus = {
@@ -93,6 +109,7 @@ describe('SessionManagementService', () => {
       createMockLogger() as never,
       mockRepository as never,
       mockRefreshTokenRepository as never,
+      mockJoinCodeRepository as never,
       mockEventBus as never,
       mockJwtService as never,
       mockHashService as never,
@@ -113,6 +130,8 @@ describe('SessionManagementService', () => {
         TEST_PROVIDER_CONFIG,
         FAKE_NOW.getTime() - 1,
         false,
+        undefined,
+        undefined,
       );
 
       // Assert
@@ -128,6 +147,8 @@ describe('SessionManagementService', () => {
         TEST_PROVIDER_CONFIG,
         FAKE_NOW.getTime(),
         false,
+        undefined,
+        undefined,
       );
 
       // Assert
@@ -146,6 +167,8 @@ describe('SessionManagementService', () => {
         TEST_PROVIDER_CONFIG,
         futureMs,
         false,
+        undefined,
+        undefined,
       );
 
       // Assert
@@ -153,7 +176,7 @@ describe('SessionManagementService', () => {
       expect(mockRepository.createSession).not.toHaveBeenCalled();
     });
 
-    it('creates session and returns sessionId with null joinCode when enableJoinCode=false', async () => {
+    it('creates session without join code when enableJoinCode=false', async () => {
       // Arrange
       mockRepository.deviceExists.mockResolvedValue(true);
       mockRepository.createSession.mockResolvedValue({
@@ -170,6 +193,8 @@ describe('SessionManagementService', () => {
         TEST_PROVIDER_CONFIG,
         futureMs,
         false,
+        undefined,
+        undefined,
       );
 
       // Assert
@@ -180,11 +205,13 @@ describe('SessionManagementService', () => {
         FAKE_NOW,
         new Date(futureMs),
         null,
+        null,
       );
-      expect(result).toEqual({ sessionId: TEST_SESSION_ID, joinCode: null });
+      expect(mockJoinCodeRepository.create).not.toHaveBeenCalled();
+      expect(result).toEqual({ sessionId: TEST_SESSION_ID });
     });
 
-    it('creates session and returns a joinCode when enableJoinCode=true', async () => {
+    it('creates session with join code when enableJoinCode=true', async () => {
       // Arrange
       mockRepository.deviceExists.mockResolvedValue(true);
       mockRepository.createSession.mockResolvedValue({
@@ -201,18 +228,66 @@ describe('SessionManagementService', () => {
         TEST_PROVIDER_CONFIG,
         futureMs,
         true,
+        undefined,
+        undefined,
       );
 
       // Assert
-      expect(result).toMatchObject({
-        sessionId: TEST_SESSION_ID,
-        joinCode: expect.stringMatching(/^[A-Z0-9]{8}$/),
-      });
+      expect(mockRepository.createSession).toHaveBeenCalledExactlyOnceWith(
+        TEST_DEVICE_ID,
+        TEST_PROVIDER_KEY,
+        TEST_PROVIDER_CONFIG,
+        FAKE_NOW,
+        new Date(futureMs),
+        8,
+        true,
+      );
+      expect(mockJoinCodeRepository.create).toHaveBeenCalledExactlyOnceWith(
+        TEST_SESSION_ID,
+        expect.stringMatching(/^[A-Z0-9]{8}$/),
+        FAKE_NOW,
+        new Date(FAKE_NOW.getTime() + 5 * 60 * 1000),
+      );
+      expect(result).toEqual({ sessionId: TEST_SESSION_ID });
+    });
 
-      // The join code passed to repository should match what was returned
-      const passedJoinCode = mockRepository.createSession.mock.calls[0]?.[5];
-      expect(passedJoinCode).toMatch(/^[A-Z0-9]{8}$/);
-      expect(passedJoinCode).toBe(result?.joinCode);
+    it('uses custom joinCodeLength when provided', async () => {
+      // Arrange
+      mockRepository.deviceExists.mockResolvedValue(true);
+      mockRepository.createSession.mockResolvedValue({
+        session: { id: TEST_SESSION_ID },
+        startEvent: { id: TEST_START_EVENT_ID },
+        endEvent: { id: 2 },
+      });
+      const futureMs = FAKE_NOW.getTime() + 60_000;
+
+      // Act
+      await service.createOnDemandSession(
+        TEST_DEVICE_ID,
+        TEST_PROVIDER_KEY,
+        TEST_PROVIDER_CONFIG,
+        futureMs,
+        true,
+        6,
+        false,
+      );
+
+      // Assert
+      expect(mockRepository.createSession).toHaveBeenCalledWith(
+        TEST_DEVICE_ID,
+        TEST_PROVIDER_KEY,
+        TEST_PROVIDER_CONFIG,
+        FAKE_NOW,
+        new Date(futureMs),
+        6,
+        false,
+      );
+      expect(mockJoinCodeRepository.create).toHaveBeenCalledWith(
+        TEST_SESSION_ID,
+        expect.stringMatching(/^[A-Z0-9]{6}$/),
+        FAKE_NOW,
+        expect.any(Date),
+      );
     });
 
     it('emits START_SESSION event on the bus after creating session', async () => {
@@ -231,6 +306,8 @@ describe('SessionManagementService', () => {
         TEST_PROVIDER_CONFIG,
         FAKE_NOW.getTime() + 60_000,
         false,
+        undefined,
+        undefined,
       );
 
       // Assert
@@ -261,6 +338,8 @@ describe('SessionManagementService', () => {
         TEST_PROVIDER_CONFIG,
         undefined,
         false,
+        undefined,
+        undefined,
       );
 
       // Assert
@@ -271,15 +350,18 @@ describe('SessionManagementService', () => {
         FAKE_NOW,
         null,
         null,
+        null,
       );
-      expect(result).toEqual({ sessionId: TEST_SESSION_ID, joinCode: null });
+      expect(result).toEqual({ sessionId: TEST_SESSION_ID });
     });
   });
 
   describe('authenticateWithJoinCode', (it) => {
     it('returns null when no active session matches', async () => {
       // Arrange
-      mockRepository.findActiveSessionByJoinCode.mockResolvedValue(undefined);
+      mockJoinCodeRepository.findActiveSessionByJoinCode.mockResolvedValue(
+        undefined,
+      );
 
       // Act
       const result = await service.authenticateWithJoinCode(TEST_JOIN_CODE);
@@ -291,7 +373,7 @@ describe('SessionManagementService', () => {
 
     it('returns sessionToken and sessionRefreshToken with RECEIVE_TRANSCRIPTIONS scope and 5-min expiry', async () => {
       // Arrange
-      mockRepository.findActiveSessionByJoinCode.mockResolvedValue({
+      mockJoinCodeRepository.findActiveSessionByJoinCode.mockResolvedValue({
         id: TEST_SESSION_ID,
         end_time: TEST_END_TIME,
       });
@@ -314,7 +396,7 @@ describe('SessionManagementService', () => {
 
     it('creates a refresh token with join_code auth method', async () => {
       // Arrange
-      mockRepository.findActiveSessionByJoinCode.mockResolvedValue({
+      mockJoinCodeRepository.findActiveSessionByJoinCode.mockResolvedValue({
         id: TEST_SESSION_ID,
         end_time: TEST_END_TIME,
       });
@@ -334,7 +416,7 @@ describe('SessionManagementService', () => {
 
     it('authenticates indefinite sessions (null end_time)', async () => {
       // Arrange
-      mockRepository.findActiveSessionByJoinCode.mockResolvedValue({
+      mockJoinCodeRepository.findActiveSessionByJoinCode.mockResolvedValue({
         id: TEST_SESSION_ID,
         end_time: null,
       });
@@ -630,7 +712,7 @@ describe('SessionManagementService', () => {
       expect(result).toBe(false);
     });
 
-    it('ends session, deletes refresh tokens, and publishes to redis', async () => {
+    it('ends session, deletes refresh tokens and join codes, and publishes to redis', async () => {
       // Arrange
       mockRepository.findSessionById.mockResolvedValue({
         id: TEST_SESSION_ID,
@@ -650,6 +732,9 @@ describe('SessionManagementService', () => {
       );
       expect(
         mockRefreshTokenRepository.deleteBySessionId,
+      ).toHaveBeenCalledExactlyOnceWith(TEST_SESSION_ID);
+      expect(
+        mockJoinCodeRepository.deleteBySessionId,
       ).toHaveBeenCalledExactlyOnceWith(TEST_SESSION_ID);
       expect(mockRedisPublisher.publish).toHaveBeenCalledExactlyOnceWith(
         {

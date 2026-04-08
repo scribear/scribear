@@ -69,6 +69,14 @@ export interface SessionEvents {
   timestamp: Timestamp;
 }
 
+export interface SessionJoinCodes {
+  code: string;
+  created_at: Timestamp;
+  expires_at: Timestamp;
+  id: Generated<string>;
+  session_id: string;
+}
+
 export interface SessionRefreshTokens {
   auth_method: string;
   expiry: Timestamp | null;
@@ -81,7 +89,8 @@ export interface SessionRefreshTokens {
 export interface Sessions {
   end_time: Timestamp | null;
   id: Generated<string>;
-  join_code: string | null;
+  join_code_length: number | null;
+  join_code_rotation_enabled: boolean | null;
   source_device_id: string;
   start_time: Timestamp;
   transcription_provider_config: Json;
@@ -93,6 +102,7 @@ export interface DB {
   "cron.job_run_details": CronJobRunDetails;
   devices: Devices;
   session_events: SessionEvents;
+  session_join_codes: SessionJoinCodes;
   session_refresh_tokens: SessionRefreshTokens;
   sessions: Sessions;
 }

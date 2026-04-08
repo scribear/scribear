@@ -81,17 +81,17 @@ class WhisperStreamingProviderJob(
                 raise TranscriptionClientError(str(e)) from e
 
             # Pure_silence detection:
-            is_silent = self._silence_detector.detect(
-                samples, self._silence_threshold
-            )
+            # is_silent = self._silence_detector.detect(
+            #     samples, self._silence_threshold
+            # )
 
-            if not is_silent:
-                extra = self._buffer.append(samples)
-                # More than expected number of samples received, client sending audio to fast
-                if len(extra) > 0:
-                    raise TranscriptionClientError(
-                        "Client sent audio too quickly."
-                    )
+            # if not is_silent:
+            extra = self._buffer.append(samples)
+            # More than expected number of samples received, client sending audio to fast
+            if len(extra) > 0:
+                raise TranscriptionClientError(
+                    "Client sent audio too quickly."
+                )
 
     def _detect_speech_ranges(
         self,

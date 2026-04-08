@@ -13,7 +13,7 @@ const SESSION_JOIN_CODE_AUTH_SCHEMA = {
     'Authenticates a session participant via join code, returning a scoped JWT.',
   tags: [SESSION_MANAGEMENT_TAG],
   body: Type.Object({
-    joinCode: Type.String({ maxLength: 8 }),
+    joinCode: Type.String({ maxLength: 16 }),
   }),
   response: {
     200: Type.Object(

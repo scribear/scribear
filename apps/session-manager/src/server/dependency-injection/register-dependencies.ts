@@ -23,6 +23,7 @@ import { DeviceManagementService } from '../features/device-management/device-ma
 import { HealthcheckController } from '../features/healthcheck/healthcheck.controller.js';
 import { JwtService } from '../features/session-management/jwt.service.js';
 import { SessionEventBusService } from '../features/session-management/session-event-bus.service.js';
+import { SessionJoinCodeRepository } from '../features/session-management/session-join-code.repository.js';
 import { SessionManagementController } from '../features/session-management/session-management.controller.js';
 import { SessionManagementRepository } from '../features/session-management/session-management.repository.js';
 import { SessionManagementService } from '../features/session-management/session-management.service.js';
@@ -76,6 +77,7 @@ interface AppDependencies extends BaseDependencies {
   sessionManagementController: SessionManagementController;
   sessionManagementService: SessionManagementService;
   sessionManagementRepository: SessionManagementRepository;
+  sessionJoinCodeRepository: SessionJoinCodeRepository;
   sessionRefreshTokenRepository: SessionRefreshTokenRepository;
 }
 
@@ -154,6 +156,9 @@ function registerDependencies(
       lifetime: Lifetime.SCOPED,
     }),
     sessionManagementRepository: asClass(SessionManagementRepository, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    sessionJoinCodeRepository: asClass(SessionJoinCodeRepository, {
       lifetime: Lifetime.SINGLETON,
     }),
     sessionRefreshTokenRepository: asClass(SessionRefreshTokenRepository, {

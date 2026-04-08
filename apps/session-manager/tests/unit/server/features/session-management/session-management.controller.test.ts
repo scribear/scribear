@@ -45,11 +45,10 @@ describe('SessionManagementController', () => {
   });
 
   describe('createSession', (it) => {
-    it('calls service and responds with sessionId and joinCode on success', async () => {
+    it('calls service and responds with sessionId on success', async () => {
       // Arrange
       mockSessionManagementService.createOnDemandSession.mockResolvedValue({
         sessionId: TEST_SESSION_ID,
-        joinCode: 'ABCD1234',
       });
       const mockReq = {
         body: {
@@ -58,6 +57,8 @@ describe('SessionManagementController', () => {
           transcriptionProviderConfig: TEST_PROVIDER_CONFIG,
           endTimeUnixMs: TEST_END_TIME_MS,
           enableJoinCode: true,
+          joinCodeLength: 6,
+          enableJoinCodeRotation: true,
         },
       };
 
@@ -73,19 +74,19 @@ describe('SessionManagementController', () => {
         TEST_PROVIDER_CONFIG,
         TEST_END_TIME_MS,
         true,
+        6,
+        true,
       );
       expect(mockReply.code).toHaveBeenCalledExactlyOnceWith(200);
       expect(mockReply.send).toHaveBeenCalledExactlyOnceWith({
         sessionId: TEST_SESSION_ID,
-        joinCode: 'ABCD1234',
       });
     });
 
-    it('passes enableJoinCode=false when not provided in body', async () => {
+    it('passes enableJoinCode=false and undefined optional params when not provided', async () => {
       // Arrange
       mockSessionManagementService.createOnDemandSession.mockResolvedValue({
         sessionId: TEST_SESSION_ID,
-        joinCode: null,
       });
       const mockReq = {
         body: {
@@ -108,10 +109,11 @@ describe('SessionManagementController', () => {
         TEST_PROVIDER_CONFIG,
         TEST_END_TIME_MS,
         false,
+        undefined,
+        undefined,
       );
       expect(mockReply.send).toHaveBeenCalledExactlyOnceWith({
         sessionId: TEST_SESSION_ID,
-        joinCode: null,
       });
     });
 

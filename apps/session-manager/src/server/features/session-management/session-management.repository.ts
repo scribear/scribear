@@ -15,7 +15,8 @@ export class SessionManagementRepository {
     transcriptionProviderConfig: TranscriptionProviderConfig,
     startTime: Date,
     endTime: Date | null,
-    joinCode: string | null,
+    joinCodeLength: number | null,
+    joinCodeRotationEnabled: boolean | null,
   ) {
     return await this._dbClient.db.transaction().execute(async (trx) => {
       const session = await trx
@@ -28,7 +29,8 @@ export class SessionManagementRepository {
           ),
           start_time: startTime,
           end_time: endTime,
-          join_code: joinCode,
+          join_code_length: joinCodeLength,
+          join_code_rotation_enabled: joinCodeRotationEnabled,
         })
         .returning('id')
         .executeTakeFirstOrThrow();
@@ -82,19 +84,6 @@ export class SessionManagementRepository {
       .executeTakeFirst();
   }
 
-  async findActiveSessionByJoinCode(joinCode: string) {
-    const now = new Date();
-    return await this._dbClient.db
-      .selectFrom('sessions')
-      .select(['id', 'end_time'])
-      .where('join_code', '=', joinCode)
-      .where('start_time', '<=', now)
-      .where((eb) =>
-        eb.or([eb('end_time', 'is', null), eb('end_time', '>', now)]),
-      )
-      .executeTakeFirst();
-  }
-
   async findSessionById(sessionId: string) {
     return await this._dbClient.db
       .selectFrom('sessions')
@@ -105,6 +94,8 @@ export class SessionManagementRepository {
         'transcription_provider_config',
         'start_time',
         'end_time',
+        'join_code_length',
+        'join_code_rotation_enabled',
       ])
       .where('id', '=', sessionId)
       .executeTakeFirst();
