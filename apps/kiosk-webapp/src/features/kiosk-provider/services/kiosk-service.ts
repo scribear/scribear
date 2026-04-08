@@ -46,6 +46,7 @@ interface KioskServiceEvents {
   deviceRegistered: (deviceName: string) => void;
   deviceUnregistered: () => void;
   prevEventIdUpdated: (eventId: number) => void;
+  sessionRefreshTokenUpdated: (token: string | null) => void;
 }
 
 /**
@@ -68,6 +69,7 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
   private _stream: AudioStream | null = null;
   private _socket: WebSocketClient<typeof AUDIO_SOURCE_SCHEMA> | null = null;
   private _sessionRefreshToken: string | null = null;
+  private _storedSessionRefreshToken: string | null = null;
   private _refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   private _eventLoopToken = 0;
@@ -103,7 +105,10 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
       clearTimeout(this._refreshTimer);
       this._refreshTimer = null;
     }
-    this._sessionRefreshToken = null;
+    if (this._sessionRefreshToken) {
+      this._sessionRefreshToken = null;
+      this.emit('sessionRefreshTokenUpdated', null);
+    }
 
     if (this._stream) {
       this._microphoneService.closeAudioStream(this._stream);
@@ -166,6 +171,44 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     this._scheduleTokenRefresh(sessionToken, sessionId);
   }
 
+  /**
+   * Attempts to obtain session credentials, first by refreshing a stored token
+   * (preserving clientId across page refreshes), then falling back to device auth.
+   */
+  private async _authenticateSession(sessionId: string): Promise<{
+    sessionToken: string;
+    sessionRefreshToken: string;
+  } | null> {
+    // Try refreshing the stored token first to preserve clientId
+    if (this._storedSessionRefreshToken) {
+      const storedToken = this._storedSessionRefreshToken;
+      this._storedSessionRefreshToken = null;
+
+      const [refreshResponse, refreshError] =
+        await this._sessionManagerClient.refreshSessionToken({
+          body: { sessionRefreshToken: storedToken },
+        });
+
+      if (!refreshError && refreshResponse.status === 200) {
+        return {
+          sessionToken: refreshResponse.data.sessionToken,
+          sessionRefreshToken: storedToken,
+        };
+      }
+    }
+
+    // Fall back to full device authentication
+    const [authResponse, authError] =
+      await this._sessionManagerClient.sourceDeviceSessionAuth({
+        body: { sessionId },
+      });
+
+    if (authError instanceof NetworkError) return null;
+    if (authError || authResponse.status !== 200) return null;
+
+    return authResponse.data;
+  }
+
   private async _connectSession(
     sessionId: string,
     token: number,
@@ -173,31 +216,16 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     this._setStatus(KioskServiceStatus.SESSION_CONNECTING);
     this._closeSessionSocket(1000);
 
-    // Fetch session token and transcription config
-    const [authResponse, authError] =
-      await this._sessionManagerClient.sourceDeviceSessionAuth({
-        body: { sessionId },
-      });
+    const authResult = await this._authenticateSession(sessionId);
 
     if (token !== this._sessionLoopToken) return false;
 
-    if (authError instanceof NetworkError) {
-      this._setStatus(KioskServiceStatus.SESSION_ERROR);
-      return false;
-    }
-    if (authError || authResponse.status === 400) {
-      this._setStatus(KioskServiceStatus.ERROR);
-      this._suspend();
-      return false;
-    }
-    if (authResponse.status === 500) return false;
-
-    if (authResponse.status === 401) {
+    if (!authResult) {
       this._setStatus(KioskServiceStatus.SESSION_ERROR);
       return false;
     }
 
-    const { sessionToken, sessionRefreshToken } = authResponse.data;
+    const { sessionToken, sessionRefreshToken } = authResult;
 
     // Open WebSocket connection to node server audio source
     const [socket, connectError] = await this._nodeServerClient.audioSource({
@@ -216,6 +244,7 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
 
     this._socket = socket;
     this._sessionRefreshToken = sessionRefreshToken;
+    this.emit('sessionRefreshTokenUpdated', sessionRefreshToken);
 
     socket.send({ type: AudioSourceClientMessageType.AUTH, sessionToken });
     this._scheduleTokenRefresh(sessionToken, sessionId);
@@ -408,7 +437,7 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
 
     const deviceDetails = response.data;
     this.emit('deviceRegistered', deviceDetails.deviceName);
-    this.activate(deviceDetails.deviceName, null, this._prevEventId);
+    this.activate(deviceDetails.deviceName, null, this._prevEventId, null);
   }
 
   /**
@@ -419,11 +448,13 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     deviceName: string | null,
     activeSessionId: string | null,
     prevEventId: number,
+    sessionRefreshToken: string | null,
   ) {
     this._suspend();
     this._eventLoopDelayMs = MIN_RETRY_DELAY_MS;
     this._sessionLoopDelayMs = MIN_RETRY_DELAY_MS;
     this._prevEventId = prevEventId;
+    this._storedSessionRefreshToken = sessionRefreshToken;
 
     if (deviceName === null) {
       this._setStatus(KioskServiceStatus.NOT_REGISTERED);

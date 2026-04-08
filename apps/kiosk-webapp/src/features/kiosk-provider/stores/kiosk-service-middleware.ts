@@ -21,9 +21,11 @@ import {
   selectActiveSessionId,
   selectDeviceName,
   selectPrevEventId,
+  selectSessionRefreshToken,
   setActiveSessionId,
   setDeviceName,
   setPrevEventId,
+  setSessionRefreshToken,
 } from './kiosk-config-slice';
 import {
   registerDevice,
@@ -99,6 +101,9 @@ export const createKioskServiceMiddleware =
     kioskService.on('prevEventIdUpdated', (eventId) => {
       store.dispatch(setPrevEventId(eventId));
     });
+    kioskService.on('sessionRefreshTokenUpdated', (token) => {
+      store.dispatch(setSessionRefreshToken(token));
+    });
 
     return (next) => (action) => {
       const result = next(action);
@@ -109,6 +114,7 @@ export const createKioskServiceMiddleware =
           selectDeviceName(state),
           selectActiveSessionId(state),
           selectPrevEventId(state),
+          selectSessionRefreshToken(state),
         );
         syncMuteState(kioskService, state);
       }
@@ -119,6 +125,7 @@ export const createKioskServiceMiddleware =
           selectDeviceName(state),
           selectActiveSessionId(state),
           selectPrevEventId(state),
+          selectSessionRefreshToken(state),
         );
         syncMuteState(kioskService, state);
       }
