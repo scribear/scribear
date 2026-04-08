@@ -1,0 +1,33 @@
+{
+  "name": "@scribear/scribear-redis",
+  "version": "0.0.0",
+  "description": "",
+  "author": "scribear",
+  "main": "dist/src/index.js",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "type": "module",
+  "imports": {
+    "#src/*": "./dist/src/*",
+    "#tests/*": "./dist/tests/*"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "tsc --build --watch",
+    "format": "prettier --check ./src ./tests",
+    "format:fix": "prettier --write ./src ./tests",
+    "lint": "eslint ./src ./tests",
+    "lint:fix": "eslint ./src ./tests --fix",
+    "test:dev": "vitest --ui --coverage",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration"
+  },
+  "dependencies": {
+    "ioredis": "5.10.1",
+    "typebox": "1.1.5"
+  }
+}
