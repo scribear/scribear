@@ -10,6 +10,7 @@ import {
   selectDeviceName,
 } from '../stores/kiosk-config-slice';
 import {
+  selectJoinCode,
   selectKioskServiceStatus,
   selectSessionStatus,
 } from '../stores/kiosk-service-slice';
@@ -25,6 +26,7 @@ export const KioskStatusPanel = () => {
   const sessionId = useAppSelector(selectActiveSessionId);
   const kioskServiceStatus = useAppSelector(selectKioskServiceStatus);
   const sessionStatus = useAppSelector(selectSessionStatus);
+  const joinCode = useAppSelector(selectJoinCode);
 
   const isNotActivated =
     kioskServiceStatus === KioskServiceStatus.NOT_REGISTERED ||
@@ -64,6 +66,11 @@ export const KioskStatusPanel = () => {
             {isInSession && (
               <>
                 <Typography>Connected to session: {sessionId}</Typography>
+                {joinCode && (
+                  <Typography variant="h4" fontFamily="monospace">
+                    Join Code: {joinCode}
+                  </Typography>
+                )}
                 {sessionStatus && !sessionStatus.sourceDeviceConnected && (
                   <Typography color="warning.main">
                     Waiting for source device

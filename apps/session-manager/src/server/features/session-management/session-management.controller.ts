@@ -8,6 +8,7 @@ import {
   DEVICE_SESSION_EVENTS_SCHEMA,
   type END_SESSION_SCHEMA,
   type GET_SESSION_CONFIG_SCHEMA,
+  type GET_SESSION_JOIN_CODE_SCHEMA,
   type REFRESH_SESSION_TOKEN_SCHEMA,
   type SESSION_JOIN_CODE_AUTH_SCHEMA,
   type SOURCE_DEVICE_SESSION_AUTH_SCHEMA,
@@ -34,6 +35,8 @@ export class SessionManagementController {
       transcriptionProviderConfig,
       endTimeUnixMs,
       enableJoinCode,
+      joinCodeLength,
+      enableJoinCodeRotation,
     } = req.body;
 
     const result = await this._sessionManagementService.createOnDemandSession(
@@ -42,15 +45,15 @@ export class SessionManagementController {
       transcriptionProviderConfig,
       endTimeUnixMs,
       enableJoinCode ?? false,
+      joinCodeLength,
+      enableJoinCodeRotation,
     );
 
     if (!result) {
       throw new HttpError.UnprocessableEntity('Invalid session parameters.');
     }
 
-    res
-      .code(200)
-      .send({ sessionId: result.sessionId, joinCode: result.joinCode });
+    res.code(200).send({ sessionId: result.sessionId });
   }
 
   async sessionAuth(
@@ -126,6 +129,29 @@ export class SessionManagementController {
     }
 
     res.code(200).send(result);
+  }
+
+  async getSessionJoinCode(
+    req: BaseFastifyRequest<typeof GET_SESSION_JOIN_CODE_SCHEMA>,
+    res: BaseFastifyReply<typeof GET_SESSION_JOIN_CODE_SCHEMA>,
+  ) {
+    const { sessionId } = req.params;
+
+    const result = await this._sessionManagementService.getSessionJoinCode(
+      req.deviceId,
+      sessionId,
+    );
+
+    if (!result) {
+      throw new HttpError.NotFound(
+        'Session not found or join codes not enabled.',
+      );
+    }
+
+    res.code(200).send({
+      joinCode: result.joinCode,
+      expiresAtUnixMs: result.expiresAtUnixMs,
+    });
   }
 
   async endSession(

@@ -1,8 +1,5 @@
 import { useCallback } from 'react';
 
-import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
-
 import {
   selectIsHeaderHideEnabled,
   toggleHeaderHide,
@@ -43,6 +40,7 @@ import {
   TranscriptionDisplayPreferencesMenu,
 } from '@scribear/transcription-display-ui';
 
+import { JoinSessionModal } from '#src/features/session-provider/components/join-session-modal';
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
 /**
@@ -139,19 +137,7 @@ export const Root = () => {
       headerButtons={[]}
       headerBreakpoint="md"
     >
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '100%',
-          p: 4,
-        }}
-      >
-        <Typography color="transcriptionColor" variant="h6">
-          Waiting for transcription...
-        </Typography>
-      </Box>
+      <JoinSessionModal />
       <TranscriptionDisplayContainer
         commitedSections={commitedSections}
         activeSection={activeSection}

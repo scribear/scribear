@@ -12,6 +12,7 @@ import {
   DEVICE_SESSION_EVENTS_ROUTE,
   END_SESSION_ROUTE,
   GET_SESSION_CONFIG_ROUTE,
+  GET_SESSION_JOIN_CODE_ROUTE,
   REFRESH_SESSION_TOKEN_ROUTE,
   REGISTER_DEVICE_ROUTE,
   SESSION_JOIN_CODE_AUTH_ROUTE,
@@ -31,7 +32,13 @@ const TEST_PROVIDER_KEY = 'whisper';
 const TEST_PROVIDER_CONFIG = {};
 
 describe('Integration Tests - Session Management API', () => {
-  useDb(['session_refresh_tokens', 'session_events', 'sessions', 'devices']);
+  const dbCtx = useDb([
+    'session_join_codes',
+    'session_refresh_tokens',
+    'session_events',
+    'sessions',
+    'devices',
+  ]);
 
   let fastify: BaseFastifyInstance;
 
@@ -89,7 +96,7 @@ describe('Integration Tests - Session Management API', () => {
         enableJoinCode: options?.enableJoinCode,
       },
     });
-    return response.json<{ sessionId: string; joinCode: string | null }>();
+    return response.json<{ sessionId: string }>();
   }
 
   async function createIndefiniteSession(
@@ -106,7 +113,18 @@ describe('Integration Tests - Session Management API', () => {
         enableJoinCode: options?.enableJoinCode,
       },
     });
-    return response.json<{ sessionId: string; joinCode: string | null }>();
+    return response.json<{ sessionId: string }>();
+  }
+
+  async function getJoinCodeFromDb(sessionId: string): Promise<string> {
+    const row = await dbCtx.db
+      .selectFrom('session_join_codes')
+      .select('code')
+      .where('session_id', '=', sessionId)
+      .orderBy('created_at', 'desc')
+      .limit(1)
+      .executeTakeFirstOrThrow();
+    return row.code;
   }
 
   async function getDeviceSessionEvents(
@@ -202,31 +220,31 @@ describe('Integration Tests - Session Management API', () => {
       expect(response.statusCode).toBe(422);
     });
 
-    it('returns 200 with sessionId and null joinCode when enableJoinCode is not set', async () => {
+    it('returns 200 with sessionId when enableJoinCode is not set', async () => {
       // Arrange
       const { deviceId, activationCode } = await registerDevice();
       await activateDevice(activationCode);
 
       // Act
-      const { sessionId, joinCode } = await createSession(deviceId);
+      const { sessionId } = await createSession(deviceId);
 
       // Assert
       expect(sessionId).toEqual(expect.any(String));
-      expect(joinCode).toBeNull();
     });
 
-    it('returns 200 with sessionId and alphanumeric joinCode when enableJoinCode=true', async () => {
+    it('returns 200 and creates join code in DB when enableJoinCode=true', async () => {
       // Arrange
       const { deviceId, activationCode } = await registerDevice();
       await activateDevice(activationCode);
 
       // Act
-      const { sessionId, joinCode } = await createSession(deviceId, {
+      const { sessionId } = await createSession(deviceId, {
         enableJoinCode: true,
       });
 
       // Assert
       expect(sessionId).toEqual(expect.any(String));
+      const joinCode = await getJoinCodeFromDb(sessionId);
       expect(joinCode).toMatch(/^[A-Z0-9]{8}$/);
     });
 
@@ -236,11 +254,10 @@ describe('Integration Tests - Session Management API', () => {
       await activateDevice(activationCode);
 
       // Act
-      const { sessionId, joinCode } = await createIndefiniteSession(deviceId);
+      const { sessionId } = await createIndefiniteSession(deviceId);
 
       // Assert
       expect(sessionId).toEqual(expect.any(String));
-      expect(joinCode).toBeNull();
     });
   });
 
@@ -356,9 +373,10 @@ describe('Integration Tests - Session Management API', () => {
       // Arrange
       const { deviceId, activationCode } = await registerDevice();
       await activateDevice(activationCode);
-      const { sessionId, joinCode } = await createSession(deviceId, {
+      const { sessionId } = await createSession(deviceId, {
         enableJoinCode: true,
       });
+      const joinCode = await getJoinCodeFromDb(sessionId);
 
       // Act
       const response = await fastify.inject({
@@ -396,10 +414,11 @@ describe('Integration Tests - Session Management API', () => {
       // Arrange
       const { deviceId, activationCode } = await registerDevice();
       await activateDevice(activationCode);
-      const { joinCode } = await createSession(deviceId, {
+      const { sessionId } = await createSession(deviceId, {
         enableJoinCode: true,
         endTimeUnixMs: Date.now() + 500,
       });
+      const joinCode = await getJoinCodeFromDb(sessionId);
 
       // Wait for session to expire
       await new Promise((r) => setTimeout(r, 600));
@@ -417,9 +436,10 @@ describe('Integration Tests - Session Management API', () => {
       // Arrange
       const { deviceId, activationCode } = await registerDevice();
       await activateDevice(activationCode);
-      const { joinCode } = await createIndefiniteSession(deviceId, {
+      const { sessionId } = await createIndefiniteSession(deviceId, {
         enableJoinCode: true,
       });
+      const joinCode = await getJoinCodeFromDb(sessionId);
 
       // Act
       const response = await fastify.inject({
@@ -579,9 +599,10 @@ describe('Integration Tests - Session Management API', () => {
       // Arrange
       const { deviceId, activationCode } = await registerDevice();
       await activateDevice(activationCode);
-      const { joinCode } = await createSession(deviceId, {
+      const { sessionId } = await createSession(deviceId, {
         enableJoinCode: true,
       });
+      const joinCode = await getJoinCodeFromDb(sessionId);
 
       const authResponse = await fastify.inject({
         ...SESSION_JOIN_CODE_AUTH_ROUTE,
@@ -616,9 +637,10 @@ describe('Integration Tests - Session Management API', () => {
       // Arrange
       const { deviceId, activationCode } = await registerDevice();
       await activateDevice(activationCode);
-      const { sessionId, joinCode } = await createIndefiniteSession(deviceId, {
+      const { sessionId } = await createIndefiniteSession(deviceId, {
         enableJoinCode: true,
       });
+      const joinCode = await getJoinCodeFromDb(sessionId);
 
       const authResponse = await fastify.inject({
         ...SESSION_JOIN_CODE_AUTH_ROUTE,
@@ -643,6 +665,133 @@ describe('Integration Tests - Session Management API', () => {
 
       // Assert
       expect(response.statusCode).toBe(401);
+    });
+  });
+
+  describe(`GET ${GET_SESSION_JOIN_CODE_ROUTE.url}`, (it) => {
+    it('returns 401 when device cookie is missing', async () => {
+      // Act
+      const response = await fastify.inject({
+        method: GET_SESSION_JOIN_CODE_ROUTE.method,
+        url: GET_SESSION_JOIN_CODE_ROUTE.url.replace(
+          ':sessionId',
+          'some-session-id',
+        ),
+      });
+
+      // Assert
+      expect(response.statusCode).toBe(401);
+    });
+
+    it('returns 404 when session does not exist', async () => {
+      // Arrange
+      const { activationCode } = await registerDevice();
+      const { deviceToken } = await activateDevice(activationCode);
+
+      // Act
+      const response = await fastify.inject({
+        method: GET_SESSION_JOIN_CODE_ROUTE.method,
+        url: GET_SESSION_JOIN_CODE_ROUTE.url.replace(
+          ':sessionId',
+          '00000000-0000-0000-0000-000000000000',
+        ),
+        cookies: { device_token: deviceToken },
+      });
+
+      // Assert
+      expect(response.statusCode).toBe(404);
+    });
+
+    it('returns 404 when join codes are not enabled for the session', async () => {
+      // Arrange
+      const { deviceId, activationCode } = await registerDevice();
+      const { deviceToken } = await activateDevice(activationCode);
+      const { sessionId } = await createSession(deviceId);
+
+      // Act
+      const response = await fastify.inject({
+        method: GET_SESSION_JOIN_CODE_ROUTE.method,
+        url: GET_SESSION_JOIN_CODE_ROUTE.url.replace(':sessionId', sessionId),
+        cookies: { device_token: deviceToken },
+      });
+
+      // Assert
+      expect(response.statusCode).toBe(404);
+    });
+
+    it('returns 404 when a different device requests the join code', async () => {
+      // Arrange
+      const { deviceId: deviceAId, activationCode: codeA } =
+        await registerDevice();
+      await activateDevice(codeA);
+
+      const { activationCode: codeB } = await registerDevice();
+      const { deviceToken: deviceBToken } = await activateDevice(codeB);
+
+      const { sessionId } = await createSession(deviceAId, {
+        enableJoinCode: true,
+      });
+
+      // Act
+      const response = await fastify.inject({
+        method: GET_SESSION_JOIN_CODE_ROUTE.method,
+        url: GET_SESSION_JOIN_CODE_ROUTE.url.replace(':sessionId', sessionId),
+        cookies: { device_token: deviceBToken },
+      });
+
+      // Assert
+      expect(response.statusCode).toBe(404);
+    });
+
+    it('returns 200 with joinCode and expiresAtUnixMs for the source device', async () => {
+      // Arrange
+      const { deviceId, activationCode } = await registerDevice();
+      const { deviceToken } = await activateDevice(activationCode);
+      const { sessionId } = await createSession(deviceId, {
+        enableJoinCode: true,
+      });
+
+      // Act
+      const response = await fastify.inject({
+        method: GET_SESSION_JOIN_CODE_ROUTE.method,
+        url: GET_SESSION_JOIN_CODE_ROUTE.url.replace(':sessionId', sessionId),
+        cookies: { device_token: deviceToken },
+      });
+
+      // Assert
+      expect(response.statusCode).toBe(200);
+      const body = response.json<{
+        joinCode: string;
+        expiresAtUnixMs: number;
+      }>();
+      expect(body.joinCode).toMatch(/^[A-Z0-9]{8}$/);
+      expect(body.expiresAtUnixMs).toBeGreaterThan(Date.now());
+    });
+
+    it('returns the same join code on repeated requests within expiry window', async () => {
+      // Arrange
+      const { deviceId, activationCode } = await registerDevice();
+      const { deviceToken } = await activateDevice(activationCode);
+      const { sessionId } = await createSession(deviceId, {
+        enableJoinCode: true,
+      });
+
+      // Act
+      const response1 = await fastify.inject({
+        method: GET_SESSION_JOIN_CODE_ROUTE.method,
+        url: GET_SESSION_JOIN_CODE_ROUTE.url.replace(':sessionId', sessionId),
+        cookies: { device_token: deviceToken },
+      });
+      const response2 = await fastify.inject({
+        method: GET_SESSION_JOIN_CODE_ROUTE.method,
+        url: GET_SESSION_JOIN_CODE_ROUTE.url.replace(':sessionId', sessionId),
+        cookies: { device_token: deviceToken },
+      });
+
+      // Assert
+      const body1 = response1.json<{ joinCode: string }>();
+      const body2 = response2.json<{ joinCode: string }>();
+      expect(body1.joinCode).toBe(body2.joinCode);
     });
   });
 
@@ -814,9 +963,10 @@ describe('Integration Tests - Session Management API', () => {
       // Arrange
       const { deviceId, activationCode } = await registerDevice();
       await activateDevice(activationCode);
-      const { sessionId, joinCode } = await createIndefiniteSession(deviceId, {
+      const { sessionId } = await createIndefiniteSession(deviceId, {
         enableJoinCode: true,
       });
+      const joinCode = await getJoinCodeFromDb(sessionId);
 
       const authResponse = await fastify.inject({
         ...SESSION_JOIN_CODE_AUTH_ROUTE,

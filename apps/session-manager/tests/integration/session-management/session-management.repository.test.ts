@@ -8,6 +8,7 @@ const TEST_PROVIDER_CONFIG = { apiKey: 'test-api-key' };
 
 describe('SessionManagementRepository', () => {
   const dbContext = useDb([
+    'session_join_codes',
     'session_refresh_tokens',
     'session_events',
     'sessions',
@@ -71,6 +72,7 @@ describe('SessionManagementRepository', () => {
         startTime,
         endTime,
         null,
+        null,
       );
 
       // Assert
@@ -86,7 +88,7 @@ describe('SessionManagementRepository', () => {
       expect(inserted.transcription_provider_key).toBe(TEST_PROVIDER_KEY);
     });
 
-    it('stores null join_code when joinCode is null', async () => {
+    it('stores null join code config when not provided', async () => {
       // Arrange
       const deviceId = await insertDevice();
       const startTime = new Date();
@@ -100,24 +102,25 @@ describe('SessionManagementRepository', () => {
         startTime,
         endTime,
         null,
+        null,
       );
 
       // Assert
       const inserted = await dbContext.db
         .selectFrom('sessions')
-        .select('join_code')
+        .select(['join_code_length', 'join_code_rotation_enabled'])
         .where('id', '=', session.id)
         .executeTakeFirstOrThrow();
 
-      expect(inserted.join_code).toBeNull();
+      expect(inserted.join_code_length).toBeNull();
+      expect(inserted.join_code_rotation_enabled).toBeNull();
     });
 
-    it('stores join_code when a joinCode is provided', async () => {
+    it('stores join code config when provided', async () => {
       // Arrange
       const deviceId = await insertDevice();
       const startTime = new Date();
       const endTime = new Date(startTime.getTime() + 60_000);
-      const joinCode = 'ABCD1234';
 
       // Act
       const { session } = await repository.createSession(
@@ -126,17 +129,19 @@ describe('SessionManagementRepository', () => {
         TEST_PROVIDER_CONFIG,
         startTime,
         endTime,
-        joinCode,
+        6,
+        true,
       );
 
       // Assert
       const inserted = await dbContext.db
         .selectFrom('sessions')
-        .select('join_code')
+        .select(['join_code_length', 'join_code_rotation_enabled'])
         .where('id', '=', session.id)
         .executeTakeFirstOrThrow();
 
-      expect(inserted.join_code).toBe(joinCode);
+      expect(inserted.join_code_length).toBe(6);
+      expect(inserted.join_code_rotation_enabled).toBe(true);
     });
 
     it('creates a START_SESSION event and an END_SESSION event', async () => {
@@ -152,6 +157,7 @@ describe('SessionManagementRepository', () => {
         TEST_PROVIDER_CONFIG,
         startTime,
         endTime,
+        null,
         null,
       );
 
@@ -176,6 +182,7 @@ describe('SessionManagementRepository', () => {
         TEST_PROVIDER_CONFIG,
         startTime,
         endTime,
+        null,
         null,
       );
 
@@ -205,6 +212,7 @@ describe('SessionManagementRepository', () => {
         TEST_PROVIDER_KEY,
         TEST_PROVIDER_CONFIG,
         startTime,
+        null,
         null,
         null,
       );
@@ -248,6 +256,7 @@ describe('SessionManagementRepository', () => {
         startTime,
         endTime,
         null,
+        null,
       );
 
       // Act
@@ -278,6 +287,7 @@ describe('SessionManagementRepository', () => {
         startTime,
         endTime,
         null,
+        null,
       );
 
       // Act
@@ -301,6 +311,7 @@ describe('SessionManagementRepository', () => {
         TEST_PROVIDER_CONFIG,
         startTime,
         endTime,
+        null,
         null,
       );
 
@@ -326,6 +337,7 @@ describe('SessionManagementRepository', () => {
         startTime,
         endTime,
         null,
+        null,
       );
 
       // Act
@@ -347,6 +359,7 @@ describe('SessionManagementRepository', () => {
         TEST_PROVIDER_KEY,
         TEST_PROVIDER_CONFIG,
         startTime,
+        null,
         null,
         null,
       );
@@ -375,6 +388,7 @@ describe('SessionManagementRepository', () => {
         TEST_PROVIDER_CONFIG,
         startTime,
         endTime,
+        null,
         null,
       );
 
@@ -409,6 +423,7 @@ describe('SessionManagementRepository', () => {
         TEST_PROVIDER_KEY,
         TEST_PROVIDER_CONFIG,
         startTime,
+        null,
         null,
         null,
       );
@@ -460,6 +475,7 @@ describe('SessionManagementRepository', () => {
         startTime,
         endTime,
         null,
+        null,
       );
 
       // Act
@@ -487,6 +503,7 @@ describe('SessionManagementRepository', () => {
         startTime,
         endTime,
         null,
+        null,
       );
 
       // Act
@@ -511,6 +528,7 @@ describe('SessionManagementRepository', () => {
         TEST_PROVIDER_CONFIG,
         startTime,
         endTime,
+        null,
         null,
       );
 
@@ -539,6 +557,7 @@ describe('SessionManagementRepository', () => {
         TEST_PROVIDER_CONFIG,
         startTime,
         endTime,
+        null,
         null,
       );
 

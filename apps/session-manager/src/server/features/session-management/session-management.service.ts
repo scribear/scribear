@@ -14,9 +14,12 @@ import type { SessionEvent } from './session-event-bus.service.js';
 
 const POLL_TIMEOUT_MS = 25_000;
 
-const JOIN_CODE_LENGTH = 8;
+const DEFAULT_JOIN_CODE_LENGTH = 8;
 
 const JWT_LIFETIME_S = 5 * 60;
+
+const JOIN_CODE_DURATION_MS = 5 * 60 * 1_000;
+const JOIN_CODE_ROTATION_THRESHOLD_MS = 1 * 60 * 1_000;
 
 const REFRESH_TOKEN_SECRET_LENGTH = 32;
 const REFRESH_TOKEN_SEPARATOR = ':';
@@ -25,6 +28,7 @@ export class SessionManagementService {
   private _log: AppDependencies['logger'];
   private _sessionManagementRepository: AppDependencies['sessionManagementRepository'];
   private _sessionRefreshTokenRepository: AppDependencies['sessionRefreshTokenRepository'];
+  private _sessionJoinCodeRepository: AppDependencies['sessionJoinCodeRepository'];
   private _sessionEventBusService: AppDependencies['sessionEventBusService'];
   private _jwtService: AppDependencies['jwtService'];
   private _hashService: AppDependencies['hashService'];
@@ -34,6 +38,7 @@ export class SessionManagementService {
     logger: AppDependencies['logger'],
     sessionManagementRepository: AppDependencies['sessionManagementRepository'],
     sessionRefreshTokenRepository: AppDependencies['sessionRefreshTokenRepository'],
+    sessionJoinCodeRepository: AppDependencies['sessionJoinCodeRepository'],
     sessionEventBusService: AppDependencies['sessionEventBusService'],
     jwtService: AppDependencies['jwtService'],
     hashService: AppDependencies['hashService'],
@@ -42,6 +47,7 @@ export class SessionManagementService {
     this._log = logger;
     this._sessionManagementRepository = sessionManagementRepository;
     this._sessionRefreshTokenRepository = sessionRefreshTokenRepository;
+    this._sessionJoinCodeRepository = sessionJoinCodeRepository;
     this._sessionEventBusService = sessionEventBusService;
     this._jwtService = jwtService;
     this._hashService = hashService;
@@ -52,7 +58,7 @@ export class SessionManagementService {
     joinCode: string,
   ): Promise<{ sessionToken: string; sessionRefreshToken: string } | null> {
     const session =
-      await this._sessionManagementRepository.findActiveSessionByJoinCode(
+      await this._sessionJoinCodeRepository.findActiveSessionByJoinCode(
         joinCode,
       );
 
@@ -119,7 +125,9 @@ export class SessionManagementService {
     transcriptionProviderConfig: TranscriptionProviderConfig,
     endTimeUnixMs: number | undefined,
     enableJoinCode: boolean,
-  ): Promise<{ sessionId: string; joinCode: string | null } | null> {
+    joinCodeLength: number | undefined,
+    enableJoinCodeRotation: boolean | undefined,
+  ): Promise<{ sessionId: string } | null> {
     const startTime = new Date();
 
     if (endTimeUnixMs !== undefined && endTimeUnixMs <= startTime.getTime()) {
@@ -136,8 +144,11 @@ export class SessionManagementService {
 
     const endTime =
       endTimeUnixMs !== undefined ? new Date(endTimeUnixMs) : null;
-    const joinCode = enableJoinCode
-      ? generateRandomCode(JOIN_CODE_LENGTH)
+    const codeLength = enableJoinCode
+      ? (joinCodeLength ?? DEFAULT_JOIN_CODE_LENGTH)
+      : null;
+    const rotationEnabled = enableJoinCode
+      ? (enableJoinCodeRotation ?? true)
       : null;
 
     const { session, startEvent } =
@@ -147,8 +158,21 @@ export class SessionManagementService {
         transcriptionProviderConfig,
         startTime,
         endTime,
-        joinCode,
+        codeLength,
+        rotationEnabled,
       );
+
+    // Create the initial join code if enabled
+    if (codeLength !== null) {
+      const code = generateRandomCode(codeLength);
+      const expiresAt = new Date(startTime.getTime() + JOIN_CODE_DURATION_MS);
+      await this._sessionJoinCodeRepository.create(
+        session.id,
+        code,
+        startTime,
+        expiresAt,
+      );
+    }
 
     // Emit START_SESSION so any waiting long-poll request is handled immediately.
     // END_SESSION is in the future and will be delivered via the DB timer mechanism.
@@ -159,7 +183,7 @@ export class SessionManagementService {
       timestampUnixMs: startTime.getTime(),
     });
 
-    return { sessionId: session.id, joinCode };
+    return { sessionId: session.id };
   }
 
   /**
@@ -249,6 +273,94 @@ export class SessionManagementService {
   }
 
   /**
+   * Returns the current join code for a session, rotating if close to expiry.
+   * Only the session's source device may request this.
+   */
+  async getSessionJoinCode(
+    deviceId: string,
+    sessionId: string,
+  ): Promise<{ joinCode: string; expiresAtUnixMs: number } | null> {
+    const session =
+      await this._sessionManagementRepository.findActiveSessionBySourceDevice(
+        deviceId,
+        sessionId,
+      );
+
+    if (!session) {
+      this._log.warn(
+        { deviceId, sessionId },
+        'Session not found for join code request',
+      );
+      return null;
+    }
+
+    // Look up join code config from full session record
+    const fullSession =
+      await this._sessionManagementRepository.findSessionById(sessionId);
+
+    if (fullSession?.join_code_length == null) {
+      this._log.warn({ sessionId }, 'Join codes not enabled for session');
+      return null;
+    }
+
+    const rotationEnabled = fullSession.join_code_rotation_enabled ?? true;
+
+    if (rotationEnabled) {
+      const result = await this._sessionJoinCodeRepository.getOrRotateJoinCode(
+        sessionId,
+        fullSession.join_code_length,
+        generateRandomCode,
+        JOIN_CODE_DURATION_MS,
+        JOIN_CODE_ROTATION_THRESHOLD_MS,
+      );
+
+      if (!result) {
+        // No valid codes exist, create a fresh one
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + JOIN_CODE_DURATION_MS);
+        const code = generateRandomCode(fullSession.join_code_length);
+        await this._sessionJoinCodeRepository.create(
+          sessionId,
+          code,
+          now,
+          expiresAt,
+        );
+        return { joinCode: code, expiresAtUnixMs: expiresAt.getTime() };
+      }
+
+      return {
+        joinCode: result.code,
+        expiresAtUnixMs: result.expiresAt.getTime(),
+      };
+    }
+
+    // Rotation disabled: return existing code or create one that doesn't expire
+    // until the session ends
+    const existing =
+      await this._sessionJoinCodeRepository.getLatestValidCode(sessionId);
+
+    if (existing) {
+      return {
+        joinCode: existing.code,
+        expiresAtUnixMs: existing.expires_at.getTime(),
+      };
+    }
+
+    // No valid code, create a long-lived one
+    const now = new Date();
+    const expiresAt =
+      fullSession.end_time ?? new Date(now.getTime() + 24 * 60 * 60 * 1_000);
+    const code = generateRandomCode(fullSession.join_code_length);
+    await this._sessionJoinCodeRepository.create(
+      sessionId,
+      code,
+      now,
+      expiresAt,
+    );
+    return { joinCode: code, expiresAtUnixMs: expiresAt.getTime() };
+  }
+
+  /**
    * Ends an active session immediately, updating the DB and publishing to Redis.
    */
   async endSession(sessionId: string): Promise<boolean> {
@@ -272,6 +384,7 @@ export class SessionManagementService {
     );
 
     await this._sessionRefreshTokenRepository.deleteBySessionId(sessionId);
+    await this._sessionJoinCodeRepository.deleteBySessionId(sessionId);
 
     await this._redisPublisher.publish(
       {

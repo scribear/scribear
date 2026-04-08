@@ -18,6 +18,7 @@ describe('SessionManagementController', () => {
     authenticateWithJoinCode: Mock;
     authenticateSourceDevice: Mock;
     refreshSessionToken: Mock;
+    getSessionJoinCode: Mock;
     getSessionConfig: Mock;
     endSession: Mock;
   };
@@ -31,6 +32,7 @@ describe('SessionManagementController', () => {
       authenticateWithJoinCode: vi.fn(),
       authenticateSourceDevice: vi.fn(),
       refreshSessionToken: vi.fn(),
+      getSessionJoinCode: vi.fn(),
       getSessionConfig: vi.fn(),
       endSession: vi.fn(),
     };
@@ -45,11 +47,10 @@ describe('SessionManagementController', () => {
   });
 
   describe('createSession', (it) => {
-    it('calls service and responds with sessionId and joinCode on success', async () => {
+    it('calls service and responds with sessionId on success', async () => {
       // Arrange
       mockSessionManagementService.createOnDemandSession.mockResolvedValue({
         sessionId: TEST_SESSION_ID,
-        joinCode: 'ABCD1234',
       });
       const mockReq = {
         body: {
@@ -58,6 +59,8 @@ describe('SessionManagementController', () => {
           transcriptionProviderConfig: TEST_PROVIDER_CONFIG,
           endTimeUnixMs: TEST_END_TIME_MS,
           enableJoinCode: true,
+          joinCodeLength: 6,
+          enableJoinCodeRotation: true,
         },
       };
 
@@ -73,19 +76,19 @@ describe('SessionManagementController', () => {
         TEST_PROVIDER_CONFIG,
         TEST_END_TIME_MS,
         true,
+        6,
+        true,
       );
       expect(mockReply.code).toHaveBeenCalledExactlyOnceWith(200);
       expect(mockReply.send).toHaveBeenCalledExactlyOnceWith({
         sessionId: TEST_SESSION_ID,
-        joinCode: 'ABCD1234',
       });
     });
 
-    it('passes enableJoinCode=false when not provided in body', async () => {
+    it('passes enableJoinCode=false and undefined optional params when not provided', async () => {
       // Arrange
       mockSessionManagementService.createOnDemandSession.mockResolvedValue({
         sessionId: TEST_SESSION_ID,
-        joinCode: null,
       });
       const mockReq = {
         body: {
@@ -108,10 +111,11 @@ describe('SessionManagementController', () => {
         TEST_PROVIDER_CONFIG,
         TEST_END_TIME_MS,
         false,
+        undefined,
+        undefined,
       );
       expect(mockReply.send).toHaveBeenCalledExactlyOnceWith({
         sessionId: TEST_SESSION_ID,
-        joinCode: null,
       });
     });
 
@@ -330,6 +334,48 @@ describe('SessionManagementController', () => {
       await expect(
         controller.refreshSessionToken(mockReq as never, mockReply as never),
       ).rejects.toThrow(HttpError.Unauthorized);
+    });
+  });
+
+  describe('getSessionJoinCode', (it) => {
+    it('responds with joinCode and expiresAtUnixMs on success', async () => {
+      // Arrange
+      const expiresAtUnixMs = Date.now() + 300_000;
+      mockSessionManagementService.getSessionJoinCode.mockResolvedValue({
+        joinCode: 'ABCD1234',
+        expiresAtUnixMs,
+      });
+      const mockReq = {
+        deviceId: TEST_DEVICE_ID,
+        params: { sessionId: TEST_SESSION_ID },
+      };
+
+      // Act
+      await controller.getSessionJoinCode(mockReq as never, mockReply as never);
+
+      // Assert
+      expect(
+        mockSessionManagementService.getSessionJoinCode,
+      ).toHaveBeenCalledExactlyOnceWith(TEST_DEVICE_ID, TEST_SESSION_ID);
+      expect(mockReply.code).toHaveBeenCalledExactlyOnceWith(200);
+      expect(mockReply.send).toHaveBeenCalledExactlyOnceWith({
+        joinCode: 'ABCD1234',
+        expiresAtUnixMs,
+      });
+    });
+
+    it('throws NotFound when service returns null', async () => {
+      // Arrange
+      mockSessionManagementService.getSessionJoinCode.mockResolvedValue(null);
+      const mockReq = {
+        deviceId: TEST_DEVICE_ID,
+        params: { sessionId: TEST_SESSION_ID },
+      };
+
+      // Act / Assert
+      await expect(
+        controller.getSessionJoinCode(mockReq as never, mockReply as never),
+      ).rejects.toThrow(HttpError.NotFound);
     });
   });
 

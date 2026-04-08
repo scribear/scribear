@@ -24,6 +24,7 @@ import { KioskServiceStatus } from './kiosk-service-status';
 const MIN_RETRY_DELAY_MS = 1_000;
 const MAX_RETRY_DELAY_MS = 60_000;
 const TOKEN_REFRESH_BUFFER_MS = 2 * 60 * 1_000;
+const JOIN_CODE_REFRESH_BUFFER_MS = 30 * 1_000;
 
 interface SessionStatus {
   transcriptionServiceConnected: boolean;
@@ -46,6 +47,10 @@ interface KioskServiceEvents {
   deviceRegistered: (deviceName: string) => void;
   deviceUnregistered: () => void;
   prevEventIdUpdated: (eventId: number) => void;
+  sessionRefreshTokenUpdated: (token: string | null) => void;
+  joinCodeUpdated: (
+    data: { joinCode: string; expiresAtUnixMs: number } | null,
+  ) => void;
 }
 
 /**
@@ -68,7 +73,9 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
   private _stream: AudioStream | null = null;
   private _socket: WebSocketClient<typeof AUDIO_SOURCE_SCHEMA> | null = null;
   private _sessionRefreshToken: string | null = null;
+  private _storedSessionRefreshToken: string | null = null;
   private _refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private _joinCodeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   private _eventLoopToken = 0;
   private _eventLoopDelayMs = MIN_RETRY_DELAY_MS;
@@ -103,7 +110,10 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
       clearTimeout(this._refreshTimer);
       this._refreshTimer = null;
     }
-    this._sessionRefreshToken = null;
+    if (this._sessionRefreshToken) {
+      this._sessionRefreshToken = null;
+      this.emit('sessionRefreshTokenUpdated', null);
+    }
 
     if (this._stream) {
       this._microphoneService.closeAudioStream(this._stream);
@@ -166,6 +176,79 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     this._scheduleTokenRefresh(sessionToken, sessionId);
   }
 
+  private async _fetchJoinCode(sessionId: string) {
+    const [response, error] =
+      await this._sessionManagerClient.getSessionJoinCode({
+        params: { sessionId },
+      });
+
+    if (error || response.status !== 200) {
+      this.emit('joinCodeUpdated', null);
+      return;
+    }
+
+    const { joinCode, expiresAtUnixMs } = response.data;
+    this.emit('joinCodeUpdated', { joinCode, expiresAtUnixMs });
+
+    this._scheduleJoinCodeRefresh(sessionId, expiresAtUnixMs);
+  }
+
+  private _scheduleJoinCodeRefresh(sessionId: string, expiresAtUnixMs: number) {
+    this._stopJoinCodeRefresh();
+
+    const refreshAt = expiresAtUnixMs - JOIN_CODE_REFRESH_BUFFER_MS;
+    const delay = Math.max(0, refreshAt - Date.now());
+
+    this._joinCodeRefreshTimer = setTimeout(() => {
+      void this._fetchJoinCode(sessionId);
+    }, delay);
+  }
+
+  private _stopJoinCodeRefresh() {
+    if (this._joinCodeRefreshTimer) {
+      clearTimeout(this._joinCodeRefreshTimer);
+      this._joinCodeRefreshTimer = null;
+    }
+  }
+
+  /**
+   * Attempts to obtain session credentials, first by refreshing a stored token
+   * (preserving clientId across page refreshes), then falling back to device auth.
+   */
+  private async _authenticateSession(sessionId: string): Promise<{
+    sessionToken: string;
+    sessionRefreshToken: string;
+  } | null> {
+    // Try refreshing the stored token first to preserve clientId
+    if (this._storedSessionRefreshToken) {
+      const storedToken = this._storedSessionRefreshToken;
+      this._storedSessionRefreshToken = null;
+
+      const [refreshResponse, refreshError] =
+        await this._sessionManagerClient.refreshSessionToken({
+          body: { sessionRefreshToken: storedToken },
+        });
+
+      if (!refreshError && refreshResponse.status === 200) {
+        return {
+          sessionToken: refreshResponse.data.sessionToken,
+          sessionRefreshToken: storedToken,
+        };
+      }
+    }
+
+    // Fall back to full device authentication
+    const [authResponse, authError] =
+      await this._sessionManagerClient.sourceDeviceSessionAuth({
+        body: { sessionId },
+      });
+
+    if (authError instanceof NetworkError) return null;
+    if (authError || authResponse.status !== 200) return null;
+
+    return authResponse.data;
+  }
+
   private async _connectSession(
     sessionId: string,
     token: number,
@@ -173,31 +256,16 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     this._setStatus(KioskServiceStatus.SESSION_CONNECTING);
     this._closeSessionSocket(1000);
 
-    // Fetch session token and transcription config
-    const [authResponse, authError] =
-      await this._sessionManagerClient.sourceDeviceSessionAuth({
-        body: { sessionId },
-      });
+    const authResult = await this._authenticateSession(sessionId);
 
     if (token !== this._sessionLoopToken) return false;
 
-    if (authError instanceof NetworkError) {
-      this._setStatus(KioskServiceStatus.SESSION_ERROR);
-      return false;
-    }
-    if (authError || authResponse.status === 400) {
-      this._setStatus(KioskServiceStatus.ERROR);
-      this._suspend();
-      return false;
-    }
-    if (authResponse.status === 500) return false;
-
-    if (authResponse.status === 401) {
+    if (!authResult) {
       this._setStatus(KioskServiceStatus.SESSION_ERROR);
       return false;
     }
 
-    const { sessionToken, sessionRefreshToken } = authResponse.data;
+    const { sessionToken, sessionRefreshToken } = authResult;
 
     // Open WebSocket connection to node server audio source
     const [socket, connectError] = await this._nodeServerClient.audioSource({
@@ -216,6 +284,7 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
 
     this._socket = socket;
     this._sessionRefreshToken = sessionRefreshToken;
+    this.emit('sessionRefreshTokenUpdated', sessionRefreshToken);
 
     socket.send({ type: AudioSourceClientMessageType.AUTH, sessionToken });
     this._scheduleTokenRefresh(sessionToken, sessionId);
@@ -307,6 +376,8 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
   private _stopSessionLoop() {
     this._sessionLoopToken++;
     this._closeSessionSocket(1000);
+    this._stopJoinCodeRefresh();
+    this.emit('joinCodeUpdated', null);
   }
 
   private async _fetchEvents(token: number) {
@@ -346,6 +417,7 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     if (event.eventType === DeviceSessionEventType.START_SESSION) {
       this.emit('sessionStarted', event.sessionId);
       this._startSessionLoop(event.sessionId);
+      void this._fetchJoinCode(event.sessionId);
     } else {
       this._setStatus(KioskServiceStatus.IDLE);
       this.emit('sessionEnded');
@@ -408,7 +480,7 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
 
     const deviceDetails = response.data;
     this.emit('deviceRegistered', deviceDetails.deviceName);
-    this.activate(deviceDetails.deviceName, null, this._prevEventId);
+    this.activate(deviceDetails.deviceName, null, this._prevEventId, null);
   }
 
   /**
@@ -419,11 +491,13 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     deviceName: string | null,
     activeSessionId: string | null,
     prevEventId: number,
+    sessionRefreshToken: string | null,
   ) {
     this._suspend();
     this._eventLoopDelayMs = MIN_RETRY_DELAY_MS;
     this._sessionLoopDelayMs = MIN_RETRY_DELAY_MS;
     this._prevEventId = prevEventId;
+    this._storedSessionRefreshToken = sessionRefreshToken;
 
     if (deviceName === null) {
       this._setStatus(KioskServiceStatus.NOT_REGISTERED);
@@ -434,6 +508,7 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     this._startEventLoop();
     if (activeSessionId) {
       this._startSessionLoop(activeSessionId);
+      void this._fetchJoinCode(activeSessionId);
     }
   }
 

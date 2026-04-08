@@ -27,12 +27,13 @@ const CREATE_SESSION_SCHEMA = {
     transcriptionProviderConfig: TranscriptionProviderConfigSchema,
     endTimeUnixMs: Type.Optional(Type.Number()),
     enableJoinCode: Type.Optional(Type.Boolean()),
+    joinCodeLength: Type.Optional(Type.Number({ minimum: 4, maximum: 16 })),
+    enableJoinCodeRotation: Type.Optional(Type.Boolean()),
   }),
   response: {
     200: Type.Object(
       {
         sessionId: Type.String(),
-        joinCode: Type.Union([Type.String(), Type.Null()]),
       },
       {
         description: 'Session created successfully',

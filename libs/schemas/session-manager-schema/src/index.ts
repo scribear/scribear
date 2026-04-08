@@ -14,6 +14,7 @@ export * from './session-management/create-session.schema.js';
 export * from './session-management/device-session-events.schema.js';
 export * from './session-management/end-session.schema.js';
 export * from './session-management/get-session-config.schema.js';
+export * from './session-management/get-session-join-code.schema.js';
 export * from './session-management/refresh-session-token.schema.js';
 export * from './session-management/session-event-channel.schema.js';
 export * from './session-management/session-join-code-auth.schema.js';

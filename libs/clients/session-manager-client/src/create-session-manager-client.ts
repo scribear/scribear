@@ -10,6 +10,8 @@ import {
   END_SESSION_SCHEMA,
   GET_SESSION_CONFIG_ROUTE,
   GET_SESSION_CONFIG_SCHEMA,
+  GET_SESSION_JOIN_CODE_ROUTE,
+  GET_SESSION_JOIN_CODE_SCHEMA,
   HEALTHCHECK_ROUTE,
   HEALTHCHECK_SCHEMA,
   REFRESH_SESSION_TOKEN_ROUTE,
@@ -68,6 +70,11 @@ function createSessionManagerClient(baseUrl: string) {
     refreshSessionToken: createEndpointClient(
       REFRESH_SESSION_TOKEN_SCHEMA,
       REFRESH_SESSION_TOKEN_ROUTE,
+      baseUrl,
+    ),
+    getSessionJoinCode: createEndpointClient(
+      GET_SESSION_JOIN_CODE_SCHEMA,
+      GET_SESSION_JOIN_CODE_ROUTE,
       baseUrl,
     ),
     getSessionConfig: createEndpointClient(

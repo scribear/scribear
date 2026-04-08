@@ -8,6 +8,8 @@ import {
   END_SESSION_SCHEMA,
   GET_SESSION_CONFIG_ROUTE,
   GET_SESSION_CONFIG_SCHEMA,
+  GET_SESSION_JOIN_CODE_ROUTE,
+  GET_SESSION_JOIN_CODE_SCHEMA,
   REFRESH_SESSION_TOKEN_ROUTE,
   REFRESH_SESSION_TOKEN_SCHEMA,
   SESSION_JOIN_CODE_AUTH_ROUTE,
@@ -65,6 +67,16 @@ export function sessionManagementRouter(fastify: BaseFastifyInstance) {
     handler: resolveHandler(
       'sessionManagementController',
       'refreshSessionToken',
+    ),
+  });
+
+  fastify.route({
+    ...GET_SESSION_JOIN_CODE_ROUTE,
+    schema: GET_SESSION_JOIN_CODE_SCHEMA,
+    preHandler: deviceCookieAuthHook,
+    handler: resolveHandler(
+      'sessionManagementController',
+      'getSessionJoinCode',
     ),
   });
 

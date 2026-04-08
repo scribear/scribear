@@ -4,19 +4,23 @@ import type { RootState } from '#src/store/store';
 
 /**
  * Shape of the `kioskConfig` Redux slice. Stores the registered device name,
- * the currently active session ID, and the last received event ID used for
- * polling continuity.
+ * the currently active session ID, the last received event ID used for
+ * polling continuity, and the session refresh token for reconnection.
  */
 export interface KioskConfigSliceState {
   deviceName: string | null;
   activeSessionId: string | null;
   prevEventId: number;
+  // Persisted so the kiosk can reconnect to an active session after page
+  // refresh without re-authenticating via device token (preserving clientId).
+  sessionRefreshToken: string | null;
 }
 
 const initialState: KioskConfigSliceState = {
   deviceName: null,
   activeSessionId: null,
   prevEventId: -1,
+  sessionRefreshToken: null,
 };
 
 /**
@@ -34,6 +38,11 @@ export const selectActiveSessionId = (state: RootState) =>
  */
 export const selectPrevEventId = (state: RootState) =>
   state.kioskConfig.prevEventId;
+/**
+ * Selects the persisted session refresh token for reconnection after page refresh.
+ */
+export const selectSessionRefreshToken = (state: RootState) =>
+  state.kioskConfig.sessionRefreshToken;
 
 /**
  * Redux slice storing the kiosk device registration details and active session state.
@@ -51,6 +60,9 @@ export const kioskConfigSlice = createSlice({
     setPrevEventId: (state, action: PayloadAction<number>) => {
       state.prevEventId = action.payload;
     },
+    setSessionRefreshToken: (state, action: PayloadAction<string | null>) => {
+      state.sessionRefreshToken = action.payload;
+    },
   },
 });
 
@@ -58,5 +70,9 @@ export const kioskConfigSlice = createSlice({
 export const kioskConfigReducer = kioskConfigSlice.reducer;
 
 // Action creators for the kioskConfig slice.
-export const { setDeviceName, setActiveSessionId, setPrevEventId } =
-  kioskConfigSlice.actions;
+export const {
+  setDeviceName,
+  setActiveSessionId,
+  setPrevEventId,
+  setSessionRefreshToken,
+} = kioskConfigSlice.actions;
