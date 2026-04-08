@@ -5,8 +5,6 @@
 
 import type { ColumnType } from "kysely";
 
-export type AuthMethodType = "JOIN_CODE" | "SOURCE_DEVICE";
-
 export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S, I | undefined, U>
   : ColumnType<T, T | undefined, T>;
@@ -71,16 +69,6 @@ export interface SessionEvents {
   timestamp: Timestamp;
 }
 
-export interface SessionParticipantTokens {
-  auth_method: AuthMethodType;
-  created_at: Generated<Timestamp>;
-  jti: Generated<string>;
-  revoked_at: Timestamp | null;
-  scopes: string[];
-  session_id: string;
-  token_hash: string;
-}
-
 export interface SessionRefreshTokens {
   auth_method: string;
   expiry: Timestamp | null;
@@ -105,7 +93,6 @@ export interface DB {
   "cron.job_run_details": CronJobRunDetails;
   devices: Devices;
   session_events: SessionEvents;
-  session_participant_tokens: SessionParticipantTokens;
   session_refresh_tokens: SessionRefreshTokens;
   sessions: Sessions;
 }

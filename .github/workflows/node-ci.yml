@@ -105,6 +105,13 @@ jobs:
             echo "::endgroup::"
           done < /tmp/workspaces.txt
 
+      - name: Code Coverage Report - Scribear Redis Unit Tests
+        if: contains(needs.changes.outputs.workspaces, 'infra/scribear-redis')
+        uses: ./.github/actions/coverage-report
+        with:
+          package_name: "Scribear Redis - Unit Tests"
+          filename: "./infra/scribear-redis/coverage/cobertura-coverage.xml"
+
       - name: Code Coverage Report - Base Fastify Server Unit Tests
         if: contains(needs.changes.outputs.workspaces, 'libs/base-fastify-server')
         uses: ./.github/actions/coverage-report
