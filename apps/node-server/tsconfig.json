@@ -18,16 +18,25 @@
   ],
   "references": [
     {
-      "path": "../../libs/base-fastify-server/tsconfig.json"
+      "path": "../../libs/base-fastify-server"
     },
     {
-      "path": "../../libs/schemas/node-server-schema/tsconfig.json"
+      "path": "../../libs/schemas/node-server-schema"
     },
     {
-      "path": "../../libs/clients/transcription-service-client/tsconfig.json"
+      "path": "../../libs/clients/transcription-service-client"
     },
     {
-      "path": "../../libs/schemas/transcription-service-schema/tsconfig.json"
+      "path": "../../libs/schemas/transcription-service-schema"
+    },
+    {
+      "path": "../../libs/clients/session-manager-client"
+    },
+    {
+      "path": "../../libs/schemas/session-manager-schema"
+    },
+    {
+      "path": "../../infra/scribear-redis"
     }
   ]
 }

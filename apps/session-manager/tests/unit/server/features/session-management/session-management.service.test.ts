@@ -2,6 +2,7 @@ import { type Mock, afterEach, beforeEach, describe, expect, vi } from 'vitest';
 
 import {
   DeviceSessionEventType,
+  SessionChannelEventType,
   SessionTokenScope,
 } from '@scribear/session-manager-schema';
 
@@ -17,6 +18,8 @@ const FAKE_NOW = new Date('2025-01-01T00:00:00Z');
 const TEST_END_TIME = new Date('2025-01-01T01:00:00Z');
 const TEST_JOIN_CODE = 'ABCD1234';
 const TEST_SESSION_TOKEN = 'signed.jwt.token';
+const TEST_REFRESH_TOKEN_ID = 'refresh-token-id';
+const TEST_SECRET_HASH = 'hashed-secret';
 
 describe('SessionManagementService', () => {
   let mockRepository: {
@@ -25,6 +28,13 @@ describe('SessionManagementService', () => {
     getNextSessionEvent: Mock;
     findActiveSessionByJoinCode: Mock;
     findActiveSessionBySourceDevice: Mock;
+    findSessionById: Mock;
+    endSession: Mock;
+  };
+  let mockRefreshTokenRepository: {
+    create: Mock;
+    findById: Mock;
+    deleteBySessionId: Mock;
   };
   let mockEventBus: {
     addListener: Mock;
@@ -33,6 +43,14 @@ describe('SessionManagementService', () => {
   };
   let mockJwtService: {
     signSessionToken: Mock;
+  };
+  let mockHashService: {
+    hash: Mock;
+    verify: Mock;
+  };
+  let mockRedisPublisher: {
+    publish: Mock;
+    disconnect: Mock;
   };
   let service: SessionManagementService;
 
@@ -46,6 +64,13 @@ describe('SessionManagementService', () => {
       getNextSessionEvent: vi.fn(),
       findActiveSessionByJoinCode: vi.fn(),
       findActiveSessionBySourceDevice: vi.fn(),
+      findSessionById: vi.fn(),
+      endSession: vi.fn(),
+    };
+    mockRefreshTokenRepository = {
+      create: vi.fn().mockResolvedValue({ id: TEST_REFRESH_TOKEN_ID }),
+      findById: vi.fn(),
+      deleteBySessionId: vi.fn(),
     };
     mockEventBus = {
       addListener: vi.fn(),
@@ -55,12 +80,23 @@ describe('SessionManagementService', () => {
     mockJwtService = {
       signSessionToken: vi.fn().mockReturnValue(TEST_SESSION_TOKEN),
     };
+    mockHashService = {
+      hash: vi.fn().mockResolvedValue(TEST_SECRET_HASH),
+      verify: vi.fn(),
+    };
+    mockRedisPublisher = {
+      publish: vi.fn().mockResolvedValue(undefined),
+      disconnect: vi.fn(),
+    };
 
     service = new SessionManagementService(
       createMockLogger() as never,
       mockRepository as never,
+      mockRefreshTokenRepository as never,
       mockEventBus as never,
       mockJwtService as never,
+      mockHashService as never,
+      mockRedisPublisher as never,
     );
   });
 
@@ -208,6 +244,36 @@ describe('SessionManagementService', () => {
         },
       );
     });
+
+    it('creates indefinite session when endTimeUnixMs is undefined', async () => {
+      // Arrange
+      mockRepository.deviceExists.mockResolvedValue(true);
+      mockRepository.createSession.mockResolvedValue({
+        session: { id: TEST_SESSION_ID },
+        startEvent: { id: TEST_START_EVENT_ID },
+        endEvent: null,
+      });
+
+      // Act
+      const result = await service.createOnDemandSession(
+        TEST_DEVICE_ID,
+        TEST_PROVIDER_KEY,
+        TEST_PROVIDER_CONFIG,
+        undefined,
+        false,
+      );
+
+      // Assert
+      expect(mockRepository.createSession).toHaveBeenCalledExactlyOnceWith(
+        TEST_DEVICE_ID,
+        TEST_PROVIDER_KEY,
+        TEST_PROVIDER_CONFIG,
+        FAKE_NOW,
+        null,
+        null,
+      );
+      expect(result).toEqual({ sessionId: TEST_SESSION_ID, joinCode: null });
+    });
   });
 
   describe('authenticateWithJoinCode', (it) => {
@@ -223,7 +289,7 @@ describe('SessionManagementService', () => {
       expect(mockJwtService.signSessionToken).not.toHaveBeenCalled();
     });
 
-    it('returns a sessionToken signed with sessionId, receive_transcriptions scope, and session expiry', async () => {
+    it('returns sessionToken and sessionRefreshToken with RECEIVE_TRANSCRIPTIONS scope and 5-min expiry', async () => {
       // Arrange
       mockRepository.findActiveSessionByJoinCode.mockResolvedValue({
         id: TEST_SESSION_ID,
@@ -236,13 +302,37 @@ describe('SessionManagementService', () => {
       // Assert
       expect(mockJwtService.signSessionToken).toHaveBeenCalledExactlyOnceWith({
         sessionId: TEST_SESSION_ID,
+        clientId: TEST_REFRESH_TOKEN_ID,
         scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
-        exp: Math.floor(TEST_END_TIME.getTime() / 1000),
+        exp: Math.floor(FAKE_NOW.getTime() / 1000) + 300,
       });
-      expect(result).toEqual({ sessionToken: TEST_SESSION_TOKEN });
+      expect(result).toEqual({
+        sessionToken: TEST_SESSION_TOKEN,
+        sessionRefreshToken: expect.stringContaining(TEST_REFRESH_TOKEN_ID),
+      });
     });
 
-    it('returns null when session has no end_time', async () => {
+    it('creates a refresh token with join_code auth method', async () => {
+      // Arrange
+      mockRepository.findActiveSessionByJoinCode.mockResolvedValue({
+        id: TEST_SESSION_ID,
+        end_time: TEST_END_TIME,
+      });
+
+      // Act
+      await service.authenticateWithJoinCode(TEST_JOIN_CODE);
+
+      // Assert
+      expect(mockRefreshTokenRepository.create).toHaveBeenCalledExactlyOnceWith(
+        TEST_SESSION_ID,
+        [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        'join_code',
+        null,
+        TEST_SECRET_HASH,
+      );
+    });
+
+    it('authenticates indefinite sessions (null end_time)', async () => {
       // Arrange
       mockRepository.findActiveSessionByJoinCode.mockResolvedValue({
         id: TEST_SESSION_ID,
@@ -253,8 +343,8 @@ describe('SessionManagementService', () => {
       const result = await service.authenticateWithJoinCode(TEST_JOIN_CODE);
 
       // Assert
-      expect(result).toBeNull();
-      expect(mockJwtService.signSessionToken).not.toHaveBeenCalled();
+      expect(result).not.toBeNull();
+      expect(mockJwtService.signSessionToken).toHaveBeenCalled();
     });
   });
 
@@ -291,7 +381,7 @@ describe('SessionManagementService', () => {
       ).toHaveBeenCalledExactlyOnceWith(TEST_DEVICE_ID, TEST_SESSION_ID);
     });
 
-    it('returns sessionToken signed with both SEND_AUDIO and RECEIVE_TRANSCRIPTIONS scopes and session expiry', async () => {
+    it('returns sessionToken and sessionRefreshToken with both scopes and 5-min expiry', async () => {
       // Arrange
       mockRepository.findActiveSessionBySourceDevice.mockResolvedValue({
         id: TEST_SESSION_ID,
@@ -309,36 +399,20 @@ describe('SessionManagementService', () => {
       // Assert
       expect(mockJwtService.signSessionToken).toHaveBeenCalledExactlyOnceWith({
         sessionId: TEST_SESSION_ID,
+        clientId: TEST_REFRESH_TOKEN_ID,
         scopes: [
           SessionTokenScope.RECEIVE_TRANSCRIPTIONS,
           SessionTokenScope.SEND_AUDIO,
         ],
-        exp: Math.floor(TEST_END_TIME.getTime() / 1000),
+        exp: Math.floor(FAKE_NOW.getTime() / 1000) + 300,
       });
-      expect(result).toMatchObject({ sessionToken: TEST_SESSION_TOKEN });
+      expect(result).toMatchObject({
+        sessionToken: TEST_SESSION_TOKEN,
+        sessionRefreshToken: expect.stringContaining(TEST_REFRESH_TOKEN_ID),
+      });
     });
 
-    it('returns null when session has no end_time', async () => {
-      // Arrange
-      mockRepository.findActiveSessionBySourceDevice.mockResolvedValue({
-        id: TEST_SESSION_ID,
-        end_time: null,
-        transcription_provider_key: TEST_PROVIDER_KEY,
-        transcription_provider_config: TEST_PROVIDER_CONFIG,
-      });
-
-      // Act
-      const result = await service.authenticateSourceDevice(
-        TEST_DEVICE_ID,
-        TEST_SESSION_ID,
-      );
-
-      // Assert
-      expect(result).toBeNull();
-      expect(mockJwtService.signSessionToken).not.toHaveBeenCalled();
-    });
-
-    it('returns transcriptionProviderKey and transcriptionProviderConfig from session', async () => {
+    it('creates a refresh token with source_device auth method', async () => {
       // Arrange
       mockRepository.findActiveSessionBySourceDevice.mockResolvedValue({
         id: TEST_SESSION_ID,
@@ -348,16 +422,242 @@ describe('SessionManagementService', () => {
       });
 
       // Act
-      const result = await service.authenticateSourceDevice(
-        TEST_DEVICE_ID,
-        TEST_SESSION_ID,
-      );
+      await service.authenticateSourceDevice(TEST_DEVICE_ID, TEST_SESSION_ID);
 
       // Assert
-      expect(result).toMatchObject({
+      expect(mockRefreshTokenRepository.create).toHaveBeenCalledExactlyOnceWith(
+        TEST_SESSION_ID,
+        [
+          SessionTokenScope.RECEIVE_TRANSCRIPTIONS,
+          SessionTokenScope.SEND_AUDIO,
+        ],
+        'source_device',
+        null,
+        TEST_SECRET_HASH,
+      );
+    });
+  });
+
+  describe('refreshSessionToken', (it) => {
+    it('returns null for invalid token format', async () => {
+      // Act
+      const result = await service.refreshSessionToken('no-separator');
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('returns null when refresh token not found in DB', async () => {
+      // Arrange
+      mockRefreshTokenRepository.findById.mockResolvedValue(undefined);
+
+      // Act
+      const result = await service.refreshSessionToken('some-id:some-secret');
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('returns null when secret does not match', async () => {
+      // Arrange
+      mockRefreshTokenRepository.findById.mockResolvedValue({
+        id: 'some-id',
+        session_id: TEST_SESSION_ID,
+        scope: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        auth_method: 'join_code',
+        expiry: null,
+        secret_hash: TEST_SECRET_HASH,
+      });
+      mockHashService.verify.mockResolvedValue(false);
+
+      // Act
+      const result = await service.refreshSessionToken('some-id:wrong-secret');
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('returns null when session has ended', async () => {
+      // Arrange
+      mockRefreshTokenRepository.findById.mockResolvedValue({
+        id: 'some-id',
+        session_id: TEST_SESSION_ID,
+        scope: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        auth_method: 'join_code',
+        expiry: null,
+        secret_hash: TEST_SECRET_HASH,
+      });
+      mockHashService.verify.mockResolvedValue(true);
+      mockRepository.findSessionById.mockResolvedValue({
+        id: TEST_SESSION_ID,
+        start_time: new Date(FAKE_NOW.getTime() - 60_000),
+        end_time: new Date(FAKE_NOW.getTime() - 1000),
+      });
+
+      // Act
+      const result = await service.refreshSessionToken('some-id:valid-secret');
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('returns new session token when valid', async () => {
+      // Arrange
+      mockRefreshTokenRepository.findById.mockResolvedValue({
+        id: 'some-id',
+        session_id: TEST_SESSION_ID,
+        scope: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        auth_method: 'join_code',
+        expiry: null,
+        secret_hash: TEST_SECRET_HASH,
+      });
+      mockHashService.verify.mockResolvedValue(true);
+      mockRepository.findSessionById.mockResolvedValue({
+        id: TEST_SESSION_ID,
+        start_time: new Date(FAKE_NOW.getTime() - 60_000),
+        end_time: TEST_END_TIME,
+      });
+
+      // Act
+      const result = await service.refreshSessionToken('some-id:valid-secret');
+
+      // Assert
+      expect(result).toEqual({ sessionToken: TEST_SESSION_TOKEN });
+      expect(mockJwtService.signSessionToken).toHaveBeenCalledExactlyOnceWith({
+        sessionId: TEST_SESSION_ID,
+        clientId: 'some-id',
+        scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        exp: Math.floor(FAKE_NOW.getTime() / 1000) + 300,
+      });
+    });
+
+    it('returns null when refresh token is expired', async () => {
+      // Arrange
+      mockRefreshTokenRepository.findById.mockResolvedValue({
+        id: 'some-id',
+        session_id: TEST_SESSION_ID,
+        scope: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        auth_method: 'join_code',
+        expiry: new Date(FAKE_NOW.getTime() - 1000),
+        secret_hash: TEST_SECRET_HASH,
+      });
+
+      // Act
+      const result = await service.refreshSessionToken('some-id:valid-secret');
+
+      // Assert
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('getSessionConfig', (it) => {
+    it('returns null when session not found', async () => {
+      // Arrange
+      mockRepository.findSessionById.mockResolvedValue(undefined);
+
+      // Act
+      const result = await service.getSessionConfig('nonexistent');
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('returns config for existing session', async () => {
+      // Arrange
+      mockRepository.findSessionById.mockResolvedValue({
+        id: TEST_SESSION_ID,
+        transcription_provider_key: TEST_PROVIDER_KEY,
+        transcription_provider_config: TEST_PROVIDER_CONFIG,
+        end_time: TEST_END_TIME,
+      });
+
+      // Act
+      const result = await service.getSessionConfig(TEST_SESSION_ID);
+
+      // Assert
+      expect(result).toEqual({
         transcriptionProviderKey: TEST_PROVIDER_KEY,
         transcriptionProviderConfig: TEST_PROVIDER_CONFIG,
+        endTimeUnixMs: TEST_END_TIME.getTime(),
       });
+    });
+
+    it('returns null endTimeUnixMs for indefinite session', async () => {
+      // Arrange
+      mockRepository.findSessionById.mockResolvedValue({
+        id: TEST_SESSION_ID,
+        transcription_provider_key: TEST_PROVIDER_KEY,
+        transcription_provider_config: TEST_PROVIDER_CONFIG,
+        end_time: null,
+      });
+
+      // Act
+      const result = await service.getSessionConfig(TEST_SESSION_ID);
+
+      // Assert
+      expect(result).toEqual({
+        transcriptionProviderKey: TEST_PROVIDER_KEY,
+        transcriptionProviderConfig: TEST_PROVIDER_CONFIG,
+        endTimeUnixMs: null,
+      });
+    });
+  });
+
+  describe('endSession', (it) => {
+    it('returns false when session not found', async () => {
+      // Arrange
+      mockRepository.findSessionById.mockResolvedValue(undefined);
+
+      // Act
+      const result = await service.endSession('nonexistent');
+
+      // Assert
+      expect(result).toBe(false);
+    });
+
+    it('returns false when session already ended', async () => {
+      // Arrange
+      mockRepository.findSessionById.mockResolvedValue({
+        id: TEST_SESSION_ID,
+        source_device_id: TEST_DEVICE_ID,
+        end_time: new Date(FAKE_NOW.getTime() - 1000),
+      });
+
+      // Act
+      const result = await service.endSession(TEST_SESSION_ID);
+
+      // Assert
+      expect(result).toBe(false);
+    });
+
+    it('ends session, deletes refresh tokens, and publishes to redis', async () => {
+      // Arrange
+      mockRepository.findSessionById.mockResolvedValue({
+        id: TEST_SESSION_ID,
+        source_device_id: TEST_DEVICE_ID,
+        end_time: null,
+      });
+
+      // Act
+      const result = await service.endSession(TEST_SESSION_ID);
+
+      // Assert
+      expect(result).toBe(true);
+      expect(mockRepository.endSession).toHaveBeenCalledExactlyOnceWith(
+        TEST_SESSION_ID,
+        TEST_DEVICE_ID,
+        FAKE_NOW,
+      );
+      expect(
+        mockRefreshTokenRepository.deleteBySessionId,
+      ).toHaveBeenCalledExactlyOnceWith(TEST_SESSION_ID);
+      expect(mockRedisPublisher.publish).toHaveBeenCalledExactlyOnceWith(
+        {
+          type: SessionChannelEventType.SESSION_END,
+          endTimeUnixMs: FAKE_NOW.getTime(),
+        },
+        TEST_SESSION_ID,
+      );
     });
   });
 

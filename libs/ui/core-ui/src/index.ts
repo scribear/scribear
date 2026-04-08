@@ -1,4 +1,5 @@
 export * from './components/app-layout.js';
+export * from './components/number-field.js';
 export * from './components/cancelable-info-modal.js';
 export * from './components/choice-modal.js';
 export * from './components/drawer-menu-group.js';

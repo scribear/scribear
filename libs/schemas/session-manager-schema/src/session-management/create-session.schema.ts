@@ -25,7 +25,7 @@ const CREATE_SESSION_SCHEMA = {
     sourceDeviceId: Type.String({ maxLength: 36 }),
     transcriptionProviderKey: Type.String({ maxLength: 32 }),
     transcriptionProviderConfig: TranscriptionProviderConfigSchema,
-    endTimeUnixMs: Type.Number(),
+    endTimeUnixMs: Type.Optional(Type.Number()),
     enableJoinCode: Type.Optional(Type.Boolean()),
   }),
   response: {

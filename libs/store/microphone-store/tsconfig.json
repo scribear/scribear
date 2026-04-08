@@ -13,11 +13,12 @@
     }
   },
   "include": [
-    "src"
+    "src",
+    "tests"
   ],
   "references": [
     {
-      "path": "../redux-remember-store/tsconfig.json"
+      "path": "../redux-remember-store"
     }
   ]
 }

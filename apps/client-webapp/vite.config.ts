@@ -11,6 +11,26 @@ export default defineConfig({
   resolve: {
     conditions: ['development'],
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor': [
+            'react',
+            'react-dom',
+            '@mui/material',
+            '@mui/icons-material',
+            '@emotion/react',
+            '@emotion/styled',
+            '@base-ui/react',
+            '@reduxjs/toolkit',
+            'react-redux',
+            'redux-remember',
+          ],
+        },
+      },
+    },
+  },
   server: {
     port: 3002,
   },

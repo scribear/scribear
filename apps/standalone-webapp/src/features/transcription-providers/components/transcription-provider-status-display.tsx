@@ -6,9 +6,8 @@ import { useAppSelector } from '#src/store/use-redux';
 
 import {
   getProviderDisplayName,
-  providerComponentRegistry,
+  getProviderStatusIcon,
 } from '../services/providers/provider-component-registry';
-import { ProviderId } from '../services/providers/provider-registry';
 
 /**
  * Displays the active transcription provider's status icon and display name.
@@ -17,16 +16,15 @@ import { ProviderId } from '../services/providers/provider-registry';
 export const TranscriptionProviderStatusDisplay = () => {
   const targetProviderId = useAppSelector(selectTargetProviderId);
 
-  const icons = Object.fromEntries(
-    Object.values(ProviderId).map((id) => {
-      const StatusIcon = providerComponentRegistry[id].statusIcon;
-      return [id, <StatusIcon key={id} />];
-    }),
-  );
+  const StatusIcon = targetProviderId
+    ? getProviderStatusIcon(targetProviderId)
+    : null;
 
   return (
     <Stack direction="row" alignItems="center">
-      {targetProviderId ? icons[targetProviderId] : null}
+      {/* getProviderStatusIcon returns a stable reference from the module-level registry, not a new component. */}
+      {/* eslint-disable-next-line react-hooks/static-components */}
+      {StatusIcon ? <StatusIcon /> : null}
       <Typography variant="h6">
         {targetProviderId
           ? getProviderDisplayName(targetProviderId)

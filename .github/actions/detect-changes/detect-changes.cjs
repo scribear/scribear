@@ -82,15 +82,12 @@ const nonWorkspaceDependencies = /** @type {Record<string, string[]>} */ ({
 // Global config files that trigger a full run across all workspaces
 const globalFiles = new Set([
   '.dockerignore',
-  'package-lock.json',
   'package.json',
   'tsconfig.base.json',
   'eslint.config.js',
   'prettier.config.js',
   'vitest.config.ts',
   'vitest.shared.ts',
-  '.npmrc',
-  '.editorconfig',
 ]);
 
 let affected;

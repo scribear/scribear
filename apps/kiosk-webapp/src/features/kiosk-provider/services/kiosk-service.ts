@@ -17,26 +17,36 @@ import {
 } from '@scribear/node-server-schema';
 import { createSessionManagerClient } from '@scribear/session-manager-client';
 import { DeviceSessionEventType } from '@scribear/session-manager-schema';
-import {
-  appendFinalizedTranscription,
-  replaceInProgressTranscription,
-} from '@scribear/transcription-content-store';
+import type { TranscriptionSequenceInput } from '@scribear/transcription-content-store';
 
-import type { AppStore } from '#src/store/store';
-
-import {
-  selectActiveSessionId,
-  selectDeviceName,
-  selectPrevEventId,
-  setActiveSessionId,
-  setDeviceName,
-  setPrevEventId,
-} from '../stores/kiosk-config-slice';
-import { setKioskServiceStatus } from '../stores/kiosk-service-slice';
 import { KioskServiceStatus } from './kiosk-service-status';
 
 const MIN_RETRY_DELAY_MS = 1_000;
 const MAX_RETRY_DELAY_MS = 60_000;
+const TOKEN_REFRESH_BUFFER_MS = 2 * 60 * 1_000;
+
+interface SessionStatus {
+  transcriptionServiceConnected: boolean;
+  sourceDeviceConnected: boolean;
+}
+
+/**
+ * Events emitted by {@link KioskService} to communicate status changes,
+ * transcription output, and device/session lifecycle to the Redux middleware.
+ */
+interface KioskServiceEvents {
+  statusChange: (status: KioskServiceStatus) => void;
+  appendFinalizedTranscription: (sequence: TranscriptionSequenceInput) => void;
+  replaceInProgressTranscription: (
+    sequence: TranscriptionSequenceInput,
+  ) => void;
+  sessionStarted: (sessionId: string) => void;
+  sessionEnded: () => void;
+  sessionStatus: (status: SessionStatus) => void;
+  deviceRegistered: (deviceName: string) => void;
+  deviceUnregistered: () => void;
+  prevEventIdUpdated: (eventId: number) => void;
+}
 
 /**
  * Core service that manages the kiosk device's connection to ScribeAR.
@@ -45,17 +55,20 @@ const MAX_RETRY_DELAY_MS = 60_000;
  * the node server and streams microphone audio for transcription. Handles
  * exponential back-off retries for both the event and session loops.
  */
-export class KioskService extends EventEmitter {
+export class KioskService extends EventEmitter<KioskServiceEvents> {
   private _status: KioskServiceStatus;
   private _muted = true;
 
-  private _store;
   private _microphoneService;
   private _sessionManagerClient;
   private _nodeServerClient;
 
+  private _prevEventId = -1;
+
   private _stream: AudioStream | null = null;
   private _socket: WebSocketClient<typeof AUDIO_SOURCE_SCHEMA> | null = null;
+  private _sessionRefreshToken: string | null = null;
+  private _refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   private _eventLoopToken = 0;
   private _eventLoopDelayMs = MIN_RETRY_DELAY_MS;
@@ -63,14 +76,10 @@ export class KioskService extends EventEmitter {
   private _sessionLoopToken = 0;
   private _sessionLoopDelayMs = MIN_RETRY_DELAY_MS;
 
-  constructor(
-    store: Pick<AppStore, 'dispatch' | 'getState'>,
-    microphoneService: MicrophoneService,
-  ) {
+  constructor(microphoneService: MicrophoneService) {
     super();
     this._status = KioskServiceStatus.INACTIVE;
 
-    this._store = store;
     this._microphoneService = microphoneService;
     const baseUrl = window.location.origin;
     this._nodeServerClient = createNodeServerClient(baseUrl);
@@ -86,10 +95,16 @@ export class KioskService extends EventEmitter {
 
   private _setStatus(newStatus: KioskServiceStatus) {
     this._status = newStatus;
-    this._store.dispatch(setKioskServiceStatus(newStatus));
+    this.emit('statusChange', newStatus);
   }
 
   private _closeSessionSocket(code?: number, reason?: string) {
+    if (this._refreshTimer) {
+      clearTimeout(this._refreshTimer);
+      this._refreshTimer = null;
+    }
+    this._sessionRefreshToken = null;
+
     if (this._stream) {
       this._microphoneService.closeAudioStream(this._stream);
       this._stream = null;
@@ -100,6 +115,55 @@ export class KioskService extends EventEmitter {
     this._socket.removeAllListeners();
     this._socket.close(code, reason);
     this._socket = null;
+  }
+
+  private _scheduleTokenRefresh(sessionToken: string, sessionId: string) {
+    if (this._refreshTimer) {
+      clearTimeout(this._refreshTimer);
+      this._refreshTimer = null;
+    }
+
+    let exp: number;
+    try {
+      const payload = JSON.parse(atob(sessionToken.split('.')[1] ?? '')) as {
+        exp: number;
+      };
+      exp = payload.exp;
+    } catch {
+      return;
+    }
+
+    const refreshAt = exp * 1000 - TOKEN_REFRESH_BUFFER_MS;
+    const delay = Math.max(0, refreshAt - Date.now());
+
+    this._refreshTimer = setTimeout(() => {
+      void this._refreshToken(sessionId);
+    }, delay);
+  }
+
+  private async _refreshToken(sessionId: string) {
+    if (!this._sessionRefreshToken || !this._socket) return;
+
+    const [response, error] =
+      await this._sessionManagerClient.refreshSessionToken({
+        body: { sessionRefreshToken: this._sessionRefreshToken },
+      });
+
+    if (error || response.status !== 200) {
+      console.error('Token refresh failed, closing session');
+      this._closeSessionSocket(1000, 'Token refresh failed');
+      this._setStatus(KioskServiceStatus.SESSION_ERROR);
+      return;
+    }
+
+    const { sessionToken } = response.data;
+
+    this._socket.send({
+      type: AudioSourceClientMessageType.AUTH,
+      sessionToken,
+    });
+
+    this._scheduleTokenRefresh(sessionToken, sessionId);
   }
 
   private async _connectSession(
@@ -133,11 +197,7 @@ export class KioskService extends EventEmitter {
       return false;
     }
 
-    const {
-      sessionToken,
-      transcriptionProviderKey,
-      transcriptionProviderConfig,
-    } = authResponse.data;
+    const { sessionToken, sessionRefreshToken } = authResponse.data;
 
     // Open WebSocket connection to node server audio source
     const [socket, connectError] = await this._nodeServerClient.audioSource({
@@ -155,13 +215,10 @@ export class KioskService extends EventEmitter {
     }
 
     this._socket = socket;
+    this._sessionRefreshToken = sessionRefreshToken;
 
     socket.send({ type: AudioSourceClientMessageType.AUTH, sessionToken });
-    socket.send({
-      type: AudioSourceClientMessageType.CONFIG,
-      providerKey: transcriptionProviderKey,
-      config: transcriptionProviderConfig,
-    });
+    this._scheduleTokenRefresh(sessionToken, sessionId);
 
     this._setStatus(
       this._muted ? KioskServiceStatus.ACTIVE_MUTE : KioskServiceStatus.ACTIVE,
@@ -169,9 +226,14 @@ export class KioskService extends EventEmitter {
 
     socket.on('message', (message) => {
       if (message.type === AudioSourceServerMessageType.FINAL_TRANSCRIPT) {
-        this._store.dispatch(appendFinalizedTranscription(message));
+        this.emit('appendFinalizedTranscription', message);
+      } else if (message.type === AudioSourceServerMessageType.IP_TRANSCRIPT) {
+        this.emit('replaceInProgressTranscription', message);
       } else {
-        this._store.dispatch(replaceInProgressTranscription(message));
+        this.emit('sessionStatus', {
+          transcriptionServiceConnected: message.transcriptionServiceConnected,
+          sourceDeviceConnected: message.sourceDeviceConnected,
+        });
       }
     });
 
@@ -185,7 +247,15 @@ export class KioskService extends EventEmitter {
           reason,
         );
         this._closeSessionSocket();
-        this._setStatus(KioskServiceStatus.SESSION_ERROR);
+
+        // Code 1000 with "Session ended" is a graceful end, not an error
+        if (code === 1000) {
+          this._setStatus(KioskServiceStatus.IDLE);
+          this.emit('sessionEnded');
+          this._stopSessionLoop();
+        } else {
+          this._setStatus(KioskServiceStatus.SESSION_ERROR);
+        }
         resolve();
       });
 
@@ -243,7 +313,7 @@ export class KioskService extends EventEmitter {
     const [response, error] =
       await this._sessionManagerClient.getDeviceSessionEvents({
         querystring: {
-          prevEventId: selectPrevEventId(this._store.getState()),
+          prevEventId: this._prevEventId,
         },
       });
 
@@ -262,7 +332,7 @@ export class KioskService extends EventEmitter {
     // If not authorized, kiosk has not been registered properly
     if (response.status === 401) {
       this._setStatus(KioskServiceStatus.NOT_REGISTERED);
-      this._store.dispatch(setDeviceName(null));
+      this.emit('deviceUnregistered');
       return false;
     }
 
@@ -270,14 +340,15 @@ export class KioskService extends EventEmitter {
     // Null indicates no new event
     if (!event) return true;
 
-    this._store.dispatch(setPrevEventId(event.eventId));
+    this._prevEventId = event.eventId;
+    this.emit('prevEventIdUpdated', event.eventId);
 
     if (event.eventType === DeviceSessionEventType.START_SESSION) {
-      this._store.dispatch(setActiveSessionId(event.sessionId));
+      this.emit('sessionStarted', event.sessionId);
       this._startSessionLoop(event.sessionId);
     } else {
       this._setStatus(KioskServiceStatus.IDLE);
-      this._store.dispatch(setActiveSessionId(null));
+      this.emit('sessionEnded');
       this._stopSessionLoop();
     }
 
@@ -336,22 +407,23 @@ export class KioskService extends EventEmitter {
     }
 
     const deviceDetails = response.data;
-    this._store.dispatch(setDeviceName(deviceDetails.deviceName));
-    this.activate();
+    this.emit('deviceRegistered', deviceDetails.deviceName);
+    this.activate(deviceDetails.deviceName, null, this._prevEventId);
   }
 
   /**
    * Starts (or restarts) the event-polling and session loops. If the device is
    * not yet registered, sets the status to `NOT_REGISTERED` and returns early.
    */
-  activate() {
+  activate(
+    deviceName: string | null,
+    activeSessionId: string | null,
+    prevEventId: number,
+  ) {
     this._suspend();
     this._eventLoopDelayMs = MIN_RETRY_DELAY_MS;
     this._sessionLoopDelayMs = MIN_RETRY_DELAY_MS;
-
-    const state = this._store.getState();
-    const deviceName = selectDeviceName(state);
-    const activeSessionId = selectActiveSessionId(state);
+    this._prevEventId = prevEventId;
 
     if (deviceName === null) {
       this._setStatus(KioskServiceStatus.NOT_REGISTERED);

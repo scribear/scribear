@@ -5,7 +5,6 @@ import {
   type BaseRouteSchema,
   SHARED_ERROR_REPLY_SCHEMA,
 } from '@scribear/base-schema';
-import { TranscriptionProviderConfigSchema } from '@scribear/transcription-service-schema';
 
 import { DEVICE_COOKIE_AUTH_SECURITY } from '#src/security.js';
 
@@ -26,8 +25,9 @@ const SOURCE_DEVICE_SESSION_AUTH_SCHEMA = {
           description:
             'Signed JWT containing session id and scopes (SEND_AUDIO + RECEIVE_TRANSCRIPTIONS)',
         }),
-        transcriptionProviderKey: Type.String(),
-        transcriptionProviderConfig: TranscriptionProviderConfigSchema,
+        sessionRefreshToken: Type.String({
+          description: 'Opaque refresh token for obtaining new session tokens',
+        }),
       },
       { description: 'Source device authenticated successfully' },
     ),

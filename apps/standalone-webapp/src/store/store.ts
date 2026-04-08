@@ -7,6 +7,7 @@ import {
   microphonePreferencesReducer,
   microphoneServiceReducer,
 } from '@scribear/microphone-store';
+import type { MicrophoneService } from '@scribear/microphone-store';
 import {
   appInitialization,
   reduxRememberReducer,
@@ -15,11 +16,11 @@ import { themePreferencesReducer } from '@scribear/theme-customization-store';
 import { transcriptionContentReducer } from '@scribear/transcription-content-store';
 import { transcriptionDisplayPreferencesReducer } from '@scribear/transcription-display-store';
 
-import { appMicrophoneService } from '#src/app-microphone-service';
 import { providerConfigReducer } from '#src/features/transcription-providers/stores/provider-config-slice';
 import { providerPreferencesReducer } from '#src/features/transcription-providers/stores/provider-preferences-slice';
-import { providerServiceMiddleware } from '#src/features/transcription-providers/stores/provider-service-middleware';
+import { createProviderServiceMiddleware } from '#src/features/transcription-providers/stores/provider-service-middleware';
 import { providerStatusReducer } from '#src/features/transcription-providers/stores/provider-status-slice';
+import { providerUIReducer } from '#src/features/transcription-providers/stores/provider-ui-slice';
 import { createUrlFragmentDriver } from '#src/features/url-config/url-fragment-driver';
 
 // All Redux slice reducers combined into the root reducer map.
@@ -34,6 +35,7 @@ const reducers = {
   providerConfig: providerConfigReducer,
   providerPreferences: providerPreferencesReducer,
   providerStatus: providerStatusReducer,
+  providerUI: providerUIReducer,
 };
 
 // Slice keys that are persisted to localStorage via redux-remember.
@@ -64,26 +66,30 @@ const urlFragmentDriver = createUrlFragmentDriver(
 // Root reducer wrapping all slices with redux-remember persistence support.
 export const rootReducer = rememberReducer(reducers);
 
-// Configured Redux store for the standalone webapp.
-export const store = configureStore({
-  reducer: rootReducer,
-  middleware: (getDefaultMiddleware) =>
-    getDefaultMiddleware()
-      .concat(createMicrophoneServiceMiddleware(appMicrophoneService))
-      .concat(providerServiceMiddleware),
-  enhancers: (getDefaultEnhancers) =>
-    getDefaultEnhancers().prepend(
-      rememberEnhancer(urlFragmentDriver, rememberedKeys, {
-        initActionType: appInitialization.type,
-      }),
-    ),
-});
+// Creates and returns the configured Redux store for the standalone webapp.
+export const createAppStore = (microphoneService: MicrophoneService) => {
+  const store = configureStore({
+    reducer: rootReducer,
+    middleware: (getDefaultMiddleware) =>
+      getDefaultMiddleware()
+        .concat(createMicrophoneServiceMiddleware(microphoneService))
+        .concat(createProviderServiceMiddleware(microphoneService)),
+    enhancers: (getDefaultEnhancers) =>
+      getDefaultEnhancers().prepend(
+        rememberEnhancer(urlFragmentDriver, rememberedKeys, {
+          initActionType: appInitialization.type,
+        }),
+      ),
+  });
+
+  store.dispatch(appInitialization());
+
+  return store;
+};
 
 // TypeScript type of the full Redux state tree.
 export type RootState = ReturnType<typeof rootReducer>;
 // TypeScript type of the store's dispatch function.
-export type AppDispatch = typeof store.dispatch;
+export type AppDispatch = ReturnType<typeof createAppStore>['dispatch'];
 // TypeScript type of the Redux store instance.
-export type AppStore = typeof store;
-
-store.dispatch(appInitialization());
+export type AppStore = ReturnType<typeof createAppStore>;

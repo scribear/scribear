@@ -69,6 +69,15 @@ export interface SessionEvents {
   timestamp: Timestamp;
 }
 
+export interface SessionRefreshTokens {
+  auth_method: string;
+  expiry: Timestamp | null;
+  id: Generated<string>;
+  scope: string[];
+  secret_hash: string;
+  session_id: string;
+}
+
 export interface Sessions {
   end_time: Timestamp | null;
   id: Generated<string>;
@@ -84,5 +93,6 @@ export interface DB {
   "cron.job_run_details": CronJobRunDetails;
   devices: Devices;
   session_events: SessionEvents;
+  session_refresh_tokens: SessionRefreshTokens;
   sessions: Sessions;
 }

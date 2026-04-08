@@ -18,10 +18,10 @@
   ],
   "references": [
     {
-      "path": "../base-websocket-client/tsconfig.json"
+      "path": "../base-websocket-client"
     },
     {
-      "path": "../../schemas/transcription-service-schema/tsconfig.json"
+      "path": "../../schemas/transcription-service-schema"
     }
   ]
 }

@@ -1,69 +1,93 @@
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+
+import CircularProgress from '@mui/material/CircularProgress';
+import Stack from '@mui/material/Stack';
 
 import { ChoiceModal } from '@scribear/core-ui';
 
-import { getProviderConfigMenu } from '../services/providers/provider-component-registry';
-import { ProviderId } from '../services/providers/provider-registry';
+import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
+
+import {
+  getProviderConfigMenu,
+  getProviderDisplayName,
+} from '../services/providers/provider-component-registry';
+import type { ProviderId } from '../services/providers/provider-registry';
+import {
+  closeConfigMenu,
+  selectConfigMenuProviderId,
+} from '../stores/provider-ui-slice';
+import { ProviderConfigContainer } from './provider-config-container';
 
 /**
- * Props for {@link TranscriptionProviderConfigMenu}.
+ * Renders the configuration menu for whichever provider is currently set in
+ * the `providerUI` Redux slice. Includes an unsaved-changes confirmation modal
+ * that is shown when the user tries to close the menu with pending edits.
+ * Renders nothing when no config menu is open.
  */
-interface TranscriptionProviderConfigMenuProps {
-  // The provider whose config menu to display.
-  providerId: ProviderId;
-  // Called when the menu should be closed.
-  onClose: () => void;
-}
-
-/**
- * Renders the configuration menu for the specified provider. Includes an
- * unsaved-changes confirmation modal that is shown when the user tries to
- * close the menu with pending edits.
- */
-export const TranscriptionProviderConfigMenu = ({
-  providerId,
-  onClose,
-}: TranscriptionProviderConfigMenuProps) => {
+export const TranscriptionProviderConfigMenu = () => {
+  const dispatch = useAppDispatch();
+  const configMenuProviderId = useAppSelector(selectConfigMenuProviderId);
   const [isConfirmPromptOpen, setIsConfirmPromptOpen] = useState(false);
+  // Track which provider the dirty state belongs to so it resets automatically
+  // when a different provider's menu is opened, without needing an effect.
+  const [dirtyForProviderId, setDirtyForProviderId] = useState<
+    ProviderId | null | undefined
+  >(null);
+  const isFormDirty = dirtyForProviderId === configMenuProviderId;
 
   const closeConfirmPrompt = () => {
     setIsConfirmPromptOpen(false);
   };
 
-  const closeMenu = (showConfirmPrompt: boolean) => {
+  const handleDirtyChange = (isDirty: boolean) => {
+    setDirtyForProviderId(isDirty ? configMenuProviderId : null);
+  };
+
+  const handleClose = (showConfirmPrompt: boolean) => {
     if (showConfirmPrompt) {
       setIsConfirmPromptOpen(true);
     } else {
       setIsConfirmPromptOpen(false);
-      onClose();
+      setDirtyForProviderId(null);
+      dispatch(closeConfigMenu());
     }
   };
 
-  const confirmPrompt = (
-    <ChoiceModal
-      isOpen={isConfirmPromptOpen}
-      message="You have unsaved changes. If you close the menu, your changes will be lost. Are you sure you want to close this menu?"
-      onCancel={closeConfirmPrompt}
-      leftColor="info"
-      rightColor="error"
-      rightAction="Close Menu"
-      onRightAction={() => {
-        closeMenu(false);
-      }}
-    />
-  );
+  if (!configMenuProviderId) return null;
 
-  const menus = Object.fromEntries(
-    Object.values(ProviderId).map((id) => {
-      const ConfigMenu = getProviderConfigMenu(id);
-      return [id, <ConfigMenu onClose={closeMenu} key={id} />];
-    }),
-  );
+  const ConfigMenu = getProviderConfigMenu(configMenuProviderId);
 
   return (
     <>
-      {confirmPrompt}
-      {menus[providerId]}
+      <ChoiceModal
+        isOpen={isConfirmPromptOpen}
+        message="You have unsaved changes. If you close the menu, your changes will be lost. Are you sure you want to close this menu?"
+        onCancel={closeConfirmPrompt}
+        leftColor="info"
+        rightColor="error"
+        rightAction="Close Menu"
+        onRightAction={() => {
+          handleClose(false);
+        }}
+      />
+      <ProviderConfigContainer
+        displayName={getProviderDisplayName(configMenuProviderId)}
+        onClose={() => {
+          handleClose(isFormDirty);
+        }}
+      >
+        <Suspense
+          fallback={
+            <Stack direction="row" justifyContent="space-around" py={4}>
+              <CircularProgress />
+            </Stack>
+          }
+        >
+          {/* getProviderConfigMenu returns a stable reference from the module-level registry, not a new component. */}
+          {/* eslint-disable-next-line react-hooks/static-components */}
+          <ConfigMenu onClose={handleClose} onDirtyChange={handleDirtyChange} />
+        </Suspense>
+      </ProviderConfigContainer>
     </>
   );
 };

@@ -4,18 +4,17 @@ import {
   type BaseRouteDefinition,
   type BaseWebSocketRouteSchema,
 } from '@scribear/base-schema';
-import { TranscriptionProviderConfigSchema } from '@scribear/transcription-service-schema';
 
 import { SESSION_STREAMING_TAG } from '../tags.js';
 
 export enum AudioSourceClientMessageType {
   AUTH = 'AUTH',
-  CONFIG = 'CONFIG',
 }
 
 export enum AudioSourceServerMessageType {
   IP_TRANSCRIPT = 'IP_TRANSCRIPT',
   FINAL_TRANSCRIPT = 'FINAL_TRANSCRIPT',
+  SESSION_STATUS = 'SESSION_STATUS',
 }
 
 const AUDIO_SOURCE_SCHEMA = {
@@ -29,11 +28,6 @@ const AUDIO_SOURCE_SCHEMA = {
     Type.Object({
       type: Type.Literal(AudioSourceClientMessageType.AUTH),
       sessionToken: Type.String({ maxLength: 1024 }),
-    }),
-    Type.Object({
-      type: Type.Literal(AudioSourceClientMessageType.CONFIG),
-      providerKey: Type.String({ maxLength: 32 }),
-      config: TranscriptionProviderConfigSchema,
     }),
   ]),
   allowServerBinaryMessage: false,
@@ -49,6 +43,11 @@ const AUDIO_SOURCE_SCHEMA = {
       text: Type.Array(Type.String()),
       starts: Type.Union([Type.Array(Type.Number()), Type.Null()]),
       ends: Type.Union([Type.Array(Type.Number()), Type.Null()]),
+    }),
+    Type.Object({
+      type: Type.Literal(AudioSourceServerMessageType.SESSION_STATUS),
+      transcriptionServiceConnected: Type.Boolean(),
+      sourceDeviceConnected: Type.Boolean(),
     }),
   ]),
   closeCodes: {

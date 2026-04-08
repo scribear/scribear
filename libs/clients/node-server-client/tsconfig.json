@@ -18,13 +18,13 @@
   ],
   "references": [
     {
-      "path": "../base-api-client/tsconfig.json"
+      "path": "../base-api-client"
     },
     {
-      "path": "../base-websocket-client/tsconfig.json"
+      "path": "../base-websocket-client"
     },
     {
-      "path": "../../schemas/node-server-schema/tsconfig.json"
+      "path": "../../schemas/node-server-schema"
     }
   ]
 }

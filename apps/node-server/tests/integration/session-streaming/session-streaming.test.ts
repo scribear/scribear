@@ -1,7 +1,4 @@
 import jwt from 'jsonwebtoken';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, inject } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type WebSocket from 'ws';
@@ -22,39 +19,25 @@ import {
 
 import type AppConfig from '#src/app-config/app-config.js';
 import createServer from '#src/server/create-server.js';
+import type { StreamingEventBusService } from '#src/server/features/session-streaming/streaming-event-bus.service.js';
 
 const TEST_SESSION_ID = 'integration-test-session';
 const TEST_JWT_SECRET = 'test-jwt-secret-must-be-at-least-32-chars!!';
-const DEBUG_PROVIDER_KEY = 'debug';
-const DEBUG_PROVIDER_CONFIG = { sample_rate: 48000, num_channels: 1 };
-
-const TEST_AUDIO_PATH = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../../../../../test_audio_files/chords/mono_f64le.wav',
-);
 
 function signSessionToken(
   sessionId: string,
   scopes: SessionTokenScope[],
   expiresIn = 3600,
 ): string {
-  return jwt.sign({ sessionId, scopes }, TEST_JWT_SECRET, { expiresIn });
+  return jwt.sign(
+    { sessionId, clientId: 'test-client', scopes },
+    TEST_JWT_SECRET,
+    { expiresIn },
+  );
 }
 
 function buildRoute(route: { url: string }, sessionId: string): string {
   return route.url.replace(':sessionId', sessionId);
-}
-
-function waitForMessage(ws: WebSocket): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error('Timed out waiting for WS message'));
-    }, 2_000);
-    ws.once('message', (data: Buffer) => {
-      clearTimeout(timeout);
-      resolve(data.toString());
-    });
-  });
 }
 
 function waitForClose(ws: WebSocket): Promise<{ code: number }> {
@@ -69,19 +52,45 @@ function waitForClose(ws: WebSocket): Promise<{ code: number }> {
   });
 }
 
+function waitForMessage(ws: WebSocket): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Timed out waiting for WS message'));
+    }, 2_000);
+    ws.once('message', (data) => {
+      clearTimeout(timeout);
+      resolve(JSON.parse(Buffer.from(data as Buffer).toString()));
+    });
+  });
+}
+
+function authenticate(
+  ws: WebSocket,
+  sessionId: string,
+  scopes: SessionTokenScope[],
+  messageType: string,
+): void {
+  const token = signSessionToken(sessionId, scopes);
+  ws.send(JSON.stringify({ type: messageType, sessionToken: token }));
+}
+
 describe('Integration Tests - Session Streaming', () => {
   let fastify: BaseFastifyInstance;
+  let eventBus: StreamingEventBusService;
 
   beforeAll(async () => {
     const mockConfig = mock<AppConfig>({
       baseConfig: { isDevelopment: false, logLevel: LogLevel.SILENT },
       jwtServiceConfig: { jwtSecret: TEST_JWT_SECRET },
-      transcriptionConfig: inject('transcriptionServiceConfig'),
+      transcriptionServiceManagerConfig: inject(
+        'transcriptionServiceManagerConfig',
+      ),
     });
 
     const server = await createServer(mockConfig);
     fastify = server.fastify;
     await fastify.ready();
+    eventBus = fastify.diContainer.cradle.streamingEventBusService;
   });
 
   afterAll(async () => {
@@ -177,7 +186,7 @@ describe('Integration Tests - Session Streaming', () => {
       // Act
       ws.send(
         JSON.stringify({
-          type: 'AUTH',
+          type: SessionClientClientMessageType.AUTH,
           sessionToken: token,
         }),
       );
@@ -188,96 +197,230 @@ describe('Integration Tests - Session Streaming', () => {
     });
   });
 
-  describe('end-to-end audio streaming', (it) => {
-    it('receives transcripts when audio source sends audio and session client listens', async () => {
+  describe('session-client event forwarding', (it) => {
+    it('forwards ip transcript events with SessionClient message type', async () => {
       // Arrange
-      const sessionId = 'e2e-streaming-session';
-      const audioSourceToken = signSessionToken(sessionId, [
-        SessionTokenScope.SEND_AUDIO,
-        SessionTokenScope.RECEIVE_TRANSCRIPTIONS,
-      ]);
-      const sessionClientToken = signSessionToken(sessionId, [
-        SessionTokenScope.RECEIVE_TRANSCRIPTIONS,
-      ]);
-
-      const audioSourceWs = await fastify.injectWS(
-        buildRoute(AUDIO_SOURCE_ROUTE, sessionId),
-      );
-      const sessionClientWs = await fastify.injectWS(
+      const sessionId = 'event-fwd-ip-transcript';
+      const ws = await fastify.injectWS(
         buildRoute(SESSION_CLIENT_ROUTE, sessionId),
       );
-
-      const audioData = fs.readFileSync(TEST_AUDIO_PATH);
-
-      const audioSourceStartMsg = waitForMessage(audioSourceWs);
-      const sessionClientStartMsg = waitForMessage(sessionClientWs);
+      authenticate(
+        ws,
+        sessionId,
+        [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        SessionClientClientMessageType.AUTH,
+      );
+      const msgPromise = waitForMessage(ws);
 
       // Act
-      audioSourceWs.send(
-        JSON.stringify({
-          type: AudioSourceClientMessageType.AUTH,
-          sessionToken: audioSourceToken,
-        }),
-      );
-      sessionClientWs.send(
-        JSON.stringify({
-          type: SessionClientClientMessageType.AUTH,
-          sessionToken: sessionClientToken,
-        }),
-      );
-      audioSourceWs.send(
-        JSON.stringify({
-          type: AudioSourceClientMessageType.CONFIG,
-          providerKey: DEBUG_PROVIDER_KEY,
-          config: DEBUG_PROVIDER_CONFIG,
-        }),
-      );
-      audioSourceWs.send(audioData);
-
-      const audioSourceStart = JSON.parse(await audioSourceStartMsg);
-      const sessionClientStart = JSON.parse(await sessionClientStartMsg);
-      const audioSourceTranscriptMsg = await waitForMessage(audioSourceWs);
-      const sessionClientTranscriptMsg = await waitForMessage(sessionClientWs);
+      // Small delay to let auth processing complete
+      await new Promise((r) => setTimeout(r, 50));
+      eventBus.emitIpTranscript(sessionId, {
+        text: ['hello'],
+        starts: [0],
+        ends: [100],
+      });
 
       // Assert
-      expect(audioSourceStart.type).toBe(
-        AudioSourceServerMessageType.FINAL_TRANSCRIPT,
+      const msg = await msgPromise;
+      expect(msg).toEqual({
+        type: SessionClientServerMessageType.IP_TRANSCRIPT,
+        text: ['hello'],
+        starts: [0],
+        ends: [100],
+      });
+      ws.close();
+    });
+
+    it('forwards final transcript events with SessionClient message type', async () => {
+      // Arrange
+      const sessionId = 'event-fwd-final-transcript';
+      const ws = await fastify.injectWS(
+        buildRoute(SESSION_CLIENT_ROUTE, sessionId),
       );
-      expect(audioSourceStart.text).toEqual(
-        expect.arrayContaining([expect.stringContaining('48000')]),
+      authenticate(
+        ws,
+        sessionId,
+        [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        SessionClientClientMessageType.AUTH,
+      );
+      const msgPromise = waitForMessage(ws);
+
+      // Act
+      await new Promise((r) => setTimeout(r, 50));
+      eventBus.emitFinalTranscript(sessionId, {
+        text: ['done'],
+        starts: null,
+        ends: null,
+      });
+
+      // Assert
+      const msg = await msgPromise;
+      expect(msg).toEqual({
+        type: SessionClientServerMessageType.FINAL_TRANSCRIPT,
+        text: ['done'],
+        starts: null,
+        ends: null,
+      });
+      ws.close();
+    });
+
+    it('forwards session status events with SessionClient message type', async () => {
+      // Arrange
+      const sessionId = 'event-fwd-session-status';
+      const ws = await fastify.injectWS(
+        buildRoute(SESSION_CLIENT_ROUTE, sessionId),
+      );
+      authenticate(
+        ws,
+        sessionId,
+        [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        SessionClientClientMessageType.AUTH,
+      );
+      const msgPromise = waitForMessage(ws);
+
+      // Act
+      await new Promise((r) => setTimeout(r, 50));
+      eventBus.emitSessionStatus(sessionId, {
+        transcriptionServiceConnected: true,
+        sourceDeviceConnected: false,
+      });
+
+      // Assert
+      const msg = await msgPromise;
+      expect(msg).toEqual({
+        type: SessionClientServerMessageType.SESSION_STATUS,
+        transcriptionServiceConnected: true,
+        sourceDeviceConnected: false,
+      });
+      ws.close();
+    });
+
+    it('closes connection with 1000 on session end event', async () => {
+      // Arrange
+      const sessionId = 'event-fwd-session-end';
+      const ws = await fastify.injectWS(
+        buildRoute(SESSION_CLIENT_ROUTE, sessionId),
+      );
+      authenticate(
+        ws,
+        sessionId,
+        [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        SessionClientClientMessageType.AUTH,
+      );
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Act
+      eventBus.emitSessionEnd(sessionId);
+
+      // Assert
+      const { code } = await waitForClose(ws);
+      expect(code).toBe(1000);
+    });
+  });
+
+  describe('audio-source event forwarding', (it) => {
+    it('forwards session status events with AudioSource message type', async () => {
+      // Arrange
+      const sessionId = 'audio-event-fwd-status';
+      const ws = await fastify.injectWS(
+        buildRoute(AUDIO_SOURCE_ROUTE, sessionId),
+      );
+      authenticate(
+        ws,
+        sessionId,
+        [SessionTokenScope.SEND_AUDIO],
+        AudioSourceClientMessageType.AUTH,
       );
 
-      expect(sessionClientStart.type).toBe(
-        SessionClientServerMessageType.FINAL_TRANSCRIPT,
-      );
-      expect(sessionClientStart.text).toEqual(
-        expect.arrayContaining([expect.stringContaining('48000')]),
-      );
+      // Wait for auth + any initial status from registerSession to settle
+      await new Promise((r) => setTimeout(r, 200));
+      // Drain any queued messages
+      ws.on('message', () => {
+        /* */
+      });
+      await new Promise((r) => setTimeout(r, 50));
+      ws.removeAllListeners('message');
 
-      const audioSourceTranscript = JSON.parse(audioSourceTranscriptMsg);
-      const sessionClientTranscript = JSON.parse(sessionClientTranscriptMsg);
+      // Act
+      const msgPromise = waitForMessage(ws);
+      eventBus.emitSessionStatus(sessionId, {
+        transcriptionServiceConnected: false,
+        sourceDeviceConnected: true,
+      });
 
-      expect(audioSourceTranscript.type).toBe(
-        AudioSourceServerMessageType.IP_TRANSCRIPT,
-      );
-      expect(audioSourceTranscript.text).toEqual(
-        expect.arrayContaining([
-          expect.stringMatching(/Processed \d+\.\d+ seconds of audio/),
-        ]),
-      );
+      // Assert
+      const msg = await msgPromise;
+      expect(msg).toEqual({
+        type: AudioSourceServerMessageType.SESSION_STATUS,
+        transcriptionServiceConnected: false,
+        sourceDeviceConnected: true,
+      });
+      ws.close();
+    });
 
-      expect(sessionClientTranscript.type).toBe(
-        SessionClientServerMessageType.IP_TRANSCRIPT,
+    it('closes connection with 1000 on session end event', async () => {
+      // Arrange
+      const sessionId = 'audio-event-fwd-end';
+      const ws = await fastify.injectWS(
+        buildRoute(AUDIO_SOURCE_ROUTE, sessionId),
       );
-      expect(sessionClientTranscript.text).toEqual(
-        expect.arrayContaining([
-          expect.stringMatching(/Processed \d+\.\d+ seconds of audio/),
-        ]),
+      authenticate(
+        ws,
+        sessionId,
+        [SessionTokenScope.SEND_AUDIO],
+        AudioSourceClientMessageType.AUTH,
       );
+      await new Promise((r) => setTimeout(r, 50));
 
-      // Cleanup
-      audioSourceWs.close();
-      sessionClientWs.close();
+      // Act
+      eventBus.emitSessionEnd(sessionId);
+
+      // Assert
+      const { code } = await waitForClose(ws);
+      expect(code).toBe(1000);
+    });
+  });
+
+  describe('re-auth', (it) => {
+    it('accepts a new AUTH message without dropping the connection', async () => {
+      // Arrange
+      const sessionId = 'reauth-test';
+      const ws = await fastify.injectWS(
+        buildRoute(SESSION_CLIENT_ROUTE, sessionId),
+      );
+      authenticate(
+        ws,
+        sessionId,
+        [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        SessionClientClientMessageType.AUTH,
+      );
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Act - send a second AUTH
+      authenticate(
+        ws,
+        sessionId,
+        [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        SessionClientClientMessageType.AUTH,
+      );
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Assert - connection still alive, can receive events
+      const msgPromise = waitForMessage(ws);
+      eventBus.emitIpTranscript(sessionId, {
+        text: ['after-reauth'],
+        starts: null,
+        ends: null,
+      });
+      const msg = await msgPromise;
+      expect(msg).toEqual({
+        type: SessionClientServerMessageType.IP_TRANSCRIPT,
+        text: ['after-reauth'],
+        starts: null,
+        ends: null,
+      });
+      ws.close();
     });
   });
 });

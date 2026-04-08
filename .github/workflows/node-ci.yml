@@ -20,9 +20,8 @@ jobs:
       has_changes: ${{ steps.changes.outputs.has_changes }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
 
-      - name: Detech Changed Workspaces
+      - name: Detect Changed Workspaces
         id: changes
         uses: ./.github/actions/detect-changes
 
@@ -105,6 +104,13 @@ jobs:
             npm run test:unit --workspace "$ws" --if-present
             echo "::endgroup::"
           done < /tmp/workspaces.txt
+
+      - name: Code Coverage Report - Scribear Redis Unit Tests
+        if: contains(needs.changes.outputs.workspaces, 'infra/scribear-redis')
+        uses: ./.github/actions/coverage-report
+        with:
+          package_name: "Scribear Redis - Unit Tests"
+          filename: "./infra/scribear-redis/coverage/cobertura-coverage.xml"
 
       - name: Code Coverage Report - Base Fastify Server Unit Tests
         if: contains(needs.changes.outputs.workspaces, 'libs/base-fastify-server')
@@ -217,6 +223,25 @@ jobs:
           build_context: ./infra/scribear-db
           dockerfile: infra/scribear-db/Dockerfile
 
+      - name: Prepare Transcription Service CPU Container
+        uses: ./.github/actions/prepare-test-container
+        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
+        with:
+          image_name: scribear/transcription-service-cpu
+          build_context: ./transcription_service
+          dockerfile: ./transcription_service/Dockerfile_CPU
+
+      - name: Run Scribear Redis Integration Tests
+        if: contains(needs.changes.outputs.workspaces, 'infra/scribear-redis')
+        run: npm run test:integration --workspace infra/scribear-redis
+
+      - name: Code Coverage Report - Scribear Redis Integration Tests
+        uses: ./.github/actions/coverage-report
+        if: contains(needs.changes.outputs.workspaces, 'infra/scribear-redis')
+        with:
+          package_name: "Scribear Redis - Integration Tests"
+          filename: "./infra/scribear-redis/coverage/cobertura-coverage.xml"
+
       - name: Run Session Manager Integration Tests
         if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
         env:
@@ -229,14 +254,6 @@ jobs:
         with:
           package_name: "Session Manager - Integration Tests"
           filename: "./apps/session-manager/coverage/cobertura-coverage.xml"
-
-      - name: Prepare Transcription Service CPU Container
-        uses: ./.github/actions/prepare-test-container
-        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
-        with:
-          image_name: scribear/transcription-service-cpu
-          build_context: ./transcription_service
-          dockerfile: ./transcription_service/Dockerfile_CPU
 
       - name: Run Node Server Integration Tests
         if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
@@ -315,7 +332,7 @@ jobs:
           git diff --exit-code infra/scribear-db/src/database.types.ts || \
           (echo "Error: Generated database types are out of date. Run 'npm run generate:types' in infra/scribear-db and commit the changes." && exit 1)
 
-  ci:
+  node-ci:
     needs: [format, lint, build, test, docker-build, integration-test, check-database-types]
     if: always()
     runs-on: ubuntu-latest

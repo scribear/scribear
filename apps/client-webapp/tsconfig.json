@@ -11,7 +11,6 @@
         "./tests/*"
       ]
     },
-    // Vite/React specific configuration
     "types": [
       "vite/client"
     ],
@@ -27,28 +26,28 @@
   ],
   "references": [
     {
-      "path": "../../libs/store/redux-remember-store/tsconfig.json"
+      "path": "../../libs/store/redux-remember-store"
     },
     {
-      "path": "../../libs/store/app-layout-store/tsconfig.json"
+      "path": "../../libs/store/app-layout-store"
     },
     {
-      "path": "../../libs/store/theme-customization-store/tsconfig.json"
+      "path": "../../libs/store/theme-customization-store"
     },
     {
-      "path": "../../libs/store/transcription-content-store/tsconfig.json"
+      "path": "../../libs/store/transcription-content-store"
     },
     {
-      "path": "../../libs/store/transcription-display-store/tsconfig.json"
+      "path": "../../libs/store/transcription-display-store"
     },
     {
-      "path": "../../libs/ui/core-ui/tsconfig.json"
+      "path": "../../libs/ui/core-ui"
     },
     {
-      "path": "../../libs/ui/theme-customization-ui/tsconfig.json"
+      "path": "../../libs/ui/theme-customization-ui"
     },
     {
-      "path": "../../libs/ui/transcription-display-ui/tsconfig.json"
+      "path": "../../libs/ui/transcription-display-ui"
     }
   ]
 }

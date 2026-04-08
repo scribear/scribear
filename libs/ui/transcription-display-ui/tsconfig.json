@@ -13,18 +13,18 @@
     }
   },
   "include": [
-    "src"
+    "src",
+    "tests"
   ],
-  // Link to shared packages
   "references": [
     {
-      "path": "../core-ui/tsconfig.json"
+      "path": "../core-ui"
     },
     {
-      "path": "../../store/transcription-content-store/tsconfig.json"
+      "path": "../../store/transcription-content-store"
     },
     {
-      "path": "../../store/transcription-display-store/tsconfig.json"
+      "path": "../../store/transcription-display-store"
     }
   ]
 }

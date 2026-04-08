@@ -5,6 +5,7 @@ import type { Static } from 'typebox';
 import { LogLevel } from '@scribear/base-fastify-server';
 
 import type { JwtServiceConfig } from '#src/server/features/session-streaming/jwt.service.js';
+import type { TranscriptionServiceManagerConfig } from '#src/server/features/session-streaming/transcription-service-manager.js';
 
 export interface BaseConfig {
   isDevelopment: boolean;
@@ -20,6 +21,9 @@ const CONFIG_SCHEMA = Type.Object({
   JWT_SECRET: Type.String({ minLength: 32 }),
   TRANSCRIPTION_SERVICE_ADDRESS: Type.String(),
   TRANSCRIPTION_SERVICE_API_KEY: Type.String(),
+  REDIS_URL: Type.String(),
+  SESSION_MANAGER_ADDRESS: Type.String(),
+  NODE_SERVER_KEY: Type.String(),
 });
 
 /**
@@ -44,10 +48,13 @@ class AppConfig {
     };
   }
 
-  get transcriptionConfig(): { address: string; apiKey: string } {
+  get transcriptionServiceManagerConfig(): TranscriptionServiceManagerConfig {
     return {
-      address: this._env.TRANSCRIPTION_SERVICE_ADDRESS,
-      apiKey: this._env.TRANSCRIPTION_SERVICE_API_KEY,
+      transcriptionServiceAddress: this._env.TRANSCRIPTION_SERVICE_ADDRESS,
+      transcriptionServiceApiKey: this._env.TRANSCRIPTION_SERVICE_API_KEY,
+      sessionManagerAddress: this._env.SESSION_MANAGER_ADDRESS,
+      nodeServerKey: this._env.NODE_SERVER_KEY,
+      redisUrl: this._env.REDIS_URL,
     };
   }
 
