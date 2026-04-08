@@ -25,7 +25,11 @@ import {
   setDeviceName,
   setPrevEventId,
 } from './kiosk-config-slice';
-import { registerDevice, setKioskServiceStatus } from './kiosk-service-slice';
+import {
+  registerDevice,
+  setKioskServiceStatus,
+  setSessionStatus,
+} from './kiosk-service-slice';
 
 // Module-level reference for HMR cleanup.
 let _activeKioskService: KioskService | null = null;
@@ -81,6 +85,10 @@ export const createKioskServiceMiddleware =
     });
     kioskService.on('sessionEnded', () => {
       store.dispatch(setActiveSessionId(null));
+      store.dispatch(setSessionStatus(null));
+    });
+    kioskService.on('sessionStatus', (status) => {
+      store.dispatch(setSessionStatus(status));
     });
     kioskService.on('deviceRegistered', (deviceName) => {
       store.dispatch(setDeviceName(deviceName));

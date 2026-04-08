@@ -130,6 +130,12 @@ export class SessionStreamingService extends EventEmitter<SessionStreamingServic
 
       this._subscribeToSessionStatus(sessionId);
       this._subscribeToSessionEnd(sessionId);
+
+      const currentStatus =
+        this._transcriptionServiceManager.getSessionStatus(sessionId);
+      if (currentStatus) {
+        this.emit('session-status', currentStatus);
+      }
     }
   }
 

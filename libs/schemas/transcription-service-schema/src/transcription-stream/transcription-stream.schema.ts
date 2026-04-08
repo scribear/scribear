@@ -58,6 +58,7 @@ const TRANSCRIPTION_STREAM_SCHEMA = {
     },
     1008: { description: 'Authentication failure or timeout' },
     1011: { description: 'Internal server error' },
+    1012: { description: 'Service Restart' },
   },
 } satisfies BaseWebSocketRouteSchema;
 

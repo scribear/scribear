@@ -23,6 +23,12 @@ import { KioskServiceStatus } from './kiosk-service-status';
 
 const MIN_RETRY_DELAY_MS = 1_000;
 const MAX_RETRY_DELAY_MS = 60_000;
+const TOKEN_REFRESH_BUFFER_MS = 2 * 60 * 1_000;
+
+interface SessionStatus {
+  transcriptionServiceConnected: boolean;
+  sourceDeviceConnected: boolean;
+}
 
 /**
  * Events emitted by {@link KioskService} to communicate status changes,
@@ -36,6 +42,7 @@ interface KioskServiceEvents {
   ) => void;
   sessionStarted: (sessionId: string) => void;
   sessionEnded: () => void;
+  sessionStatus: (status: SessionStatus) => void;
   deviceRegistered: (deviceName: string) => void;
   deviceUnregistered: () => void;
   prevEventIdUpdated: (eventId: number) => void;
@@ -60,6 +67,8 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
 
   private _stream: AudioStream | null = null;
   private _socket: WebSocketClient<typeof AUDIO_SOURCE_SCHEMA> | null = null;
+  private _sessionRefreshToken: string | null = null;
+  private _refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   private _eventLoopToken = 0;
   private _eventLoopDelayMs = MIN_RETRY_DELAY_MS;
@@ -90,6 +99,12 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
   }
 
   private _closeSessionSocket(code?: number, reason?: string) {
+    if (this._refreshTimer) {
+      clearTimeout(this._refreshTimer);
+      this._refreshTimer = null;
+    }
+    this._sessionRefreshToken = null;
+
     if (this._stream) {
       this._microphoneService.closeAudioStream(this._stream);
       this._stream = null;
@@ -100,6 +115,55 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     this._socket.removeAllListeners();
     this._socket.close(code, reason);
     this._socket = null;
+  }
+
+  private _scheduleTokenRefresh(sessionToken: string, sessionId: string) {
+    if (this._refreshTimer) {
+      clearTimeout(this._refreshTimer);
+      this._refreshTimer = null;
+    }
+
+    let exp: number;
+    try {
+      const payload = JSON.parse(atob(sessionToken.split('.')[1] ?? '')) as {
+        exp: number;
+      };
+      exp = payload.exp;
+    } catch {
+      return;
+    }
+
+    const refreshAt = exp * 1000 - TOKEN_REFRESH_BUFFER_MS;
+    const delay = Math.max(0, refreshAt - Date.now());
+
+    this._refreshTimer = setTimeout(() => {
+      void this._refreshToken(sessionId);
+    }, delay);
+  }
+
+  private async _refreshToken(sessionId: string) {
+    if (!this._sessionRefreshToken || !this._socket) return;
+
+    const [response, error] =
+      await this._sessionManagerClient.refreshSessionToken({
+        body: { sessionRefreshToken: this._sessionRefreshToken },
+      });
+
+    if (error || response.status !== 200) {
+      console.error('Token refresh failed, closing session');
+      this._closeSessionSocket(1000, 'Token refresh failed');
+      this._setStatus(KioskServiceStatus.SESSION_ERROR);
+      return;
+    }
+
+    const { sessionToken } = response.data;
+
+    this._socket.send({
+      type: AudioSourceClientMessageType.AUTH,
+      sessionToken,
+    });
+
+    this._scheduleTokenRefresh(sessionToken, sessionId);
   }
 
   private async _connectSession(
@@ -133,11 +197,7 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
       return false;
     }
 
-    const {
-      sessionToken,
-      transcriptionProviderKey,
-      transcriptionProviderConfig,
-    } = authResponse.data;
+    const { sessionToken, sessionRefreshToken } = authResponse.data;
 
     // Open WebSocket connection to node server audio source
     const [socket, connectError] = await this._nodeServerClient.audioSource({
@@ -155,13 +215,10 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     }
 
     this._socket = socket;
+    this._sessionRefreshToken = sessionRefreshToken;
 
     socket.send({ type: AudioSourceClientMessageType.AUTH, sessionToken });
-    socket.send({
-      type: AudioSourceClientMessageType.CONFIG,
-      providerKey: transcriptionProviderKey,
-      config: transcriptionProviderConfig,
-    });
+    this._scheduleTokenRefresh(sessionToken, sessionId);
 
     this._setStatus(
       this._muted ? KioskServiceStatus.ACTIVE_MUTE : KioskServiceStatus.ACTIVE,
@@ -170,8 +227,13 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     socket.on('message', (message) => {
       if (message.type === AudioSourceServerMessageType.FINAL_TRANSCRIPT) {
         this.emit('appendFinalizedTranscription', message);
-      } else {
+      } else if (message.type === AudioSourceServerMessageType.IP_TRANSCRIPT) {
         this.emit('replaceInProgressTranscription', message);
+      } else if (message.type === AudioSourceServerMessageType.SESSION_STATUS) {
+        this.emit('sessionStatus', {
+          transcriptionServiceConnected: message.transcriptionServiceConnected,
+          sourceDeviceConnected: message.sourceDeviceConnected,
+        });
       }
     });
 
@@ -185,7 +247,15 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
           reason,
         );
         this._closeSessionSocket();
-        this._setStatus(KioskServiceStatus.SESSION_ERROR);
+
+        // Code 1000 with "Session ended" is a graceful end, not an error
+        if (code === 1000) {
+          this._setStatus(KioskServiceStatus.IDLE);
+          this.emit('sessionEnded');
+          this._stopSessionLoop();
+        } else {
+          this._setStatus(KioskServiceStatus.SESSION_ERROR);
+        }
         resolve();
       });
 

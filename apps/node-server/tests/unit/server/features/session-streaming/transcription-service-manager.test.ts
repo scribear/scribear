@@ -156,7 +156,7 @@ describe('TranscriptionServiceManager', () => {
         mockSessionManagerClient.getSessionConfig,
       ).toHaveBeenCalledExactlyOnceWith({
         params: { sessionId: TEST_SESSION_ID },
-        headers: { authorization: '' },
+        headers: { authorization: `Bearer ${TEST_CONFIG.nodeServerKey}` },
       });
     });
 
@@ -270,6 +270,7 @@ describe('TranscriptionServiceManager', () => {
       expect(mockSessionManagerClient.getSessionConfig).not.toHaveBeenCalled();
     });
 
+
     it('cancels grace timer when a new client registers during grace period', async () => {
       // Arrange
       await manager.registerSession(TEST_SESSION_ID);
@@ -314,7 +315,7 @@ describe('TranscriptionServiceManager', () => {
       expect(mockSessionManagerClient.getSessionConfig).toHaveBeenCalledOnce();
     });
 
-    it('schedules retry when config fetch fails with a single client', async () => {
+    it('schedules retry and emits disconnected status when config fetch fails', async () => {
       // Arrange
       mockSessionManagerClient.getSessionConfig.mockResolvedValue([
         null,
@@ -324,7 +325,17 @@ describe('TranscriptionServiceManager', () => {
       // Act
       await manager.registerSession(TEST_SESSION_ID);
 
-      // Assert       mockSessionManagerClient.getSessionConfig.mockResolvedValue([TEST_SESSION_CONFIG, null]);
+      // Assert - status emitted with transcriptionServiceConnected: false
+      expect(mockEventBus.emitSessionStatus).toHaveBeenCalledWith(
+        TEST_SESSION_ID,
+        {
+          transcriptionServiceConnected: false,
+          sourceDeviceConnected: true,
+        },
+      );
+
+      // Assert - schedules retry
+      mockSessionManagerClient.getSessionConfig.mockResolvedValue([TEST_SESSION_CONFIG, null]);
       mockSessionManagerClient.getSessionConfig.mockClear();
       vi.advanceTimersByTime(1_000);
       await vi.advanceTimersByTimeAsync(0);
@@ -429,7 +440,7 @@ describe('TranscriptionServiceManager', () => {
       expect(createTranscriptionServiceClient).toHaveBeenCalledOnce();
     });
 
-    it('schedules reconnect on initial connection failure', async () => {
+    it('schedules reconnect and emits disconnected status on initial connection failure', async () => {
       // Arrange
       vi.mocked(createTranscriptionServiceClient).mockReturnValue({
         transcriptionStream: vi
@@ -440,7 +451,16 @@ describe('TranscriptionServiceManager', () => {
       // Act
       await manager.registerSession(TEST_SESSION_ID);
 
-      // Assert
+      // Assert - status emitted with transcriptionServiceConnected: false
+      expect(mockEventBus.emitSessionStatus).toHaveBeenCalledWith(
+        TEST_SESSION_ID,
+        {
+          transcriptionServiceConnected: false,
+          sourceDeviceConnected: true,
+        },
+      );
+
+      // Assert - schedules reconnect
       vi.mocked(createTranscriptionServiceClient).mockReturnValue({
         transcriptionStream: vi
           .fn()
@@ -449,8 +469,44 @@ describe('TranscriptionServiceManager', () => {
       vi.advanceTimersByTime(1_000);
       await vi.advanceTimersByTimeAsync(0);
 
-      // Assert
       expect(createTranscriptionServiceClient).toHaveBeenCalled();
+    });
+  });
+
+  describe('getSessionStatus', (it) => {
+    it('returns null for unknown session', () => {
+      // Act / Assert
+      expect(manager.getSessionStatus('unknown-session')).toBeNull();
+    });
+
+    it('returns current status for a registered session', async () => {
+      // Arrange
+      await manager.registerSession(TEST_SESSION_ID);
+
+      // Act
+      const status = manager.getSessionStatus(TEST_SESSION_ID);
+
+      // Assert
+      expect(status).toEqual({
+        transcriptionServiceConnected: true,
+        sourceDeviceConnected: true,
+      });
+    });
+
+    it('reflects disconnected transcription service after WS close', async () => {
+      // Arrange
+      await manager.registerSession(TEST_SESSION_ID);
+      const closeHandler = captureWsHandler('close');
+      closeHandler();
+
+      // Act
+      const status = manager.getSessionStatus(TEST_SESSION_ID);
+
+      // Assert
+      expect(status).toEqual({
+        transcriptionServiceConnected: false,
+        sourceDeviceConnected: true,
+      });
     });
   });
 

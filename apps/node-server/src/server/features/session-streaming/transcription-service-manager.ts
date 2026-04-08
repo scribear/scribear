@@ -134,8 +134,24 @@ export class TranscriptionServiceManager {
       await this._connectTranscriptionService(sessionId, state);
     } catch (err) {
       this._log.error({ err, sessionId }, 'Failed to initialize session');
+      this._emitSessionStatus(sessionId, state);
       this._scheduleReconnect(sessionId, state);
     }
+  }
+
+  /**
+   * Returns the current session status, or null if the session is not registered.
+   */
+  getSessionStatus(sessionId: string): {
+    transcriptionServiceConnected: boolean;
+    sourceDeviceConnected: boolean;
+  } | null {
+    const state = this._sessions.get(sessionId);
+    if (!state) return null;
+    return {
+      transcriptionServiceConnected: state.transcriptionServiceConnected,
+      sourceDeviceConnected: state.clientCount > 0,
+    };
   }
 
   /**
@@ -157,7 +173,7 @@ export class TranscriptionServiceManager {
   private async _fetchSessionConfig(sessionId: string): Promise<SessionConfig> {
     const [response, err] = await this._sessionManagerClient.getSessionConfig({
       params: { sessionId },
-      headers: { authorization: '' },
+      headers: { authorization: `Bearer ${this._config.nodeServerKey}` },
     });
 
     if (err || response.status !== 200) {
@@ -203,6 +219,7 @@ export class TranscriptionServiceManager {
         { err, sessionId },
         'Failed to connect to transcription service',
       );
+      this._emitSessionStatus(sessionId, state);
       this._scheduleReconnect(sessionId, state);
       return;
     }

@@ -27,6 +27,7 @@ describe('SessionStreamingService', () => {
   let mockTranscriptionServiceManager: {
     registerSession: Mock;
     unregisterSession: Mock;
+    getSessionStatus: Mock;
   };
   let service: SessionStreamingService;
 
@@ -52,6 +53,7 @@ describe('SessionStreamingService', () => {
     mockTranscriptionServiceManager = {
       registerSession: vi.fn().mockResolvedValue(undefined),
       unregisterSession: vi.fn(),
+      getSessionStatus: vi.fn().mockReturnValue(null),
     };
 
     service = new SessionStreamingService(
@@ -294,6 +296,54 @@ describe('SessionStreamingService', () => {
 
       // Assert
       expect(transcriptSpy).toHaveBeenCalledExactlyOnceWith(event);
+    });
+
+    it('emits current session status on first auth when available', () => {
+      // Arrange
+      const statusSpy = vi.fn();
+      service.on('session-status', statusSpy);
+      const currentStatus = {
+        transcriptionServiceConnected: true,
+        sourceDeviceConnected: true,
+      };
+      mockTranscriptionServiceManager.getSessionStatus.mockReturnValue(
+        currentStatus,
+      );
+      mockJwtService.verifySessionToken.mockReturnValue({
+        sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
+        scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        exp: TOKEN_EXP_UNIX,
+      });
+
+      // Act
+      service.handleClientAuth(TEST_SESSION_ID, TEST_SESSION_TOKEN, {
+        receiveTranscriptions: true,
+      });
+
+      // Assert
+      expect(statusSpy).toHaveBeenCalledExactlyOnceWith(currentStatus);
+    });
+
+    it('does not emit session status on first auth when not available', () => {
+      // Arrange
+      const statusSpy = vi.fn();
+      service.on('session-status', statusSpy);
+      mockTranscriptionServiceManager.getSessionStatus.mockReturnValue(null);
+      mockJwtService.verifySessionToken.mockReturnValue({
+        sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
+        scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        exp: TOKEN_EXP_UNIX,
+      });
+
+      // Act
+      service.handleClientAuth(TEST_SESSION_ID, TEST_SESSION_TOKEN, {
+        receiveTranscriptions: true,
+      });
+
+      // Assert
+      expect(statusSpy).not.toHaveBeenCalled();
     });
 
     it('emits close when JWT expires', () => {
