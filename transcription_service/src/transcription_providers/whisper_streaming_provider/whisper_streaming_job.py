@@ -80,12 +80,6 @@ class WhisperStreamingProviderJob(
             except ValueError as e:
                 raise TranscriptionClientError(str(e)) from e
 
-            # Pure_silence detection:
-            # is_silent = self._silence_detector.detect(
-            #     samples, self._silence_threshold
-            # )
-
-            # if not is_silent:
             extra = self._buffer.append(samples)
             # More than expected number of samples received, client sending audio to fast
             if len(extra) > 0:
