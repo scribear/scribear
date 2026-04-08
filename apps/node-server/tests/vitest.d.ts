@@ -1,7 +1,7 @@
-import type { TranscriptionServiceConfig } from '#src/server/features/session-streaming/transcription.service.js';
+import type { TranscriptionServiceManagerConfig } from '#src/server/features/session-streaming/transcription-service-manager.js';
 
 declare module 'vitest' {
   export interface ProvidedContext {
-    transcriptionServiceConfig: TranscriptionServiceConfig;
+    transcriptionServiceManagerConfig: TranscriptionServiceManagerConfig;
   }
 }

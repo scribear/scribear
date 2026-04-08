@@ -9,7 +9,10 @@ import {
   selectActiveSessionId,
   selectDeviceName,
 } from '../stores/kiosk-config-slice';
-import { selectKioskServiceStatus } from '../stores/kiosk-service-slice';
+import {
+  selectKioskServiceStatus,
+  selectSessionStatus,
+} from '../stores/kiosk-service-slice';
 import { KioskActivationForm } from './kiosk-activation-form';
 
 /**
@@ -21,6 +24,7 @@ export const KioskStatusPanel = () => {
   const deviceName = useAppSelector(selectDeviceName);
   const sessionId = useAppSelector(selectActiveSessionId);
   const kioskServiceStatus = useAppSelector(selectKioskServiceStatus);
+  const sessionStatus = useAppSelector(selectSessionStatus);
 
   const isNotActivated =
     kioskServiceStatus === KioskServiceStatus.NOT_REGISTERED ||
@@ -58,7 +62,20 @@ export const KioskStatusPanel = () => {
               <Typography>Inactive, waiting for a session to start.</Typography>
             )}
             {isInSession && (
-              <Typography>Connected to session: {sessionId}</Typography>
+              <>
+                <Typography>Connected to session: {sessionId}</Typography>
+                {sessionStatus && !sessionStatus.sourceDeviceConnected && (
+                  <Typography color="warning.main">
+                    Waiting for source device
+                  </Typography>
+                )}
+                {sessionStatus &&
+                  !sessionStatus.transcriptionServiceConnected && (
+                    <Typography color="warning.main">
+                      Waiting for transcription service
+                    </Typography>
+                  )}
+              </>
             )}
           </Stack>
         )}

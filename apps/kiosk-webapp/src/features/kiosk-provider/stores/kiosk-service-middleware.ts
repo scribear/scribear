@@ -25,10 +25,22 @@ import {
   setDeviceName,
   setPrevEventId,
 } from './kiosk-config-slice';
-import { registerDevice, setKioskServiceStatus } from './kiosk-service-slice';
+import {
+  registerDevice,
+  setKioskServiceStatus,
+  setSessionStatus,
+} from './kiosk-service-slice';
 
 // Module-level reference for HMR cleanup.
 let _activeKioskService: KioskService | null = null;
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    _activeKioskService?.removeAllListeners();
+    _activeKioskService?.deactivate();
+    _activeKioskService = null;
+  });
+}
 
 /**
  * Reads the current microphone activation state from the Redux store and
@@ -73,6 +85,10 @@ export const createKioskServiceMiddleware =
     });
     kioskService.on('sessionEnded', () => {
       store.dispatch(setActiveSessionId(null));
+      store.dispatch(setSessionStatus(null));
+    });
+    kioskService.on('sessionStatus', (status) => {
+      store.dispatch(setSessionStatus(status));
     });
     kioskService.on('deviceRegistered', (deviceName) => {
       store.dispatch(setDeviceName(deviceName));
@@ -118,11 +134,3 @@ export const createKioskServiceMiddleware =
       return result;
     };
   };
-
-if (import.meta.hot) {
-  import.meta.hot.dispose(() => {
-    _activeKioskService?.removeAllListeners();
-    _activeKioskService?.deactivate();
-    _activeKioskService = null;
-  });
-}

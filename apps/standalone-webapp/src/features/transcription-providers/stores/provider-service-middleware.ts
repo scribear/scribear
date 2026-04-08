@@ -37,6 +37,14 @@ import { setIsLoadingProvider } from './provider-ui-slice';
 // Module-level reference for HMR cleanup.
 let _activeProviderService: ProviderService | null = null;
 
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    _activeProviderService?.removeAllListeners();
+    _activeProviderService?.deactivate();
+    _activeProviderService = null;
+  });
+}
+
 /**
  * Reads the current microphone activation state from the Redux store and
  * forwards it to the provider service by calling `mute` or `unmute`.
@@ -154,11 +162,3 @@ export const createProviderServiceMiddleware =
       return result;
     };
   };
-
-if (import.meta.hot) {
-  import.meta.hot.dispose(() => {
-    _activeProviderService?.removeAllListeners();
-    _activeProviderService?.deactivate();
-    _activeProviderService = null;
-  });
-}

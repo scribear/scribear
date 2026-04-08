@@ -17,6 +17,9 @@ describe('SessionManagementController', () => {
     getDeviceSessionEvent: Mock;
     authenticateWithJoinCode: Mock;
     authenticateSourceDevice: Mock;
+    refreshSessionToken: Mock;
+    getSessionConfig: Mock;
+    endSession: Mock;
   };
   let mockReply: { send: Mock; code: Mock };
   let controller: SessionManagementController;
@@ -27,6 +30,9 @@ describe('SessionManagementController', () => {
       getDeviceSessionEvent: vi.fn(),
       authenticateWithJoinCode: vi.fn(),
       authenticateSourceDevice: vi.fn(),
+      refreshSessionToken: vi.fn(),
+      getSessionConfig: vi.fn(),
+      endSession: vi.fn(),
     };
     controller = new SessionManagementController(
       mockSessionManagementService as never,
@@ -186,10 +192,11 @@ describe('SessionManagementController', () => {
   });
 
   describe('sessionAuth', (it) => {
-    it('responds with sessionToken on success', async () => {
+    it('responds with sessionToken and sessionRefreshToken on success', async () => {
       // Arrange
       mockSessionManagementService.authenticateWithJoinCode.mockResolvedValue({
         sessionToken: 'signed.jwt.token',
+        sessionRefreshToken: 'refresh-token-id:secret',
       });
       const mockReq = { body: { joinCode: 'ABCD1234' } };
 
@@ -203,6 +210,7 @@ describe('SessionManagementController', () => {
       expect(mockReply.code).toHaveBeenCalledExactlyOnceWith(200);
       expect(mockReply.send).toHaveBeenCalledExactlyOnceWith({
         sessionToken: 'signed.jwt.token',
+        sessionRefreshToken: 'refresh-token-id:secret',
       });
     });
 
@@ -225,8 +233,7 @@ describe('SessionManagementController', () => {
       // Arrange
       mockSessionManagementService.authenticateSourceDevice.mockResolvedValue({
         sessionToken: 'signed.jwt.token',
-        transcriptionProviderKey: TEST_PROVIDER_KEY,
-        transcriptionProviderConfig: TEST_PROVIDER_CONFIG,
+        sessionRefreshToken: 'refresh-token-id:secret',
       });
       const mockReq = {
         deviceId: TEST_DEVICE_ID,
@@ -245,12 +252,11 @@ describe('SessionManagementController', () => {
       ).toHaveBeenCalledExactlyOnceWith(TEST_DEVICE_ID, TEST_SESSION_ID);
     });
 
-    it('responds with sessionToken, transcriptionProviderKey, and transcriptionProviderConfig on success', async () => {
+    it('responds with sessionToken and sessionRefreshToken on success', async () => {
       // Arrange
       mockSessionManagementService.authenticateSourceDevice.mockResolvedValue({
         sessionToken: 'signed.jwt.token',
-        transcriptionProviderKey: TEST_PROVIDER_KEY,
-        transcriptionProviderConfig: TEST_PROVIDER_CONFIG,
+        sessionRefreshToken: 'refresh-token-id:secret',
       });
       const mockReq = {
         deviceId: TEST_DEVICE_ID,
@@ -267,8 +273,7 @@ describe('SessionManagementController', () => {
       expect(mockReply.code).toHaveBeenCalledExactlyOnceWith(200);
       expect(mockReply.send).toHaveBeenCalledExactlyOnceWith({
         sessionToken: 'signed.jwt.token',
-        transcriptionProviderKey: TEST_PROVIDER_KEY,
-        transcriptionProviderConfig: TEST_PROVIDER_CONFIG,
+        sessionRefreshToken: 'refresh-token-id:secret',
       });
     });
 
@@ -289,6 +294,108 @@ describe('SessionManagementController', () => {
           mockReply as never,
         ),
       ).rejects.toThrow(HttpError.Unauthorized);
+    });
+  });
+
+  describe('refreshSessionToken', (it) => {
+    it('responds with new sessionToken on success', async () => {
+      // Arrange
+      mockSessionManagementService.refreshSessionToken.mockResolvedValue({
+        sessionToken: 'new.jwt.token',
+      });
+      const mockReq = { body: { sessionRefreshToken: 'id:secret' } };
+
+      // Act
+      await controller.refreshSessionToken(
+        mockReq as never,
+        mockReply as never,
+      );
+
+      // Assert
+      expect(
+        mockSessionManagementService.refreshSessionToken,
+      ).toHaveBeenCalledExactlyOnceWith('id:secret');
+      expect(mockReply.code).toHaveBeenCalledExactlyOnceWith(200);
+      expect(mockReply.send).toHaveBeenCalledExactlyOnceWith({
+        sessionToken: 'new.jwt.token',
+      });
+    });
+
+    it('throws Unauthorized when service returns null', async () => {
+      // Arrange
+      mockSessionManagementService.refreshSessionToken.mockResolvedValue(null);
+      const mockReq = { body: { sessionRefreshToken: 'bad:token' } };
+
+      // Act / Assert
+      await expect(
+        controller.refreshSessionToken(mockReq as never, mockReply as never),
+      ).rejects.toThrow(HttpError.Unauthorized);
+    });
+  });
+
+  describe('getSessionConfig', (it) => {
+    it('responds with session config on success', async () => {
+      // Arrange
+      mockSessionManagementService.getSessionConfig.mockResolvedValue({
+        transcriptionProviderKey: TEST_PROVIDER_KEY,
+        transcriptionProviderConfig: TEST_PROVIDER_CONFIG,
+        endTimeUnixMs: TEST_END_TIME_MS,
+      });
+      const mockReq = { params: { sessionId: TEST_SESSION_ID } };
+
+      // Act
+      await controller.getSessionConfig(mockReq as never, mockReply as never);
+
+      // Assert
+      expect(
+        mockSessionManagementService.getSessionConfig,
+      ).toHaveBeenCalledExactlyOnceWith(TEST_SESSION_ID);
+      expect(mockReply.code).toHaveBeenCalledExactlyOnceWith(200);
+      expect(mockReply.send).toHaveBeenCalledExactlyOnceWith({
+        transcriptionProviderKey: TEST_PROVIDER_KEY,
+        transcriptionProviderConfig: TEST_PROVIDER_CONFIG,
+        endTimeUnixMs: TEST_END_TIME_MS,
+      });
+    });
+
+    it('throws NotFound when service returns null', async () => {
+      // Arrange
+      mockSessionManagementService.getSessionConfig.mockResolvedValue(null);
+      const mockReq = { params: { sessionId: 'nonexistent' } };
+
+      // Act / Assert
+      await expect(
+        controller.getSessionConfig(mockReq as never, mockReply as never),
+      ).rejects.toThrow(HttpError.NotFound);
+    });
+  });
+
+  describe('endSession', (it) => {
+    it('responds with empty object on success', async () => {
+      // Arrange
+      mockSessionManagementService.endSession.mockResolvedValue(true);
+      const mockReq = { body: { sessionId: TEST_SESSION_ID } };
+
+      // Act
+      await controller.endSession(mockReq as never, mockReply as never);
+
+      // Assert
+      expect(
+        mockSessionManagementService.endSession,
+      ).toHaveBeenCalledExactlyOnceWith(TEST_SESSION_ID);
+      expect(mockReply.code).toHaveBeenCalledExactlyOnceWith(200);
+      expect(mockReply.send).toHaveBeenCalledExactlyOnceWith({});
+    });
+
+    it('throws NotFound when service returns false', async () => {
+      // Arrange
+      mockSessionManagementService.endSession.mockResolvedValue(false);
+      const mockReq = { body: { sessionId: 'nonexistent' } };
+
+      // Act / Assert
+      await expect(
+        controller.endSession(mockReq as never, mockReply as never),
+      ).rejects.toThrow(HttpError.NotFound);
     });
   });
 });

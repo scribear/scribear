@@ -5,10 +5,14 @@ import {
   Lifetime,
   type NameAndRegistrationPair,
   asClass,
+  asFunction,
   asValue,
 } from 'awilix';
 
 import type { BaseDependencies } from '@scribear/base-fastify-server';
+import type { RedisPublisher } from '@scribear/scribear-redis';
+import { createRedisPublisher } from '@scribear/scribear-redis';
+import { SESSION_EVENT_CHANNEL } from '@scribear/session-manager-schema';
 
 import type { AppConfig, BaseConfig } from '#src/app-config/app-config.js';
 import { DBClient, type DBClientConfig } from '#src/db/db-client.js';
@@ -22,6 +26,7 @@ import { SessionEventBusService } from '../features/session-management/session-e
 import { SessionManagementController } from '../features/session-management/session-management.controller.js';
 import { SessionManagementRepository } from '../features/session-management/session-management.repository.js';
 import { SessionManagementService } from '../features/session-management/session-management.service.js';
+import { SessionRefreshTokenRepository } from '../features/session-management/session-refresh-token.repository.js';
 import { AuthRepository } from '../repositories/auth.repository.js';
 import {
   AuthService,
@@ -52,6 +57,12 @@ interface AppDependencies extends BaseDependencies {
   // Hash
   hashService: HashService;
 
+  // Redis
+  redisPublisher: RedisPublisher<
+    (typeof SESSION_EVENT_CHANNEL)['schema'],
+    [sessionId: string]
+  >;
+
   // Healthcheck
   healthcheckController: HealthcheckController;
 
@@ -65,6 +76,7 @@ interface AppDependencies extends BaseDependencies {
   sessionManagementController: SessionManagementController;
   sessionManagementService: SessionManagementService;
   sessionManagementRepository: SessionManagementRepository;
+  sessionRefreshTokenRepository: SessionRefreshTokenRepository;
 }
 
 /**
@@ -126,6 +138,11 @@ function registerDependencies(
       lifetime: Lifetime.SINGLETON,
     }),
 
+    // Redis
+    redisPublisher: asFunction(() =>
+      createRedisPublisher(SESSION_EVENT_CHANNEL, config.redisUrl),
+    ).singleton(),
+
     // Session Management
     sessionEventBusService: asClass(SessionEventBusService, {
       lifetime: Lifetime.SINGLETON,
@@ -137,6 +154,9 @@ function registerDependencies(
       lifetime: Lifetime.SCOPED,
     }),
     sessionManagementRepository: asClass(SessionManagementRepository, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    sessionRefreshTokenRepository: asClass(SessionRefreshTokenRepository, {
       lifetime: Lifetime.SINGLETON,
     }),
   } as NameAndRegistrationPair<AppDependencies>);

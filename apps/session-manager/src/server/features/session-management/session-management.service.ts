@@ -1,5 +1,8 @@
+import crypto from 'node:crypto';
+
 import {
   DeviceSessionEventType,
+  SessionChannelEventType,
   SessionTokenScope,
 } from '@scribear/session-manager-schema';
 import type { TranscriptionProviderConfig } from '@scribear/transcription-service-schema';
@@ -13,27 +16,41 @@ const POLL_TIMEOUT_MS = 25_000;
 
 const JOIN_CODE_LENGTH = 8;
 
+const JWT_LIFETIME_S = 5 * 60;
+
+const REFRESH_TOKEN_SECRET_LENGTH = 32;
+const REFRESH_TOKEN_SEPARATOR = ':';
+
 export class SessionManagementService {
   private _log: AppDependencies['logger'];
   private _sessionManagementRepository: AppDependencies['sessionManagementRepository'];
+  private _sessionRefreshTokenRepository: AppDependencies['sessionRefreshTokenRepository'];
   private _sessionEventBusService: AppDependencies['sessionEventBusService'];
   private _jwtService: AppDependencies['jwtService'];
+  private _hashService: AppDependencies['hashService'];
+  private _redisPublisher: AppDependencies['redisPublisher'];
 
   constructor(
     logger: AppDependencies['logger'],
     sessionManagementRepository: AppDependencies['sessionManagementRepository'],
+    sessionRefreshTokenRepository: AppDependencies['sessionRefreshTokenRepository'],
     sessionEventBusService: AppDependencies['sessionEventBusService'],
     jwtService: AppDependencies['jwtService'],
+    hashService: AppDependencies['hashService'],
+    redisPublisher: AppDependencies['redisPublisher'],
   ) {
     this._log = logger;
     this._sessionManagementRepository = sessionManagementRepository;
+    this._sessionRefreshTokenRepository = sessionRefreshTokenRepository;
     this._sessionEventBusService = sessionEventBusService;
     this._jwtService = jwtService;
+    this._hashService = hashService;
+    this._redisPublisher = redisPublisher;
   }
 
   async authenticateWithJoinCode(
     joinCode: string,
-  ): Promise<{ sessionToken: string } | null> {
+  ): Promise<{ sessionToken: string; sessionRefreshToken: string } | null> {
     const session =
       await this._sessionManagementRepository.findActiveSessionByJoinCode(
         joinCode,
@@ -44,18 +61,18 @@ export class SessionManagementService {
       return null;
     }
 
-    if (!session.end_time) {
-      this._log.error('Session missing end_time');
-      return null;
-    }
+    const scopes = [SessionTokenScope.RECEIVE_TRANSCRIPTIONS];
 
-    const sessionToken = this._jwtService.signSessionToken({
-      sessionId: session.id,
-      scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
-      exp: Math.floor(session.end_time.getTime() / 1000),
-    });
+    const { refreshTokenId, sessionRefreshToken } =
+      await this._createRefreshToken(session.id, scopes, 'join_code');
 
-    return { sessionToken };
+    const sessionToken = this._signShortLivedToken(
+      session.id,
+      refreshTokenId,
+      scopes,
+    );
+
+    return { sessionToken, sessionRefreshToken };
   }
 
   async authenticateSourceDevice(
@@ -63,8 +80,7 @@ export class SessionManagementService {
     sessionId: string,
   ): Promise<{
     sessionToken: string;
-    transcriptionProviderKey: string;
-    transcriptionProviderConfig: TranscriptionProviderConfig;
+    sessionRefreshToken: string;
   } | null> {
     const session =
       await this._sessionManagementRepository.findActiveSessionBySourceDevice(
@@ -80,38 +96,33 @@ export class SessionManagementService {
       return null;
     }
 
-    if (!session.end_time) {
-      this._log.error({ deviceId, sessionId }, 'Session missing end_time');
-      return null;
-    }
+    const scopes = [
+      SessionTokenScope.RECEIVE_TRANSCRIPTIONS,
+      SessionTokenScope.SEND_AUDIO,
+    ];
 
-    const sessionToken = this._jwtService.signSessionToken({
-      sessionId: session.id,
-      scopes: [
-        SessionTokenScope.RECEIVE_TRANSCRIPTIONS,
-        SessionTokenScope.SEND_AUDIO,
-      ],
-      exp: Math.floor(session.end_time.getTime() / 1000),
-    });
+    const { refreshTokenId, sessionRefreshToken } =
+      await this._createRefreshToken(session.id, scopes, 'source_device');
 
-    return {
-      sessionToken,
-      transcriptionProviderKey: session.transcription_provider_key,
-      transcriptionProviderConfig:
-        session.transcription_provider_config as TranscriptionProviderConfig,
-    };
+    const sessionToken = this._signShortLivedToken(
+      session.id,
+      refreshTokenId,
+      scopes,
+    );
+
+    return { sessionToken, sessionRefreshToken };
   }
 
   async createOnDemandSession(
     sourceDeviceId: string,
     transcriptionProviderKey: string,
     transcriptionProviderConfig: TranscriptionProviderConfig,
-    endTimeUnixMs: number,
+    endTimeUnixMs: number | undefined,
     enableJoinCode: boolean,
   ): Promise<{ sessionId: string; joinCode: string | null } | null> {
     const startTime = new Date();
 
-    if (endTimeUnixMs <= startTime.getTime()) {
+    if (endTimeUnixMs !== undefined && endTimeUnixMs <= startTime.getTime()) {
       this._log.warn('Session end time is not in the future');
       return null;
     }
@@ -123,7 +134,8 @@ export class SessionManagementService {
       return null;
     }
 
-    const endTime = new Date(endTimeUnixMs);
+    const endTime =
+      endTimeUnixMs !== undefined ? new Date(endTimeUnixMs) : null;
     const joinCode = enableJoinCode
       ? generateRandomCode(JOIN_CODE_LENGTH)
       : null;
@@ -148,6 +160,128 @@ export class SessionManagementService {
     });
 
     return { sessionId: session.id, joinCode };
+  }
+
+  /**
+   * Refreshes a session token using the opaque refresh token string.
+   * Returns a new short-lived JWT or null if the refresh token is invalid.
+   */
+  async refreshSessionToken(
+    refreshTokenString: string,
+  ): Promise<{ sessionToken: string } | null> {
+    const decoded = this._decodeRefreshToken(refreshTokenString);
+    if (!decoded) {
+      this._log.warn('Invalid refresh token format');
+      return null;
+    }
+
+    const tokenRecord = await this._sessionRefreshTokenRepository.findById(
+      decoded.id,
+    );
+    if (!tokenRecord) {
+      this._log.warn('Refresh token not found');
+      return null;
+    }
+
+    if (tokenRecord.expiry && tokenRecord.expiry.getTime() < Date.now()) {
+      this._log.warn('Refresh token expired');
+      return null;
+    }
+
+    const isValid = await this._hashService.verify(
+      decoded.secret,
+      tokenRecord.secret_hash,
+    );
+    if (!isValid) {
+      this._log.warn('Refresh token secret mismatch');
+      return null;
+    }
+
+    // Verify the session is still active
+    const session = await this._sessionManagementRepository.findSessionById(
+      tokenRecord.session_id,
+    );
+    if (!session) {
+      this._log.warn('Session not found for refresh token');
+      return null;
+    }
+
+    const now = new Date();
+    if (session.start_time > now) {
+      this._log.warn('Session has not started yet');
+      return null;
+    }
+    if (session.end_time && session.end_time <= now) {
+      this._log.warn('Session has ended');
+      return null;
+    }
+
+    const scopes = tokenRecord.scope as SessionTokenScope[];
+    const sessionToken = this._signShortLivedToken(
+      tokenRecord.session_id,
+      tokenRecord.id,
+      scopes,
+    );
+
+    return { sessionToken };
+  }
+
+  /**
+   * Returns transcription configuration for a session.
+   */
+  async getSessionConfig(sessionId: string): Promise<{
+    transcriptionProviderKey: string;
+    transcriptionProviderConfig: TranscriptionProviderConfig;
+    endTimeUnixMs: number | null;
+  } | null> {
+    const session =
+      await this._sessionManagementRepository.findSessionById(sessionId);
+    if (!session) {
+      return null;
+    }
+
+    return {
+      transcriptionProviderKey: session.transcription_provider_key,
+      transcriptionProviderConfig:
+        session.transcription_provider_config as TranscriptionProviderConfig,
+      endTimeUnixMs: session.end_time ? session.end_time.getTime() : null,
+    };
+  }
+
+  /**
+   * Ends an active session immediately, updating the DB and publishing to Redis.
+   */
+  async endSession(sessionId: string): Promise<boolean> {
+    const session =
+      await this._sessionManagementRepository.findSessionById(sessionId);
+    if (!session) {
+      this._log.warn({ sessionId }, 'Session not found for end');
+      return false;
+    }
+
+    const now = new Date();
+    if (session.end_time && session.end_time <= now) {
+      this._log.warn({ sessionId }, 'Session already ended');
+      return false;
+    }
+
+    await this._sessionManagementRepository.endSession(
+      sessionId,
+      session.source_device_id,
+      now,
+    );
+
+    await this._sessionRefreshTokenRepository.deleteBySessionId(sessionId);
+
+    await this._redisPublisher.publish(
+      {
+        type: SessionChannelEventType.SESSION_END,
+        endTimeUnixMs: now.getTime(),
+      },
+      sessionId,
+    );
+
+    return true;
   }
 
   /**
@@ -234,5 +368,54 @@ export class SessionManagementService {
         })
         .catch(rejectOnce);
     });
+  }
+
+  private _signShortLivedToken(
+    sessionId: string,
+    clientId: string,
+    scopes: SessionTokenScope[],
+  ): string {
+    const exp = Math.floor(Date.now() / 1000) + JWT_LIFETIME_S;
+    return this._jwtService.signSessionToken({
+      sessionId,
+      clientId,
+      scopes,
+      exp,
+    });
+  }
+
+  private async _createRefreshToken(
+    sessionId: string,
+    scopes: SessionTokenScope[],
+    authMethod: string,
+  ): Promise<{ refreshTokenId: string; sessionRefreshToken: string }> {
+    const secret = crypto
+      .randomBytes(REFRESH_TOKEN_SECRET_LENGTH)
+      .toString('hex');
+    const secretHash = await this._hashService.hash(secret);
+
+    const { id } = await this._sessionRefreshTokenRepository.create(
+      sessionId,
+      scopes,
+      authMethod,
+      null,
+      secretHash,
+    );
+
+    return {
+      refreshTokenId: id,
+      sessionRefreshToken: `${id}${REFRESH_TOKEN_SEPARATOR}${secret}`,
+    };
+  }
+
+  private _decodeRefreshToken(
+    token: string,
+  ): { id: string; secret: string } | null {
+    const separatorIndex = token.indexOf(REFRESH_TOKEN_SEPARATOR);
+    if (separatorIndex === -1) return null;
+    return {
+      id: token.slice(0, separatorIndex),
+      secret: token.slice(separatorIndex + 1),
+    };
   }
 }

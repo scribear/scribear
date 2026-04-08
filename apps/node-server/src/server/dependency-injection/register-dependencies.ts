@@ -20,9 +20,9 @@ import { SessionStreamingController } from '../features/session-streaming/sessio
 import { SessionStreamingService } from '../features/session-streaming/session-streaming.service.js';
 import { StreamingEventBusService } from '../features/session-streaming/streaming-event-bus.service.js';
 import {
-  TranscriptionService,
-  type TranscriptionServiceConfig,
-} from '../features/session-streaming/transcription.service.js';
+  TranscriptionServiceManager,
+  type TranscriptionServiceManagerConfig,
+} from '../features/session-streaming/transcription-service-manager.js';
 
 /**
  * Define types for entities in dependency container
@@ -39,9 +39,9 @@ interface AppDependencies extends BaseDependencies {
   jwtService: JwtService;
 
   // Session Streaming
-  transcriptionServiceConfig: TranscriptionServiceConfig;
+  transcriptionServiceManagerConfig: TranscriptionServiceManagerConfig;
   streamingEventBusService: StreamingEventBusService;
-  transcriptionService: TranscriptionService;
+  transcriptionServiceManager: TranscriptionServiceManager;
   sessionStreamingService: SessionStreamingService;
   sessionStreamingController: SessionStreamingController;
 }
@@ -81,11 +81,13 @@ function registerDependencies(
     }),
 
     // Session Streaming
-    transcriptionServiceConfig: asValue(config.transcriptionConfig),
+    transcriptionServiceManagerConfig: asValue(
+      config.transcriptionServiceManagerConfig,
+    ),
     streamingEventBusService: asClass(StreamingEventBusService, {
       lifetime: Lifetime.SINGLETON,
     }),
-    transcriptionService: asClass(TranscriptionService, {
+    transcriptionServiceManager: asClass(TranscriptionServiceManager, {
       lifetime: Lifetime.SINGLETON,
     }),
     sessionStreamingService: asClass(SessionStreamingService, {

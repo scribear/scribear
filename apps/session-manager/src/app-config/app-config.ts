@@ -13,7 +13,9 @@ const CONFIG_SCHEMA = Type.Object({
   PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
   HOST: Type.String(),
   API_KEY: Type.String(),
+  NODE_SERVER_KEY: Type.String(),
   JWT_SECRET: Type.String({ minLength: 32 }),
+  REDIS_URL: Type.String(),
   DB_HOST: Type.String(),
   DB_PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
   DB_NAME: Type.String(),
@@ -47,7 +49,12 @@ export class AppConfig {
   get authServiceConfig(): AuthServiceConfig {
     return {
       apiKey: this._env.API_KEY,
+      nodeServerKey: this._env.NODE_SERVER_KEY,
     };
+  }
+
+  get redisUrl(): string {
+    return this._env.REDIS_URL;
   }
 
   get jwtServiceConfig(): JwtServiceConfig {

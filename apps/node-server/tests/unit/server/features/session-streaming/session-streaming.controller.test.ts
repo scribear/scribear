@@ -1,6 +1,9 @@
 import { type Mock, beforeEach, describe, expect, vi } from 'vitest';
 
-import { AudioSourceClientMessageType } from '@scribear/node-server-schema';
+import {
+  AudioSourceServerMessageType,
+  SessionClientServerMessageType,
+} from '@scribear/node-server-schema';
 
 import { SessionStreamingController } from '#src/server/features/session-streaming/session-streaming.controller.js';
 
@@ -12,7 +15,6 @@ describe('SessionStreamingController', () => {
     on: Mock;
     startAuthTimeout: Mock;
     handleClientAuth: Mock;
-    handleAudioSourceConfig: Mock;
     handleAudioChunk: Mock;
     handleClose: Mock;
   };
@@ -45,7 +47,6 @@ describe('SessionStreamingController', () => {
       on: vi.fn(),
       startAuthTimeout: vi.fn(),
       handleClientAuth: vi.fn(),
-      handleAudioSourceConfig: vi.fn().mockResolvedValue(undefined),
       handleAudioChunk: vi.fn(),
       handleClose: vi.fn(),
     };
@@ -120,7 +121,7 @@ describe('SessionStreamingController', () => {
       controller.audioSource(mockSocket as never, mockReq as never);
       const messageHandler = captureSocketHandler('message');
       const msg = JSON.stringify({
-        type: AudioSourceClientMessageType.AUTH,
+        type: 'AUTH',
         sessionToken: TEST_SESSION_TOKEN,
       });
 
@@ -135,25 +136,63 @@ describe('SessionStreamingController', () => {
       );
     });
 
-    it('handles CONFIG message', () => {
+    it('maps ip-transcript events to AudioSource message type', () => {
       // Arrange
       controller.audioSource(mockSocket as never, mockReq as never);
-      const messageHandler = captureSocketHandler('message');
-      const msg = JSON.stringify({
-        type: AudioSourceClientMessageType.CONFIG,
-        providerKey: 'whisper',
-        config: { apiKey: 'sk-test' },
-      });
+      const handler = captureServiceHandler('ip-transcript');
 
       // Act
-      messageHandler(Buffer.from(msg), false);
+      handler({ text: ['hello'], starts: [0], ends: [100] });
 
       // Assert
-      expect(
-        mockService.handleAudioSourceConfig,
-      ).toHaveBeenCalledExactlyOnceWith(TEST_SESSION_ID, 'whisper', {
-        apiKey: 'sk-test',
+      expect(mockSocket.send).toHaveBeenCalledExactlyOnceWith(
+        JSON.stringify({
+          type: AudioSourceServerMessageType.IP_TRANSCRIPT,
+          text: ['hello'],
+          starts: [0],
+          ends: [100],
+        }),
+      );
+    });
+
+    it('maps final-transcript events to AudioSource message type', () => {
+      // Arrange
+      controller.audioSource(mockSocket as never, mockReq as never);
+      const handler = captureServiceHandler('final-transcript');
+
+      // Act
+      handler({ text: ['done'], starts: null, ends: null });
+
+      // Assert
+      expect(mockSocket.send).toHaveBeenCalledExactlyOnceWith(
+        JSON.stringify({
+          type: AudioSourceServerMessageType.FINAL_TRANSCRIPT,
+          text: ['done'],
+          starts: null,
+          ends: null,
+        }),
+      );
+    });
+
+    it('maps session-status events to AudioSource message type', () => {
+      // Arrange
+      controller.audioSource(mockSocket as never, mockReq as never);
+      const handler = captureServiceHandler('session-status');
+
+      // Act
+      handler({
+        transcriptionServiceConnected: true,
+        sourceDeviceConnected: false,
       });
+
+      // Assert
+      expect(mockSocket.send).toHaveBeenCalledExactlyOnceWith(
+        JSON.stringify({
+          type: AudioSourceServerMessageType.SESSION_STATUS,
+          transcriptionServiceConnected: true,
+          sourceDeviceConnected: false,
+        }),
+      );
     });
 
     it('closes socket with 1007 for invalid JSON', () => {
@@ -198,31 +237,6 @@ describe('SessionStreamingController', () => {
       // Assert
       expect(mockService.handleClose).toHaveBeenCalledExactlyOnceWith(
         TEST_SESSION_ID,
-      );
-    });
-
-    it('closes socket with 1011 when handleAudioSourceConfig rejects', async () => {
-      // Arrange
-      mockService.handleAudioSourceConfig.mockRejectedValue(
-        new Error('connection failed'),
-      );
-      controller.audioSource(mockSocket as never, mockReq as never);
-      const messageHandler = captureSocketHandler('message');
-      const msg = JSON.stringify({
-        type: AudioSourceClientMessageType.CONFIG,
-        providerKey: 'whisper',
-        config: { apiKey: 'sk-test' },
-      });
-
-      // Act
-      messageHandler(Buffer.from(msg), false);
-      // Allow the rejected promise .catch() handler to run
-      await new Promise((r) => setTimeout(r, 0));
-
-      // Assert
-      expect(mockSocket.close).toHaveBeenCalledExactlyOnceWith(
-        1011,
-        'Internal server error',
       );
     });
   });
@@ -297,6 +311,46 @@ describe('SessionStreamingController', () => {
         TEST_SESSION_ID,
         TEST_SESSION_TOKEN,
         { receiveTranscriptions: true },
+      );
+    });
+
+    it('maps ip-transcript events to SessionClient message type', () => {
+      // Arrange
+      controller.sessionClient(mockSocket as never, mockReq as never);
+      const handler = captureServiceHandler('ip-transcript');
+
+      // Act
+      handler({ text: ['hello'], starts: [0], ends: [100] });
+
+      // Assert
+      expect(mockSocket.send).toHaveBeenCalledExactlyOnceWith(
+        JSON.stringify({
+          type: SessionClientServerMessageType.IP_TRANSCRIPT,
+          text: ['hello'],
+          starts: [0],
+          ends: [100],
+        }),
+      );
+    });
+
+    it('maps session-status events to SessionClient message type', () => {
+      // Arrange
+      controller.sessionClient(mockSocket as never, mockReq as never);
+      const handler = captureServiceHandler('session-status');
+
+      // Act
+      handler({
+        transcriptionServiceConnected: true,
+        sourceDeviceConnected: true,
+      });
+
+      // Assert
+      expect(mockSocket.send).toHaveBeenCalledExactlyOnceWith(
+        JSON.stringify({
+          type: SessionClientServerMessageType.SESSION_STATUS,
+          transcriptionServiceConnected: true,
+          sourceDeviceConnected: true,
+        }),
       );
     });
 

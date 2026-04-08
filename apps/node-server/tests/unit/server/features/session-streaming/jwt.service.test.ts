@@ -32,6 +32,7 @@ describe('JwtService', () => {
       // Arrange
       const token = signToken({
         sessionId: TEST_SESSION_ID,
+        clientId: 'test-client',
         scopes: TEST_SCOPES,
       });
 

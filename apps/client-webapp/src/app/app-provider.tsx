@@ -15,7 +15,11 @@ import { TranscriptionDisplayProvider } from '@scribear/transcription-display-ui
 import { AppThemeProvider } from '#src/components/app-theme-provider';
 import { RehydrateGate } from '#src/components/rehydrate-gate';
 import { BASE_THEME } from '#src/config/base-theme';
-import { store } from '#src/store/store';
+import { createAppStore } from '#src/store/store';
+
+// Module-scoped singleton, not exported, so it can only be accessed via
+// the Redux Provider below.
+const store = createAppStore();
 
 /**
  * Composes all top-level providers for the client webapp: MUI theme, Redux store,

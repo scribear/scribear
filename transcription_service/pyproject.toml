@@ -60,7 +60,7 @@ dev = [
 ]
 # Optional dependencies used by faster-whisper
 # Install them with `uv sync --extra faster-whisper`
-faster-whisper = ["ctranslate2==4.4.0", "faster-whisper==1.1.0"]
+faster-whisper = ["ctranslate2==4.7.1", "faster-whisper==1.2.1"]
 # Optional dependencies used by Silero VAD (CUDA wheel, default)
 # install them with `uv sync --extra silero-vad`
 silero-vad = ["torch==2.9.1", "torchaudio==2.9.1"]

@@ -10,12 +10,26 @@ import { ErrorBoundary } from 'react-error-boundary';
 import { Provider } from 'react-redux';
 
 import { MainErrorFallback, PageLoadSpinner } from '@scribear/core-ui';
+import { MicrophoneService } from '@scribear/microphone-store';
+import { MicrophoneServiceProvider } from '@scribear/microphone-ui';
 import { TranscriptionDisplayProvider } from '@scribear/transcription-display-ui';
 
 import { AppThemeProvider } from '#src/components/app-theme-provider';
 import { RehydrateGate } from '#src/components/rehydrate-gate.js';
 import { BASE_THEME } from '#src/config/base-theme';
-import { store } from '#src/store/store';
+import { createAppStore } from '#src/store/store';
+
+// Module-scoped singletons, not exported, so they can only be accessed via
+// the React providers below.
+const microphoneService = new MicrophoneService();
+const store = createAppStore(microphoneService);
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    microphoneService.deactivateMicrophone();
+    microphoneService.removeAllListeners();
+  });
+}
 
 /**
  * Composes all application-level providers for the standalone webapp: Redux
@@ -28,11 +42,13 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
         <ErrorBoundary FallbackComponent={MainErrorFallback}>
           <Provider store={store}>
             <RehydrateGate>
-              <AppThemeProvider>
-                <TranscriptionDisplayProvider>
-                  {children}
-                </TranscriptionDisplayProvider>
-              </AppThemeProvider>
+              <MicrophoneServiceProvider service={microphoneService}>
+                <AppThemeProvider>
+                  <TranscriptionDisplayProvider>
+                    {children}
+                  </TranscriptionDisplayProvider>
+                </AppThemeProvider>
+              </MicrophoneServiceProvider>
             </RehydrateGate>
           </Provider>
         </ErrorBoundary>
