@@ -9,6 +9,10 @@ const TEST_TRANSCRIPT_EVENT = {
   starts: [0],
   ends: [1000],
 };
+const TEST_SESSION_STATUS_EVENT = {
+  transcriptionServiceConnected: true,
+  sourceDeviceConnected: true,
+};
 
 describe('StreamingEventBusService', () => {
   let bus: StreamingEventBusService;
@@ -168,6 +172,86 @@ describe('StreamingEventBusService', () => {
 
       // Act
       bus.emitFinalTranscript(TEST_SESSION_ID, TEST_TRANSCRIPT_EVENT);
+
+      // Assert
+      expect(listener).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('emitSessionStatus', (it) => {
+    it('calls registered listener with the event', () => {
+      // Arrange
+      const listener = vi.fn();
+      bus.onSessionStatus(TEST_SESSION_ID, listener);
+
+      // Act
+      bus.emitSessionStatus(TEST_SESSION_ID, TEST_SESSION_STATUS_EVENT);
+
+      // Assert
+      expect(listener).toHaveBeenCalledExactlyOnceWith(
+        TEST_SESSION_STATUS_EVENT,
+      );
+    });
+
+    it('does not call listeners registered for a different session', () => {
+      // Arrange
+      const listener = vi.fn();
+      bus.onSessionStatus('other-session-id', listener);
+
+      // Act
+      bus.emitSessionStatus(TEST_SESSION_ID, TEST_SESSION_STATUS_EVENT);
+
+      // Assert
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('stops calling listener after unsubscribe', () => {
+      // Arrange
+      const listener = vi.fn();
+      const unsub = bus.onSessionStatus(TEST_SESSION_ID, listener);
+      unsub();
+
+      // Act
+      bus.emitSessionStatus(TEST_SESSION_ID, TEST_SESSION_STATUS_EVENT);
+
+      // Assert
+      expect(listener).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('emitSessionEnd', (it) => {
+    it('calls registered listener', () => {
+      // Arrange
+      const listener = vi.fn();
+      bus.onSessionEnd(TEST_SESSION_ID, listener);
+
+      // Act
+      bus.emitSessionEnd(TEST_SESSION_ID);
+
+      // Assert
+      expect(listener).toHaveBeenCalledOnce();
+    });
+
+    it('does not call listeners registered for a different session', () => {
+      // Arrange
+      const listener = vi.fn();
+      bus.onSessionEnd('other-session-id', listener);
+
+      // Act
+      bus.emitSessionEnd(TEST_SESSION_ID);
+
+      // Assert
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('stops calling listener after unsubscribe', () => {
+      // Arrange
+      const listener = vi.fn();
+      const unsub = bus.onSessionEnd(TEST_SESSION_ID, listener);
+      unsub();
+
+      // Act
+      bus.emitSessionEnd(TEST_SESSION_ID);
 
       // Assert
       expect(listener).not.toHaveBeenCalled();

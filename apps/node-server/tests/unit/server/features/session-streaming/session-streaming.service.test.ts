@@ -1,19 +1,14 @@
 import { type Mock, afterEach, beforeEach, describe, expect, vi } from 'vitest';
 
-import {
-  AudioSourceServerMessageType,
-  SessionClientServerMessageType,
-  SessionTokenScope,
-} from '@scribear/node-server-schema';
+import { SessionTokenScope } from '@scribear/node-server-schema';
 
 import { SessionStreamingService } from '#src/server/features/session-streaming/session-streaming.service.js';
 
 const TEST_SESSION_ID = 'test-session-id';
 const TEST_SESSION_TOKEN = 'valid.jwt.token';
 const FAKE_NOW = new Date('2025-01-01T00:00:00Z');
-const TOKEN_EXP_UNIX = FAKE_NOW.getTime() / 1000 + 3600;
-const TEST_PROVIDER_KEY = 'whisper';
-const TEST_PROVIDER_CONFIG = { apiKey: 'sk-test' };
+const TOKEN_EXP_UNIX = FAKE_NOW.getTime() / 1000 + 300;
+const TEST_CLIENT_ID = 'client-123';
 
 describe('SessionStreamingService', () => {
   let mockJwtService: { verifySessionToken: Mock };
@@ -24,11 +19,14 @@ describe('SessionStreamingService', () => {
     emitIpTranscript: Mock;
     onFinalTranscript: Mock;
     emitFinalTranscript: Mock;
+    onSessionStatus: Mock;
+    emitSessionStatus: Mock;
+    onSessionEnd: Mock;
+    emitSessionEnd: Mock;
   };
-  let mockTranscriptionService: {
-    addClient: Mock;
-    removeClient: Mock;
-    configureSession: Mock;
+  let mockTranscriptionServiceManager: {
+    registerSession: Mock;
+    unregisterSession: Mock;
   };
   let service: SessionStreamingService;
 
@@ -46,17 +44,20 @@ describe('SessionStreamingService', () => {
       emitIpTranscript: vi.fn(),
       onFinalTranscript: vi.fn().mockReturnValue(vi.fn()),
       emitFinalTranscript: vi.fn(),
+      onSessionStatus: vi.fn().mockReturnValue(vi.fn()),
+      emitSessionStatus: vi.fn(),
+      onSessionEnd: vi.fn().mockReturnValue(vi.fn()),
+      emitSessionEnd: vi.fn(),
     };
-    mockTranscriptionService = {
-      addClient: vi.fn(),
-      removeClient: vi.fn(),
-      configureSession: vi.fn().mockResolvedValue(undefined),
+    mockTranscriptionServiceManager = {
+      registerSession: vi.fn().mockResolvedValue(undefined),
+      unregisterSession: vi.fn(),
     };
 
     service = new SessionStreamingService(
       mockJwtService as never,
       mockEventBus as never,
-      mockTranscriptionService as never,
+      mockTranscriptionServiceManager as never,
     );
   });
 
@@ -118,6 +119,7 @@ describe('SessionStreamingService', () => {
       service.on('close', closeSpy);
       mockJwtService.verifySessionToken.mockReturnValue({
         sessionId: 'different-session-id',
+        clientId: TEST_CLIENT_ID,
         scopes: [SessionTokenScope.SEND_AUDIO],
         exp: TOKEN_EXP_UNIX,
       });
@@ -138,6 +140,7 @@ describe('SessionStreamingService', () => {
       service.on('close', closeSpy);
       mockJwtService.verifySessionToken.mockReturnValue({
         sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
         scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
         exp: TOKEN_EXP_UNIX,
       });
@@ -160,6 +163,7 @@ describe('SessionStreamingService', () => {
       service.on('close', closeSpy);
       mockJwtService.verifySessionToken.mockReturnValue({
         sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
         scopes: [SessionTokenScope.SEND_AUDIO],
         exp: TOKEN_EXP_UNIX,
       });
@@ -182,6 +186,7 @@ describe('SessionStreamingService', () => {
       service.on('close', closeSpy);
       mockJwtService.verifySessionToken.mockReturnValue({
         sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
         scopes: [SessionTokenScope.SEND_AUDIO],
         exp: TOKEN_EXP_UNIX,
       });
@@ -197,10 +202,11 @@ describe('SessionStreamingService', () => {
       expect(closeSpy).not.toHaveBeenCalled();
     });
 
-    it('adds client to transcription service when SEND_AUDIO scope is present', () => {
+    it('registers session with transcription service manager when SEND_AUDIO scope is present', () => {
       // Arrange
       mockJwtService.verifySessionToken.mockReturnValue({
         sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
         scopes: [SessionTokenScope.SEND_AUDIO],
         exp: TOKEN_EXP_UNIX,
       });
@@ -212,7 +218,7 @@ describe('SessionStreamingService', () => {
 
       // Assert
       expect(
-        mockTranscriptionService.addClient,
+        mockTranscriptionServiceManager.registerSession,
       ).toHaveBeenCalledExactlyOnceWith(TEST_SESSION_ID);
     });
 
@@ -220,6 +226,7 @@ describe('SessionStreamingService', () => {
       // Arrange
       mockJwtService.verifySessionToken.mockReturnValue({
         sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
         scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
         exp: TOKEN_EXP_UNIX,
       });
@@ -240,12 +247,13 @@ describe('SessionStreamingService', () => {
       );
     });
 
-    it('forwards ip transcript events as SessionClient messages when only RECEIVE_TRANSCRIPTIONS', () => {
+    it('emits ip-transcript event when event bus fires', () => {
       // Arrange
-      const sendSpy = vi.fn();
-      service.on('send', sendSpy);
+      const transcriptSpy = vi.fn();
+      service.on('ip-transcript', transcriptSpy);
       mockJwtService.verifySessionToken.mockReturnValue({
         sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
         scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
         exp: TOKEN_EXP_UNIX,
       });
@@ -255,51 +263,37 @@ describe('SessionStreamingService', () => {
       const ipCallback = mockEventBus.onIpTranscript.mock.calls[0]![1] as (
         event: unknown,
       ) => void;
+      const event = { text: ['hello'], starts: [0], ends: [100] };
 
       // Act
-      ipCallback({ text: ['hello'], starts: [0], ends: [100] });
+      ipCallback(event);
 
       // Assert
-      expect(sendSpy).toHaveBeenCalledExactlyOnceWith(
-        JSON.stringify({
-          type: SessionClientServerMessageType.IP_TRANSCRIPT,
-          text: ['hello'],
-          starts: [0],
-          ends: [100],
-        }),
-      );
+      expect(transcriptSpy).toHaveBeenCalledExactlyOnceWith(event);
     });
 
-    it('forwards transcript events as AudioSource messages when both scopes present', () => {
+    it('emits final-transcript event when event bus fires', () => {
       // Arrange
-      const sendSpy = vi.fn();
-      service.on('send', sendSpy);
+      const transcriptSpy = vi.fn();
+      service.on('final-transcript', transcriptSpy);
       mockJwtService.verifySessionToken.mockReturnValue({
         sessionId: TEST_SESSION_ID,
-        scopes: [
-          SessionTokenScope.SEND_AUDIO,
-          SessionTokenScope.RECEIVE_TRANSCRIPTIONS,
-        ],
+        clientId: TEST_CLIENT_ID,
+        scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
         exp: TOKEN_EXP_UNIX,
       });
       service.handleClientAuth(TEST_SESSION_ID, TEST_SESSION_TOKEN, {
-        sendAudio: true,
+        receiveTranscriptions: true,
       });
       const finalCallback = mockEventBus.onFinalTranscript.mock
         .calls[0]![1] as (event: unknown) => void;
+      const event = { text: ['done'], starts: null, ends: null };
 
       // Act
-      finalCallback({ text: ['done'], starts: null, ends: null });
+      finalCallback(event);
 
       // Assert
-      expect(sendSpy).toHaveBeenCalledExactlyOnceWith(
-        JSON.stringify({
-          type: AudioSourceServerMessageType.FINAL_TRANSCRIPT,
-          text: ['done'],
-          starts: null,
-          ends: null,
-        }),
-      );
+      expect(transcriptSpy).toHaveBeenCalledExactlyOnceWith(event);
     });
 
     it('emits close when JWT expires', () => {
@@ -308,6 +302,7 @@ describe('SessionStreamingService', () => {
       service.on('close', closeSpy);
       mockJwtService.verifySessionToken.mockReturnValue({
         sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
         scopes: [SessionTokenScope.SEND_AUDIO],
         exp: TOKEN_EXP_UNIX,
       });
@@ -316,7 +311,7 @@ describe('SessionStreamingService', () => {
       service.handleClientAuth(TEST_SESSION_ID, TEST_SESSION_TOKEN, {
         sendAudio: true,
       });
-      vi.advanceTimersByTime(3600 * 1000);
+      vi.advanceTimersByTime(300 * 1000);
 
       // Assert
       expect(closeSpy).toHaveBeenCalledExactlyOnceWith(
@@ -324,55 +319,165 @@ describe('SessionStreamingService', () => {
         'Session token expired',
       );
     });
-  });
 
-  describe('handleAudioSourceConfig', (it) => {
-    it('emits close when not authenticated', async () => {
-      // Arrange
-      const closeSpy = vi.fn();
-      service.on('close', closeSpy);
-
-      // Act
-      await service.handleAudioSourceConfig(
-        TEST_SESSION_ID,
-        TEST_PROVIDER_KEY,
-        TEST_PROVIDER_CONFIG as never,
-      );
-
-      // Assert
-      expect(closeSpy).toHaveBeenCalledExactlyOnceWith(
-        1008,
-        'Not authenticated',
-      );
-      expect(mockTranscriptionService.configureSession).not.toHaveBeenCalled();
-    });
-
-    it('delegates to transcription service when authenticated', async () => {
+    it('subscribes to session status events on first auth', () => {
       // Arrange
       mockJwtService.verifySessionToken.mockReturnValue({
         sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
+        scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        exp: TOKEN_EXP_UNIX,
+      });
+
+      // Act
+      service.handleClientAuth(TEST_SESSION_ID, TEST_SESSION_TOKEN, {
+        receiveTranscriptions: true,
+      });
+
+      // Assert
+      expect(mockEventBus.onSessionStatus).toHaveBeenCalledExactlyOnceWith(
+        TEST_SESSION_ID,
+        expect.any(Function),
+      );
+    });
+
+    it('emits session-status event when event bus fires', () => {
+      // Arrange
+      const statusSpy = vi.fn();
+      service.on('session-status', statusSpy);
+      mockJwtService.verifySessionToken.mockReturnValue({
+        sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
+        scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        exp: TOKEN_EXP_UNIX,
+      });
+      service.handleClientAuth(TEST_SESSION_ID, TEST_SESSION_TOKEN, {
+        receiveTranscriptions: true,
+      });
+      const statusCallback = mockEventBus.onSessionStatus.mock.calls[0]![1] as (
+        event: unknown,
+      ) => void;
+      const event = {
+        transcriptionServiceConnected: true,
+        sourceDeviceConnected: false,
+      };
+
+      // Act
+      statusCallback(event);
+
+      // Assert
+      expect(statusSpy).toHaveBeenCalledExactlyOnceWith(event);
+    });
+
+    it('subscribes to session end events on first auth', () => {
+      // Arrange
+      mockJwtService.verifySessionToken.mockReturnValue({
+        sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
+        scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        exp: TOKEN_EXP_UNIX,
+      });
+
+      // Act
+      service.handleClientAuth(TEST_SESSION_ID, TEST_SESSION_TOKEN, {
+        receiveTranscriptions: true,
+      });
+
+      // Assert
+      expect(mockEventBus.onSessionEnd).toHaveBeenCalledExactlyOnceWith(
+        TEST_SESSION_ID,
+        expect.any(Function),
+      );
+    });
+
+    it('emits close with 1000 when session end event fires', () => {
+      // Arrange
+      const closeSpy = vi.fn();
+      service.on('close', closeSpy);
+      mockJwtService.verifySessionToken.mockReturnValue({
+        sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
+        scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+        exp: TOKEN_EXP_UNIX,
+      });
+      service.handleClientAuth(TEST_SESSION_ID, TEST_SESSION_TOKEN, {
+        receiveTranscriptions: true,
+      });
+      const endCallback = mockEventBus.onSessionEnd.mock.calls[0]![1] as (
+        ...args: unknown[]
+      ) => void;
+
+      // Act
+      endCallback();
+
+      // Assert
+      expect(closeSpy).toHaveBeenCalledExactlyOnceWith(1000, 'Session ended');
+    });
+  });
+
+  describe('handleClientAuth re-auth', (it) => {
+    it('resets JWT expiry timeout on re-auth without re-subscribing', () => {
+      // Arrange
+      const closeSpy = vi.fn();
+      service.on('close', closeSpy);
+      const newExp = TOKEN_EXP_UNIX + 300;
+      mockJwtService.verifySessionToken
+        .mockReturnValueOnce({
+          sessionId: TEST_SESSION_ID,
+          clientId: TEST_CLIENT_ID,
+          scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+          exp: TOKEN_EXP_UNIX,
+        })
+        .mockReturnValueOnce({
+          sessionId: TEST_SESSION_ID,
+          clientId: TEST_CLIENT_ID,
+          scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+          exp: newExp,
+        });
+
+      // Act
+      service.handleClientAuth(TEST_SESSION_ID, TEST_SESSION_TOKEN, {
+        receiveTranscriptions: true,
+      });
+      // Advance past original expiry
+      vi.advanceTimersByTime(200 * 1000);
+      // Re-auth with new token
+      service.handleClientAuth(TEST_SESSION_ID, 'new.jwt.token', {
+        receiveTranscriptions: true,
+      });
+      // Advance past original expiry but before new expiry
+      vi.advanceTimersByTime(200 * 1000);
+
+      // Assert - should not have closed
+      expect(closeSpy).not.toHaveBeenCalled();
+
+      // Assert - should not re-subscribe to events
+      expect(mockEventBus.onIpTranscript).toHaveBeenCalledOnce();
+      expect(mockEventBus.onSessionStatus).toHaveBeenCalledOnce();
+      expect(mockEventBus.onSessionEnd).toHaveBeenCalledOnce();
+    });
+
+    it('does not re-register session with transcription service manager on re-auth', () => {
+      // Arrange
+      mockJwtService.verifySessionToken.mockReturnValue({
+        sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
         scopes: [SessionTokenScope.SEND_AUDIO],
         exp: TOKEN_EXP_UNIX,
+      });
+
+      // Act
+      service.handleClientAuth(TEST_SESSION_ID, TEST_SESSION_TOKEN, {
+        sendAudio: true,
       });
       service.handleClientAuth(TEST_SESSION_ID, TEST_SESSION_TOKEN, {
         sendAudio: true,
       });
 
-      // Act
-      await service.handleAudioSourceConfig(
-        TEST_SESSION_ID,
-        TEST_PROVIDER_KEY,
-        TEST_PROVIDER_CONFIG as never,
-      );
-
       // Assert
       expect(
-        mockTranscriptionService.configureSession,
-      ).toHaveBeenCalledExactlyOnceWith(
-        TEST_SESSION_ID,
-        TEST_PROVIDER_KEY,
-        TEST_PROVIDER_CONFIG,
-      );
+        mockTranscriptionServiceManager.registerSession,
+      ).toHaveBeenCalledOnce();
     });
   });
 
@@ -392,6 +497,7 @@ describe('SessionStreamingService', () => {
       // Arrange
       mockJwtService.verifySessionToken.mockReturnValue({
         sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
         scopes: [SessionTokenScope.SEND_AUDIO],
         exp: TOKEN_EXP_UNIX,
       });
@@ -412,10 +518,11 @@ describe('SessionStreamingService', () => {
   });
 
   describe('handleClose', (it) => {
-    it('removes client from transcription service when SEND_AUDIO was granted', () => {
+    it('unregisters session from transcription service manager when SEND_AUDIO was granted', () => {
       // Arrange
       mockJwtService.verifySessionToken.mockReturnValue({
         sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
         scopes: [SessionTokenScope.SEND_AUDIO],
         exp: TOKEN_EXP_UNIX,
       });
@@ -428,14 +535,15 @@ describe('SessionStreamingService', () => {
 
       // Assert
       expect(
-        mockTranscriptionService.removeClient,
+        mockTranscriptionServiceManager.unregisterSession,
       ).toHaveBeenCalledExactlyOnceWith(TEST_SESSION_ID);
     });
 
-    it('does not remove client when SEND_AUDIO was not granted', () => {
+    it('does not unregister when SEND_AUDIO was not granted', () => {
       // Arrange
       mockJwtService.verifySessionToken.mockReturnValue({
         sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
         scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
         exp: TOKEN_EXP_UNIX,
       });
@@ -447,7 +555,9 @@ describe('SessionStreamingService', () => {
       service.handleClose(TEST_SESSION_ID);
 
       // Assert
-      expect(mockTranscriptionService.removeClient).not.toHaveBeenCalled();
+      expect(
+        mockTranscriptionServiceManager.unregisterSession,
+      ).not.toHaveBeenCalled();
     });
 
     it('unsubscribes transcript listeners on close', () => {
@@ -458,6 +568,7 @@ describe('SessionStreamingService', () => {
       mockEventBus.onFinalTranscript.mockReturnValue(mockUnsubFinal);
       mockJwtService.verifySessionToken.mockReturnValue({
         sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
         scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
         exp: TOKEN_EXP_UNIX,
       });
@@ -479,6 +590,7 @@ describe('SessionStreamingService', () => {
       service.on('close', closeSpy);
       mockJwtService.verifySessionToken.mockReturnValue({
         sessionId: TEST_SESSION_ID,
+        clientId: TEST_CLIENT_ID,
         scopes: [SessionTokenScope.SEND_AUDIO],
         exp: TOKEN_EXP_UNIX,
       });
@@ -488,7 +600,7 @@ describe('SessionStreamingService', () => {
 
       // Act
       service.handleClose(TEST_SESSION_ID);
-      vi.advanceTimersByTime(3600 * 1000);
+      vi.advanceTimersByTime(300 * 1000);
 
       // Assert
       expect(closeSpy).not.toHaveBeenCalled();

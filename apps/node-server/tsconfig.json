@@ -28,6 +28,15 @@
     },
     {
       "path": "../../libs/schemas/transcription-service-schema/tsconfig.json"
+    },
+    {
+      "path": "../../libs/clients/session-manager-client/tsconfig.json"
+    },
+    {
+      "path": "../../libs/schemas/session-manager-schema/tsconfig.json"
+    },
+    {
+      "path": "../../infra/scribear-redis/tsconfig.json"
     }
   ]
 }

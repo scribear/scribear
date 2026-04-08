@@ -1,30 +1,33 @@
 import { EventEmitter } from 'eventemitter3';
 
-import {
-  AudioSourceServerMessageType,
-  SessionClientServerMessageType,
-  SessionTokenScope,
-} from '@scribear/node-server-schema';
-import type { TranscriptionProviderConfig } from '@scribear/transcription-service-schema';
+import { SessionTokenScope } from '@scribear/node-server-schema';
 
 import type { AppDependencies } from '#src/server/dependency-injection/register-dependencies.js';
+
+import type {
+  SessionStatusEvent,
+  TranscriptEvent,
+} from './streaming-event-bus.service.js';
 
 const AUTH_TIMEOUT_MS = 1_000;
 
 interface SessionStreamingServiceEvents {
   close: [code: number, reason: string];
   send: [msg: string];
+  'ip-transcript': [event: TranscriptEvent];
+  'final-transcript': [event: TranscriptEvent];
+  'session-status': [event: SessionStatusEvent];
 }
 
 /**
  * Manages the lifecycle of a single audio-source or session-client WebSocket connection.
- * Emits `close` and `send` events for the controller to forward to the socket.
- * Scoped per connection
+ * Emits typed events for the controller to forward to the socket.
+ * Scoped per connection.
  */
 export class SessionStreamingService extends EventEmitter<SessionStreamingServiceEvents> {
   private _jwtService: AppDependencies['jwtService'];
   private _eventBus: AppDependencies['streamingEventBusService'];
-  private _transcriptionService: AppDependencies['transcriptionService'];
+  private _transcriptionServiceManager: AppDependencies['transcriptionServiceManager'];
 
   private _authenticated = false;
   private _sendAudioGranted = false;
@@ -35,12 +38,12 @@ export class SessionStreamingService extends EventEmitter<SessionStreamingServic
   constructor(
     jwtService: AppDependencies['jwtService'],
     streamingEventBusService: AppDependencies['streamingEventBusService'],
-    transcriptionService: AppDependencies['transcriptionService'],
+    transcriptionServiceManager: AppDependencies['transcriptionServiceManager'],
   ) {
     super();
     this._jwtService = jwtService;
     this._eventBus = streamingEventBusService;
-    this._transcriptionService = transcriptionService;
+    this._transcriptionServiceManager = transcriptionServiceManager;
   }
 
   /**
@@ -57,9 +60,8 @@ export class SessionStreamingService extends EventEmitter<SessionStreamingServic
 
   /**
    * Authenticates an incoming connection against the session token.
-   * Enforces required scopes via flags, then sets up capabilities for any
-   * scope present in the token: audio routing for SEND_AUDIO, transcript
-   * forwarding for RECEIVE_TRANSCRIPTIONS.
+   * Supports re-auth: on subsequent calls with the same sessionId, resets the
+   * JWT expiry timeout without re-subscribing to events.
    *
    * @param sessionId - The session ID from the URL param.
    * @param sessionToken - The JWT from the AUTH message.
@@ -102,63 +104,33 @@ export class SessionStreamingService extends EventEmitter<SessionStreamingServic
       return;
     }
 
-    this._authenticated = true;
-
+    // Reset JWT expiry timeout (supports re-auth)
+    if (this._jwtExpiryTimeout) {
+      clearTimeout(this._jwtExpiryTimeout);
+    }
     const msUntilExpiry = payload.exp * 1000 - Date.now();
     this._jwtExpiryTimeout = setTimeout(() => {
-      this.emit('close', 1008, 'Session token expired');
+      if (this._authenticated) {
+        this.emit('close', 1008, 'Session token expired');
+      }
     }, msUntilExpiry);
 
-    if (hasSendAudio) {
-      this._sendAudioGranted = true;
-      this._transcriptionService.addClient(sessionId);
-    }
-
-    if (hasReceiveTranscriptions) {
-      const ipType = hasSendAudio
-        ? AudioSourceServerMessageType.IP_TRANSCRIPT
-        : SessionClientServerMessageType.IP_TRANSCRIPT;
-      const finalType = hasSendAudio
-        ? AudioSourceServerMessageType.FINAL_TRANSCRIPT
-        : SessionClientServerMessageType.FINAL_TRANSCRIPT;
-
-      const unsubIp = this._eventBus.onIpTranscript(sessionId, (event) => {
-        this.emit('send', JSON.stringify({ type: ipType, ...event }));
-      });
-      const unsubFinal = this._eventBus.onFinalTranscript(
-        sessionId,
-        (event) => {
-          this.emit('send', JSON.stringify({ type: finalType, ...event }));
-        },
-      );
-      this._cleanupFns.push(unsubIp, unsubFinal);
-    }
-  }
-
-  /**
-   * Processes a CONFIG message from an audio-source connection.
-   * Connects to the transcription service and begins routing audio chunks.
-   * Emits `close` with code 1008 if the connection has not yet authenticated.
-   *
-   * @param sessionId - The session to configure.
-   * @param providerKey - The transcription provider to use.
-   * @param config - Provider-specific configuration.
-   */
-  async handleAudioSourceConfig(
-    sessionId: string,
-    providerKey: string,
-    config: TranscriptionProviderConfig,
-  ): Promise<void> {
+    // First auth: set up subscriptions
     if (!this._authenticated) {
-      this.emit('close', 1008, 'Not authenticated');
-      return;
-    }
+      this._authenticated = true;
 
-    await this._transcriptionService.configureSession(
-      sessionId,
-      providerKey,
-      config,
-    );
+      if (hasSendAudio) {
+        this._sendAudioGranted = true;
+        void this._transcriptionServiceManager.registerSession(sessionId);
+      }
+
+      if (hasReceiveTranscriptions) {
+        this._subscribeToTranscripts(sessionId);
+      }
+
+      this._subscribeToSessionStatus(sessionId);
+      this._subscribeToSessionEnd(sessionId);
+    }
   }
 
   /**
@@ -175,7 +147,7 @@ export class SessionStreamingService extends EventEmitter<SessionStreamingServic
 
   /**
    * Cleans up resources when the WebSocket connection closes.
-   * Removes this client from the transcription service if SEND_AUDIO was granted.
+   * Unregisters this client from the transcription service manager if SEND_AUDIO was granted.
    *
    * @param sessionId - The session that disconnected.
    */
@@ -183,8 +155,32 @@ export class SessionStreamingService extends EventEmitter<SessionStreamingServic
     const hadSendAudio = this._sendAudioGranted;
     this._cleanup();
     if (hadSendAudio) {
-      this._transcriptionService.removeClient(sessionId);
+      this._transcriptionServiceManager.unregisterSession(sessionId);
     }
+  }
+
+  private _subscribeToTranscripts(sessionId: string): void {
+    const unsubIp = this._eventBus.onIpTranscript(sessionId, (event) => {
+      this.emit('ip-transcript', event);
+    });
+    const unsubFinal = this._eventBus.onFinalTranscript(sessionId, (event) => {
+      this.emit('final-transcript', event);
+    });
+    this._cleanupFns.push(unsubIp, unsubFinal);
+  }
+
+  private _subscribeToSessionStatus(sessionId: string): void {
+    const unsubStatus = this._eventBus.onSessionStatus(sessionId, (event) => {
+      this.emit('session-status', event);
+    });
+    this._cleanupFns.push(unsubStatus);
+  }
+
+  private _subscribeToSessionEnd(sessionId: string): void {
+    const unsubEnd = this._eventBus.onSessionEnd(sessionId, () => {
+      this.emit('close', 1000, 'Session ended');
+    });
+    this._cleanupFns.push(unsubEnd);
   }
 
   private _cleanup(): void {

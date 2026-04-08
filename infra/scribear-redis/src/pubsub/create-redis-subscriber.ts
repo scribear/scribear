@@ -25,7 +25,9 @@ export function createRedisSubscriber<
   channelDef: ChannelDefinition<T, TArgs>,
   redisUrl: string,
 ): RedisSubscriber<T, TArgs> {
-  const redis = new Redis(redisUrl);
+  // Disable ready check: ioredis sends an INFO command on reconnect, but
+  // subscriber-mode connections only allow subscriber commands.
+  const redis = new Redis(redisUrl, { enableReadyCheck: false });
   const listeners = new Map<string, (message: Static<T>) => void>();
 
   redis.on('message', (channelKey: string, rawMessage: string) => {

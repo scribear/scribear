@@ -4,15 +4,17 @@ import type { RawData, WebSocket } from 'ws';
 import type { BaseFastifyRequest } from '@scribear/base-fastify-server';
 import {
   AUDIO_SOURCE_SCHEMA,
-  AudioSourceClientMessageType,
+  AudioSourceServerMessageType,
   SESSION_CLIENT_SCHEMA,
+  SessionClientServerMessageType,
 } from '@scribear/node-server-schema';
 
 import type { AppDependencies } from '#src/server/dependency-injection/register-dependencies.js';
 
 /**
  * Handles WebSocket connections for both audio-source and session-client endpoints.
- * Validates incoming message schemas and delegates business logic to the service.
+ * Validates incoming message schemas, delegates business logic to the service,
+ * and maps generic service events to client-type-specific message formats.
  */
 export class SessionStreamingController {
   private _sessionStreamingService: AppDependencies['sessionStreamingService'];
@@ -34,19 +36,20 @@ export class SessionStreamingController {
     req: BaseFastifyRequest<typeof AUDIO_SOURCE_SCHEMA>,
   ): void {
     const { sessionId } = req.params;
-    const svc = this._sessionStreamingService;
 
-    svc.on('close', (code, reason) => {
-      socket.close(code, reason);
+    this._wireCommonEvents(socket, {
+      ipTranscriptType: AudioSourceServerMessageType.IP_TRANSCRIPT,
+      finalTranscriptType: AudioSourceServerMessageType.FINAL_TRANSCRIPT,
+      sessionStatusType: AudioSourceServerMessageType.SESSION_STATUS,
     });
-    svc.on('send', (msg) => {
-      socket.send(msg);
-    });
-    svc.startAuthTimeout();
+    this._sessionStreamingService.startAuthTimeout();
 
     socket.on('message', (rawData: RawData, isBinary: boolean) => {
       if (isBinary) {
-        svc.handleAudioChunk(sessionId, rawData as Buffer);
+        this._sessionStreamingService.handleAudioChunk(
+          sessionId,
+          rawData as Buffer,
+        );
         return;
       }
 
@@ -58,21 +61,17 @@ export class SessionStreamingController {
         return;
       }
 
-      const msg = parsed;
-
-      if (msg.type === AudioSourceClientMessageType.AUTH) {
-        svc.handleClientAuth(sessionId, msg.sessionToken, { sendAudio: true });
-      } else {
-        svc
-          .handleAudioSourceConfig(sessionId, msg.providerKey, msg.config)
-          .catch(() => {
-            socket.close(1011, 'Internal server error');
-          });
-      }
+      this._sessionStreamingService.handleClientAuth(
+        sessionId,
+        parsed.sessionToken,
+        {
+          sendAudio: true,
+        },
+      );
     });
 
     socket.on('close', () => {
-      svc.handleClose(sessionId);
+      this._sessionStreamingService.handleClose(sessionId);
     });
   }
 
@@ -87,15 +86,13 @@ export class SessionStreamingController {
     req: BaseFastifyRequest<typeof SESSION_CLIENT_SCHEMA>,
   ): void {
     const { sessionId } = req.params;
-    const svc = this._sessionStreamingService;
 
-    svc.on('close', (code, reason) => {
-      socket.close(code, reason);
+    this._wireCommonEvents(socket, {
+      ipTranscriptType: SessionClientServerMessageType.IP_TRANSCRIPT,
+      finalTranscriptType: SessionClientServerMessageType.FINAL_TRANSCRIPT,
+      sessionStatusType: SessionClientServerMessageType.SESSION_STATUS,
     });
-    svc.on('send', (msg) => {
-      socket.send(msg);
-    });
-    svc.startAuthTimeout();
+    this._sessionStreamingService.startAuthTimeout();
 
     socket.on('message', (rawData: RawData, isBinary: boolean) => {
       if (isBinary) {
@@ -111,14 +108,56 @@ export class SessionStreamingController {
         return;
       }
 
-      const msg = parsed;
-      svc.handleClientAuth(sessionId, msg.sessionToken, {
-        receiveTranscriptions: true,
-      });
+      this._sessionStreamingService.handleClientAuth(
+        sessionId,
+        parsed.sessionToken,
+        {
+          receiveTranscriptions: true,
+        },
+      );
     });
 
     socket.on('close', () => {
-      svc.handleClose(sessionId);
+      this._sessionStreamingService.handleClose(sessionId);
+    });
+  }
+
+  /**
+   * Wires up common service events (close, send, transcripts, status)
+   * to the WebSocket, mapping generic events to client-type-specific message types.
+   */
+  private _wireCommonEvents(
+    socket: WebSocket,
+    messageTypes: {
+      ipTranscriptType: string;
+      finalTranscriptType: string;
+      sessionStatusType: string;
+    },
+  ): void {
+    this._sessionStreamingService.on('close', (code, reason) => {
+      socket.close(code, reason);
+    });
+    this._sessionStreamingService.on('send', (msg) => {
+      socket.send(msg);
+    });
+    this._sessionStreamingService.on('ip-transcript', (event) => {
+      socket.send(
+        JSON.stringify({ type: messageTypes.ipTranscriptType, ...event }),
+      );
+    });
+    this._sessionStreamingService.on('final-transcript', (event) => {
+      socket.send(
+        JSON.stringify({ type: messageTypes.finalTranscriptType, ...event }),
+      );
+    });
+    this._sessionStreamingService.on('session-status', (event) => {
+      socket.send(
+        JSON.stringify({
+          type: messageTypes.sessionStatusType,
+          transcriptionServiceConnected: event.transcriptionServiceConnected,
+          sourceDeviceConnected: event.sourceDeviceConnected,
+        }),
+      );
     });
   }
 
