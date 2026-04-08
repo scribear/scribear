@@ -17,10 +17,10 @@
   ],
   "references": [
     {
-      "path": "../core-ui/tsconfig.json"
+      "path": "../core-ui"
     },
     {
-      "path": "../../store/microphone-store/tsconfig.json"
+      "path": "../../store/microphone-store"
     }
   ]
 }

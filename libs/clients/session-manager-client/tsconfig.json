@@ -18,10 +18,10 @@
   ],
   "references": [
     {
-      "path": "../base-api-client/tsconfig.json"
+      "path": "../base-api-client"
     },
     {
-      "path": "../../schemas/session-manager-schema/tsconfig.json"
+      "path": "../../schemas/session-manager-schema"
     }
   ]
 }

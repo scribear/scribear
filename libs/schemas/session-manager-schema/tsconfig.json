@@ -17,10 +17,10 @@
   ],
   "references": [
     {
-      "path": "../base-schema/tsconfig.json"
+      "path": "../base-schema"
     },
     {
-      "path": "../transcription-service-schema/tsconfig.json"
+      "path": "../transcription-service-schema"
     }
   ]
 }

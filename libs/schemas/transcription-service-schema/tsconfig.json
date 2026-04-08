@@ -18,7 +18,7 @@
   ],
   "references": [
     {
-      "path": "../base-schema/tsconfig.json"
+      "path": "../base-schema"
     }
   ]
 }
