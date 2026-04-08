@@ -228,12 +228,12 @@ jobs:
         if: contains(needs.changes.outputs.workspaces, 'infra/scribear-redis')
         run: npm run test:integration --workspace infra/scribear-redis
 
-      - name: Code Coverage Report - Session Manager Integration Tests
+      - name: Code Coverage Report - Scribear Redis Integration Tests
         uses: ./.github/actions/coverage-report
-        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
+        if: contains(needs.changes.outputs.workspaces, 'infra/scribear-redis')
         with:
-          package_name: "Session Manager - Integration Tests"
-          filename: "./apps/session-manager/coverage/cobertura-coverage.xml"
+          package_name: "Scribear Redis - Integration Tests"
+          filename: "./infra/scribear-redis/coverage/cobertura-coverage.xml"
 
       - name: Run Session Manager Integration Tests
         if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
