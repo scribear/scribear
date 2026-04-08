@@ -83,9 +83,7 @@ class WhisperStreamingProviderJob(
             extra = self._buffer.append(samples)
             # More than expected number of samples received, client sending audio to fast
             if len(extra) > 0:
-                raise TranscriptionClientError(
-                    "Client sent audio too quickly."
-                )
+                raise TranscriptionClientError("Client sent audio too quickly.")
 
     def _detect_speech_ranges(
         self,
