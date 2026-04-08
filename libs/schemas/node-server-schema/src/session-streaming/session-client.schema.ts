@@ -14,6 +14,7 @@ export enum SessionClientClientMessageType {
 export enum SessionClientServerMessageType {
   IP_TRANSCRIPT = 'IP_TRANSCRIPT',
   FINAL_TRANSCRIPT = 'FINAL_TRANSCRIPT',
+  SESSION_STATUS = 'SESSION_STATUS',
 }
 
 const SESSION_CLIENT_SCHEMA = {
@@ -42,6 +43,11 @@ const SESSION_CLIENT_SCHEMA = {
       text: Type.Array(Type.String()),
       starts: Type.Union([Type.Array(Type.Number()), Type.Null()]),
       ends: Type.Union([Type.Array(Type.Number()), Type.Null()]),
+    }),
+    Type.Object({
+      type: Type.Literal(SessionClientServerMessageType.SESSION_STATUS),
+      transcriptionServiceConnected: Type.Boolean(),
+      sourceDeviceConnected: Type.Boolean(),
     }),
   ]),
   closeCodes: {
