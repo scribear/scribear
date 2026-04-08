@@ -15,16 +15,20 @@ interface SessionStatus {
 
 /**
  * Shape of the `kioskService` Redux slice. Tracks the current runtime status
- * of the `KioskService` and the session's connection status.
+ * of the `KioskService`, session connection status, and the active join code.
  */
 export interface KioskServiceSliceState {
   kioskServiceStatus: KioskServiceStatus;
   sessionStatus: SessionStatus | null;
+  joinCode: string | null;
+  joinCodeExpiresAtUnixMs: number | null;
 }
 
 const initialState: KioskServiceSliceState = {
   kioskServiceStatus: KioskServiceStatus.INACTIVE,
   sessionStatus: null,
+  joinCode: null,
+  joinCodeExpiresAtUnixMs: null,
 };
 
 /**
@@ -38,6 +42,13 @@ export const selectKioskServiceStatus = (state: RootState) =>
  */
 export const selectSessionStatus = (state: RootState) =>
   state.kioskService.sessionStatus;
+
+/**
+ * Selects the current join code and its expiry for display.
+ */
+export const selectJoinCode = (state: RootState) => state.kioskService.joinCode;
+export const selectJoinCodeExpiresAtUnixMs = (state: RootState) =>
+  state.kioskService.joinCodeExpiresAtUnixMs;
 
 /**
  * Redux slice tracking the runtime status of the `KioskService`.
@@ -55,13 +66,23 @@ export const kioskServiceSlice = createSlice({
     setSessionStatus: (state, action: PayloadAction<SessionStatus | null>) => {
       state.sessionStatus = action.payload;
     },
+    setJoinCode: (
+      state,
+      action: PayloadAction<{
+        joinCode: string;
+        expiresAtUnixMs: number;
+      } | null>,
+    ) => {
+      state.joinCode = action.payload?.joinCode ?? null;
+      state.joinCodeExpiresAtUnixMs = action.payload?.expiresAtUnixMs ?? null;
+    },
   },
 });
 // Reducer for the kioskService slice.
 export const kioskServiceReducer = kioskServiceSlice.reducer;
 
 // Action creator that updates the stored kiosk service status.
-export const { setKioskServiceStatus, setSessionStatus } =
+export const { setKioskServiceStatus, setSessionStatus, setJoinCode } =
   kioskServiceSlice.actions;
 /**
  * Action dispatched to trigger device registration with a given activation code.

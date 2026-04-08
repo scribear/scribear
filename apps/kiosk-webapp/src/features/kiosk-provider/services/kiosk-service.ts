@@ -24,6 +24,7 @@ import { KioskServiceStatus } from './kiosk-service-status';
 const MIN_RETRY_DELAY_MS = 1_000;
 const MAX_RETRY_DELAY_MS = 60_000;
 const TOKEN_REFRESH_BUFFER_MS = 2 * 60 * 1_000;
+const JOIN_CODE_REFRESH_BUFFER_MS = 30 * 1_000;
 
 interface SessionStatus {
   transcriptionServiceConnected: boolean;
@@ -47,6 +48,9 @@ interface KioskServiceEvents {
   deviceUnregistered: () => void;
   prevEventIdUpdated: (eventId: number) => void;
   sessionRefreshTokenUpdated: (token: string | null) => void;
+  joinCodeUpdated: (
+    data: { joinCode: string; expiresAtUnixMs: number } | null,
+  ) => void;
 }
 
 /**
@@ -71,6 +75,7 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
   private _sessionRefreshToken: string | null = null;
   private _storedSessionRefreshToken: string | null = null;
   private _refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private _joinCodeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   private _eventLoopToken = 0;
   private _eventLoopDelayMs = MIN_RETRY_DELAY_MS;
@@ -169,6 +174,41 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     });
 
     this._scheduleTokenRefresh(sessionToken, sessionId);
+  }
+
+  private async _fetchJoinCode(sessionId: string) {
+    const [response, error] =
+      await this._sessionManagerClient.getSessionJoinCode({
+        params: { sessionId },
+      });
+
+    if (error || response.status !== 200) {
+      this.emit('joinCodeUpdated', null);
+      return;
+    }
+
+    const { joinCode, expiresAtUnixMs } = response.data;
+    this.emit('joinCodeUpdated', { joinCode, expiresAtUnixMs });
+
+    this._scheduleJoinCodeRefresh(sessionId, expiresAtUnixMs);
+  }
+
+  private _scheduleJoinCodeRefresh(sessionId: string, expiresAtUnixMs: number) {
+    this._stopJoinCodeRefresh();
+
+    const refreshAt = expiresAtUnixMs - JOIN_CODE_REFRESH_BUFFER_MS;
+    const delay = Math.max(0, refreshAt - Date.now());
+
+    this._joinCodeRefreshTimer = setTimeout(() => {
+      void this._fetchJoinCode(sessionId);
+    }, delay);
+  }
+
+  private _stopJoinCodeRefresh() {
+    if (this._joinCodeRefreshTimer) {
+      clearTimeout(this._joinCodeRefreshTimer);
+      this._joinCodeRefreshTimer = null;
+    }
   }
 
   /**
@@ -336,6 +376,8 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
   private _stopSessionLoop() {
     this._sessionLoopToken++;
     this._closeSessionSocket(1000);
+    this._stopJoinCodeRefresh();
+    this.emit('joinCodeUpdated', null);
   }
 
   private async _fetchEvents(token: number) {
@@ -375,6 +417,7 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     if (event.eventType === DeviceSessionEventType.START_SESSION) {
       this.emit('sessionStarted', event.sessionId);
       this._startSessionLoop(event.sessionId);
+      void this._fetchJoinCode(event.sessionId);
     } else {
       this._setStatus(KioskServiceStatus.IDLE);
       this.emit('sessionEnded');
@@ -465,6 +508,7 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     this._startEventLoop();
     if (activeSessionId) {
       this._startSessionLoop(activeSessionId);
+      void this._fetchJoinCode(activeSessionId);
     }
   }
 

@@ -29,6 +29,7 @@ import {
 } from './kiosk-config-slice';
 import {
   registerDevice,
+  setJoinCode,
   setKioskServiceStatus,
   setSessionStatus,
 } from './kiosk-service-slice';
@@ -103,6 +104,9 @@ export const createKioskServiceMiddleware =
     });
     kioskService.on('sessionRefreshTokenUpdated', (token) => {
       store.dispatch(setSessionRefreshToken(token));
+    });
+    kioskService.on('joinCodeUpdated', (data) => {
+      store.dispatch(setJoinCode(data));
     });
 
     return (next) => (action) => {
