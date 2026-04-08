@@ -21,6 +21,9 @@ const SESSION_JOIN_CODE_AUTH_SCHEMA = {
         sessionToken: Type.String({
           description: 'Signed JWT containing session id and scopes',
         }),
+        sessionRefreshToken: Type.String({
+          description: 'Opaque refresh token for obtaining new session tokens',
+        }),
       },
       { description: 'Session authenticated successfully' },
     ),
