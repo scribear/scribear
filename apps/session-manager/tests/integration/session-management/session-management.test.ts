@@ -12,6 +12,7 @@ import {
   DEVICE_SESSION_EVENTS_ROUTE,
   END_SESSION_ROUTE,
   GET_SESSION_CONFIG_ROUTE,
+  GET_SESSION_JOIN_CODE_ROUTE,
   REFRESH_SESSION_TOKEN_ROUTE,
   REGISTER_DEVICE_ROUTE,
   SESSION_JOIN_CODE_AUTH_ROUTE,
@@ -664,6 +665,133 @@ describe('Integration Tests - Session Management API', () => {
 
       // Assert
       expect(response.statusCode).toBe(401);
+    });
+  });
+
+  describe(`GET ${GET_SESSION_JOIN_CODE_ROUTE.url}`, (it) => {
+    it('returns 401 when device cookie is missing', async () => {
+      // Act
+      const response = await fastify.inject({
+        method: GET_SESSION_JOIN_CODE_ROUTE.method,
+        url: GET_SESSION_JOIN_CODE_ROUTE.url.replace(
+          ':sessionId',
+          'some-session-id',
+        ),
+      });
+
+      // Assert
+      expect(response.statusCode).toBe(401);
+    });
+
+    it('returns 404 when session does not exist', async () => {
+      // Arrange
+      const { activationCode } = await registerDevice();
+      const { deviceToken } = await activateDevice(activationCode);
+
+      // Act
+      const response = await fastify.inject({
+        method: GET_SESSION_JOIN_CODE_ROUTE.method,
+        url: GET_SESSION_JOIN_CODE_ROUTE.url.replace(
+          ':sessionId',
+          '00000000-0000-0000-0000-000000000000',
+        ),
+        cookies: { device_token: deviceToken },
+      });
+
+      // Assert
+      expect(response.statusCode).toBe(404);
+    });
+
+    it('returns 404 when join codes are not enabled for the session', async () => {
+      // Arrange
+      const { deviceId, activationCode } = await registerDevice();
+      const { deviceToken } = await activateDevice(activationCode);
+      const { sessionId } = await createSession(deviceId);
+
+      // Act
+      const response = await fastify.inject({
+        method: GET_SESSION_JOIN_CODE_ROUTE.method,
+        url: GET_SESSION_JOIN_CODE_ROUTE.url.replace(':sessionId', sessionId),
+        cookies: { device_token: deviceToken },
+      });
+
+      // Assert
+      expect(response.statusCode).toBe(404);
+    });
+
+    it('returns 404 when a different device requests the join code', async () => {
+      // Arrange
+      const { deviceId: deviceAId, activationCode: codeA } =
+        await registerDevice();
+      await activateDevice(codeA);
+
+      const { activationCode: codeB } = await registerDevice();
+      const { deviceToken: deviceBToken } = await activateDevice(codeB);
+
+      const { sessionId } = await createSession(deviceAId, {
+        enableJoinCode: true,
+      });
+
+      // Act
+      const response = await fastify.inject({
+        method: GET_SESSION_JOIN_CODE_ROUTE.method,
+        url: GET_SESSION_JOIN_CODE_ROUTE.url.replace(':sessionId', sessionId),
+        cookies: { device_token: deviceBToken },
+      });
+
+      // Assert
+      expect(response.statusCode).toBe(404);
+    });
+
+    it('returns 200 with joinCode and expiresAtUnixMs for the source device', async () => {
+      // Arrange
+      const { deviceId, activationCode } = await registerDevice();
+      const { deviceToken } = await activateDevice(activationCode);
+      const { sessionId } = await createSession(deviceId, {
+        enableJoinCode: true,
+      });
+
+      // Act
+      const response = await fastify.inject({
+        method: GET_SESSION_JOIN_CODE_ROUTE.method,
+        url: GET_SESSION_JOIN_CODE_ROUTE.url.replace(':sessionId', sessionId),
+        cookies: { device_token: deviceToken },
+      });
+
+      // Assert
+      expect(response.statusCode).toBe(200);
+      const body = response.json<{
+        joinCode: string;
+        expiresAtUnixMs: number;
+      }>();
+      expect(body.joinCode).toMatch(/^[A-Z0-9]{8}$/);
+      expect(body.expiresAtUnixMs).toBeGreaterThan(Date.now());
+    });
+
+    it('returns the same join code on repeated requests within expiry window', async () => {
+      // Arrange
+      const { deviceId, activationCode } = await registerDevice();
+      const { deviceToken } = await activateDevice(activationCode);
+      const { sessionId } = await createSession(deviceId, {
+        enableJoinCode: true,
+      });
+
+      // Act
+      const response1 = await fastify.inject({
+        method: GET_SESSION_JOIN_CODE_ROUTE.method,
+        url: GET_SESSION_JOIN_CODE_ROUTE.url.replace(':sessionId', sessionId),
+        cookies: { device_token: deviceToken },
+      });
+      const response2 = await fastify.inject({
+        method: GET_SESSION_JOIN_CODE_ROUTE.method,
+        url: GET_SESSION_JOIN_CODE_ROUTE.url.replace(':sessionId', sessionId),
+        cookies: { device_token: deviceToken },
+      });
+
+      // Assert
+      const body1 = response1.json<{ joinCode: string }>();
+      const body2 = response2.json<{ joinCode: string }>();
+      expect(body1.joinCode).toBe(body2.joinCode);
     });
   });
 

@@ -18,6 +18,7 @@ describe('SessionManagementController', () => {
     authenticateWithJoinCode: Mock;
     authenticateSourceDevice: Mock;
     refreshSessionToken: Mock;
+    getSessionJoinCode: Mock;
     getSessionConfig: Mock;
     endSession: Mock;
   };
@@ -31,6 +32,7 @@ describe('SessionManagementController', () => {
       authenticateWithJoinCode: vi.fn(),
       authenticateSourceDevice: vi.fn(),
       refreshSessionToken: vi.fn(),
+      getSessionJoinCode: vi.fn(),
       getSessionConfig: vi.fn(),
       endSession: vi.fn(),
     };
@@ -332,6 +334,48 @@ describe('SessionManagementController', () => {
       await expect(
         controller.refreshSessionToken(mockReq as never, mockReply as never),
       ).rejects.toThrow(HttpError.Unauthorized);
+    });
+  });
+
+  describe('getSessionJoinCode', (it) => {
+    it('responds with joinCode and expiresAtUnixMs on success', async () => {
+      // Arrange
+      const expiresAtUnixMs = Date.now() + 300_000;
+      mockSessionManagementService.getSessionJoinCode.mockResolvedValue({
+        joinCode: 'ABCD1234',
+        expiresAtUnixMs,
+      });
+      const mockReq = {
+        deviceId: TEST_DEVICE_ID,
+        params: { sessionId: TEST_SESSION_ID },
+      };
+
+      // Act
+      await controller.getSessionJoinCode(mockReq as never, mockReply as never);
+
+      // Assert
+      expect(
+        mockSessionManagementService.getSessionJoinCode,
+      ).toHaveBeenCalledExactlyOnceWith(TEST_DEVICE_ID, TEST_SESSION_ID);
+      expect(mockReply.code).toHaveBeenCalledExactlyOnceWith(200);
+      expect(mockReply.send).toHaveBeenCalledExactlyOnceWith({
+        joinCode: 'ABCD1234',
+        expiresAtUnixMs,
+      });
+    });
+
+    it('throws NotFound when service returns null', async () => {
+      // Arrange
+      mockSessionManagementService.getSessionJoinCode.mockResolvedValue(null);
+      const mockReq = {
+        deviceId: TEST_DEVICE_ID,
+        params: { sessionId: TEST_SESSION_ID },
+      };
+
+      // Act / Assert
+      await expect(
+        controller.getSessionJoinCode(mockReq as never, mockReply as never),
+      ).rejects.toThrow(HttpError.NotFound);
     });
   });
 
