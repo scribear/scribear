@@ -26,6 +26,18 @@
   ],
   "references": [
     {
+      "path": "../../libs/schemas/session-manager-schema"
+    },
+    {
+      "path": "../../libs/clients/session-manager-client"
+    },
+    {
+      "path": "../../libs/schemas/node-server-schema"
+    },
+    {
+      "path": "../../libs/clients/node-server-client"
+    },
+    {
       "path": "../../libs/store/redux-remember-store"
     },
     {
