@@ -95,8 +95,8 @@ export const createUrlConfigMiddleware =
         errors.push(`"${key}": not a configurable key`);
         continue;
       }
-      // Safe to assert: we checked `key in schemas` above
-      const schema = schemas[key]!;
+      const schema = schemas[key];
+      if (!schema) continue;
       if (!Value.Check(schema, value)) {
         for (const err of Value.Errors(schema, value)) {
           errors.push(`"${key}${err.instancePath}": ${err.message}`);
