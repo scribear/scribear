@@ -17,6 +17,7 @@ import { TranscriptionDisplayProvider } from '@scribear/transcription-display-ui
 import { AppThemeProvider } from '#src/components/app-theme-provider';
 import { RehydrateGate } from '#src/components/rehydrate-gate.js';
 import { BASE_THEME } from '#src/config/base-theme';
+import { UrlConfigErrorModal } from '#src/features/url-config/components/url-config-error-modal';
 import { createAppStore } from '#src/store/store';
 
 // Module-scoped singletons, not exported, so they can only be accessed via
@@ -42,6 +43,7 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
         <ErrorBoundary FallbackComponent={MainErrorFallback}>
           <Provider store={store}>
             <RehydrateGate>
+              <UrlConfigErrorModal />
               <MicrophoneServiceProvider service={microphoneService}>
                 <AppThemeProvider>
                   <TranscriptionDisplayProvider>

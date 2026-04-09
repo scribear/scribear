@@ -30,7 +30,8 @@
     "react-dom": "19.2.4",
     "react-error-boundary": "6.1.1",
     "react-redux": "9.2.0",
-    "redux-remember": "6.0.2"
+    "redux-remember": "6.0.2",
+    "typebox": "1.1.5"
   },
   "devDependencies": {
     "@eslint-react/eslint-plugin": "2.13.0",
