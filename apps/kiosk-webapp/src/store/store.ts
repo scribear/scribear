@@ -15,11 +15,16 @@ import {
 import { themePreferencesReducer } from '@scribear/theme-customization-store';
 import { transcriptionContentReducer } from '@scribear/transcription-content-store';
 import { transcriptionDisplayPreferencesReducer } from '@scribear/transcription-display-store';
+import {
+  createUrlConfigMiddleware,
+  urlConfigReducer,
+} from '@scribear/url-config-store';
 
 import { kioskConfigReducer } from '#src/features/kiosk-provider/stores/kiosk-config-slice';
 import { createKioskServiceMiddleware } from '#src/features/kiosk-provider/stores/kiosk-service-middleware';
 import { kioskServiceReducer } from '#src/features/kiosk-provider/stores/kiosk-service-slice';
 import { splitScreenPreferencesReducer } from '#src/features/kiosk-split-screen/stores/split-screen-preferences-slice';
+import { urlConfigSchemas } from '#src/features/url-config/schemas/url-config-schemas';
 
 /**
  * Redux reducers map for the kiosk webapp store. Includes slices for app layout,
@@ -29,6 +34,7 @@ import { splitScreenPreferencesReducer } from '#src/features/kiosk-split-screen/
  */
 const reducers = {
   reduxRemember: reduxRememberReducer,
+  urlConfig: urlConfigReducer,
   appLayoutPreferences: appLayoutPreferencesReducer,
   themePreferences: themePreferencesReducer,
   transcriptionContent: transcriptionContentReducer,
@@ -59,6 +65,7 @@ export const createAppStore = (microphoneService: MicrophoneService) => {
     reducer: rootReducer,
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware()
+        .concat(createUrlConfigMiddleware(urlConfigSchemas))
         .concat(createMicrophoneServiceMiddleware(microphoneService))
         .concat(createKioskServiceMiddleware(microphoneService)),
     enhancers: (getDefaultEnhancers) =>

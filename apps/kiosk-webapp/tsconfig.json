@@ -62,6 +62,9 @@
       "path": "../../libs/store/microphone-store"
     },
     {
+      "path": "../../libs/store/url-config-store"
+    },
+    {
       "path": "../../libs/ui/core-ui"
     },
     {

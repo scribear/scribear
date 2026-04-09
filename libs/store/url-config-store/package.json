@@ -1,5 +1,5 @@
 {
-  "name": "@scribear/theme-customization-store",
+  "name": "@scribear/url-config-store",
   "version": "0.0.0",
   "description": "",
   "author": "scribear",
@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@reduxjs/toolkit": "2.11.2",
+    "@scribear/redux-remember-store": "0.0.0",
     "typebox": "1.1.5"
   }
 }

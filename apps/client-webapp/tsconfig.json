@@ -53,6 +53,9 @@
       "path": "../../libs/store/transcription-display-store"
     },
     {
+      "path": "../../libs/store/url-config-store"
+    },
+    {
       "path": "../../libs/ui/core-ui"
     },
     {
