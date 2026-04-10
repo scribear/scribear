@@ -2,5 +2,9 @@
   "name": "@scribear/scribear-nginx",
   "version": "0.0.0",
   "description": "",
-  "author": "scribear"
+  "author": "scribear",
+  "scripts": {
+    "lint": "echo 'No lintable source'",
+    "format": "echo 'No formattable source'"
+  }
 }
