@@ -1,0 +1,152 @@
+services:
+  # Reverse Proxy
+  nginx:
+    image: scribear/scribear-nginx:${IMAGE_TAG:-latest}
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    depends_on:
+      client-webapp:
+        condition: service_healthy
+      standalone-webapp:
+        condition: service_healthy
+      kiosk-webapp:
+        condition: service_healthy
+      node-server:
+        condition: service_healthy
+      session-manager:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
+    restart: unless-stopped
+
+  # Frontend Webapps
+  client-webapp:
+    image: scribear/client-webapp:${IMAGE_TAG:-latest}
+    expose:
+      - "80"
+    networks:
+      - frontend
+    restart: unless-stopped
+
+  standalone-webapp:
+    image: scribear/standalone-webapp:${IMAGE_TAG:-latest}
+    expose:
+      - "80"
+    networks:
+      - frontend
+    restart: unless-stopped
+
+  kiosk-webapp:
+    image: scribear/kiosk-webapp:${IMAGE_TAG:-latest}
+    expose:
+      - "80"
+    networks:
+      - frontend
+    restart: unless-stopped
+
+  # Backend APIs
+  session-manager:
+    image: scribear/session-manager:${IMAGE_TAG:-latest}
+    expose:
+      - "80"
+    environment:
+      LOG_LEVEL: ${SESSION_MANAGER_LOG_LEVEL:-info}
+      API_KEY: ${SESSION_MANAGER_API_KEY}
+      NODE_SERVER_KEY: ${NODE_SERVER_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      DB_HOST: scribear-db
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+    depends_on:
+      scribear-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped
+
+  node-server:
+    image: scribear/node-server:${IMAGE_TAG:-latest}
+    expose:
+      - "80"
+    environment:
+      LOG_LEVEL: ${NODE_SERVER_LOG_LEVEL:-info}
+      JWT_SECRET: ${JWT_SECRET}
+      TRANSCRIPTION_SERVICE_ADDRESS: http://transcription-service:80
+      TRANSCRIPTION_SERVICE_API_KEY: ${TRANSCRIPTION_API_KEY}
+      SESSION_MANAGER_ADDRESS: http://session-manager:80
+      NODE_SERVER_KEY: ${NODE_SERVER_KEY}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+    depends_on:
+      transcription-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # Infrastructure
+  scribear-db:
+    image: scribear/scribear-db:${IMAGE_TAG:-latest}
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - backend
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  transcription-service:
+    image: scribear/transcription-service-${TRANSCRIPTION_DEVICE:-cpu}:${IMAGE_TAG:-latest}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    expose:
+      - "80"
+    environment:
+      LOG_LEVEL: ${TRANSCRIPTION_LOG_LEVEL:-info}
+      API_KEY: ${TRANSCRIPTION_API_KEY}
+      WS_INIT_TIMEOUT_SEC: ${TRANSCRIPTION_WS_INIT_TIMEOUT_SEC:-2.5}
+    volumes:
+      - ${PROVIDER_CONFIG_PATH:-./provider_config.json}:/app/provider_config.json:ro
+    networks:
+      - backend
+    restart: unless-stopped
+
+networks:
+  frontend:
+  backend:
+
+volumes:
+  postgres_data:
+  redis_data:

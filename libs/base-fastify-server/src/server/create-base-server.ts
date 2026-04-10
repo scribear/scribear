@@ -8,7 +8,7 @@ import {
   createContainer,
 } from 'awilix';
 import Fastify, { type FastifyServerOptions } from 'fastify';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 
 import type { BaseLogger, LogLevel } from './create-logger.js';
 import { createLogger } from './create-logger.js';
@@ -57,7 +57,7 @@ function createBaseServer(
   });
 
   // Use UUIDv4 for request ids
-  fastify.setGenReqId(() => uuidv4());
+  fastify.setGenReqId(() => randomUUID());
 
   // Register plugins
   fastify.register(fastifySensible);

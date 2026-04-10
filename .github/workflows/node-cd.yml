@@ -36,6 +36,11 @@ jobs:
             dockerfile: infra/scribear-db/Dockerfile
             workspace: infra/scribear-db
             version_file: infra/scribear-db/package.json
+          - image_name: scribear/scribear-nginx
+            build_context: infra/scribear-nginx
+            dockerfile: infra/scribear-nginx/Dockerfile
+            workspace: infra/scribear-nginx
+            version_file: infra/scribear-nginx/package.json
           - image_name: scribear/client-webapp
             build_context: .
             dockerfile: apps/client-webapp/Dockerfile
