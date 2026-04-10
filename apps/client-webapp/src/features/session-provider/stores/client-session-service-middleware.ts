@@ -10,8 +10,10 @@ import type { RootState } from '#src/store/store';
 
 import { ClientSessionService } from '../services/client-session-service';
 import {
+  selectJoinCode,
   selectSessionId,
   selectSessionRefreshToken,
+  setJoinCode,
   setSessionId,
   setSessionRefreshToken,
 } from './client-session-config-slice';
@@ -73,6 +75,15 @@ export const createClientSessionServiceMiddleware =
       }
     };
 
+    const tryJoinFromConfig = () => {
+      const state = store.getState();
+      const joinCode = selectJoinCode(state);
+      if (!joinCode) return;
+
+      store.dispatch(setJoinCode(null));
+      void service.joinSession(joinCode.trim().toUpperCase());
+    };
+
     return (next) => (action) => {
       const result = next(action);
 
@@ -82,6 +93,7 @@ export const createClientSessionServiceMiddleware =
 
       if (rememberRehydrated.match(action)) {
         tryResumeSession();
+        tryJoinFromConfig();
       }
 
       if (joinSession.match(action)) {

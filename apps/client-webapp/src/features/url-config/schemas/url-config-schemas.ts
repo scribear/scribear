@@ -8,6 +8,7 @@ import { transcriptionDisplayPreferencesSchema } from '@scribear/transcription-d
 const clientSessionConfigSchema = Type.Object({
   sessionId: Type.Union([Type.String(), Type.Null()]),
   sessionRefreshToken: Type.Union([Type.String(), Type.Null()]),
+  joinCode: Type.Union([Type.String(), Type.Null()]),
 });
 
 export const urlConfigSchemas: Record<string, TSchema> = {

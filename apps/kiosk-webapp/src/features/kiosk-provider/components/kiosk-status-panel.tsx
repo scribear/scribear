@@ -14,6 +14,7 @@ import {
   selectKioskServiceStatus,
   selectSessionStatus,
 } from '../stores/kiosk-service-slice';
+import { JoinCodeQrCode } from './join-code-qr-code';
 import { KioskActivationForm } from './kiosk-activation-form';
 
 /**
@@ -67,9 +68,12 @@ export const KioskStatusPanel = () => {
               <>
                 <Typography>Connected to session: {sessionId}</Typography>
                 {joinCode && (
-                  <Typography variant="h4" fontFamily="monospace">
-                    Join Code: {joinCode}
-                  </Typography>
+                  <>
+                    <Typography variant="h4" fontFamily="monospace">
+                      Join Code: {joinCode}
+                    </Typography>
+                    <JoinCodeQrCode joinCode={joinCode} />
+                  </>
                 )}
                 {sessionStatus && !sessionStatus.sourceDeviceConnected && (
                   <Typography color="warning.main">
