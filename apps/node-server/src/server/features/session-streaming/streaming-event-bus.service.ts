@@ -1,7 +1,12 @@
-export interface TranscriptEvent {
+export interface TranscriptSequenceEvent {
   text: string[];
   starts: number[] | null;
   ends: number[] | null;
+}
+
+export interface TranscriptEvent {
+  final: TranscriptSequenceEvent | null;
+  inProgress: TranscriptSequenceEvent | null;
 }
 
 export interface SessionStatusEvent {
@@ -21,11 +26,7 @@ type SessionEndListener = () => void;
  */
 export class StreamingEventBusService {
   private _audioChunkListeners = new Map<string, Set<AudioChunkListener>>();
-  private _ipTranscriptListeners = new Map<string, Set<TranscriptListener>>();
-  private _finalTranscriptListeners = new Map<
-    string,
-    Set<TranscriptListener>
-  >();
+  private _transcriptListeners = new Map<string, Set<TranscriptListener>>();
   private _sessionStatusListeners = new Map<
     string,
     Set<SessionStatusListener>
@@ -56,55 +57,24 @@ export class StreamingEventBusService {
   }
 
   /**
-   * Subscribes a listener to in-progress transcript events for a session.
+   * Subscribes a listener to transcript events for a session.
    *
    * @param sessionId - The session to subscribe to.
-   * @param listener - Called with each in-progress transcript.
+   * @param listener - Called with each transcript event containing final and/or in-progress data.
    * @returns A function that removes this listener when called.
    */
-  onIpTranscript(sessionId: string, listener: TranscriptListener): () => void {
-    return this._addListener(this._ipTranscriptListeners, sessionId, listener);
+  onTranscript(sessionId: string, listener: TranscriptListener): () => void {
+    return this._addListener(this._transcriptListeners, sessionId, listener);
   }
 
   /**
-   * Emits an in-progress transcript event to all listeners for the given session.
+   * Emits a transcript event to all listeners for the given session.
    *
    * @param sessionId - The session to emit to.
-   * @param event - The transcript event data.
+   * @param event - The transcript event data with optional final and in-progress sequences.
    */
-  emitIpTranscript(sessionId: string, event: TranscriptEvent): void {
-    for (const listener of this._ipTranscriptListeners.get(sessionId) ?? []) {
-      listener(event);
-    }
-  }
-
-  /**
-   * Subscribes a listener to final transcript events for a session.
-   *
-   * @param sessionId - The session to subscribe to.
-   * @param listener - Called with each final transcript.
-   * @returns A function that removes this listener when called.
-   */
-  onFinalTranscript(
-    sessionId: string,
-    listener: TranscriptListener,
-  ): () => void {
-    return this._addListener(
-      this._finalTranscriptListeners,
-      sessionId,
-      listener,
-    );
-  }
-
-  /**
-   * Emits a final transcript event to all listeners for the given session.
-   *
-   * @param sessionId - The session to emit to.
-   * @param event - The transcript event data.
-   */
-  emitFinalTranscript(sessionId: string, event: TranscriptEvent): void {
-    for (const listener of this._finalTranscriptListeners.get(sessionId) ??
-      []) {
+  emitTranscript(sessionId: string, event: TranscriptEvent): void {
+    for (const listener of this._transcriptListeners.get(sessionId) ?? []) {
       listener(event);
     }
   }

@@ -14,33 +14,26 @@ class ServerMessageTypes(StrEnum):
     Defines possible server send message types
     """
 
-    IP_TRANSCRIPT = "ip_transcript"
-    FINAL_TRANSCRIPT = "final_transcript"
+    TRANSCRIPT = "transcript"
 
 
 @dataclass
-class IPTranscriptMessage(JsonServerMessage):
+class TranscriptSequence:
     """
-    Message for updating the in progress transcription
+    A transcription sequence with text and optional timestamps
     """
 
     text: list[str]
     starts: list[float] | None = None
     ends: list[float] | None = None
-    type: Literal[ServerMessageTypes.IP_TRANSCRIPT] = (
-        ServerMessageTypes.IP_TRANSCRIPT
-    )
 
 
 @dataclass
-class FinalTranscriptMessage(JsonServerMessage):
+class TranscriptMessage(JsonServerMessage):
     """
-    Message for appending final transcription
+    Message containing both finalized and in-progress transcription data
     """
 
-    text: list[str]
-    starts: list[float] | None = None
-    ends: list[float] | None = None
-    type: Literal[ServerMessageTypes.FINAL_TRANSCRIPT] = (
-        ServerMessageTypes.FINAL_TRANSCRIPT
-    )
+    final: TranscriptSequence | None = None
+    in_progress: TranscriptSequence | None = None
+    type: Literal[ServerMessageTypes.TRANSCRIPT] = ServerMessageTypes.TRANSCRIPT

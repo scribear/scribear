@@ -5,9 +5,8 @@ import { StreamingEventBusService } from '#src/server/features/session-streaming
 const TEST_SESSION_ID = 'test-session-id';
 const TEST_CHUNK = Buffer.from('audio-data');
 const TEST_TRANSCRIPT_EVENT = {
-  text: ['hello world'],
-  starts: [0],
-  ends: [1000],
+  final: { text: ['hello world'], starts: [0], ends: [1000] },
+  inProgress: null,
 };
 const TEST_SESSION_STATUS_EVENT = {
   transcriptionServiceConnected: true,
@@ -100,14 +99,14 @@ describe('StreamingEventBusService', () => {
     });
   });
 
-  describe('emitIpTranscript', (it) => {
+  describe('emitTranscript', (it) => {
     it('calls registered listener with the event', () => {
       // Arrange
       const listener = vi.fn();
-      bus.onIpTranscript(TEST_SESSION_ID, listener);
+      bus.onTranscript(TEST_SESSION_ID, listener);
 
       // Act
-      bus.emitIpTranscript(TEST_SESSION_ID, TEST_TRANSCRIPT_EVENT);
+      bus.emitTranscript(TEST_SESSION_ID, TEST_TRANSCRIPT_EVENT);
 
       // Assert
       expect(listener).toHaveBeenCalledExactlyOnceWith(TEST_TRANSCRIPT_EVENT);
@@ -116,10 +115,10 @@ describe('StreamingEventBusService', () => {
     it('does not call listeners registered for a different session', () => {
       // Arrange
       const listener = vi.fn();
-      bus.onIpTranscript('other-session-id', listener);
+      bus.onTranscript('other-session-id', listener);
 
       // Act
-      bus.emitIpTranscript(TEST_SESSION_ID, TEST_TRANSCRIPT_EVENT);
+      bus.emitTranscript(TEST_SESSION_ID, TEST_TRANSCRIPT_EVENT);
 
       // Assert
       expect(listener).not.toHaveBeenCalled();
@@ -128,50 +127,11 @@ describe('StreamingEventBusService', () => {
     it('stops calling listener after unsubscribe', () => {
       // Arrange
       const listener = vi.fn();
-      const unsub = bus.onIpTranscript(TEST_SESSION_ID, listener);
+      const unsub = bus.onTranscript(TEST_SESSION_ID, listener);
       unsub();
 
       // Act
-      bus.emitIpTranscript(TEST_SESSION_ID, TEST_TRANSCRIPT_EVENT);
-
-      // Assert
-      expect(listener).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('emitFinalTranscript', (it) => {
-    it('calls registered listener with the event', () => {
-      // Arrange
-      const listener = vi.fn();
-      bus.onFinalTranscript(TEST_SESSION_ID, listener);
-
-      // Act
-      bus.emitFinalTranscript(TEST_SESSION_ID, TEST_TRANSCRIPT_EVENT);
-
-      // Assert
-      expect(listener).toHaveBeenCalledExactlyOnceWith(TEST_TRANSCRIPT_EVENT);
-    });
-
-    it('does not call listeners registered for a different session', () => {
-      // Arrange
-      const listener = vi.fn();
-      bus.onFinalTranscript('other-session-id', listener);
-
-      // Act
-      bus.emitFinalTranscript(TEST_SESSION_ID, TEST_TRANSCRIPT_EVENT);
-
-      // Assert
-      expect(listener).not.toHaveBeenCalled();
-    });
-
-    it('stops calling listener after unsubscribe', () => {
-      // Arrange
-      const listener = vi.fn();
-      const unsub = bus.onFinalTranscript(TEST_SESSION_ID, listener);
-      unsub();
-
-      // Act
-      bus.emitFinalTranscript(TEST_SESSION_ID, TEST_TRANSCRIPT_EVENT);
+      bus.emitTranscript(TEST_SESSION_ID, TEST_TRANSCRIPT_EVENT);
 
       // Assert
       expect(listener).not.toHaveBeenCalled();

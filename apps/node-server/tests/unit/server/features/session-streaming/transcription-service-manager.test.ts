@@ -3,10 +3,7 @@ import { type Mock, afterEach, beforeEach, describe, expect, vi } from 'vitest';
 import { createRedisSubscriber } from '@scribear/scribear-redis';
 import { createSessionManagerClient } from '@scribear/session-manager-client';
 import { createTranscriptionServiceClient } from '@scribear/transcription-service-client';
-import {
-  TranscriptionStreamClientMessageType,
-  TranscriptionStreamServerMessageType,
-} from '@scribear/transcription-service-schema';
+import { TranscriptionStreamClientMessageType } from '@scribear/transcription-service-schema';
 
 import { TranscriptionServiceManager } from '#src/server/features/session-streaming/transcription-service-manager.js';
 import { createMockLogger } from '#tests/utils/mock-logger.js';
@@ -50,10 +47,8 @@ describe('TranscriptionServiceManager', () => {
   let mockEventBus: {
     onAudioChunk: Mock;
     emitAudioChunk: Mock;
-    onIpTranscript: Mock;
-    emitIpTranscript: Mock;
-    onFinalTranscript: Mock;
-    emitFinalTranscript: Mock;
+    onTranscript: Mock;
+    emitTranscript: Mock;
     onSessionStatus: Mock;
     emitSessionStatus: Mock;
     onSessionEnd: Mock;
@@ -88,10 +83,8 @@ describe('TranscriptionServiceManager', () => {
     mockEventBus = {
       onAudioChunk: vi.fn().mockReturnValue(vi.fn()),
       emitAudioChunk: vi.fn(),
-      onIpTranscript: vi.fn(),
-      emitIpTranscript: vi.fn(),
-      onFinalTranscript: vi.fn(),
-      emitFinalTranscript: vi.fn(),
+      onTranscript: vi.fn(),
+      emitTranscript: vi.fn(),
       onSessionStatus: vi.fn(),
       emitSessionStatus: vi.fn(),
       onSessionEnd: vi.fn(),
@@ -218,43 +211,25 @@ describe('TranscriptionServiceManager', () => {
       expect(mockWsClient.sendBinary).toHaveBeenCalledExactlyOnceWith(chunk);
     });
 
-    it('routes IP_TRANSCRIPT messages to event bus', async () => {
+    it('routes combined transcript messages to event bus', async () => {
       // Arrange
       await manager.registerSession(TEST_SESSION_ID);
       const messageHandler = captureWsHandler('message');
 
       // Act
       messageHandler({
-        type: TranscriptionStreamServerMessageType.IP_TRANSCRIPT,
-        text: ['hello'],
-        starts: [0],
-        ends: [100],
+        type: 'transcript',
+        final: { text: ['done'], starts: null, ends: null },
+        in_progress: { text: ['hello'], starts: [0], ends: [100] },
       });
 
       // Assert
-      expect(mockEventBus.emitIpTranscript).toHaveBeenCalledExactlyOnceWith(
+      expect(mockEventBus.emitTranscript).toHaveBeenCalledExactlyOnceWith(
         TEST_SESSION_ID,
-        { text: ['hello'], starts: [0], ends: [100] },
-      );
-    });
-
-    it('routes FINAL_TRANSCRIPT messages to event bus', async () => {
-      // Arrange
-      await manager.registerSession(TEST_SESSION_ID);
-      const messageHandler = captureWsHandler('message');
-
-      // Act
-      messageHandler({
-        type: TranscriptionStreamServerMessageType.FINAL_TRANSCRIPT,
-        text: ['done'],
-        starts: null,
-        ends: null,
-      });
-
-      // Assert
-      expect(mockEventBus.emitFinalTranscript).toHaveBeenCalledExactlyOnceWith(
-        TEST_SESSION_ID,
-        { text: ['done'], starts: null, ends: null },
+        {
+          final: { text: ['done'], starts: null, ends: null },
+          inProgress: { text: ['hello'], starts: [0], ends: [100] },
+        },
       );
     });
 

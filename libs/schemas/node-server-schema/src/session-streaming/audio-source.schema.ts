@@ -12,8 +12,7 @@ export enum AudioSourceClientMessageType {
 }
 
 export enum AudioSourceServerMessageType {
-  IP_TRANSCRIPT = 'IP_TRANSCRIPT',
-  FINAL_TRANSCRIPT = 'FINAL_TRANSCRIPT',
+  TRANSCRIPT = 'TRANSCRIPT',
   SESSION_STATUS = 'SESSION_STATUS',
 }
 
@@ -33,16 +32,23 @@ const AUDIO_SOURCE_SCHEMA = {
   allowServerBinaryMessage: false,
   serverMessage: Type.Union([
     Type.Object({
-      type: Type.Literal(AudioSourceServerMessageType.IP_TRANSCRIPT),
-      text: Type.Array(Type.String()),
-      starts: Type.Union([Type.Array(Type.Number()), Type.Null()]),
-      ends: Type.Union([Type.Array(Type.Number()), Type.Null()]),
-    }),
-    Type.Object({
-      type: Type.Literal(AudioSourceServerMessageType.FINAL_TRANSCRIPT),
-      text: Type.Array(Type.String()),
-      starts: Type.Union([Type.Array(Type.Number()), Type.Null()]),
-      ends: Type.Union([Type.Array(Type.Number()), Type.Null()]),
+      type: Type.Literal(AudioSourceServerMessageType.TRANSCRIPT),
+      final: Type.Union([
+        Type.Object({
+          text: Type.Array(Type.String()),
+          starts: Type.Union([Type.Array(Type.Number()), Type.Null()]),
+          ends: Type.Union([Type.Array(Type.Number()), Type.Null()]),
+        }),
+        Type.Null(),
+      ]),
+      in_progress: Type.Union([
+        Type.Object({
+          text: Type.Array(Type.String()),
+          starts: Type.Union([Type.Array(Type.Number()), Type.Null()]),
+          ends: Type.Union([Type.Array(Type.Number()), Type.Null()]),
+        }),
+        Type.Null(),
+      ]),
     }),
     Type.Object({
       type: Type.Literal(AudioSourceServerMessageType.SESSION_STATUS),

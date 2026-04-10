@@ -29,8 +29,8 @@ from src.webserver.features.transcription_stream import (
     TranscriptionStreamController,
 )
 from src.webserver.features.transcription_stream.transcription_stream_messages import (
-    FinalTranscriptMessage,
-    IPTranscriptMessage,
+    TranscriptMessage,
+    TranscriptSequence,
 )
 from src.webserver.shared.auth_service import AuthService
 from src.webserver.shared.transcription_service import TranscriptionService
@@ -440,8 +440,7 @@ async def test_controller_handles_in_progress_transcription_results(
     mock_send_method: MagicMock,
 ):
     """
-    Test that controller doesn't send messages if in progress transcription
-        results are returned
+    Test that controller sends a combined transcript message with only in-progress data
     """
     # Arrange
     text = ["Hello, ", "World"]
@@ -465,7 +464,9 @@ async def test_controller_handles_in_progress_transcription_results(
 
     # Assert
     mock_send_method.assert_called_once_with(
-        IPTranscriptMessage(text, starts, ends)
+        TranscriptMessage(
+            final=None, in_progress=TranscriptSequence(text, starts, ends)
+        )
     )
 
 
@@ -477,8 +478,7 @@ async def test_controller_handles_final_transcription_results(
     mock_send_method: MagicMock,
 ):
     """
-    Test that controller doesn't send messages if final transcription
-        results are returned
+    Test that controller sends a combined transcript message with only final data
     """
     # Arrange
     text = ["Hello, ", "World"]
@@ -500,7 +500,9 @@ async def test_controller_handles_final_transcription_results(
 
     # Assert
     mock_send_method.assert_called_once_with(
-        FinalTranscriptMessage(text, starts, ends)
+        TranscriptMessage(
+            final=TranscriptSequence(text, starts, ends), in_progress=None
+        )
     )
 
 
@@ -512,8 +514,8 @@ async def test_controller_handles_in_progress_and_final_transcription_results(
     mock_send_method: MagicMock,
 ):
     """
-    Test that controller doesn't send messages if in progress and
-        final transcription results are returned
+    Test that controller sends a single combined transcript message with both
+        in-progress and final data
     """
     # Arrange
     final_text = ["Hello, ", "World"]
@@ -540,11 +542,11 @@ async def test_controller_handles_in_progress_and_final_transcription_results(
     )
 
     # Assert
-    mock_send_method.assert_any_call(
-        FinalTranscriptMessage(final_text, final_starts, final_ends)
-    )
-    mock_send_method.assert_any_call(
-        IPTranscriptMessage(ip_text, ip_starts, ip_ends)
+    mock_send_method.assert_called_once_with(
+        TranscriptMessage(
+            final=TranscriptSequence(final_text, final_starts, final_ends),
+            in_progress=TranscriptSequence(ip_text, ip_starts, ip_ends),
+        )
     )
 
 

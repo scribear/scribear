@@ -38,8 +38,7 @@ export class SessionStreamingController {
     const { sessionId } = req.params;
 
     this._wireCommonEvents(socket, {
-      ipTranscriptType: AudioSourceServerMessageType.IP_TRANSCRIPT,
-      finalTranscriptType: AudioSourceServerMessageType.FINAL_TRANSCRIPT,
+      transcriptType: AudioSourceServerMessageType.TRANSCRIPT,
       sessionStatusType: AudioSourceServerMessageType.SESSION_STATUS,
     });
     this._sessionStreamingService.startAuthTimeout();
@@ -88,8 +87,7 @@ export class SessionStreamingController {
     const { sessionId } = req.params;
 
     this._wireCommonEvents(socket, {
-      ipTranscriptType: SessionClientServerMessageType.IP_TRANSCRIPT,
-      finalTranscriptType: SessionClientServerMessageType.FINAL_TRANSCRIPT,
+      transcriptType: SessionClientServerMessageType.TRANSCRIPT,
       sessionStatusType: SessionClientServerMessageType.SESSION_STATUS,
     });
     this._sessionStreamingService.startAuthTimeout();
@@ -129,8 +127,7 @@ export class SessionStreamingController {
   private _wireCommonEvents(
     socket: WebSocket,
     messageTypes: {
-      ipTranscriptType: string;
-      finalTranscriptType: string;
+      transcriptType: string;
       sessionStatusType: string;
     },
   ): void {
@@ -140,14 +137,13 @@ export class SessionStreamingController {
     this._sessionStreamingService.on('send', (msg) => {
       socket.send(msg);
     });
-    this._sessionStreamingService.on('ip-transcript', (event) => {
+    this._sessionStreamingService.on('transcript', (event) => {
       socket.send(
-        JSON.stringify({ type: messageTypes.ipTranscriptType, ...event }),
-      );
-    });
-    this._sessionStreamingService.on('final-transcript', (event) => {
-      socket.send(
-        JSON.stringify({ type: messageTypes.finalTranscriptType, ...event }),
+        JSON.stringify({
+          type: messageTypes.transcriptType,
+          final: event.final,
+          in_progress: event.inProgress,
+        }),
       );
     });
     this._sessionStreamingService.on('session-status', (event) => {

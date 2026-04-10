@@ -198,9 +198,9 @@ describe('Integration Tests - Session Streaming', () => {
   });
 
   describe('session-client event forwarding', (it) => {
-    it('forwards ip transcript events with SessionClient message type', async () => {
+    it('forwards transcript events with SessionClient message type', async () => {
       // Arrange
-      const sessionId = 'event-fwd-ip-transcript';
+      const sessionId = 'event-fwd-transcript';
       const ws = await fastify.injectWS(
         buildRoute(SESSION_CLIENT_ROUTE, sessionId),
       );
@@ -215,52 +215,17 @@ describe('Integration Tests - Session Streaming', () => {
       // Act
       // Small delay to let auth processing complete
       await new Promise((r) => setTimeout(r, 50));
-      eventBus.emitIpTranscript(sessionId, {
-        text: ['hello'],
-        starts: [0],
-        ends: [100],
+      eventBus.emitTranscript(sessionId, {
+        final: { text: ['done'], starts: null, ends: null },
+        inProgress: { text: ['hello'], starts: [0], ends: [100] },
       });
 
       // Assert
       const msg = await msgPromise;
       expect(msg).toEqual({
-        type: SessionClientServerMessageType.IP_TRANSCRIPT,
-        text: ['hello'],
-        starts: [0],
-        ends: [100],
-      });
-      ws.close();
-    });
-
-    it('forwards final transcript events with SessionClient message type', async () => {
-      // Arrange
-      const sessionId = 'event-fwd-final-transcript';
-      const ws = await fastify.injectWS(
-        buildRoute(SESSION_CLIENT_ROUTE, sessionId),
-      );
-      authenticate(
-        ws,
-        sessionId,
-        [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
-        SessionClientClientMessageType.AUTH,
-      );
-      const msgPromise = waitForMessage(ws);
-
-      // Act
-      await new Promise((r) => setTimeout(r, 50));
-      eventBus.emitFinalTranscript(sessionId, {
-        text: ['done'],
-        starts: null,
-        ends: null,
-      });
-
-      // Assert
-      const msg = await msgPromise;
-      expect(msg).toEqual({
-        type: SessionClientServerMessageType.FINAL_TRANSCRIPT,
-        text: ['done'],
-        starts: null,
-        ends: null,
+        type: SessionClientServerMessageType.TRANSCRIPT,
+        final: { text: ['done'], starts: null, ends: null },
+        in_progress: { text: ['hello'], starts: [0], ends: [100] },
       });
       ws.close();
     });
@@ -408,17 +373,15 @@ describe('Integration Tests - Session Streaming', () => {
 
       // Assert - connection still alive, can receive events
       const msgPromise = waitForMessage(ws);
-      eventBus.emitIpTranscript(sessionId, {
-        text: ['after-reauth'],
-        starts: null,
-        ends: null,
+      eventBus.emitTranscript(sessionId, {
+        final: null,
+        inProgress: { text: ['after-reauth'], starts: null, ends: null },
       });
       const msg = await msgPromise;
       expect(msg).toEqual({
-        type: SessionClientServerMessageType.IP_TRANSCRIPT,
-        text: ['after-reauth'],
-        starts: null,
-        ends: null,
+        type: SessionClientServerMessageType.TRANSCRIPT,
+        final: null,
+        in_progress: { text: ['after-reauth'], starts: null, ends: null },
       });
       ws.close();
     });

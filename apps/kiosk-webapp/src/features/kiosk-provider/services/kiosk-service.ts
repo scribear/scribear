@@ -35,12 +35,14 @@ interface SessionStatus {
  * Events emitted by {@link KioskService} to communicate status changes,
  * transcription output, and device/session lifecycle to the Redux middleware.
  */
+interface TranscriptEvent {
+  final: TranscriptionSequenceInput | null;
+  inProgress: TranscriptionSequenceInput | null;
+}
+
 interface KioskServiceEvents {
   statusChange: (status: KioskServiceStatus) => void;
-  appendFinalizedTranscription: (sequence: TranscriptionSequenceInput) => void;
-  replaceInProgressTranscription: (
-    sequence: TranscriptionSequenceInput,
-  ) => void;
+  transcript: (event: TranscriptEvent) => void;
   sessionStarted: (sessionId: string) => void;
   sessionEnded: () => void;
   sessionStatus: (status: SessionStatus) => void;
@@ -294,10 +296,11 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     );
 
     socket.on('message', (message) => {
-      if (message.type === AudioSourceServerMessageType.FINAL_TRANSCRIPT) {
-        this.emit('appendFinalizedTranscription', message);
-      } else if (message.type === AudioSourceServerMessageType.IP_TRANSCRIPT) {
-        this.emit('replaceInProgressTranscription', message);
+      if (message.type === AudioSourceServerMessageType.TRANSCRIPT) {
+        this.emit('transcript', {
+          final: message.final,
+          inProgress: message.in_progress,
+        });
       } else {
         this.emit('sessionStatus', {
           transcriptionServiceConnected: message.transcriptionServiceConnected,

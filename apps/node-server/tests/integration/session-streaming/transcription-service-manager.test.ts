@@ -9,7 +9,11 @@ import {
   SessionChannelEventType,
 } from '@scribear/session-manager-schema';
 
-import type { SessionStatusEvent } from '#src/server/features/session-streaming/streaming-event-bus.service.js';
+import type {
+  SessionStatusEvent,
+  TranscriptEvent,
+  TranscriptSequenceEvent,
+} from '#src/server/features/session-streaming/streaming-event-bus.service.js';
 import { StreamingEventBusService } from '#src/server/features/session-streaming/streaming-event-bus.service.js';
 import {
   TranscriptionServiceManager,
@@ -24,29 +28,25 @@ const TEST_AUDIO_PATH = path.resolve(
   '../../../../../test_audio_files/chords/mono_f64le.wav',
 );
 
-function waitForEvent<T>(
+function waitForTranscript(
   eventBus: StreamingEventBusService,
   sessionId: string,
-  type: 'ip' | 'final',
+  type: 'inProgress' | 'final',
   timeoutMs = 5_000,
-): Promise<T> {
+): Promise<TranscriptSequenceEvent> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error(`Timed out waiting for ${type} transcript`));
     }, timeoutMs);
 
-    const unsub =
-      type === 'final'
-        ? eventBus.onFinalTranscript(sessionId, (event) => {
-            clearTimeout(timeout);
-            unsub();
-            resolve(event as T);
-          })
-        : eventBus.onIpTranscript(sessionId, (event) => {
-            clearTimeout(timeout);
-            unsub();
-            resolve(event as T);
-          });
+    const unsub = eventBus.onTranscript(sessionId, (event: TranscriptEvent) => {
+      const data = event[type];
+      if (data) {
+        clearTimeout(timeout);
+        unsub();
+        resolve(data);
+      }
+    });
   });
 }
 
@@ -115,13 +115,17 @@ describe('TranscriptionServiceManager Integration', () => {
   describe('registerSession', (it) => {
     it('connects to transcription service and receives initial transcript', async () => {
       // Arrange
-      const finalPromise = waitForEvent(eventBus, TEST_SESSION_ID, 'final');
+      const finalPromise = waitForTranscript(
+        eventBus,
+        TEST_SESSION_ID,
+        'final',
+      );
 
       // Act
       await manager.registerSession(TEST_SESSION_ID);
 
       // Assert
-      const event = (await finalPromise) as { text: string[] };
+      const event = await finalPromise;
       expect(event.text).toEqual(
         expect.arrayContaining([expect.stringContaining('48000')]),
       );
@@ -146,18 +150,26 @@ describe('TranscriptionServiceManager Integration', () => {
   describe('audio chunk routing', (it) => {
     it('forwards audio chunks and receives transcript', async () => {
       // Arrange
-      const finalPromise = waitForEvent(eventBus, TEST_SESSION_ID, 'final');
+      const finalPromise = waitForTranscript(
+        eventBus,
+        TEST_SESSION_ID,
+        'final',
+      );
       await manager.registerSession(TEST_SESSION_ID);
       await finalPromise;
 
-      const ipPromise = waitForEvent(eventBus, TEST_SESSION_ID, 'ip');
+      const ipPromise = waitForTranscript(
+        eventBus,
+        TEST_SESSION_ID,
+        'inProgress',
+      );
       const audioData = fs.readFileSync(TEST_AUDIO_PATH);
 
       // Act
       eventBus.emitAudioChunk(TEST_SESSION_ID, audioData);
 
       // Assert
-      const event = (await ipPromise) as { text: string[] };
+      const event = await ipPromise;
       expect(event.text).toEqual(
         expect.arrayContaining([
           expect.stringMatching(/Processed \d+\.\d+ seconds of audio/),
@@ -169,7 +181,11 @@ describe('TranscriptionServiceManager Integration', () => {
   describe('session end via Redis', (it) => {
     it('emits session end when Redis session end event is published', async () => {
       // Arrange
-      const finalPromise = waitForEvent(eventBus, TEST_SESSION_ID, 'final');
+      const finalPromise = waitForTranscript(
+        eventBus,
+        TEST_SESSION_ID,
+        'final',
+      );
       await manager.registerSession(TEST_SESSION_ID);
       await finalPromise;
       const sessionEndPromise = waitForSessionEnd(eventBus, TEST_SESSION_ID);
@@ -195,7 +211,11 @@ describe('TranscriptionServiceManager Integration', () => {
 
     it('stops forwarding audio after session end', async () => {
       // Arrange
-      const finalPromise = waitForEvent(eventBus, TEST_SESSION_ID, 'final');
+      const finalPromise = waitForTranscript(
+        eventBus,
+        TEST_SESSION_ID,
+        'final',
+      );
       await manager.registerSession(TEST_SESSION_ID);
       await finalPromise;
       const sessionEndPromise = waitForSessionEnd(eventBus, TEST_SESSION_ID);
@@ -217,8 +237,7 @@ describe('TranscriptionServiceManager Integration', () => {
 
       // Act - send audio after session end
       const transcriptSpy: unknown[] = [];
-      eventBus.onIpTranscript(TEST_SESSION_ID, (e) => transcriptSpy.push(e));
-      eventBus.onFinalTranscript(TEST_SESSION_ID, (e) => transcriptSpy.push(e));
+      eventBus.onTranscript(TEST_SESSION_ID, (e) => transcriptSpy.push(e));
       const audioData = fs.readFileSync(TEST_AUDIO_PATH);
       eventBus.emitAudioChunk(TEST_SESSION_ID, audioData);
 
@@ -231,7 +250,11 @@ describe('TranscriptionServiceManager Integration', () => {
   describe('client lifecycle', (it) => {
     it('does not clean up when other clients remain', async () => {
       // Arrange
-      const finalPromise = waitForEvent(eventBus, TEST_SESSION_ID, 'final');
+      const finalPromise = waitForTranscript(
+        eventBus,
+        TEST_SESSION_ID,
+        'final',
+      );
       await manager.registerSession(TEST_SESSION_ID);
       await manager.registerSession(TEST_SESSION_ID);
       await finalPromise;
@@ -240,11 +263,15 @@ describe('TranscriptionServiceManager Integration', () => {
       manager.unregisterSession(TEST_SESSION_ID);
 
       // Assert - still receives transcripts
-      const ipPromise = waitForEvent(eventBus, TEST_SESSION_ID, 'ip');
+      const ipPromise = waitForTranscript(
+        eventBus,
+        TEST_SESSION_ID,
+        'inProgress',
+      );
       const audioData = fs.readFileSync(TEST_AUDIO_PATH);
       eventBus.emitAudioChunk(TEST_SESSION_ID, audioData);
 
-      const event = (await ipPromise) as { text: string[] };
+      const event = await ipPromise;
       expect(event.text).toEqual(
         expect.arrayContaining([
           expect.stringMatching(/Processed \d+\.\d+ seconds of audio/),
@@ -257,7 +284,11 @@ describe('TranscriptionServiceManager Integration', () => {
 
     it('re-registers and works after session end', async () => {
       // Arrange - register, connect, then end via Redis
-      const finalPromise = waitForEvent(eventBus, TEST_SESSION_ID, 'final');
+      const finalPromise = waitForTranscript(
+        eventBus,
+        TEST_SESSION_ID,
+        'final',
+      );
       await manager.registerSession(TEST_SESSION_ID);
       await finalPromise;
       const sessionEndPromise = waitForSessionEnd(eventBus, TEST_SESSION_ID);
@@ -278,11 +309,15 @@ describe('TranscriptionServiceManager Integration', () => {
       await publisher.disconnect();
 
       // Act - re-register the same session
-      const newFinalPromise = waitForEvent(eventBus, TEST_SESSION_ID, 'final');
+      const newFinalPromise = waitForTranscript(
+        eventBus,
+        TEST_SESSION_ID,
+        'final',
+      );
       await manager.registerSession(TEST_SESSION_ID);
 
       // Assert - receives transcripts on fresh connection
-      const event = (await newFinalPromise) as { text: string[] };
+      const event = await newFinalPromise;
       expect(event.text).toEqual(
         expect.arrayContaining([expect.stringContaining('48000')]),
       );
@@ -353,16 +388,16 @@ describe('TranscriptionServiceManager Integration', () => {
       // Arrange
       const sessionA = 'tsm-multi-a';
       const sessionB = 'tsm-multi-b';
-      const finalA = waitForEvent(eventBus, sessionA, 'final');
-      const finalB = waitForEvent(eventBus, sessionB, 'final');
+      const finalA = waitForTranscript(eventBus, sessionA, 'final');
+      const finalB = waitForTranscript(eventBus, sessionB, 'final');
 
       // Act
       await manager.registerSession(sessionA);
       await manager.registerSession(sessionB);
 
       // Assert - both receive initial transcripts independently
-      const eventA = (await finalA) as { text: string[] };
-      const eventB = (await finalB) as { text: string[] };
+      const eventA = await finalA;
+      const eventB = await finalB;
       expect(eventA.text).toEqual(
         expect.arrayContaining([expect.stringContaining('48000')]),
       );
