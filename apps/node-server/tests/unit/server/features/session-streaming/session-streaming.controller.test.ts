@@ -136,40 +136,23 @@ describe('SessionStreamingController', () => {
       );
     });
 
-    it('maps ip-transcript events to AudioSource message type', () => {
+    it('maps transcript events to AudioSource message type', () => {
       // Arrange
       controller.audioSource(mockSocket as never, mockReq as never);
-      const handler = captureServiceHandler('ip-transcript');
+      const handler = captureServiceHandler('transcript');
 
       // Act
-      handler({ text: ['hello'], starts: [0], ends: [100] });
+      handler({
+        final: { text: ['done'], starts: null, ends: null },
+        inProgress: { text: ['hello'], starts: [0], ends: [100] },
+      });
 
       // Assert
       expect(mockSocket.send).toHaveBeenCalledExactlyOnceWith(
         JSON.stringify({
-          type: AudioSourceServerMessageType.IP_TRANSCRIPT,
-          text: ['hello'],
-          starts: [0],
-          ends: [100],
-        }),
-      );
-    });
-
-    it('maps final-transcript events to AudioSource message type', () => {
-      // Arrange
-      controller.audioSource(mockSocket as never, mockReq as never);
-      const handler = captureServiceHandler('final-transcript');
-
-      // Act
-      handler({ text: ['done'], starts: null, ends: null });
-
-      // Assert
-      expect(mockSocket.send).toHaveBeenCalledExactlyOnceWith(
-        JSON.stringify({
-          type: AudioSourceServerMessageType.FINAL_TRANSCRIPT,
-          text: ['done'],
-          starts: null,
-          ends: null,
+          type: AudioSourceServerMessageType.TRANSCRIPT,
+          final: { text: ['done'], starts: null, ends: null },
+          in_progress: { text: ['hello'], starts: [0], ends: [100] },
         }),
       );
     });
@@ -314,21 +297,23 @@ describe('SessionStreamingController', () => {
       );
     });
 
-    it('maps ip-transcript events to SessionClient message type', () => {
+    it('maps transcript events to SessionClient message type', () => {
       // Arrange
       controller.sessionClient(mockSocket as never, mockReq as never);
-      const handler = captureServiceHandler('ip-transcript');
+      const handler = captureServiceHandler('transcript');
 
       // Act
-      handler({ text: ['hello'], starts: [0], ends: [100] });
+      handler({
+        final: { text: ['done'], starts: null, ends: null },
+        inProgress: { text: ['hello'], starts: [0], ends: [100] },
+      });
 
       // Assert
       expect(mockSocket.send).toHaveBeenCalledExactlyOnceWith(
         JSON.stringify({
-          type: SessionClientServerMessageType.IP_TRANSCRIPT,
-          text: ['hello'],
-          starts: [0],
-          ends: [100],
+          type: SessionClientServerMessageType.TRANSCRIPT,
+          final: { text: ['done'], starts: null, ends: null },
+          in_progress: { text: ['hello'], starts: [0], ends: [100] },
         }),
       );
     });

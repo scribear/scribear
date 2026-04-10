@@ -22,8 +22,8 @@ from src.webserver.shared.websocket_handler import WebsocketHandler
 from .transcription_stream_messages import (
     ClientJsonMessageAdapter,
     ClientMessageTypes,
-    FinalTranscriptMessage,
-    IPTranscriptMessage,
+    TranscriptMessage,
+    TranscriptSequence,
 )
 
 
@@ -128,22 +128,28 @@ class TranscriptionStreamController(WebsocketHandler):
         Args:
             result  - Transcription result
         """
-        if result.final is not None:
-            self.send(
-                FinalTranscriptMessage(
-                    text=result.final.text,
-                    starts=result.final.starts,
-                    ends=result.final.ends,
-                )
+        self.send(
+            TranscriptMessage(
+                final=(
+                    TranscriptSequence(
+                        text=result.final.text,
+                        starts=result.final.starts,
+                        ends=result.final.ends,
+                    )
+                    if result.final is not None
+                    else None
+                ),
+                in_progress=(
+                    TranscriptSequence(
+                        text=result.in_progress.text,
+                        starts=result.in_progress.starts,
+                        ends=result.in_progress.ends,
+                    )
+                    if result.in_progress is not None
+                    else None
+                ),
             )
-        if result.in_progress is not None:
-            self.send(
-                IPTranscriptMessage(
-                    text=result.in_progress.text,
-                    starts=result.in_progress.starts,
-                    ends=result.in_progress.ends,
-                )
-            )
+        )
 
     def _audio_chunk(self, chunk: bytes):
         """

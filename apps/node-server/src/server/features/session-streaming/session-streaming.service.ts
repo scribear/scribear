@@ -14,8 +14,7 @@ const AUTH_TIMEOUT_MS = 1_000;
 interface SessionStreamingServiceEvents {
   close: [code: number, reason: string];
   send: [msg: string];
-  'ip-transcript': [event: TranscriptEvent];
-  'final-transcript': [event: TranscriptEvent];
+  transcript: [event: TranscriptEvent];
   'session-status': [event: SessionStatusEvent];
 }
 
@@ -166,13 +165,10 @@ export class SessionStreamingService extends EventEmitter<SessionStreamingServic
   }
 
   private _subscribeToTranscripts(sessionId: string): void {
-    const unsubIp = this._eventBus.onIpTranscript(sessionId, (event) => {
-      this.emit('ip-transcript', event);
+    const unsub = this._eventBus.onTranscript(sessionId, (event) => {
+      this.emit('transcript', event);
     });
-    const unsubFinal = this._eventBus.onFinalTranscript(sessionId, (event) => {
-      this.emit('final-transcript', event);
-    });
-    this._cleanupFns.push(unsubIp, unsubFinal);
+    this._cleanupFns.push(unsub);
   }
 
   private _subscribeToSessionStatus(sessionId: string): void {

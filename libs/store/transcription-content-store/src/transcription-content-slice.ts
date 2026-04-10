@@ -154,6 +154,30 @@ export const transcriptionContentSlice = createSlice({
       state.inProgressTranscription = action.payload;
     },
     /**
+     * Handles a combined transcript event containing optional final and in-progress data.
+     * Appends final transcription if present, then sets in-progress transcription.
+     */
+    handleTranscript: (
+      state,
+      action: PayloadAction<{
+        final: TranscriptionSequenceInput | null;
+        inProgress: TranscriptionSequenceInput | null;
+      }>,
+    ) => {
+      if (action.payload.final) {
+        const sequence: TranscriptionSequence = {
+          id: uuidv4(),
+          ...action.payload.final,
+        };
+        state.activeSection.sequences.push(sequence);
+        state.finalizedTranscription.push(sequence);
+        state.inProgressTranscription = null;
+      }
+      if (action.payload.inProgress) {
+        state.inProgressTranscription = action.payload.inProgress;
+      }
+    },
+    /**
      * Resets all transcription content back to the initial empty state.
      */
     clearTranscription: (state) => {
@@ -173,5 +197,6 @@ export const {
   appendFinalizedTranscription,
   commitInProgressTranscription,
   replaceInProgressTranscription,
+  handleTranscript,
   clearTranscription,
 } = transcriptionContentSlice.actions;

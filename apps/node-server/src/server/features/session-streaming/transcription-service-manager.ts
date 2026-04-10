@@ -3,10 +3,7 @@ import { createSessionManagerClient } from '@scribear/session-manager-client';
 import { SESSION_EVENT_CHANNEL } from '@scribear/session-manager-schema';
 import { createTranscriptionServiceClient } from '@scribear/transcription-service-client';
 import type { TranscriptionProviderConfig } from '@scribear/transcription-service-schema';
-import {
-  TranscriptionStreamClientMessageType,
-  TranscriptionStreamServerMessageType,
-} from '@scribear/transcription-service-schema';
+import { TranscriptionStreamClientMessageType } from '@scribear/transcription-service-schema';
 
 import type { AppDependencies } from '#src/server/dependency-injection/register-dependencies.js';
 
@@ -245,19 +242,10 @@ export class TranscriptionServiceManager {
     );
 
     wsClient.on('message', (msg) => {
-      if (msg.type === TranscriptionStreamServerMessageType.IP_TRANSCRIPT) {
-        this._streamingEventBusService.emitIpTranscript(sessionId, {
-          text: msg.text,
-          starts: msg.starts,
-          ends: msg.ends,
-        });
-      } else {
-        this._streamingEventBusService.emitFinalTranscript(sessionId, {
-          text: msg.text,
-          starts: msg.starts,
-          ends: msg.ends,
-        });
-      }
+      this._streamingEventBusService.emitTranscript(sessionId, {
+        final: msg.final,
+        inProgress: msg.in_progress,
+      });
     });
 
     wsClient.on('close', () => {

@@ -4,10 +4,7 @@ import {
   appInitialization,
   rememberRehydrated,
 } from '@scribear/redux-remember-store';
-import {
-  appendFinalizedTranscription,
-  replaceInProgressTranscription,
-} from '@scribear/transcription-content-store';
+import { handleTranscript } from '@scribear/transcription-content-store';
 
 import type { RootState } from '#src/store/store';
 
@@ -53,11 +50,8 @@ export const createClientSessionServiceMiddleware =
     service.on('statusChange', (status) => {
       store.dispatch(setClientSessionServiceStatus(status));
     });
-    service.on('appendFinalizedTranscription', (sequence) => {
-      store.dispatch(appendFinalizedTranscription(sequence));
-    });
-    service.on('replaceInProgressTranscription', (sequence) => {
-      store.dispatch(replaceInProgressTranscription(sequence));
+    service.on('transcript', (event) => {
+      store.dispatch(handleTranscript(event));
     });
     service.on('sessionStatus', (status) => {
       store.dispatch(setSessionStatus(status));

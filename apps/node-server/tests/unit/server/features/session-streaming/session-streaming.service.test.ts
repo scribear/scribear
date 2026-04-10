@@ -15,10 +15,8 @@ describe('SessionStreamingService', () => {
   let mockEventBus: {
     onAudioChunk: Mock;
     emitAudioChunk: Mock;
-    onIpTranscript: Mock;
-    emitIpTranscript: Mock;
-    onFinalTranscript: Mock;
-    emitFinalTranscript: Mock;
+    onTranscript: Mock;
+    emitTranscript: Mock;
     onSessionStatus: Mock;
     emitSessionStatus: Mock;
     onSessionEnd: Mock;
@@ -41,10 +39,8 @@ describe('SessionStreamingService', () => {
     mockEventBus = {
       onAudioChunk: vi.fn(),
       emitAudioChunk: vi.fn(),
-      onIpTranscript: vi.fn().mockReturnValue(vi.fn()),
-      emitIpTranscript: vi.fn(),
-      onFinalTranscript: vi.fn().mockReturnValue(vi.fn()),
-      emitFinalTranscript: vi.fn(),
+      onTranscript: vi.fn().mockReturnValue(vi.fn()),
+      emitTranscript: vi.fn(),
       onSessionStatus: vi.fn().mockReturnValue(vi.fn()),
       emitSessionStatus: vi.fn(),
       onSessionEnd: vi.fn().mockReturnValue(vi.fn()),
@@ -239,20 +235,16 @@ describe('SessionStreamingService', () => {
       });
 
       // Assert
-      expect(mockEventBus.onIpTranscript).toHaveBeenCalledExactlyOnceWith(
-        TEST_SESSION_ID,
-        expect.any(Function),
-      );
-      expect(mockEventBus.onFinalTranscript).toHaveBeenCalledExactlyOnceWith(
+      expect(mockEventBus.onTranscript).toHaveBeenCalledExactlyOnceWith(
         TEST_SESSION_ID,
         expect.any(Function),
       );
     });
 
-    it('emits ip-transcript event when event bus fires', () => {
+    it('emits transcript event when event bus fires', () => {
       // Arrange
       const transcriptSpy = vi.fn();
-      service.on('ip-transcript', transcriptSpy);
+      service.on('transcript', transcriptSpy);
       mockJwtService.verifySessionToken.mockReturnValue({
         sessionId: TEST_SESSION_ID,
         clientId: TEST_CLIENT_ID,
@@ -262,37 +254,16 @@ describe('SessionStreamingService', () => {
       service.handleClientAuth(TEST_SESSION_ID, TEST_SESSION_TOKEN, {
         receiveTranscriptions: true,
       });
-      const ipCallback = mockEventBus.onIpTranscript.mock.calls[0]![1] as (
+      const callback = mockEventBus.onTranscript.mock.calls[0]![1] as (
         event: unknown,
       ) => void;
-      const event = { text: ['hello'], starts: [0], ends: [100] };
+      const event = {
+        final: { text: ['done'], starts: null, ends: null },
+        inProgress: { text: ['hello'], starts: [0], ends: [100] },
+      };
 
       // Act
-      ipCallback(event);
-
-      // Assert
-      expect(transcriptSpy).toHaveBeenCalledExactlyOnceWith(event);
-    });
-
-    it('emits final-transcript event when event bus fires', () => {
-      // Arrange
-      const transcriptSpy = vi.fn();
-      service.on('final-transcript', transcriptSpy);
-      mockJwtService.verifySessionToken.mockReturnValue({
-        sessionId: TEST_SESSION_ID,
-        clientId: TEST_CLIENT_ID,
-        scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
-        exp: TOKEN_EXP_UNIX,
-      });
-      service.handleClientAuth(TEST_SESSION_ID, TEST_SESSION_TOKEN, {
-        receiveTranscriptions: true,
-      });
-      const finalCallback = mockEventBus.onFinalTranscript.mock
-        .calls[0]![1] as (event: unknown) => void;
-      const event = { text: ['done'], starts: null, ends: null };
-
-      // Act
-      finalCallback(event);
+      callback(event);
 
       // Assert
       expect(transcriptSpy).toHaveBeenCalledExactlyOnceWith(event);
@@ -502,7 +473,7 @@ describe('SessionStreamingService', () => {
       expect(closeSpy).not.toHaveBeenCalled();
 
       // Assert - should not re-subscribe to events
-      expect(mockEventBus.onIpTranscript).toHaveBeenCalledOnce();
+      expect(mockEventBus.onTranscript).toHaveBeenCalledOnce();
       expect(mockEventBus.onSessionStatus).toHaveBeenCalledOnce();
       expect(mockEventBus.onSessionEnd).toHaveBeenCalledOnce();
     });
@@ -610,12 +581,10 @@ describe('SessionStreamingService', () => {
       ).not.toHaveBeenCalled();
     });
 
-    it('unsubscribes transcript listeners on close', () => {
+    it('unsubscribes transcript listener on close', () => {
       // Arrange
-      const mockUnsubIp = vi.fn();
-      const mockUnsubFinal = vi.fn();
-      mockEventBus.onIpTranscript.mockReturnValue(mockUnsubIp);
-      mockEventBus.onFinalTranscript.mockReturnValue(mockUnsubFinal);
+      const mockUnsub = vi.fn();
+      mockEventBus.onTranscript.mockReturnValue(mockUnsub);
       mockJwtService.verifySessionToken.mockReturnValue({
         sessionId: TEST_SESSION_ID,
         clientId: TEST_CLIENT_ID,
@@ -630,8 +599,7 @@ describe('SessionStreamingService', () => {
       service.handleClose(TEST_SESSION_ID);
 
       // Assert
-      expect(mockUnsubIp).toHaveBeenCalledOnce();
-      expect(mockUnsubFinal).toHaveBeenCalledOnce();
+      expect(mockUnsub).toHaveBeenCalledOnce();
     });
 
     it('clears JWT expiry timeout on close', () => {

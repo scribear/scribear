@@ -9,10 +9,7 @@ import {
   appInitialization,
   rememberRehydrated,
 } from '@scribear/redux-remember-store';
-import {
-  appendFinalizedTranscription,
-  replaceInProgressTranscription,
-} from '@scribear/transcription-content-store';
+import { handleTranscript } from '@scribear/transcription-content-store';
 
 import type { RootState } from '#src/store/store';
 
@@ -77,11 +74,8 @@ export const createKioskServiceMiddleware =
     kioskService.on('statusChange', (status) => {
       store.dispatch(setKioskServiceStatus(status));
     });
-    kioskService.on('appendFinalizedTranscription', (sequence) => {
-      store.dispatch(appendFinalizedTranscription(sequence));
-    });
-    kioskService.on('replaceInProgressTranscription', (sequence) => {
-      store.dispatch(replaceInProgressTranscription(sequence));
+    kioskService.on('transcript', (event) => {
+      store.dispatch(handleTranscript(event));
     });
     kioskService.on('sessionStarted', (sessionId) => {
       store.dispatch(setActiveSessionId(sessionId));

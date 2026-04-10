@@ -29,12 +29,14 @@ interface SessionStatus {
  * Events emitted by {@link ClientSessionService} to communicate status changes,
  * transcription output, and session lifecycle to the Redux middleware.
  */
+interface TranscriptEvent {
+  final: TranscriptionSequenceInput | null;
+  inProgress: TranscriptionSequenceInput | null;
+}
+
 interface ClientSessionServiceEvents {
   statusChange: (status: ClientSessionServiceStatus) => void;
-  appendFinalizedTranscription: (sequence: TranscriptionSequenceInput) => void;
-  replaceInProgressTranscription: (
-    sequence: TranscriptionSequenceInput,
-  ) => void;
+  transcript: (event: TranscriptEvent) => void;
   sessionStatus: (status: SessionStatus) => void;
   sessionRefreshTokenUpdated: (token: string | null) => void;
   sessionIdUpdated: (sessionId: string | null) => void;
@@ -192,12 +194,11 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
     this._setStatus(ClientSessionServiceStatus.ACTIVE);
 
     socket.on('message', (message) => {
-      if (message.type === SessionClientServerMessageType.FINAL_TRANSCRIPT) {
-        this.emit('appendFinalizedTranscription', message);
-      } else if (
-        message.type === SessionClientServerMessageType.IP_TRANSCRIPT
-      ) {
-        this.emit('replaceInProgressTranscription', message);
+      if (message.type === SessionClientServerMessageType.TRANSCRIPT) {
+        this.emit('transcript', {
+          final: message.final,
+          inProgress: message.in_progress,
+        });
       } else {
         this.emit('sessionStatus', {
           transcriptionServiceConnected: message.transcriptionServiceConnected,
