@@ -1,4 +1,5 @@
 import Box from '@mui/material/Box';
+
 import { QRCodeSVG } from 'qrcode.react';
 
 const CLIENT_WEBAPP_URL =

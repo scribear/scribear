@@ -39,6 +39,6 @@ WORKDIR /app/apps/session-manager
 ENV HOST=0.0.0.0
 ENV PORT=80
 
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --start-interval=1s --retries=3 CMD curl -f http://localhost:80/api/session-manager/healthcheck/v1 || exit 1
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --start-interval=1s --retries=3 CMD wget -qO- http://127.0.0.1:80/api/session-manager/healthcheck/v1 || exit 1
 
 CMD ["node", "dist/bundle.mjs"]
