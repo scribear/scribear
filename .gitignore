@@ -281,6 +281,8 @@ web_modules/
 .env.*
 !.env.example
 
+/local-dev.env
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache

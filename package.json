@@ -15,6 +15,7 @@
     "libs/ui/*"
   ],
   "scripts": {
+    "dev:room-displays:stack": "bash scripts/dev-room-displays-stack.sh",
     "build": "npm run build --workspaces --if-present",
     "changeset": "changeset",
     "changeset:version": "changeset version",

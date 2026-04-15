@@ -1,0 +1,28 @@
+# Local Postgres + Redis only. Used by scripts/start-local-stack.sh with ./local-dev.env
+# (copy from local-dev.env.example). Not related to deployment/compose.yml.
+
+services:
+  postgres:
+    # Same stack as deployment: PG 18 + pg_cron (see infra/scribear-db/Dockerfile)
+    build:
+      context: infra/scribear-db
+      dockerfile: Dockerfile
+    container_name: scribear-local-postgres
+    environment:
+      POSTGRES_DB: ${COMPOSE_POSTGRES_DB}
+      POSTGRES_USER: ${COMPOSE_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${COMPOSE_POSTGRES_PASSWORD}
+    ports:
+      - "${COMPOSE_POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 3s
+      timeout: 5s
+      retries: 25
+
+  redis:
+    image: redis:7-alpine
+    container_name: scribear-local-redis
+    command: redis-server --requirepass ${COMPOSE_REDIS_PASSWORD}
+    ports:
+      - "${COMPOSE_REDIS_PORT:-6379}:6379"
