@@ -4,6 +4,8 @@ import Slider from '@mui/material/Slider';
 import Stack from '@mui/material/Stack';
 import Switch from '@mui/material/Switch';
 import Typography from '@mui/material/Typography';
+import TextFieldsIcon from '@mui/icons-material/TextFields';
+import QrCodeIcon from '@mui/icons-material/QrCode';
 
 import {
   selectFontSize,
@@ -22,21 +24,41 @@ export const DisplaySettingsPanel = () => {
   const showJoinCode = useAppSelector(selectShowJoinCode);
 
   return (
-    <Box>
-      <Typography variant="h6" gutterBottom>
+    <Stack spacing={2}>
+      <Typography
+        variant="overline"
+        color="text.secondary"
+        sx={{ letterSpacing: 1.5 }}
+      >
         Display Settings
       </Typography>
-      <Stack spacing={3}>
-        <Stack direction="row" alignItems="center" spacing={2}>
-          <Typography sx={{ minWidth: 100 }}>Font Size: {fontSize}px</Typography>
+
+      {/* Font size row */}
+      <Stack direction="row" alignItems="center" spacing={2}>
+        <TextFieldsIcon sx={{ fontSize: 20, color: 'text.secondary', flexShrink: 0 }} />
+        <Box sx={{ flex: 1 }}>
+          <Stack direction="row" justifyContent="space-between" mb={0.5}>
+            <Typography variant="body2" color="text.secondary">
+              Font Size
+            </Typography>
+            <Typography variant="body2" fontWeight={600} fontFamily="monospace">
+              {fontSize}px
+            </Typography>
+          </Stack>
           <Slider
             value={fontSize}
             min={MIN_FONT_SIZE}
             max={MAX_FONT_SIZE}
             onChange={(_, value) => dispatch(setFontSize(value as number))}
-            sx={{ flex: 1 }}
+            size="medium"
+            sx={{ py: 1 }}
           />
-        </Stack>
+        </Box>
+      </Stack>
+
+      {/* Join code toggle row */}
+      <Stack direction="row" alignItems="center" spacing={2}>
+        <QrCodeIcon sx={{ fontSize: 20, color: 'text.secondary', flexShrink: 0 }} />
         <FormControlLabel
           control={
             <Switch
@@ -44,9 +66,14 @@ export const DisplaySettingsPanel = () => {
               onChange={(e) => dispatch(setShowJoinCode(e.target.checked))}
             />
           }
-          label="Show join code on large display"
+          label={
+            <Typography variant="body2" color="text.secondary">
+              Show join code on display
+            </Typography>
+          }
+          sx={{ m: 0 }}
         />
       </Stack>
-    </Box>
+    </Stack>
   );
 };

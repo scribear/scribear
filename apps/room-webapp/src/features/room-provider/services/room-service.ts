@@ -441,11 +441,13 @@ export class RoomService extends EventEmitter<RoomServiceEvents> {
 
     if (event.eventType === DeviceSessionEventType.START_SESSION) {
       this.emit('sessionStarted', event.sessionId);
+      void this.getUpcomingSessions();
       this._startSessionLoop(event.sessionId);
       void this._fetchJoinCode(event.sessionId);
     } else {
       this._setStatus(RoomServiceStatus.IDLE);
       this.emit('sessionEnded');
+      void this.getUpcomingSessions();
       this._stopSessionLoop();
     }
 

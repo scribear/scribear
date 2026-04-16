@@ -42,10 +42,11 @@ const reducers = {
 };
 
 // Slice keys that are persisted to `localStorage` via redux-remember.
+// Note: themePreferences is intentionally excluded — the room display always
+// uses the default theme (black background, yellow transcription text).
 export const rememberedKeys: (keyof typeof reducers)[] = [
   'appLayoutPreferences',
   'microphonePreferences',
-  'themePreferences',
   'transcriptionDisplayPreferences',
   'roomConfig',
   'displaySettings',

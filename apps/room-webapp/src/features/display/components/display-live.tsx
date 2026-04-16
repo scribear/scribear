@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
@@ -6,6 +6,7 @@ import Divider from '@mui/material/Divider';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { QRCodeSVG } from 'qrcode.react';
+import { createSessionManagerClient } from '@scribear/session-manager-client';
 
 import {
   selectActiveSection,
@@ -25,9 +26,9 @@ import {
 } from '@scribear/transcription-display-ui';
 
 import { selectFontSize, selectShowJoinCode } from '#src/features/cross-screen/stores/display-settings-slice';
-import { selectDeviceName } from '#src/features/room-provider/stores/room-config-slice';
-import { selectJoinCode } from '#src/features/room-provider/stores/room-service-slice';
-import { useAppSelector } from '#src/store/use-redux';
+import { selectActiveSessionId, selectDeviceName } from '#src/features/room-provider/stores/room-config-slice';
+import { setJoinCode, selectJoinCode, selectUpcomingSessions } from '#src/features/room-provider/stores/room-service-slice';
+import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
 const CLIENT_WEBAPP_URL =
   (import.meta.env['VITE_CLIENT_WEBAPP_URL'] as string | undefined) ??
@@ -40,9 +41,15 @@ function buildJoinUrl(joinCode: string): string {
 }
 
 export const DisplayLive = () => {
+  const dispatch = useAppDispatch();
   const deviceName = useAppSelector(selectDeviceName);
+  const activeSessionId = useAppSelector(selectActiveSessionId);
   const joinCode = useAppSelector(selectJoinCode);
   const showJoinCode = useAppSelector(selectShowJoinCode);
+  const upcomingSessions = useAppSelector(selectUpcomingSessions);
+  const activeSession = activeSessionId
+    ? (upcomingSessions.find((s) => s.sessionId === activeSessionId) ?? null)
+    : null;
 
   // fontSize is controlled by the touchscreen via BroadcastChannel / displaySettings
   const fontSize = useAppSelector(selectFontSize);
@@ -60,6 +67,39 @@ export const DisplayLive = () => {
   const targetDisplayLines = useAppSelector(selectTargetDisplayLines);
 
   const lineHeightPx = Math.round(fontSize * lineHeightMultipler);
+  useEffect(() => {
+    if (!showJoinCode || !activeSessionId) {
+      return;
+    }
+
+    const sessionManagerClient = createSessionManagerClient(window.location.origin);
+    let cancelled = false;
+
+    const fetchJoinCode = async () => {
+      const [response, error] = await sessionManagerClient.getSessionJoinCode({
+        params: { sessionId: activeSessionId },
+      });
+
+      if (cancelled) return;
+
+      if (error || response.status !== 200) {
+        return;
+      }
+
+      dispatch(
+        setJoinCode({
+          joinCode: response.data.joinCode,
+          expiresAtUnixMs: response.data.expiresAtUnixMs,
+        }),
+      );
+    };
+
+    void fetchJoinCode();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSessionId, dispatch, showJoinCode]);
 
   const getBoundedDisplayPreferences = useCallback(
     (containerHeightPx: number) =>
@@ -89,8 +129,29 @@ export const DisplayLive = () => {
         py={1}
         sx={{ flexShrink: 0 }}
       >
-        <Typography variant="h6">{deviceName ?? 'Room Display'}</Typography>
-        <Chip label="Live Transcription" color="error" variant="filled" size="small" />
+        <Typography variant="h6" fontWeight="bold">
+          {deviceName ?? 'Room Display'}
+        </Typography>
+        <Stack direction="row" alignItems="center" spacing={2}>
+          {activeSession?.endTime && (
+            <Typography variant="body2" color="text.secondary">
+              Session in progress · ends at{' '}
+              <Box component="span" sx={{ color: '#ffffff', fontWeight: 700 }}>
+                {new Date(activeSession.endTime).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </Box>
+            </Typography>
+          )}
+          <Chip
+            label="● LIVE"
+            color="error"
+            variant="filled"
+            size="small"
+            sx={{ fontWeight: 700, letterSpacing: 1 }}
+          />
+        </Stack>
       </Stack>
 
       <Divider />
@@ -113,7 +174,7 @@ export const DisplayLive = () => {
         {showJoinCode && joinCode && (
           <Box
             sx={{
-              width: 220,
+              width: 240,
               flexShrink: 0,
               display: 'flex',
               flexDirection: 'column',
@@ -131,7 +192,16 @@ export const DisplayLive = () => {
             <Typography variant="h5" fontFamily="monospace" letterSpacing={3}>
               {joinCode}
             </Typography>
-            <QRCodeSVG value={buildJoinUrl(joinCode)} size={160} />
+            <Box sx={{ p: 1, bgcolor: '#ffffff', borderRadius: 1 }}>
+              <QRCodeSVG
+                value={buildJoinUrl(joinCode)}
+                size={180}
+                bgColor="#ffffff"
+                fgColor="#000000"
+                marginSize={4}
+                level="L"
+              />
+            </Box>
           </Box>
         )}
       </Box>
