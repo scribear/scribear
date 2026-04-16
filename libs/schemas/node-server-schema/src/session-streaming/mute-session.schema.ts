@@ -11,8 +11,8 @@ import { SESSION_STREAMING_TAG } from '../tags.js';
 const MUTE_SESSION_SCHEMA = {
   description: 'Mute or unmute audio forwarding for a session',
   tags: [SESSION_STREAMING_TAG],
-  params: Type.Object({ sessionId: Type.String({ maxLength: 36 }) }),
-  headers: Type.Object({ authorization: Type.String() }),
+  params: Type.Object({ sessionId: Type.String({ maxLength: 36, minLength: 1 }) }),
+  headers: Type.Object({ authorization: Type.String({ minLength: 7 }) }),
   body: Type.Object({ muted: Type.Boolean() }),
   response: {
     200: Type.Object({}),

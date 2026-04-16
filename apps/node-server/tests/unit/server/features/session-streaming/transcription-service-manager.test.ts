@@ -487,6 +487,53 @@ describe('TranscriptionServiceManager', () => {
     });
   });
 
+  describe('setMuted', (it) => {
+    it('returns false when session does not exist', () => {
+      // Act / Assert
+      expect(manager.setMuted('unknown-session', true)).toBe(false);
+    });
+
+    it('returns true when session exists and sets the flag', async () => {
+      // Arrange
+      await manager.registerSession(TEST_SESSION_ID);
+
+      // Act / Assert
+      expect(manager.setMuted(TEST_SESSION_ID, true)).toBe(true);
+    });
+
+    it('does not call sendBinary when isMuted is true', async () => {
+      // Arrange
+      await manager.registerSession(TEST_SESSION_ID);
+      manager.setMuted(TEST_SESSION_ID, true);
+      const audioCallback = mockEventBus.onAudioChunk.mock.calls[0]![1] as (
+        chunk: Buffer,
+      ) => void;
+      const chunk = Buffer.from('audio');
+
+      // Act
+      audioCallback(chunk);
+
+      // Assert
+      expect(mockWsClient.sendBinary).not.toHaveBeenCalled();
+    });
+
+    it('calls sendBinary when isMuted is false', async () => {
+      // Arrange
+      await manager.registerSession(TEST_SESSION_ID);
+      manager.setMuted(TEST_SESSION_ID, false);
+      const audioCallback = mockEventBus.onAudioChunk.mock.calls[0]![1] as (
+        chunk: Buffer,
+      ) => void;
+      const chunk = Buffer.from('audio');
+
+      // Act
+      audioCallback(chunk);
+
+      // Assert
+      expect(mockWsClient.sendBinary).toHaveBeenCalledExactlyOnceWith(chunk);
+    });
+  });
+
   describe('unregisterSession', (it) => {
     it('does nothing for unknown session', () => {
       // Act / Assert

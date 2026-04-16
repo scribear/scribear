@@ -3,6 +3,7 @@ import { type Mock, beforeEach, describe, expect, vi } from 'vitest';
 import {
   AudioSourceServerMessageType,
   SessionClientServerMessageType,
+  SessionTokenScope,
 } from '@scribear/node-server-schema';
 
 import { SessionStreamingController } from '#src/server/features/session-streaming/session-streaming.controller.js';
@@ -24,6 +25,8 @@ describe('SessionStreamingController', () => {
     close: Mock;
   };
   let mockReq: { params: { sessionId: string } };
+  let mockJwtService: { verifySessionToken: ReturnType<typeof vi.fn> };
+  let mockTranscriptionServiceManager: { setMuted: ReturnType<typeof vi.fn> };
   let controller: SessionStreamingController;
 
   // Captures the callback registered via socket.on(eventName, callback)
@@ -58,11 +61,13 @@ describe('SessionStreamingController', () => {
     mockReq = {
       params: { sessionId: TEST_SESSION_ID },
     };
+    mockJwtService = { verifySessionToken: vi.fn() };
+    mockTranscriptionServiceManager = { setMuted: vi.fn() };
 
     controller = new SessionStreamingController(
       mockService as never,
-      {} as never,
-      {} as never,
+      mockJwtService as never,
+      mockTranscriptionServiceManager as never,
     );
   });
 
@@ -386,6 +391,133 @@ describe('SessionStreamingController', () => {
       expect(mockService.handleClose).toHaveBeenCalledExactlyOnceWith(
         TEST_SESSION_ID,
       );
+    });
+  });
+
+  describe('muteSession', (it) => {
+    const validPayload = {
+      sessionId: TEST_SESSION_ID,
+      scopes: [SessionTokenScope.SEND_AUDIO],
+      clientId: 'test-client-id',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    };
+
+    function makeMuteReq(overrides?: {
+      authorization?: string;
+      sessionId?: string;
+      muted?: boolean;
+    }) {
+      return {
+        params: { sessionId: overrides?.sessionId ?? TEST_SESSION_ID },
+        headers: {
+          authorization: overrides?.authorization ?? 'Bearer valid-token',
+        },
+        body: { muted: overrides?.muted ?? true },
+      };
+    }
+
+    function makeMuteRes() {
+      return {
+        status: vi.fn().mockReturnThis(),
+        send: vi.fn().mockReturnThis(),
+        code: vi.fn().mockReturnThis(),
+      };
+    }
+
+    it('returns 401 when authorization header is missing', async () => {
+      // Arrange
+      mockJwtService.verifySessionToken.mockReturnValue(null);
+      const req = makeMuteReq({ authorization: '' });
+      const res = makeMuteRes();
+
+      // Act
+      await controller.muteSession(req as never, res as never);
+
+      // Assert
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.send).toHaveBeenCalledWith({ message: 'Unauthorized' });
+    });
+
+    it('returns 401 when token is invalid', async () => {
+      // Arrange
+      mockJwtService.verifySessionToken.mockReturnValue(null);
+      const req = makeMuteReq({ authorization: 'Bearer bad-token' });
+      const res = makeMuteRes();
+
+      // Act
+      await controller.muteSession(req as never, res as never);
+
+      // Assert
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.send).toHaveBeenCalledWith({ message: 'Unauthorized' });
+    });
+
+    it('returns 401 when token lacks SEND_AUDIO scope', async () => {
+      // Arrange
+      mockJwtService.verifySessionToken.mockReturnValue({
+        ...validPayload,
+        scopes: [SessionTokenScope.RECEIVE_TRANSCRIPTIONS],
+      });
+      const req = makeMuteReq();
+      const res = makeMuteRes();
+
+      // Act
+      await controller.muteSession(req as never, res as never);
+
+      // Assert
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.send).toHaveBeenCalledWith({ message: 'Unauthorized' });
+    });
+
+    it('returns 401 when token sessionId does not match param sessionId', async () => {
+      // Arrange
+      mockJwtService.verifySessionToken.mockReturnValue({
+        ...validPayload,
+        sessionId: 'different-session-id',
+      });
+      const req = makeMuteReq();
+      const res = makeMuteRes();
+
+      // Act
+      await controller.muteSession(req as never, res as never);
+
+      // Assert
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.send).toHaveBeenCalledWith({ message: 'Unauthorized' });
+    });
+
+    it('returns 404 when session is not found', async () => {
+      // Arrange
+      mockJwtService.verifySessionToken.mockReturnValue(validPayload);
+      mockTranscriptionServiceManager.setMuted.mockReturnValue(false);
+      const req = makeMuteReq();
+      const res = makeMuteRes();
+
+      // Act
+      await controller.muteSession(req as never, res as never);
+
+      // Assert
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.send).toHaveBeenCalledWith({ message: 'Session not found' });
+    });
+
+    it('returns 200 and calls setMuted when valid', async () => {
+      // Arrange
+      mockJwtService.verifySessionToken.mockReturnValue(validPayload);
+      mockTranscriptionServiceManager.setMuted.mockReturnValue(true);
+      const req = makeMuteReq({ muted: true });
+      const res = makeMuteRes();
+
+      // Act
+      await controller.muteSession(req as never, res as never);
+
+      // Assert
+      expect(mockTranscriptionServiceManager.setMuted).toHaveBeenCalledExactlyOnceWith(
+        TEST_SESSION_ID,
+        true,
+      );
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.send).toHaveBeenCalledWith({});
     });
   });
 });
