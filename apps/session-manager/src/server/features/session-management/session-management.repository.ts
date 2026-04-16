@@ -161,7 +161,7 @@ export class SessionManagementRepository {
       sessionId: row.id,
       startTime: row.start_time.getTime(),
       endTime: row.end_time ? row.end_time.getTime() : null,
-      isActive: row.end_time === null,
+      isActive: row.end_time === null && row.start_time <= new Date(),
     }));
   }
 

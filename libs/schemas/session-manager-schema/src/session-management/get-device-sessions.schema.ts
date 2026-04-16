@@ -11,7 +11,7 @@ import { DEVICE_COOKIE_AUTH_SECURITY } from '#src/security.js';
 import { SESSION_MANAGEMENT_TAG } from '../tags.js';
 
 const GET_DEVICE_SESSIONS_SCHEMA = {
-  description: 'Fetches current and upcoming sessions for the authenticated device.',
+  description: 'Fetches active, upcoming, and recently ended (within 1 hour) sessions for the authenticated device.',
   tags: [SESSION_MANAGEMENT_TAG],
   security: DEVICE_COOKIE_AUTH_SECURITY,
   response: {
