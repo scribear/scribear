@@ -7,6 +7,34 @@ import type { BaseWebSocketRouteSchema } from '@scribear/base-schema';
 
 import { SchemaValidationError } from './errors.js';
 
+function normalizeLegacyTranscriptMessage(parsed: unknown): unknown {
+  if (typeof parsed !== 'object' || parsed === null) return parsed;
+  const candidate = parsed as Record<string, unknown>;
+  if (candidate.type === 'ip_transcript') {
+    return {
+      type: 'transcript',
+      final: null,
+      in_progress: {
+        text: candidate.text,
+        starts: candidate.starts,
+        ends: candidate.ends,
+      },
+    };
+  }
+  if (candidate.type === 'final_transcript') {
+    return {
+      type: 'transcript',
+      final: {
+        text: candidate.text,
+        starts: candidate.starts,
+        ends: candidate.ends,
+      },
+      in_progress: null,
+    };
+  }
+  return parsed;
+}
+
 /**
  * The type of server messages derived from the route schema.
  */
@@ -86,7 +114,9 @@ export class WebSocketClient<
         return;
       }
 
-      if (!Value.Check(this._schema.serverMessage, parsed)) {
+      const normalizedParsed = normalizeLegacyTranscriptMessage(parsed);
+
+      if (!Value.Check(this._schema.serverMessage, normalizedParsed)) {
         this.emit(
           'error',
           new SchemaValidationError(
@@ -96,7 +126,7 @@ export class WebSocketClient<
         return;
       }
 
-      this.emit('message', parsed as ServerMessage<S>);
+      this.emit('message', normalizedParsed as ServerMessage<S>);
     };
 
     this._ws.onclose = (event) => {
