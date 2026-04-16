@@ -19,6 +19,8 @@ import { RehydrateGate } from '#src/components/rehydrate-gate';
 import { BASE_THEME } from '#src/config/base-theme';
 import { createAppStore } from '#src/store/store';
 
+// Module-scoped singletons, not exported, so they can only be accessed via
+// the React providers below.
 const microphoneService = new MicrophoneService();
 const store = createAppStore(microphoneService);
 
@@ -29,6 +31,10 @@ if (import.meta.hot) {
   });
 }
 
+/**
+ * Composes all top-level providers for the room webapp: MUI theme, Redux store,
+ * error boundary, rehydration gate, microphone service, and custom theme.
+ */
 export const AppProvider = ({ children }: React.PropsWithChildren) => {
   return (
     <ThemeProvider theme={BASE_THEME}>

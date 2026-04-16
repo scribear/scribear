@@ -20,6 +20,12 @@ import { displaySettingsReducer } from '#src/features/cross-screen/stores/displa
 import { roomConfigReducer } from '#src/features/room-provider/stores/room-config-slice';
 import { roomServiceReducer } from '#src/features/room-provider/stores/room-service-slice';
 
+/**
+ * Redux reducers map for the room webapp store. Includes slices for app layout,
+ * theme preferences, transcription content, transcription display preferences,
+ * microphone preferences and service state, room configuration and service state,
+ * display settings, and redux-remember rehydration bookkeeping.
+ */
 const reducers = {
   reduxRemember: reduxRememberReducer,
   appLayoutPreferences: appLayoutPreferencesReducer,
@@ -33,6 +39,7 @@ const reducers = {
   displaySettings: displaySettingsReducer,
 };
 
+// Slice keys that are persisted to `localStorage` via redux-remember.
 export const rememberedKeys: (keyof typeof reducers)[] = [
   'appLayoutPreferences',
   'microphonePreferences',
@@ -42,8 +49,10 @@ export const rememberedKeys: (keyof typeof reducers)[] = [
   'displaySettings',
 ];
 
+// Combined root reducer with redux-remember support.
 export const rootReducer = rememberReducer(reducers);
 
+// Creates and returns the configured Redux store for the room webapp.
 export const createAppStore = (microphoneService: MicrophoneService) => {
   const store = configureStore({
     reducer: rootReducer,
@@ -63,6 +72,9 @@ export const createAppStore = (microphoneService: MicrophoneService) => {
   return store;
 };
 
+// TypeScript type of the full Redux state tree for the room webapp.
 export type RootState = ReturnType<typeof rootReducer>;
+// TypeScript type of the store's `dispatch` function, including thunk support.
 export type AppDispatch = ReturnType<typeof createAppStore>['dispatch'];
+// TypeScript type of the configured Redux store instance.
 export type AppStore = ReturnType<typeof createAppStore>;
