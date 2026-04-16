@@ -16,6 +16,7 @@ import { themePreferencesReducer } from '@scribear/theme-customization-store';
 import { transcriptionContentReducer } from '@scribear/transcription-content-store';
 import { transcriptionDisplayPreferencesReducer } from '@scribear/transcription-display-store';
 
+import { createCrossScreenMiddleware } from '#src/features/cross-screen/stores/cross-screen-middleware';
 import { displaySettingsReducer } from '#src/features/cross-screen/stores/display-settings-slice';
 import { roomConfigReducer } from '#src/features/room-provider/stores/room-config-slice';
 import { createRoomServiceMiddleware } from '#src/features/room-provider/stores/room-service-middleware';
@@ -60,7 +61,8 @@ export const createAppStore = (microphoneService: MicrophoneService) => {
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware()
         .concat(createMicrophoneServiceMiddleware(microphoneService))
-        .concat(createRoomServiceMiddleware(microphoneService)),
+        .concat(createRoomServiceMiddleware(microphoneService))
+        .concat(createCrossScreenMiddleware()),
     enhancers: (getDefaultEnhancers) =>
       getDefaultEnhancers().prepend(
         rememberEnhancer(window.localStorage, rememberedKeys, {
