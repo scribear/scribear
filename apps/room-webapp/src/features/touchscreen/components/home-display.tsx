@@ -87,6 +87,10 @@ export const HomeDisplay = () => {
           <ActiveSessionControls sessionId={activeSessionId} />
           <DisplaySettingsPanel />
         </Stack>
+      ) : isInSession ? (
+        <Stack spacing={2} flex={1} alignItems="center" justifyContent="center">
+          <Chip label="Connecting to session…" color="warning" size="medium" />
+        </Stack>
       ) : (
         <Stack spacing={2} flex={1}>
           <Typography variant="h6" color="text.secondary">

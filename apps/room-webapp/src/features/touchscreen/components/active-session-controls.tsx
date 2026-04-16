@@ -1,6 +1,7 @@
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
 import MicOffIcon from '@mui/icons-material/MicOff';
 import MicIcon from '@mui/icons-material/Mic';
 
@@ -13,10 +14,11 @@ import {
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
 interface ActiveSessionControlsProps {
+  /** The ID of the currently active session. */
   sessionId: string;
 }
 
-export const ActiveSessionControls = ({ sessionId: _ }: ActiveSessionControlsProps) => {
+export const ActiveSessionControls = ({ sessionId }: ActiveSessionControlsProps) => {
   const dispatch = useAppDispatch();
   const status = useAppSelector(selectRoomServiceStatus);
   const isMuted = useAppSelector(selectIsMuted);
@@ -36,6 +38,9 @@ export const ActiveSessionControls = ({ sessionId: _ }: ActiveSessionControlsPro
           <Chip label="Connecting…" color="warning" />
         )}
       </Stack>
+      <Typography variant="body2" color="text.secondary" fontFamily="monospace">
+        Session: {sessionId}
+      </Typography>
 
       <Button
         variant="contained"

@@ -87,7 +87,12 @@ export const ActivationView = () => {
         label="Or type code here"
         value={code}
         onChange={(e) =>
-          setCode(e.target.value.toUpperCase().slice(0, MAX_CODE_LENGTH))
+          setCode(
+            e.target.value
+              .toUpperCase()
+              .replace(/[^A-Z0-9]/g, '')
+              .slice(0, MAX_CODE_LENGTH),
+          )
         }
         inputProps={{
           maxLength: MAX_CODE_LENGTH,
