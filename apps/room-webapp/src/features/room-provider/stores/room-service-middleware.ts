@@ -24,6 +24,7 @@ import {
 import {
   muteToggle,
   registerDevice,
+  selectIsMuted,
   setIsMuted,
   setJoinCode,
   setRoomServiceStatus,
@@ -81,6 +82,7 @@ export const createRoomServiceMiddleware =
     });
     roomService.on('deviceUnregistered', () => {
       store.dispatch(setDeviceName(null));
+      store.dispatch(setDeviceId(null));
     });
     roomService.on('prevEventIdUpdated', (eventId) => {
       store.dispatch(setPrevEventId(eventId));
@@ -116,8 +118,11 @@ export const createRoomServiceMiddleware =
         const state = store.getState();
         const sessionId = selectActiveSessionId(state);
         if (sessionId) {
+          const previousMuted = selectIsMuted(state);
           store.dispatch(setIsMuted(action.payload));
-          void roomService.muteSession(sessionId, action.payload);
+          void roomService.muteSession(sessionId, action.payload).catch(() => {
+            store.dispatch(setIsMuted(previousMuted));
+          });
         }
       }
 
