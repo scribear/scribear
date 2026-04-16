@@ -1,7 +1,7 @@
 import { Navigate, RouterProvider, createBrowserRouter } from 'react-router-dom';
-import { TouchscreenPage } from '#src/features/touchscreen/components/touchscreen-page';
 
-const DisplayPage = () => <div>Display (coming soon)</div>;
+import { DisplayPage } from '#src/features/display/components/display-page';
+import { TouchscreenPage } from '#src/features/touchscreen/components/touchscreen-page';
 
 const router = createBrowserRouter([
   { path: '/', element: <Navigate to="/touchscreen" replace /> },

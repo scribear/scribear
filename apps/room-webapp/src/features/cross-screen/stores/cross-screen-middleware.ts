@@ -1,5 +1,13 @@
 import type { Middleware } from '@reduxjs/toolkit';
 
+import { createNodeServerClient } from '@scribear/node-server-client';
+import {
+  SessionClientClientMessageType,
+  SessionClientServerMessageType,
+} from '@scribear/node-server-schema';
+import { createSessionManagerClient } from '@scribear/session-manager-client';
+import { handleTranscript } from '@scribear/transcription-content-store';
+
 import {
   setActiveSessionId,
   setDeviceId,
@@ -27,6 +35,67 @@ export const createCrossScreenMiddleware =
 
     let unsubscribeMessages: (() => void) | null = null;
 
+    // Track the display tab's session client connection
+    let currentSessionClientSocket: { close: (code?: number, reason?: string) => void } | null =
+      null;
+    let currentDisplaySessionId: string | null = null;
+
+    const sessionManagerClient = createSessionManagerClient(window.location.origin);
+    const nodeServerClient = createNodeServerClient(window.location.origin);
+
+    const connectDisplaySession = async (sessionId: string) => {
+      if (currentDisplaySessionId === sessionId) return;
+
+      currentSessionClientSocket?.close(1000);
+      currentSessionClientSocket = null;
+      currentDisplaySessionId = sessionId;
+
+      const [authResponse, authError] = await sessionManagerClient.sourceDeviceSessionAuth({
+        body: { sessionId },
+      });
+
+      if (authError || authResponse.status !== 200 || currentDisplaySessionId !== sessionId) return;
+
+      const { sessionToken } = authResponse.data;
+
+      const [socket, connectError] = await nodeServerClient.sessionClient({
+        params: { sessionId },
+      });
+
+      if (connectError || currentDisplaySessionId !== sessionId) {
+        socket?.close(1000);
+        return;
+      }
+
+      currentSessionClientSocket = socket;
+
+      socket.send({ type: SessionClientClientMessageType.AUTH, sessionToken });
+
+      socket.on('message', (message) => {
+        if (message.type === SessionClientServerMessageType.TRANSCRIPT) {
+          store.dispatch(
+            handleTranscript({
+              final: message.final,
+              inProgress: message.in_progress,
+            }),
+          );
+        }
+      });
+
+      socket.on('close', () => {
+        if (currentDisplaySessionId === sessionId) {
+          currentSessionClientSocket = null;
+          currentDisplaySessionId = null;
+        }
+      });
+    };
+
+    const disconnectDisplaySession = () => {
+      currentSessionClientSocket?.close(1000);
+      currentSessionClientSocket = null;
+      currentDisplaySessionId = null;
+    };
+
     if (isDisplayTab()) {
       unsubscribeMessages = broadcastService.onMessage((message) => {
         switch (message.type) {
@@ -50,6 +119,12 @@ export const createCrossScreenMiddleware =
               ),
             );
             store.dispatch(setUpcomingSessions(upcomingSessions));
+
+            if (activeSessionId) {
+              void connectDisplaySession(activeSessionId);
+            } else {
+              disconnectDisplaySession();
+            }
             break;
           }
         }
@@ -58,6 +133,7 @@ export const createCrossScreenMiddleware =
 
     if (import.meta.hot) {
       import.meta.hot.dispose(() => {
+        disconnectDisplaySession();
         unsubscribeMessages?.();
         broadcastService.close();
       });
