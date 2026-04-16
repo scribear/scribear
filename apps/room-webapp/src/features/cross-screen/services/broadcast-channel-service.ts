@@ -29,6 +29,18 @@ export type BroadcastMessage =
   | { type: BroadcastMessageType.AUTH_STATE_CHANGE; payload: AuthStateChangePayload }
   | { type: BroadcastMessageType.SESSION_STATE_CHANGE; payload: SessionStateChangePayload };
 
+const VALID_MESSAGE_TYPES = new Set<string>(Object.values(BroadcastMessageType));
+
+function isBroadcastMessage(data: unknown): data is BroadcastMessage {
+  return (
+    data !== null &&
+    typeof data === 'object' &&
+    'type' in data &&
+    typeof (data as Record<string, unknown>).type === 'string' &&
+    VALID_MESSAGE_TYPES.has((data as Record<string, unknown>).type as string)
+  );
+}
+
 export class BroadcastChannelService {
   private _channel: BroadcastChannel;
 
@@ -42,7 +54,9 @@ export class BroadcastChannelService {
 
   onMessage(handler: (message: BroadcastMessage) => void): () => void {
     const listener = (event: MessageEvent) => {
-      handler(event.data as BroadcastMessage);
+      if (isBroadcastMessage(event.data)) {
+        handler(event.data);
+      }
     };
     this._channel.addEventListener('message', listener);
     return () => this._channel.removeEventListener('message', listener);
