@@ -59,7 +59,11 @@ describe('SessionStreamingController', () => {
       params: { sessionId: TEST_SESSION_ID },
     };
 
-    controller = new SessionStreamingController(mockService as never);
+    controller = new SessionStreamingController(
+      mockService as never,
+      {} as never,
+      {} as never,
+    );
   });
 
   describe('audioSource', (it) => {
