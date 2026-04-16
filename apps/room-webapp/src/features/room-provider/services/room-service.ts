@@ -53,7 +53,7 @@ interface RoomServiceEvents {
   sessionStarted: (sessionId: string) => void;
   sessionEnded: () => void;
   sessionStatus: (status: SessionStatus) => void;
-  deviceRegistered: (deviceName: string) => void;
+  deviceRegistered: (deviceName: string, deviceId: string) => void;
   deviceUnregistered: () => void;
   prevEventIdUpdated: (eventId: number) => void;
   sessionRefreshTokenUpdated: (token: string | null) => void;
@@ -185,6 +185,7 @@ export class RoomService extends EventEmitter<RoomServiceEvents> {
 
     const { sessionToken } = response.data;
 
+    if (!this._socket) return;
     this._sessionToken = sessionToken;
 
     this._socket.send({
@@ -508,7 +509,7 @@ export class RoomService extends EventEmitter<RoomServiceEvents> {
     }
 
     const deviceDetails = response.data;
-    this.emit('deviceRegistered', deviceDetails.deviceName);
+    this.emit('deviceRegistered', deviceDetails.deviceName, deviceDetails.deviceId);
     this.activate(deviceDetails.deviceName, null, this._prevEventId, null);
   }
 
@@ -576,6 +577,7 @@ export class RoomService extends EventEmitter<RoomServiceEvents> {
   async muteSession(sessionId: string, muted: boolean): Promise<void> {
     if (!this._sessionToken) return;
 
+    const loopToken = this._sessionLoopToken;
     const token = this._sessionToken;
     const [, error] = await this._nodeServerClient.muteSession({
       params: { sessionId },
@@ -587,6 +589,8 @@ export class RoomService extends EventEmitter<RoomServiceEvents> {
       console.error('Failed to set mute state on server:', error);
       return;
     }
+
+    if (loopToken !== this._sessionLoopToken) return;
 
     if (muted) {
       if (this._status === RoomServiceStatus.ACTIVE) {
