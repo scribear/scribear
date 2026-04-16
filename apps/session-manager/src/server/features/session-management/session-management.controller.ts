@@ -7,6 +7,7 @@ import {
   CREATE_SESSION_SCHEMA,
   DEVICE_SESSION_EVENTS_SCHEMA,
   type END_SESSION_SCHEMA,
+  type GET_DEVICE_SESSIONS_SCHEMA,
   type GET_SESSION_CONFIG_SCHEMA,
   type GET_SESSION_JOIN_CODE_SCHEMA,
   type REFRESH_SESSION_TOKEN_SCHEMA,
@@ -181,5 +182,15 @@ export class SessionManagementController {
     );
 
     res.code(200).send(event ?? null);
+  }
+
+  async getDeviceSessions(
+    req: BaseFastifyRequest<typeof GET_DEVICE_SESSIONS_SCHEMA>,
+    res: BaseFastifyReply<typeof GET_DEVICE_SESSIONS_SCHEMA>,
+  ) {
+    const sessions =
+      await this._sessionManagementService.getDeviceSessions(req.deviceId);
+
+    res.code(200).send({ sessions });
   }
 }

@@ -134,6 +134,38 @@ export class SessionManagementRepository {
   }
 
   /**
+   * Returns sessions for a device that are active or ended within the last hour,
+   * ordered by start_time ascending.
+   */
+  async getDeviceSessions(deviceId: string): Promise<
+    Array<{
+      sessionId: string;
+      startTime: number;
+      endTime: number | null;
+      isActive: boolean;
+    }>
+  > {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1_000);
+
+    const rows = await this._dbClient.db
+      .selectFrom('sessions')
+      .select(['id', 'start_time', 'end_time'])
+      .where('source_device_id', '=', deviceId)
+      .where((eb) =>
+        eb.or([eb('end_time', 'is', null), eb('end_time', '>', oneHourAgo)]),
+      )
+      .orderBy('start_time', 'asc')
+      .execute();
+
+    return rows.map((row) => ({
+      sessionId: row.id,
+      startTime: row.start_time.getTime(),
+      endTime: row.end_time ? row.end_time.getTime() : null,
+      isActive: row.end_time === null,
+    }));
+  }
+
+  /**
    * Gets the next session event for a device within a time window.
    * @param deviceId Device to query events for
    * @param afterEventId Only return events with id > afterEventId (exclusive). Pass null to get from the beginning.

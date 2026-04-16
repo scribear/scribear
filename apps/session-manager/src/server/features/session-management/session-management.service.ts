@@ -398,6 +398,22 @@ export class SessionManagementService {
   }
 
   /**
+   * Returns current and upcoming sessions for a device.
+   * Includes active sessions (end_time IS NULL) and sessions that ended
+   * within the last hour, ordered by start_time ascending.
+   */
+  async getDeviceSessions(deviceId: string): Promise<
+    Array<{
+      sessionId: string;
+      startTime: number;
+      endTime: number | null;
+      isActive: boolean;
+    }>
+  > {
+    return await this._sessionManagementRepository.getDeviceSessions(deviceId);
+  }
+
+  /**
    * Long-poll for the next session event for a device.
    * Resolves with the event once its timestamp is reached, or null if the
    * polling window expires with no event.

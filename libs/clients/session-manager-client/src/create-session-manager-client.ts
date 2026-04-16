@@ -8,6 +8,8 @@ import {
   DEVICE_SESSION_EVENTS_SCHEMA,
   END_SESSION_ROUTE,
   END_SESSION_SCHEMA,
+  GET_DEVICE_SESSIONS_ROUTE,
+  GET_DEVICE_SESSIONS_SCHEMA,
   GET_SESSION_CONFIG_ROUTE,
   GET_SESSION_CONFIG_SCHEMA,
   GET_SESSION_JOIN_CODE_ROUTE,
@@ -85,6 +87,11 @@ function createSessionManagerClient(baseUrl: string) {
     endSession: createEndpointClient(
       END_SESSION_SCHEMA,
       END_SESSION_ROUTE,
+      baseUrl,
+    ),
+    getDeviceSessions: createEndpointClient(
+      GET_DEVICE_SESSIONS_SCHEMA,
+      GET_DEVICE_SESSIONS_ROUTE,
       baseUrl,
     ),
   };

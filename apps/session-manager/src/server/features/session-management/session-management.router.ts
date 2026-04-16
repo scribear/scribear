@@ -6,6 +6,8 @@ import {
   DEVICE_SESSION_EVENTS_SCHEMA,
   END_SESSION_ROUTE,
   END_SESSION_SCHEMA,
+  GET_DEVICE_SESSIONS_ROUTE,
+  GET_DEVICE_SESSIONS_SCHEMA,
   GET_SESSION_CONFIG_ROUTE,
   GET_SESSION_CONFIG_SCHEMA,
   GET_SESSION_JOIN_CODE_ROUTE,
@@ -92,5 +94,15 @@ export function sessionManagementRouter(fastify: BaseFastifyInstance) {
     schema: END_SESSION_SCHEMA,
     preHandler: apiKeyAuthHook,
     handler: resolveHandler('sessionManagementController', 'endSession'),
+  });
+
+  fastify.route({
+    ...GET_DEVICE_SESSIONS_ROUTE,
+    schema: GET_DEVICE_SESSIONS_SCHEMA,
+    preHandler: deviceCookieAuthHook,
+    handler: resolveHandler(
+      'sessionManagementController',
+      'getDeviceSessions',
+    ),
   });
 }

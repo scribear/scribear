@@ -12,6 +12,7 @@ export * from './device-management/register-device.schema.js';
 export * from './healthcheck/healthcheck.schema.js';
 export * from './session-management/create-session.schema.js';
 export * from './session-management/device-session-events.schema.js';
+export * from './session-management/get-device-sessions.schema.js';
 export * from './session-management/end-session.schema.js';
 export * from './session-management/get-session-config.schema.js';
 export * from './session-management/get-session-join-code.schema.js';
