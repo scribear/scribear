@@ -1,6 +1,9 @@
 import { type Middleware } from '@reduxjs/toolkit';
 
-import type { MicrophoneService } from '@scribear/microphone-store';
+import {
+  activateMicrophone,
+  type MicrophoneService,
+} from '@scribear/microphone-store';
 import {
   appInitialization,
   rememberRehydrated,
@@ -52,9 +55,16 @@ if (import.meta.hot) {
 export const createRoomServiceMiddleware =
   (microphoneService: MicrophoneService): Middleware<object, RootState> =>
   (store) => {
+    const isTouchscreenTab = window.location.pathname.startsWith('/touchscreen');
+
     // Clean up any previous instance (handles HMR module replacement).
     _activeRoomService?.removeAllListeners();
     _activeRoomService?.deactivate();
+
+    if (!isTouchscreenTab) {
+      _activeRoomService = null;
+      return (next) => (action) => next(action);
+    }
 
     const roomService = new RoomService(microphoneService);
     _activeRoomService = roomService;
@@ -79,6 +89,7 @@ export const createRoomServiceMiddleware =
     roomService.on('deviceRegistered', (deviceName, deviceId) => {
       store.dispatch(setDeviceName(deviceName));
       store.dispatch(setDeviceId(deviceId));
+      store.dispatch(activateMicrophone());
     });
     roomService.on('deviceUnregistered', () => {
       store.dispatch(setDeviceName(null));
@@ -102,12 +113,16 @@ export const createRoomServiceMiddleware =
 
       if (appInitialization.match(action) || rememberRehydrated.match(action)) {
         const state = store.getState();
+        const deviceName = selectDeviceName(state);
         roomService.activate(
-          selectDeviceName(state),
+          deviceName,
           selectActiveSessionId(state),
           selectPrevEventId(state),
           selectSessionRefreshToken(state),
         );
+        if (deviceName !== null) {
+          store.dispatch(activateMicrophone());
+        }
       }
 
       if (registerDevice.match(action)) {

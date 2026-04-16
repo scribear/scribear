@@ -6,6 +6,10 @@ import {
   SessionClientServerMessageType,
 } from '@scribear/node-server-schema';
 import { createSessionManagerClient } from '@scribear/session-manager-client';
+import {
+  appInitialization,
+  rememberRehydrated,
+} from '@scribear/redux-remember-store';
 import { handleTranscript } from '@scribear/transcription-content-store';
 
 import {
@@ -42,6 +46,34 @@ export const createCrossScreenMiddleware =
 
     const sessionManagerClient = createSessionManagerClient(window.location.origin);
     const nodeServerClient = createNodeServerClient(window.location.origin);
+
+    const broadcastStateSnapshot = () => {
+      const state = store.getState();
+      broadcastService.send({
+        type: BroadcastMessageType.SETTINGS_UPDATE,
+        payload: {
+          fontSize: state.displaySettings.fontSize,
+          showJoinCode: state.displaySettings.showJoinCode,
+        },
+      });
+      broadcastService.send({
+        type: BroadcastMessageType.AUTH_STATE_CHANGE,
+        payload: {
+          isActivated: state.roomConfig.deviceName !== null,
+          deviceName: state.roomConfig.deviceName,
+          deviceId: state.roomConfig.deviceId,
+        },
+      });
+      broadcastService.send({
+        type: BroadcastMessageType.SESSION_STATE_CHANGE,
+        payload: {
+          activeSessionId: state.roomConfig.activeSessionId,
+          joinCode: state.roomService.joinCode,
+          joinCodeExpiresAtUnixMs: state.roomService.joinCodeExpiresAtUnixMs,
+          upcomingSessions: state.roomService.upcomingSessions,
+        },
+      });
+    };
 
     const connectDisplaySession = async (sessionId: string) => {
       if (currentDisplaySessionId === sessionId) return;
@@ -142,8 +174,27 @@ export const createCrossScreenMiddleware =
     return (next) => (action) => {
       const result = next(action);
 
+      if (isDisplayTab()) {
+        if (
+          appInitialization.match(action) ||
+          rememberRehydrated.match(action) ||
+          setActiveSessionId.match(action)
+        ) {
+          const { activeSessionId } = store.getState().roomConfig;
+          if (activeSessionId) {
+            void connectDisplaySession(activeSessionId);
+          } else {
+            disconnectDisplaySession();
+          }
+        }
+      }
+
       if (isTouchscreenTab()) {
         const state = store.getState();
+
+        if (appInitialization.match(action) || rememberRehydrated.match(action)) {
+          broadcastStateSnapshot();
+        }
 
         if (setFontSize.match(action) || setShowJoinCode.match(action)) {
           broadcastService.send({

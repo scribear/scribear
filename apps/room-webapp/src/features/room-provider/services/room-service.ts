@@ -23,6 +23,8 @@ import { RoomServiceStatus } from './room-service-status';
 
 const MIN_RETRY_DELAY_MS = 1_000;
 const MAX_RETRY_DELAY_MS = 60_000;
+const UPCOMING_SESSIONS_POLL_INTERVAL_MS = 30_000;
+const MAX_UPCOMING_SESSIONS_RETRY_DELAY_MS = 120_000;
 const TOKEN_REFRESH_BUFFER_MS = 2 * 60 * 1_000;
 const JOIN_CODE_REFRESH_BUFFER_MS = 30 * 1_000;
 
@@ -89,7 +91,7 @@ export class RoomService extends EventEmitter<RoomServiceEvents> {
   private _storedSessionRefreshToken: string | null = null;
   private _refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private _joinCodeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-  private _upcomingSessionsInterval: ReturnType<typeof setInterval> | null =
+  private _upcomingSessionsPollTimer: ReturnType<typeof setTimeout> | null =
     null;
 
   private _eventLoopToken = 0;
@@ -97,6 +99,9 @@ export class RoomService extends EventEmitter<RoomServiceEvents> {
 
   private _sessionLoopToken = 0;
   private _sessionLoopDelayMs = MIN_RETRY_DELAY_MS;
+
+  private _upcomingSessionsLoopToken = 0;
+  private _upcomingSessionsLoopDelayMs = UPCOMING_SESSIONS_POLL_INTERVAL_MS;
 
   constructor(microphoneService: MicrophoneService) {
     super();
@@ -470,10 +475,38 @@ export class RoomService extends EventEmitter<RoomServiceEvents> {
     this._eventLoopToken++;
   }
 
+  private async _executeUpcomingSessionsLoop(token: number) {
+    if (token !== this._upcomingSessionsLoopToken) return;
+
+    const success = await this.getUpcomingSessions();
+    if (token !== this._upcomingSessionsLoopToken) return;
+
+    const delayMs = success
+      ? UPCOMING_SESSIONS_POLL_INTERVAL_MS
+      : this._upcomingSessionsLoopDelayMs;
+    this._upcomingSessionsLoopDelayMs = success
+      ? UPCOMING_SESSIONS_POLL_INTERVAL_MS
+      : Math.min(
+          MAX_UPCOMING_SESSIONS_RETRY_DELAY_MS,
+          this._upcomingSessionsLoopDelayMs * 2,
+        );
+
+    this._upcomingSessionsPollTimer = setTimeout(() => {
+      void this._executeUpcomingSessionsLoop(token);
+    }, delayMs);
+  }
+
+  private _startUpcomingSessionsLoop() {
+    this._upcomingSessionsLoopDelayMs = UPCOMING_SESSIONS_POLL_INTERVAL_MS;
+    void this._executeUpcomingSessionsLoop(this._upcomingSessionsLoopToken);
+  }
+
   private _stopUpcomingSessionsPolling(): void {
-    if (this._upcomingSessionsInterval) {
-      clearInterval(this._upcomingSessionsInterval);
-      this._upcomingSessionsInterval = null;
+    this._upcomingSessionsLoopToken++;
+    this._upcomingSessionsLoopDelayMs = UPCOMING_SESSIONS_POLL_INTERVAL_MS;
+    if (this._upcomingSessionsPollTimer) {
+      clearTimeout(this._upcomingSessionsPollTimer);
+      this._upcomingSessionsPollTimer = null;
     }
   }
 
@@ -542,11 +575,7 @@ export class RoomService extends EventEmitter<RoomServiceEvents> {
       void this._fetchJoinCode(activeSessionId);
     }
 
-    // Start upcoming sessions polling
-    void this.getUpcomingSessions();
-    this._upcomingSessionsInterval = setInterval(() => {
-      void this.getUpcomingSessions();
-    }, 30_000);
+    this._startUpcomingSessionsLoop();
   }
 
   /**
@@ -561,13 +590,14 @@ export class RoomService extends EventEmitter<RoomServiceEvents> {
    * Fetches upcoming sessions for this device from the session manager and
    * emits the `upcomingSessionsUpdated` event with the result.
    */
-  async getUpcomingSessions(): Promise<void> {
+  async getUpcomingSessions(): Promise<boolean> {
     const [response, error] =
       await this._sessionManagerClient.getDeviceSessions({});
 
-    if (error || response.status !== 200) return;
+    if (error || response.status !== 200) return false;
 
     this.emit('upcomingSessionsUpdated', response.data.sessions);
+    return true;
   }
 
   /**
