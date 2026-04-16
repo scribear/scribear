@@ -1,8 +1,7 @@
-import { Navigate, createBrowserRouter, RouterProvider } from 'react-router-dom';
+import { Navigate, RouterProvider, createBrowserRouter } from 'react-router-dom';
+import { TouchscreenPage } from '#src/features/touchscreen/components/touchscreen-page';
 
-// Placeholder pages - will be replaced in later tasks
-const TouchscreenPage = () => <div>Touchscreen</div>;
-const DisplayPage = () => <div>Display</div>;
+const DisplayPage = () => <div>Display (coming soon)</div>;
 
 const router = createBrowserRouter([
   { path: '/', element: <Navigate to="/touchscreen" replace /> },
