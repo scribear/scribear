@@ -36,6 +36,7 @@ interface SessionState {
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   reconnectAttempt: number;
   transcriptionServiceConnected: boolean;
+  isMuted: boolean;
 }
 
 /**
@@ -99,6 +100,7 @@ export class TranscriptionServiceManager {
       reconnectTimer: null,
       reconnectAttempt: 0,
       transcriptionServiceConnected: false,
+      isMuted: false,
     };
     this._sessions.set(sessionId, state);
 
@@ -149,6 +151,21 @@ export class TranscriptionServiceManager {
       transcriptionServiceConnected: state.transcriptionServiceConnected,
       sourceDeviceConnected: state.clientCount > 0,
     };
+  }
+
+  /**
+   * Sets the muted state for a session's audio forwarding.
+   * When muted, incoming audio chunks are dropped instead of forwarded.
+   *
+   * @param sessionId - The session to mute or unmute.
+   * @param muted - Whether to mute (true) or unmute (false).
+   * @returns `true` if the session exists and was updated, `false` if not found.
+   */
+  setMuted(sessionId: string, muted: boolean): boolean {
+    const state = this._sessions.get(sessionId);
+    if (!state) return false;
+    state.isMuted = muted;
+    return true;
   }
 
   /**
@@ -237,7 +254,9 @@ export class TranscriptionServiceManager {
     state.unsubAudio = this._streamingEventBusService.onAudioChunk(
       sessionId,
       (chunk) => {
-        wsClient.sendBinary(chunk);
+        if (!state.isMuted) {
+          wsClient.sendBinary(chunk);
+        }
       },
     );
 

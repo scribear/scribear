@@ -5,6 +5,8 @@ import {
   AUDIO_SOURCE_SCHEMA,
   HEALTHCHECK_ROUTE,
   HEALTHCHECK_SCHEMA,
+  MUTE_SESSION_ROUTE,
+  MUTE_SESSION_SCHEMA,
   SESSION_CLIENT_ROUTE,
   SESSION_CLIENT_SCHEMA,
 } from '@scribear/node-server-schema';
@@ -30,6 +32,11 @@ function createNodeServerClient(baseUrl: string) {
     sessionClient: createWebSocketClient(
       SESSION_CLIENT_SCHEMA,
       SESSION_CLIENT_ROUTE,
+      baseUrl,
+    ),
+    muteSession: createEndpointClient(
+      MUTE_SESSION_SCHEMA,
+      MUTE_SESSION_ROUTE,
       baseUrl,
     ),
   };

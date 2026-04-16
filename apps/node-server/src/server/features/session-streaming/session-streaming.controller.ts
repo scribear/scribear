@@ -1,12 +1,14 @@
 import { Value } from 'typebox/value';
 import type { RawData, WebSocket } from 'ws';
 
-import type { BaseFastifyRequest } from '@scribear/base-fastify-server';
+import type { BaseFastifyReply, BaseFastifyRequest } from '@scribear/base-fastify-server';
 import {
   AUDIO_SOURCE_SCHEMA,
   AudioSourceServerMessageType,
+  MUTE_SESSION_SCHEMA,
   SESSION_CLIENT_SCHEMA,
   SessionClientServerMessageType,
+  SessionTokenScope,
 } from '@scribear/node-server-schema';
 
 import type { AppDependencies } from '#src/server/dependency-injection/register-dependencies.js';
@@ -18,11 +20,17 @@ import type { AppDependencies } from '#src/server/dependency-injection/register-
  */
 export class SessionStreamingController {
   private _sessionStreamingService: AppDependencies['sessionStreamingService'];
+  private _jwtService: AppDependencies['jwtService'];
+  private _transcriptionServiceManager: AppDependencies['transcriptionServiceManager'];
 
   constructor(
     sessionStreamingService: AppDependencies['sessionStreamingService'],
+    jwtService: AppDependencies['jwtService'],
+    transcriptionServiceManager: AppDependencies['transcriptionServiceManager'],
   ) {
     this._sessionStreamingService = sessionStreamingService;
+    this._jwtService = jwtService;
+    this._transcriptionServiceManager = transcriptionServiceManager;
   }
 
   /**
@@ -118,6 +126,49 @@ export class SessionStreamingController {
     socket.on('close', () => {
       this._sessionStreamingService.handleClose(sessionId);
     });
+  }
+
+  /**
+   * Handles a POST request to mute or unmute audio forwarding for a session.
+   * Validates the Bearer JWT, checks SEND_AUDIO scope and sessionId match,
+   * then delegates to TranscriptionServiceManager.
+   *
+   * @param req - The Fastify request with sessionId param and muted body.
+   * @param res - The Fastify reply.
+   */
+  async muteSession(
+    req: BaseFastifyRequest<typeof MUTE_SESSION_SCHEMA>,
+    res: BaseFastifyReply<typeof MUTE_SESSION_SCHEMA>,
+  ): Promise<void> {
+    const authHeader = req.headers.authorization ?? '';
+    const token = authHeader.startsWith('Bearer ')
+      ? authHeader.slice('Bearer '.length)
+      : '';
+
+    const payload = this._jwtService.verifySessionToken(token);
+    if (
+      payload === null ||
+      !payload.scopes.includes(SessionTokenScope.SEND_AUDIO)
+    ) {
+      await res.status(401).send({ message: 'Unauthorized' });
+      return;
+    }
+
+    if (payload.sessionId !== req.params.sessionId) {
+      await res.status(401).send({ message: 'Unauthorized' });
+      return;
+    }
+
+    const found = this._transcriptionServiceManager.setMuted(
+      req.params.sessionId,
+      req.body.muted,
+    );
+    if (!found) {
+      await res.status(404).send({ message: 'Session not found' });
+      return;
+    }
+
+    await res.status(200).send({});
   }
 
   /**
