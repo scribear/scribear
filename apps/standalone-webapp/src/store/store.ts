@@ -19,6 +19,7 @@ import {
   createUrlConfigMiddleware,
   urlConfigReducer,
 } from '@scribear/url-config-store';
+import { visualizerPreferencesReducer } from '@scribear/visualizer-store';
 
 import { providerConfigReducer } from '#src/features/transcription-providers/stores/provider-config-slice';
 import { providerPreferencesReducer } from '#src/features/transcription-providers/stores/provider-preferences-slice';
@@ -41,6 +42,7 @@ const reducers = {
   providerPreferences: providerPreferencesReducer,
   providerStatus: providerStatusReducer,
   providerUI: providerUIReducer,
+  visualizerPreferences: visualizerPreferencesReducer,
 };
 
 // Slice keys that are persisted to localStorage via redux-remember.
@@ -51,6 +53,7 @@ export const rememberedKeys: (keyof typeof reducers)[] = [
   'transcriptionDisplayPreferences',
   'providerConfig',
   'providerPreferences',
+  'visualizerPreferences',
 ];
 
 // Root reducer wrapping all slices with redux-remember persistence support.
