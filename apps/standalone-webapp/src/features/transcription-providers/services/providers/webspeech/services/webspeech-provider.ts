@@ -1,5 +1,4 @@
-import type { MicrophoneService } from '@scribear/microphone-store';
-
+// import type { MicrophoneService } from '@scribear/microphone-store';
 import { BaseProviderInterface } from '../../base-provider-interface';
 import type { ProviderInterface } from '../../provider-interface';
 import {
@@ -7,6 +6,10 @@ import {
   type WebspeechConfig,
 } from '../config/webspeech-config';
 import { WebspeechStatus } from '../types/webspeech-status';
+
+interface MicrophoneServiceLike {
+  activateMicrophone: () => void | Promise<void>;
+}
 
 /**
  * Transcription provider implementation built on the browser's Web Speech API
@@ -22,11 +25,21 @@ export class WebspeechProvider
   private _recognition: SpeechRecognition | null = null;
   private _finalizedResultCount = 0;
   private _providerIsStarted = false;
-  private readonly _microphoneService: MicrophoneService;
+  // private readonly _microphoneService: MicrophoneService;
+  private _networkRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly _NETWORK_RETRY_MS = 3000;
 
-  constructor(microphoneService: MicrophoneService) {
+  private readonly _microphoneService: MicrophoneServiceLike;
+  constructor(microphoneService: MicrophoneServiceLike) {
     super(INITIAL_WEBSPEECH_STATUS);
     this._microphoneService = microphoneService;
+  }
+
+  private _clearNetworkRetryTimer() {
+    if (this._networkRetryTimer) {
+      clearTimeout(this._networkRetryTimer);
+      this._networkRetryTimer = null;
+    }
   }
 
   private _handleResult(event: SpeechRecognitionEvent) {
@@ -58,6 +71,26 @@ export class WebspeechProvider
   private _handleError(event: SpeechRecognitionErrorEvent) {
     if (event.error === 'no-speech') {
       this._commitParagraphBreak();
+      return;
+    }
+
+    if (event.error === 'network') {
+      console.warn('Webspeech network error, reconnecting...', event);
+      this._setStatus(WebspeechStatus.NETWORK_RETRYING);
+      this._clearNetworkRetryTimer();
+      this._networkRetryTimer = setTimeout(() => {
+        this._networkRetryTimer = null;
+        if (!this._recognition || this._muted) return;
+        if (this.status !== WebspeechStatus.NETWORK_RETRYING) return;
+        try {
+          this._recognition.start();
+          this._providerIsStarted = true;
+          this._setStatus(WebspeechStatus.ACTIVE);
+        } catch (error) {
+          console.error('Failed to restart after network error', error);
+          this._setStatus(WebspeechStatus.ERROR);
+        }
+      }, WebspeechProvider._NETWORK_RETRY_MS);
       return;
     }
 
@@ -104,6 +137,7 @@ export class WebspeechProvider
 
   private _startProvider() {
     if (!this._recognition) return;
+    this._clearNetworkRetryTimer();
 
     try {
       this._recognition.start();
@@ -161,6 +195,7 @@ export class WebspeechProvider
    * Stops recognition, resets status to `INACTIVE`, and releases the recognition object.
    */
   deactivateProvider() {
+    this._clearNetworkRetryTimer();
     this._setStatus(WebspeechStatus.INACTIVE);
     if (this._recognition) {
       // Detach handlers before stopping so the async `onend` does not
