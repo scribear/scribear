@@ -61,6 +61,7 @@ export const ChoiceModal = ({
           width: '100%',
           maxWidth: 400,
           p: 4,
+          bgcolor: 'background.default',
         }}
       >
         <Typography textAlign="center" pb={4}>
