@@ -10,24 +10,24 @@ import { SchemaValidationError } from './errors.js';
 function normalizeLegacyTranscriptMessage(parsed: unknown): unknown {
   if (typeof parsed !== 'object' || parsed === null) return parsed;
   const candidate = parsed as Record<string, unknown>;
-  if (candidate.type === 'ip_transcript') {
+  if (candidate['type'] === 'ip_transcript') {
     return {
       type: 'transcript',
       final: null,
       in_progress: {
-        text: candidate.text,
-        starts: candidate.starts,
-        ends: candidate.ends,
+        text: candidate['text'],
+        starts: candidate['starts'],
+        ends: candidate['ends'],
       },
     };
   }
-  if (candidate.type === 'final_transcript') {
+  if (candidate['type'] === 'final_transcript') {
     return {
       type: 'transcript',
       final: {
-        text: candidate.text,
-        starts: candidate.starts,
-        ends: candidate.ends,
+        text: candidate['text'],
+        starts: candidate['starts'],
+        ends: candidate['ends'],
       },
       in_progress: null,
     };

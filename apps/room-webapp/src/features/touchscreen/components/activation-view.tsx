@@ -1,11 +1,9 @@
 import { useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import Grid from '@mui/material/Grid';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import Paper from '@mui/material/Paper';
 
 import { RoomServiceStatus } from '#src/features/room-provider/services/room-service-status';
 import {
@@ -14,12 +12,12 @@ import {
 } from '#src/features/room-provider/stores/room-service-slice';
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
-const ALPHANUMERIC_KEYS = [
-  '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
-  'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P',
-  'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L',
-  'Z', 'X', 'C', 'V', 'B', 'N', 'M',
-];
+const KEYBOARD_ROWS = [
+  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
+  ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
+  ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
+  ['Z', 'X', 'C', 'V', 'B', 'N', 'M'],
+] as const;
 
 const MAX_CODE_LENGTH = 8;
 
@@ -62,26 +60,6 @@ export const ActivationView = () => {
         Enter the activation code shown in the ScribeAR admin portal.
       </Typography>
 
-      {/* Code display */}
-      <Paper
-        elevation={2}
-        sx={{ px: 4, py: 2, minWidth: 320, textAlign: 'center' }}
-      >
-        <Typography
-          variant="h3"
-          fontFamily="monospace"
-          letterSpacing={6}
-          color={isError ? 'error.main' : 'text.primary'}
-        >
-          {code.padEnd(MAX_CODE_LENGTH, '_')}
-        </Typography>
-        {isError && (
-          <Typography color="error.main" variant="body2" mt={1}>
-            Invalid activation code. Please try again.
-          </Typography>
-        )}
-      </Paper>
-
       {/* Physical keyboard fallback */}
       <TextField
         label="Or type code here"
@@ -98,52 +76,61 @@ export const ActivationView = () => {
           maxLength: MAX_CODE_LENGTH,
           style: { textAlign: 'center', letterSpacing: 4 },
         }}
-        sx={{ width: 280 }}
+        error={isError}
+        helperText={isError ? 'Invalid activation code. Please try again.' : ' '}
+        sx={{ width: 340 }}
       />
 
       {/* On-screen keyboard */}
-      <Box sx={{ maxWidth: 480 }}>
-        <Grid container spacing={1} justifyContent="center">
-          {ALPHANUMERIC_KEYS.map((key) => (
-            <Grid key={key}>
-              <Button
-                variant="outlined"
-                onClick={() => appendChar(key)}
-                sx={{
-                  minWidth: 44,
-                  minHeight: 44,
-                  fontSize: '1.1rem',
-                  fontFamily: 'monospace',
-                }}
-                disabled={isLoading}
-              >
-                {key}
-              </Button>
-            </Grid>
+      <Box sx={{ width: 'min(100%, 900px)' }}>
+        <Stack spacing={1.25} alignItems="center">
+          {KEYBOARD_ROWS.map((row, idx) => (
+            <Stack
+              key={row.join('')}
+              direction="row"
+              spacing={1.25}
+              sx={{ ml: idx * 2.5 }}
+            >
+              {row.map((key) => (
+                <Button
+                  key={key}
+                  variant="outlined"
+                  onClick={() => appendChar(key)}
+                  sx={{
+                    minWidth: 58,
+                    minHeight: 58,
+                    fontSize: '1.25rem',
+                    fontFamily: 'monospace',
+                  }}
+                  disabled={isLoading}
+                >
+                  {key}
+                </Button>
+              ))}
+            </Stack>
           ))}
-          <Grid>
+
+          <Stack direction="row" spacing={1.25}>
             <Button
               variant="outlined"
               color="warning"
               onClick={deleteChar}
-              sx={{ minWidth: 80, minHeight: 44 }}
+              sx={{ minWidth: 120, minHeight: 58 }}
               disabled={isLoading}
             >
               ⌫
             </Button>
-          </Grid>
-          <Grid>
             <Button
               variant="outlined"
               color="error"
               onClick={clearCode}
-              sx={{ minWidth: 80, minHeight: 44 }}
+              sx={{ minWidth: 120, minHeight: 58 }}
               disabled={isLoading}
             >
               CLR
             </Button>
-          </Grid>
-        </Grid>
+          </Stack>
+        </Stack>
       </Box>
 
       <Button
