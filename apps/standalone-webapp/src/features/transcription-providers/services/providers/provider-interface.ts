@@ -21,9 +21,8 @@ export interface ProviderEvents<StatusType> {
  * with the standard provider events and exposes lifecycle methods for activation,
  * deactivation, and microphone mute/unmute control.
  */
-export interface ProviderInterface<ConfigType, StatusType> extends EventEmitter<
-  ProviderEvents<StatusType>
-> {
+export interface ProviderInterface<ConfigType, StatusType>
+  extends EventEmitter<ProviderEvents<StatusType>> {
   get status(): StatusType;
 
   activateProvider(config: ConfigType): Promise<void> | void;

@@ -68,9 +68,22 @@ export const WebspeechModal = () => {
     />
   );
 
+  const reconnecting = (
+    <CancelableInfoModal
+      isOpen={webspeechStatus === WebspeechStatus.NETWORK_RETRYING}
+      message={`${displayName} network error detected. Reconnecting...`}
+      onCancel={cancelModal}
+    >
+      <Stack direction="row" justifyContent="space-around">
+        <CircularProgress />
+      </Stack>
+    </CancelableInfoModal>
+  );
+
   return (
     <>
       {activating}
+      {reconnecting}
       {unsupported}
       {error}
     </>
