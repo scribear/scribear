@@ -25,11 +25,10 @@ export class WebspeechProvider
   private _recognition: SpeechRecognition | null = null;
   private _finalizedResultCount = 0;
   private _providerIsStarted = false;
-  // private readonly _microphoneService: MicrophoneService;
+  private readonly _microphoneService: MicrophoneServiceLike;
   private _networkRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly _NETWORK_RETRY_MS = 3000;
 
-  private readonly _microphoneService: MicrophoneServiceLike;
   constructor(microphoneService: MicrophoneServiceLike) {
     super(INITIAL_WEBSPEECH_STATUS);
     this._microphoneService = microphoneService;
