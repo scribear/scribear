@@ -57,6 +57,8 @@ import { TranscriptionProviderConfigMenu } from '#src/features/transcription-pro
 import { TranscriptionProviderSelector } from '#src/features/transcription-providers/components/transcription-provider-selector';
 import { TranscriptionProviderStatusDisplay } from '#src/features/transcription-providers/components/transcription-provider-status-display';
 import { TranscriptionProviderStatusModal } from '#src/features/transcription-providers/components/transcription-provider-status-modal';
+import { VisualizerContainer } from '#src/features/visualizer/components/visualizer-container';
+import { VisualizerSettingsMenu } from '#src/features/visualizer/components/visualizer-settings-menu';
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
 /**
@@ -128,6 +130,7 @@ export const Root = () => {
         setTranscriptionColor={(v) => dispatch(setTranscriptionColor(v))}
         applyPresetTheme={(theme) => dispatch(setTheme(theme))}
       />
+      <VisualizerSettingsMenu />
       <TranscriptionDisplayPreferencesMenu
         fontSizePx={fontSizePx}
         lineHeightMultipler={lineHeightMultipler}
@@ -174,6 +177,7 @@ export const Root = () => {
       providerSelector={ProviderSelector}
       headerBreakpoint="md"
     >
+      <VisualizerContainer />
       <MicrophoneModal
         microphoneServiceStatus={microphoneServiceStatus}
         activate={() => void dispatch(activateMicrophone())}

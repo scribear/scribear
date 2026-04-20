@@ -62,6 +62,20 @@ export enum MicrophoneServiceStatus {
 }
 
 /**
+ * A lightweight tap into the microphone audio stream for real-time analysis.
+ * Created by {@link MicrophoneService.createAnalyserTap} and released by
+ * {@link MicrophoneService.closeAnalyserTap}.
+ */
+export interface AnalyserTap {
+  analyserNode: AnalyserNode;
+}
+
+interface AnalyserTapState {
+  audioContext: AudioContext;
+  sourceNode: MediaStreamAudioSourceNode | null;
+}
+
+/**
  * Manages the browser microphone stream and distributes audio data to registered
  * {@link AudioStream} consumers.
  *
@@ -85,6 +99,12 @@ export class MicrophoneService extends EventEmitter<MicrophoneServiceEvents> {
     AudioStream,
     MediaStreamAudioSourceNode | null
   >();
+
+  /**
+   * Maps each AnalyserTap's analyserNode to its backing AudioContext and source,
+   * or null source when the mic is not currently active.
+   */
+  private _analyserTaps = new Map<AnalyserNode, AnalyserTapState>();
 
   /**
    * The current status of the service, kept in sync with emitted statusChange events.
@@ -229,6 +249,13 @@ export class MicrophoneService extends EventEmitter<MicrophoneServiceEvents> {
       this._audioStreams.set(stream, source);
     }
 
+    for (const [analyserNode, tapState] of this._analyserTaps) {
+      tapState.sourceNode?.disconnect();
+      const source = tapState.audioContext.createMediaStreamSource(micStream);
+      source.connect(analyserNode);
+      this._analyserTaps.set(analyserNode, { ...tapState, sourceNode: source });
+    }
+
     this._setStatus(MicrophoneServiceStatus.ACTIVE);
   }
 
@@ -246,6 +273,11 @@ export class MicrophoneService extends EventEmitter<MicrophoneServiceEvents> {
       for (const [stream, source] of this._audioStreams) {
         source?.disconnect();
         this._audioStreams.set(stream, null);
+      }
+
+      for (const [analyserNode, tapState] of this._analyserTaps) {
+        tapState.sourceNode?.disconnect();
+        this._analyserTaps.set(analyserNode, { ...tapState, sourceNode: null });
       }
     }
 
@@ -320,5 +352,37 @@ export class MicrophoneService extends EventEmitter<MicrophoneServiceEvents> {
     this._audioStreams.delete(stream);
     stream.workletNode.disconnect();
     void stream.audioContext.close();
+  }
+
+  /**
+   * Creates a lightweight {@link AnalyserTap} connected to the active microphone
+   * stream. If the mic is not yet active, the tap connects automatically when it
+   * becomes active. Use {@link closeAnalyserTap} to release resources.
+   */
+  createAnalyserTap(): AnalyserTap {
+    const audioContext = new AudioContext();
+    const analyserNode = audioContext.createAnalyser();
+    analyserNode.fftSize = 2048;
+
+    let sourceNode: MediaStreamAudioSourceNode | null = null;
+    if (this._micStream !== null) {
+      sourceNode = audioContext.createMediaStreamSource(this._micStream);
+      sourceNode.connect(analyserNode);
+    }
+
+    this._analyserTaps.set(analyserNode, { audioContext, sourceNode });
+    return { analyserNode };
+  }
+
+  /**
+   * Releases an {@link AnalyserTap} created by {@link createAnalyserTap},
+   * disconnecting its source node and closing its AudioContext.
+   */
+  closeAnalyserTap(tap: AnalyserTap): void {
+    const tapState = this._analyserTaps.get(tap.analyserNode);
+    if (!tapState) return;
+    tapState.sourceNode?.disconnect();
+    this._analyserTaps.delete(tap.analyserNode);
+    void tapState.audioContext.close();
   }
 }

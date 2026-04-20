@@ -79,6 +79,12 @@
     },
     {
       "path": "../../libs/ui/microphone-ui"
+    },
+    {
+      "path": "../../libs/store/visualizer-store"
+    },
+    {
+      "path": "../../libs/ui/visualizer-ui"
     }
   ]
 }
