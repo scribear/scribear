@@ -22,7 +22,7 @@ function makeByteArray(length: number): Uint8Array<ArrayBuffer> {
 
 function fmtHz(hz: number): string {
   if (hz >= 1000) return `${(hz / 1000).toFixed(hz >= 10000 ? 0 : 1)}k`;
-  return `${Math.round(hz)}`;
+  return Math.round(hz).toString();
 }
 
 // Frequency tick positions in Hz shown on X-axis
@@ -91,7 +91,7 @@ export const FrequencyVisualizer = ({
     const nyquist = sampleRate / 2;
     const binCount = analyserNode.frequencyBinCount;
 
-    if (!dataRef.current || dataRef.current.length !== binCount) {
+    if (dataRef.current?.length !== binCount) {
       dataRef.current = makeByteArray(binCount);
     }
     analyserNode.getByteFrequencyData(dataRef.current);

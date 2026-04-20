@@ -30,14 +30,8 @@ export function deriveVisualizerPreferences(
     Math.min(targetHeight, viewportHeight),
   );
 
-  const actualX = Math.max(
-    0,
-    Math.min(targetX, viewportWidth - actualWidth),
-  );
-  const actualY = Math.max(
-    0,
-    Math.min(targetY, viewportHeight - actualHeight),
-  );
+  const actualX = Math.max(0, Math.min(targetX, viewportWidth - actualWidth));
+  const actualY = Math.max(0, Math.min(targetY, viewportHeight - actualHeight));
 
   return { actualX, actualY, actualWidth, actualHeight };
 }

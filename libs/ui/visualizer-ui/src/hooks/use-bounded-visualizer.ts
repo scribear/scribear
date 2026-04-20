@@ -15,9 +15,13 @@ export function useBoundedVisualizer(
   const [viewport, setViewport] = useState(getViewport);
 
   useEffect(() => {
-    const handler = () => setViewport(getViewport());
+    const handler = () => {
+      setViewport(getViewport());
+    };
     window.addEventListener('resize', handler);
-    return () => window.removeEventListener('resize', handler);
+    return () => {
+      window.removeEventListener('resize', handler);
+    };
   }, []);
 
   return deriveVisualizerPreferences(

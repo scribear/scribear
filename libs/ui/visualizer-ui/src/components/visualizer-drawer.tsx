@@ -36,7 +36,9 @@ export const VisualizerDrawer = ({
         control={
           <Switch
             checked={frequencyEnabled}
-            onChange={(e) => onFrequencyToggle(e.target.checked)}
+            onChange={(e) => {
+              onFrequencyToggle(e.target.checked);
+            }}
           />
         }
         label="Frequency Spectrum"
@@ -45,7 +47,9 @@ export const VisualizerDrawer = ({
         control={
           <Switch
             checked={timeSeriesEnabled}
-            onChange={(e) => onTimeSeriesToggle(e.target.checked)}
+            onChange={(e) => {
+              onTimeSeriesToggle(e.target.checked);
+            }}
           />
         }
         label="Time Series (Waveform)"
@@ -54,7 +58,9 @@ export const VisualizerDrawer = ({
         control={
           <Switch
             checked={melCepstrumEnabled}
-            onChange={(e) => onMelCepstrumToggle(e.target.checked)}
+            onChange={(e) => {
+              onMelCepstrumToggle(e.target.checked);
+            }}
           />
         }
         label="Mel-Frequency Cepstrum"

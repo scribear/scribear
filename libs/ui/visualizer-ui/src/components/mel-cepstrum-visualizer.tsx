@@ -143,7 +143,7 @@ export const MelCepstrumVisualizer = ({
     }
 
     const binCount = analyserNode.frequencyBinCount;
-    if (!freqDataRef.current || freqDataRef.current.length !== binCount) {
+    if (freqDataRef.current?.length !== binCount) {
       freqDataRef.current = makeByteArray(binCount);
     }
     analyserNode.getByteFrequencyData(freqDataRef.current);

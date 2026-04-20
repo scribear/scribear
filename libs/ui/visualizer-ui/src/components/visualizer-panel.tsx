@@ -67,8 +67,13 @@ export const VisualizerPanel = ({
     [onSizeChange, targetWidth, targetHeight],
   );
 
-  const { dragDelta, onMouseDown: onDragStart, isDragging } = useDrag(handleDragCommit);
-  const { resizeDelta, onMouseDown: onResizeStart } = useResize(handleResizeCommit);
+  const {
+    dragDelta,
+    onMouseDown: onDragStart,
+    isDragging,
+  } = useDrag(handleDragCommit);
+  const { resizeDelta, onMouseDown: onResizeStart } =
+    useResize(handleResizeCommit);
 
   const visualX = actualX + (dragDelta?.x ?? 0);
   const visualY = actualY + (dragDelta?.y ?? 0);
@@ -81,9 +86,11 @@ export const VisualizerPanel = ({
     actualHeight + (resizeDelta?.h ?? 0),
   );
 
-  const activeCount = [frequencyEnabled, timeSeriesEnabled, melCepstrumEnabled].filter(
-    Boolean,
-  ).length;
+  const activeCount = [
+    frequencyEnabled,
+    timeSeriesEnabled,
+    melCepstrumEnabled,
+  ].filter(Boolean).length;
   const contentHeight = visualHeight - HEADER_HEIGHT - RESIZE_HANDLE_SIZE;
   const sectionHeight = activeCount > 0 ? contentHeight / activeCount : 0;
   const canvasHeight = Math.max(1, sectionHeight - VIS_LABEL_HEIGHT);
@@ -144,15 +151,27 @@ export const VisualizerPanel = ({
             </Box>
           ))}
         </Box>
-        <Typography variant="caption" sx={{ flex: 1, opacity: 0.6, fontSize: 11 }}>
+        <Typography
+          variant="caption"
+          sx={{ flex: 1, opacity: 0.6, fontSize: 11 }}
+        >
           Visualizer
         </Typography>
       </Box>
 
       {/* Visualizer sections */}
-      <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <Box
+        sx={{
+          flex: 1,
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
         {frequencyEnabled && (
-          <Box sx={{ height: sectionHeight, flexShrink: 0, overflow: 'hidden' }}>
+          <Box
+            sx={{ height: sectionHeight, flexShrink: 0, overflow: 'hidden' }}
+          >
             <Typography
               variant="caption"
               sx={{
@@ -174,7 +193,9 @@ export const VisualizerPanel = ({
           </Box>
         )}
         {timeSeriesEnabled && (
-          <Box sx={{ height: sectionHeight, flexShrink: 0, overflow: 'hidden' }}>
+          <Box
+            sx={{ height: sectionHeight, flexShrink: 0, overflow: 'hidden' }}
+          >
             <Typography
               variant="caption"
               sx={{
@@ -196,7 +217,9 @@ export const VisualizerPanel = ({
           </Box>
         )}
         {melCepstrumEnabled && (
-          <Box sx={{ height: sectionHeight, flexShrink: 0, overflow: 'hidden' }}>
+          <Box
+            sx={{ height: sectionHeight, flexShrink: 0, overflow: 'hidden' }}
+          >
             <Typography
               variant="caption"
               sx={{
@@ -239,8 +262,22 @@ export const VisualizerPanel = ({
         }}
       >
         <svg width={10} height={10} viewBox="0 0 10 10">
-          <line x1="2" y1="10" x2="10" y2="2" stroke="currentColor" strokeWidth="1.5" />
-          <line x1="6" y1="10" x2="10" y2="6" stroke="currentColor" strokeWidth="1.5" />
+          <line
+            x1="2"
+            y1="10"
+            x2="10"
+            y2="2"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          />
+          <line
+            x1="6"
+            y1="10"
+            x2="10"
+            y2="6"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          />
         </svg>
       </Box>
     </Paper>

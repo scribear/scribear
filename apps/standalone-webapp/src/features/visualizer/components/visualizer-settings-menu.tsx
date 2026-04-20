@@ -14,7 +14,9 @@ import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
 export const VisualizerSettingsMenu = () => {
   const dispatch = useAppDispatch();
-  const { frequency, timeSeries, melCepstrum } = useAppSelector(selectEnabledVisualizers);
+  const { frequency, timeSeries, melCepstrum } = useAppSelector(
+    selectEnabledVisualizers,
+  );
 
   return (
     <DrawerMenuGroup summary="Visualizer" icon={<BarChartIcon />}>

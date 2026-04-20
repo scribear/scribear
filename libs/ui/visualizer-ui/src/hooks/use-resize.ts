@@ -5,9 +5,7 @@ export interface ResizeDelta {
   h: number;
 }
 
-export function useResize(
-  onCommit: (deltaW: number, deltaH: number) => void,
-) {
+export function useResize(onCommit: (deltaW: number, deltaH: number) => void) {
   const [resizeDelta, setResizeDelta] = useState<ResizeDelta | null>(null);
   const startRef = useRef<{ mouseX: number; mouseY: number } | null>(null);
   const onCommitRef = useRef(onCommit);

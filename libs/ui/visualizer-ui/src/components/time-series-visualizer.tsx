@@ -88,7 +88,7 @@ export const TimeSeriesVisualizer = ({
     const bufferLength = analyserNode.fftSize;
     const totalMs = (bufferLength / sampleRate) * 1000;
 
-    if (!dataRef.current || dataRef.current.length !== bufferLength) {
+    if (dataRef.current?.length !== bufferLength) {
       dataRef.current = makeByteArray(bufferLength);
     }
     analyserNode.getByteTimeDomainData(dataRef.current);

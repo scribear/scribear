@@ -1,6 +1,9 @@
 import { type PayloadAction, createSlice } from '@reduxjs/toolkit';
 
-import { VISUALIZER_CONFIG, VISUALIZER_DEFAULTS } from './config/visualizer-config.js';
+import {
+  VISUALIZER_CONFIG,
+  VISUALIZER_DEFAULTS,
+} from './config/visualizer-config.js';
 
 export interface EnabledVisualizers {
   frequency: boolean;
@@ -65,8 +68,14 @@ export const visualizerPreferencesSlice = createSlice({
       state,
       action: PayloadAction<{ x: number; y: number }>,
     ) => {
-      state.targetX = Math.max(VISUALIZER_CONFIG.position.min, action.payload.x);
-      state.targetY = Math.max(VISUALIZER_CONFIG.position.min, action.payload.y);
+      state.targetX = Math.max(
+        VISUALIZER_CONFIG.position.min,
+        action.payload.x,
+      );
+      state.targetY = Math.max(
+        VISUALIZER_CONFIG.position.min,
+        action.payload.y,
+      );
     },
     setVisualizerSize: (
       state,
@@ -91,8 +100,7 @@ export const visualizerPreferencesSlice = createSlice({
   },
 });
 
-export const visualizerPreferencesReducer =
-  visualizerPreferencesSlice.reducer;
+export const visualizerPreferencesReducer = visualizerPreferencesSlice.reducer;
 
 export const {
   setFrequencyEnabled,

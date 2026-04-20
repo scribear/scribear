@@ -52,13 +52,13 @@ import {
   TranscriptionDisplayPreferencesMenu,
 } from '@scribear/transcription-display-ui';
 
-import { VisualizerContainer } from '#src/features/visualizer/components/visualizer-container';
-import { VisualizerSettingsMenu } from '#src/features/visualizer/components/visualizer-settings-menu';
 import { SwitchingProviderModal } from '#src/features/transcription-providers/components/switching-provider-modal';
 import { TranscriptionProviderConfigMenu } from '#src/features/transcription-providers/components/transcription-provider-config-menu';
 import { TranscriptionProviderSelector } from '#src/features/transcription-providers/components/transcription-provider-selector';
 import { TranscriptionProviderStatusDisplay } from '#src/features/transcription-providers/components/transcription-provider-status-display';
 import { TranscriptionProviderStatusModal } from '#src/features/transcription-providers/components/transcription-provider-status-modal';
+import { VisualizerContainer } from '#src/features/visualizer/components/visualizer-container';
+import { VisualizerSettingsMenu } from '#src/features/visualizer/components/visualizer-settings-menu';
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
 /**

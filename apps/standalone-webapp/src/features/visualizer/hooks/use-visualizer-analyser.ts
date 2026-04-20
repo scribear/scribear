@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useRef, useSyncExternalStore } from 'react';
 
 import { selectIsMicrophoneServiceActive } from '@scribear/microphone-store';
 import { useMicrophoneServiceContext } from '@scribear/microphone-ui';
@@ -12,22 +12,22 @@ import { useAppSelector } from '#src/store/use-redux';
 export function useVisualizerAnalyser(): AnalyserNode | null {
   const { microphoneService } = useMicrophoneServiceContext();
   const isMicActive = useAppSelector(selectIsMicrophoneServiceActive);
-  const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
 
-  useEffect(() => {
-    if (!isMicActive) {
-      setAnalyserNode(null);
-      return;
-    }
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => {
+      const tap = isMicActive ? microphoneService.createAnalyserTap() : null;
+      analyserRef.current = tap?.analyserNode ?? null;
+      onStoreChange();
 
-    const tap = microphoneService.createAnalyserTap();
-    setAnalyserNode(tap.analyserNode);
+      return () => {
+        if (tap) microphoneService.closeAnalyserTap(tap);
+        analyserRef.current = null;
+        onStoreChange();
+      };
+    },
+    [isMicActive, microphoneService],
+  );
 
-    return () => {
-      microphoneService.closeAnalyserTap(tap);
-      setAnalyserNode(null);
-    };
-  }, [isMicActive, microphoneService]);
-
-  return analyserNode;
+  return useSyncExternalStore(subscribe, () => analyserRef.current);
 }
