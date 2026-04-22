@@ -61,6 +61,7 @@ export class DeviceManagementController {
       path: '/',
       secure: this._useSecureCookie,
       sameSite: 'strict',
+      maxAge: 60 * 60 * 24 * 365,
     });
     res
       .code(200)
