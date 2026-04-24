@@ -1,44 +1,41 @@
-import type { UpcomingSession } from '#src/features/room-provider/stores/room-service-slice';
+import type { UnknownAction } from '@reduxjs/toolkit';
 
 export enum BroadcastMessageType {
-  SETTINGS_UPDATE = 'SETTINGS_UPDATE',
-  AUTH_STATE_CHANGE = 'AUTH_STATE_CHANGE',
-  SESSION_STATE_CHANGE = 'SESSION_STATE_CHANGE',
-}
-
-export interface SettingsUpdatePayload {
-  fontSize: number;
-  showJoinCode: boolean;
-}
-
-export interface AuthStateChangePayload {
-  isActivated: boolean;
-  deviceName: string | null;
-  deviceId: string | null;
-}
-
-export interface SessionStateChangePayload {
-  activeSessionId: string | null;
-  joinCode: string | null;
-  joinCodeExpiresAtUnixMs: number | null;
-  upcomingSessions: UpcomingSession[];
+  /**
+   * A Redux action mirrored from the touchscreen tab to the display tab.
+   * The receiving tab dispatches `action` verbatim into its own store.
+   */
+  MIRROR_ACTION = 'MIRROR_ACTION',
+  /**
+   * Sent by the display tab on connect to ask the touchscreen tab to push its
+   * current cross-screen state. The touchscreen responds with a series of
+   * MIRROR_ACTION messages that recreate that state in the display store.
+   */
+  REQUEST_SNAPSHOT = 'REQUEST_SNAPSHOT',
 }
 
 export type BroadcastMessage =
-  | { type: BroadcastMessageType.SETTINGS_UPDATE; payload: SettingsUpdatePayload }
-  | { type: BroadcastMessageType.AUTH_STATE_CHANGE; payload: AuthStateChangePayload }
-  | { type: BroadcastMessageType.SESSION_STATE_CHANGE; payload: SessionStateChangePayload };
+  | { type: BroadcastMessageType.MIRROR_ACTION; action: UnknownAction }
+  | { type: BroadcastMessageType.REQUEST_SNAPSHOT };
 
 const VALID_MESSAGE_TYPES = new Set<string>(Object.values(BroadcastMessageType));
 
 function isBroadcastMessage(data: unknown): data is BroadcastMessage {
-  return (
-    data !== null &&
-    typeof data === 'object' &&
-    'type' in data &&
-    typeof (data as Record<string, unknown>).type === 'string' &&
-    VALID_MESSAGE_TYPES.has((data as Record<string, unknown>).type as string)
-  );
+  if (data === null || typeof data !== 'object') return false;
+  const record = data as Record<string, unknown>;
+  const type = record['type'];
+  if (typeof type !== 'string' || !VALID_MESSAGE_TYPES.has(type)) {
+    return false;
+  }
+  if (type === (BroadcastMessageType.MIRROR_ACTION as string)) {
+    const action = record['action'] as Record<string, unknown> | null | undefined;
+    return (
+      action !== null &&
+      typeof action === 'object' &&
+      typeof action['type'] === 'string'
+    );
+  }
+  return true;
 }
 
 export class BroadcastChannelService {
@@ -59,7 +56,9 @@ export class BroadcastChannelService {
       }
     };
     this._channel.addEventListener('message', listener);
-    return () => this._channel.removeEventListener('message', listener);
+    return () => {
+      this._channel.removeEventListener('message', listener);
+    };
   }
 
   close(): void {

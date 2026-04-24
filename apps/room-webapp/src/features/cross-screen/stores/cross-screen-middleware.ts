@@ -1,4 +1,4 @@
-import type { Middleware } from '@reduxjs/toolkit';
+import type { Middleware, UnknownAction } from '@reduxjs/toolkit';
 
 import { createNodeServerClient } from '@scribear/node-server-client';
 import {
@@ -30,7 +30,28 @@ import {
 import { setFontSize, setShowJoinCode } from './display-settings-slice';
 
 const isDisplayTab = () => window.location.pathname.startsWith('/display');
-const isTouchscreenTab = () => window.location.pathname.startsWith('/touchscreen');
+const isTouchscreenTab = () =>
+  window.location.pathname.startsWith('/touchscreen');
+
+// Action types that are mirrored 1:1 from the touchscreen tab to the display
+// tab via BroadcastChannel. Both tabs run identical reducers, so dispatching
+// the same action object in the display store produces the same state mutation
+// without a separate translation layer.
+const MIRRORED_ACTION_TYPES: ReadonlySet<string> = new Set<string>([
+  setFontSize.type,
+  setShowJoinCode.type,
+  setDeviceName.type,
+  setDeviceId.type,
+  setActiveSessionId.type,
+  setJoinCode.type,
+  setUpcomingSessions.type,
+]);
+
+const isMirroredAction = (action: unknown): action is UnknownAction =>
+  action !== null &&
+  typeof action === 'object' &&
+  typeof (action as { type?: unknown }).type === 'string' &&
+  MIRRORED_ACTION_TYPES.has((action as UnknownAction).type);
 
 export const createCrossScreenMiddleware =
   (): Middleware<object, RootState> =>
@@ -47,32 +68,35 @@ export const createCrossScreenMiddleware =
     const sessionManagerClient = createSessionManagerClient(window.location.origin);
     const nodeServerClient = createNodeServerClient(window.location.origin);
 
-    const broadcastStateSnapshot = () => {
-      const state = store.getState();
-      broadcastService.send({
-        type: BroadcastMessageType.SETTINGS_UPDATE,
-        payload: {
-          fontSize: state.displaySettings.fontSize,
-          showJoinCode: state.displaySettings.showJoinCode,
-        },
-      });
-      broadcastService.send({
-        type: BroadcastMessageType.AUTH_STATE_CHANGE,
-        payload: {
-          isActivated: state.roomConfig.deviceName !== null,
-          deviceName: state.roomConfig.deviceName,
-          deviceId: state.roomConfig.deviceId,
-        },
-      });
-      broadcastService.send({
-        type: BroadcastMessageType.SESSION_STATE_CHANGE,
-        payload: {
-          activeSessionId: state.roomConfig.activeSessionId,
-          joinCode: state.roomService.joinCode,
-          joinCodeExpiresAtUnixMs: state.roomService.joinCodeExpiresAtUnixMs,
-          upcomingSessions: state.roomService.upcomingSessions,
-        },
-      });
+    // Build the actions that recreate the cross-screen state in the receiving
+    // tab. Used both on touchscreen init (push) and in response to the display
+    // tab's REQUEST_SNAPSHOT (pull). Each action is mirrored individually so
+    // the display store applies them through its normal reducer paths.
+    const buildSnapshotActions = (state: RootState): UnknownAction[] => [
+      setFontSize(state.displaySettings.fontSize),
+      setShowJoinCode(state.displaySettings.showJoinCode),
+      setDeviceName(state.roomConfig.deviceName),
+      setDeviceId(state.roomConfig.deviceId),
+      setActiveSessionId(state.roomConfig.activeSessionId),
+      setJoinCode(
+        state.roomService.joinCode !== null &&
+          state.roomService.joinCodeExpiresAtUnixMs !== null
+          ? {
+              joinCode: state.roomService.joinCode,
+              expiresAtUnixMs: state.roomService.joinCodeExpiresAtUnixMs,
+            }
+          : null,
+      ),
+      setUpcomingSessions(state.roomService.upcomingSessions),
+    ];
+
+    const sendSnapshot = () => {
+      for (const action of buildSnapshotActions(store.getState())) {
+        broadcastService.send({
+          type: BroadcastMessageType.MIRROR_ACTION,
+          action,
+        });
+      }
     };
 
     const connectDisplaySession = async (sessionId: string) => {
@@ -130,35 +154,27 @@ export const createCrossScreenMiddleware =
 
     if (isDisplayTab()) {
       unsubscribeMessages = broadcastService.onMessage((message) => {
-        switch (message.type) {
-          case BroadcastMessageType.SETTINGS_UPDATE:
-            store.dispatch(setFontSize(message.payload.fontSize));
-            store.dispatch(setShowJoinCode(message.payload.showJoinCode));
-            break;
-          case BroadcastMessageType.AUTH_STATE_CHANGE:
-            store.dispatch(setDeviceName(message.payload.deviceName));
-            store.dispatch(setDeviceId(message.payload.deviceId));
-            break;
-          case BroadcastMessageType.SESSION_STATE_CHANGE: {
-            const { activeSessionId, joinCode, joinCodeExpiresAtUnixMs, upcomingSessions } =
-              message.payload;
-            store.dispatch(setActiveSessionId(activeSessionId));
-            store.dispatch(
-              setJoinCode(
-                joinCode !== null && joinCodeExpiresAtUnixMs !== null
-                  ? { joinCode, expiresAtUnixMs: joinCodeExpiresAtUnixMs }
-                  : null,
-              ),
-            );
-            store.dispatch(setUpcomingSessions(upcomingSessions));
+        if (message.type === BroadcastMessageType.MIRROR_ACTION) {
+          store.dispatch(message.action);
+        }
+      });
 
-            if (activeSessionId) {
-              void connectDisplaySession(activeSessionId);
-            } else {
-              disconnectDisplaySession();
-            }
-            break;
-          }
+      // Catch-up path for late-opening display tabs: ask the touchscreen for
+      // its current state. The touchscreen's own appInitialization snapshot
+      // covers the case where both tabs reload together; this covers the case
+      // where the touchscreen has been running for a while.
+      // Defer so the Redux store is fully constructed before the touchscreen
+      // reply dispatches into this store (Redux 5+ forbids dispatch during
+      // middleware setup / initial dispatch chain).
+      queueMicrotask(() => {
+        broadcastService.send({ type: BroadcastMessageType.REQUEST_SNAPSHOT });
+      });
+    }
+
+    if (isTouchscreenTab()) {
+      unsubscribeMessages = broadcastService.onMessage((message) => {
+        if (message.type === BroadcastMessageType.REQUEST_SNAPSHOT) {
+          sendSnapshot();
         }
       });
     }
@@ -190,46 +206,14 @@ export const createCrossScreenMiddleware =
       }
 
       if (isTouchscreenTab()) {
-        const state = store.getState();
-
         if (appInitialization.match(action) || rememberRehydrated.match(action)) {
-          broadcastStateSnapshot();
+          sendSnapshot();
         }
 
-        if (setFontSize.match(action) || setShowJoinCode.match(action)) {
+        if (isMirroredAction(action)) {
           broadcastService.send({
-            type: BroadcastMessageType.SETTINGS_UPDATE,
-            payload: {
-              fontSize: state.displaySettings.fontSize,
-              showJoinCode: state.displaySettings.showJoinCode,
-            },
-          });
-        }
-
-        if (setDeviceName.match(action) || setDeviceId.match(action)) {
-          broadcastService.send({
-            type: BroadcastMessageType.AUTH_STATE_CHANGE,
-            payload: {
-              isActivated: state.roomConfig.deviceName !== null,
-              deviceName: state.roomConfig.deviceName,
-              deviceId: state.roomConfig.deviceId,
-            },
-          });
-        }
-
-        if (
-          setActiveSessionId.match(action) ||
-          setJoinCode.match(action) ||
-          setUpcomingSessions.match(action)
-        ) {
-          broadcastService.send({
-            type: BroadcastMessageType.SESSION_STATE_CHANGE,
-            payload: {
-              activeSessionId: state.roomConfig.activeSessionId,
-              joinCode: state.roomService.joinCode,
-              joinCodeExpiresAtUnixMs: state.roomService.joinCodeExpiresAtUnixMs,
-              upcomingSessions: state.roomService.upcomingSessions,
-            },
+            type: BroadcastMessageType.MIRROR_ACTION,
+            action,
           });
         }
       }
