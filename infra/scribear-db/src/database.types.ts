@@ -5,6 +5,18 @@
 
 import type { ColumnType } from "kysely";
 
+export type ArrayType<T> = ArrayTypeImpl<T> extends (infer U)[]
+  ? U[]
+  : ArrayTypeImpl<T>;
+
+export type ArrayTypeImpl<T> = T extends ColumnType<infer S, infer I, infer U>
+  ? ColumnType<S[], I[], U[]>
+  : T[];
+
+export type AuthMethod = "DEVICE_TOKEN" | "JOIN_CODE";
+
+export type DayOfWeek = "FRI" | "MON" | "SAT" | "SUN" | "THU" | "TUE" | "WED";
+
 export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S, I | undefined, U>
   : ColumnType<T, T | undefined, T>;
@@ -23,7 +35,11 @@ export type JsonPrimitive = boolean | number | string | null;
 
 export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 
-export type SessionEventType = "END_SESSION" | "START_SESSION";
+export type ScheduleFrequency = "BIWEEKLY" | "ONCE" | "WEEKLY";
+
+export type SessionScope = "RECEIVE_TRANSCRIPTIONS" | "SEND_AUDIO";
+
+export type SessionType = "AUTO" | "ON_DEMAND" | "SCHEDULED";
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
@@ -54,55 +70,92 @@ export interface CronJobRunDetails {
 
 export interface Devices {
   activation_code: string | null;
-  activation_expiry: Timestamp | null;
-  id: Generated<string>;
-  is_active: Generated<boolean | null>;
+  active: Generated<boolean>;
+  created_at: Generated<Timestamp>;
+  expiry: Timestamp | null;
+  hash: string | null;
   name: string;
-  secret_hash: string | null;
+  uid: Generated<string>;
 }
 
-export interface SessionEvents {
-  device_id: string;
-  event_type: SessionEventType;
-  id: Generated<number>;
-  session_id: string;
-  timestamp: Timestamp;
+export interface RoomDevices {
+  created_at: Generated<Timestamp>;
+  device_uid: string;
+  is_source: Generated<boolean>;
+  room_uid: string;
+}
+
+export interface Rooms {
+  auto_session_enabled: Generated<boolean>;
+  auto_session_transcription_provider_id: string | null;
+  auto_session_transcription_stream_config: Json | null;
+  created_at: Generated<Timestamp>;
+  last_materialized_at: Timestamp | null;
+  name: string;
+  room_schedule_version: Generated<Int8>;
+  timezone: string;
+  uid: Generated<string>;
 }
 
 export interface SessionJoinCodes {
-  code: string;
-  created_at: Timestamp;
-  expires_at: Timestamp;
-  id: Generated<string>;
-  session_id: string;
+  created_at: Generated<Timestamp>;
+  join_code: string;
+  session_uid: string;
+  valid_end: Timestamp;
+  valid_start: Timestamp;
 }
 
 export interface SessionRefreshTokens {
-  auth_method: string;
-  expiry: Timestamp | null;
-  id: Generated<string>;
-  scope: string[];
-  secret_hash: string;
-  session_id: string;
+  auth_method: AuthMethod;
+  client_id: string;
+  created_at: Generated<Timestamp>;
+  hash: string;
+  scopes: ArrayType<SessionScope>;
+  session_uid: string;
+  uid: Generated<string>;
 }
 
 export interface Sessions {
-  end_time: Timestamp | null;
-  id: Generated<string>;
-  join_code_length: number | null;
-  join_code_rotation_enabled: boolean | null;
-  source_device_id: string;
-  start_time: Timestamp;
-  transcription_provider_config: Json;
-  transcription_provider_key: string;
+  created_at: Generated<Timestamp>;
+  end_override: Timestamp | null;
+  join_code_scopes: Generated<ArrayType<SessionScope>>;
+  name: string;
+  room_uid: string;
+  scheduled_end_time: Timestamp | null;
+  scheduled_session_uid: string | null;
+  scheduled_start_time: Timestamp;
+  session_config_version: Generated<Int8>;
+  start_override: Timestamp | null;
+  transcription_provider_id: string | null;
+  transcription_stream_config: Json | null;
+  type: SessionType;
+  uid: Generated<string>;
+}
+
+export interface SessionSchedules {
+  active_end: Timestamp | null;
+  active_start: Timestamp;
+  created_at: Generated<Timestamp>;
+  days_of_week: ArrayType<DayOfWeek> | null;
+  frequency: ScheduleFrequency;
+  join_code_scopes: Generated<ArrayType<SessionScope>>;
+  local_end_time: string;
+  local_start_time: string;
+  name: string;
+  room_uid: string;
+  transcription_provider_id: string | null;
+  transcription_stream_config: Json | null;
+  uid: Generated<string>;
 }
 
 export interface DB {
   "cron.job": CronJob;
   "cron.job_run_details": CronJobRunDetails;
   devices: Devices;
-  session_events: SessionEvents;
+  room_devices: RoomDevices;
+  rooms: Rooms;
   session_join_codes: SessionJoinCodes;
   session_refresh_tokens: SessionRefreshTokens;
+  session_schedules: SessionSchedules;
   sessions: Sessions;
 }
