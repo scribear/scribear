@@ -24,6 +24,7 @@
     "lint:fix": "eslint ./src --fix"
   },
   "dependencies": {
+    "@scribear/base-schema": "*",
     "typebox": "1.1.5"
   }
 }

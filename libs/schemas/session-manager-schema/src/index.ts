@@ -1,22 +1,40 @@
 export { OPENAPI_INFO, OPENAPI_VERSION } from './metadata.js';
-export { OPENAPI_TAGS } from './tags.js';
-export {
-  OPENAPI_SECURITY_SCHEMES,
-  DEVICE_COOKIE_NAME,
-  NODE_SERVER_KEY_AUTH_HEADER_SCHEMA,
-  NODE_SERVER_KEY_AUTH_SECURITY,
-} from './security.js';
+export * from './base-path.js';
+export * from './security/index.js';
+export * from './tags.js';
 
-export * from './device-management/activate-device.schema.js';
-export * from './device-management/register-device.schema.js';
-export * from './healthcheck/healthcheck.schema.js';
-export * from './session-management/create-session.schema.js';
-export * from './session-management/device-session-events.schema.js';
-export * from './session-management/end-session.schema.js';
-export * from './session-management/get-session-config.schema.js';
-export * from './session-management/get-session-join-code.schema.js';
-export * from './session-management/refresh-session-token.schema.js';
-export * from './session-management/session-event-channel.schema.js';
-export * from './session-management/session-join-code-auth.schema.js';
-export * from './session-management/session-token-payload.schema.js';
-export * from './session-management/source-device-session-auth.schema.js';
+export * from './shared/entities/pagination.schema.js';
+export * from './shared/entities/session-scope.schema.js';
+
+export * from './probes/routes/liveness.schema.js';
+export * from './probes/routes/readiness.schema.js';
+
+export * from './room-management/entities/room.schema.js';
+export * from './room-management/routes/list-rooms.schema.js';
+export * from './room-management/routes/get-room.schema.js';
+export * from './room-management/routes/create-room.schema.js';
+export * from './room-management/routes/update-room.schema.js';
+export * from './room-management/routes/delete-room.schema.js';
+export * from './room-management/routes/add-device-to-room.schema.js';
+export * from './room-management/routes/remove-device-from-room.schema.js';
+export * from './room-management/routes/set-source-device.schema.js';
+export * from './room-management/routes/get-my-room.schema.js';
+
+export * from './device-management/entities/device.schema.js';
+export * from './device-management/routes/list-devices.schema.js';
+export * from './device-management/routes/get-device.schema.js';
+export * from './device-management/routes/register-device.schema.js';
+export * from './device-management/routes/reregister-device.schema.js';
+export * from './device-management/routes/activate-device.schema.js';
+export * from './device-management/routes/update-device.schema.js';
+export * from './device-management/routes/delete-device.schema.js';
+export * from './device-management/routes/get-my-device.schema.js';
+
+export * from './schedule-management/entities/day-of-week.schema.js';
+export * from './schedule-management/entities/schedule-frequency.schema.js';
+export * from './schedule-management/entities/session-schedule.schema.js';
+
+export * from './session-auth/entities/auth-method.schema.js';
+
+export * from './session-management/entities/session-type.schema.js';
+export * from './session-management/entities/session.schema.js';
