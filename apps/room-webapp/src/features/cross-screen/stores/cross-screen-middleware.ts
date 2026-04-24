@@ -30,8 +30,11 @@ import {
 import { setFontSize, setShowJoinCode } from './display-settings-slice';
 
 const isDisplayTab = () => window.location.pathname.startsWith('/display');
-const isTouchscreenTab = () =>
-  window.location.pathname.startsWith('/touchscreen');
+// Controller tabs own the RoomService and broadcast their state to display tabs.
+// Both /touchscreen and /wall-panel are controllers.
+const isControllerTab = () =>
+  window.location.pathname.startsWith('/touchscreen') ||
+  window.location.pathname.startsWith('/wall-panel');
 
 // Action types that are mirrored 1:1 from the touchscreen tab to the display
 // tab via BroadcastChannel. Both tabs run identical reducers, so dispatching
@@ -171,7 +174,7 @@ export const createCrossScreenMiddleware =
       });
     }
 
-    if (isTouchscreenTab()) {
+    if (isControllerTab()) {
       unsubscribeMessages = broadcastService.onMessage((message) => {
         if (message.type === BroadcastMessageType.REQUEST_SNAPSHOT) {
           sendSnapshot();
@@ -205,7 +208,7 @@ export const createCrossScreenMiddleware =
         }
       }
 
-      if (isTouchscreenTab()) {
+      if (isControllerTab()) {
         if (appInitialization.match(action) || rememberRehydrated.match(action)) {
           sendSnapshot();
         }

@@ -5,9 +5,10 @@ import Chip from '@mui/material/Chip';
 import Divider from '@mui/material/Divider';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import { QRCodeSVG } from 'qrcode.react';
-import { createSessionManagerClient } from '@scribear/session-manager-client';
 
+import { QRCodeSVG } from 'qrcode.react';
+
+import { createSessionManagerClient } from '@scribear/session-manager-client';
 import {
   selectActiveSection,
   selectCommitedSections,
@@ -25,20 +26,21 @@ import {
   TranscriptionDisplayProvider,
 } from '@scribear/transcription-display-ui';
 
-import { selectFontSize, selectShowJoinCode } from '#src/features/cross-screen/stores/display-settings-slice';
-import { selectActiveSessionId, selectDeviceName } from '#src/features/room-provider/stores/room-config-slice';
-import { setJoinCode, selectJoinCode, selectUpcomingSessions } from '#src/features/room-provider/stores/room-service-slice';
+import {
+  selectFontSize,
+  selectShowJoinCode,
+} from '#src/features/cross-screen/stores/display-settings-slice';
+import {
+  selectActiveSessionId,
+  selectDeviceName,
+} from '#src/features/room-provider/stores/room-config-slice';
+import {
+  selectJoinCode,
+  selectUpcomingSessions,
+  setJoinCode,
+} from '#src/features/room-provider/stores/room-service-slice';
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
-
-const CLIENT_WEBAPP_URL =
-  (import.meta.env['VITE_CLIENT_WEBAPP_URL'] as string | undefined) ??
-  `${window.location.origin}/client`;
-
-function buildJoinUrl(joinCode: string): string {
-  const config = { clientSessionConfig: { joinCode } };
-  const encoded = btoa(JSON.stringify(config));
-  return `${CLIENT_WEBAPP_URL}#config=${encoded}`;
-}
+import { buildClientJoinUrl } from '#src/utils/client-join-url';
 
 export const DisplayLive = () => {
   const dispatch = useAppDispatch();
@@ -57,13 +59,17 @@ export const DisplayLive = () => {
   // Transcription content
   const commitedSections = useAppSelector(selectCommitedSections);
   const activeSection = useAppSelector(selectActiveSection);
-  const inProgressTranscriptionText = useAppSelector(selectInProgressTranscriptionText);
+  const inProgressTranscriptionText = useAppSelector(
+    selectInProgressTranscriptionText,
+  );
 
   // Display layout prefs — lineHeight multiplier comes from the user's
   // transcription-display preferences; we apply it to the touchscreen-controlled fontSize.
   const lineHeightMultipler = useAppSelector(selectLineHeightMultipler);
   const wordSpacingEm = useAppSelector(selectWordSpacingEm);
-  const targetVerticalPositionPx = useAppSelector(selectTargetVerticalPositionPx);
+  const targetVerticalPositionPx = useAppSelector(
+    selectTargetVerticalPositionPx,
+  );
   const targetDisplayLines = useAppSelector(selectTargetDisplayLines);
 
   const lineHeightPx = Math.round(fontSize * lineHeightMultipler);
@@ -72,7 +78,9 @@ export const DisplayLive = () => {
       return;
     }
 
-    const sessionManagerClient = createSessionManagerClient(window.location.origin);
+    const sessionManagerClient = createSessionManagerClient(
+      window.location.origin,
+    );
     let cancelled = false;
 
     const fetchJoinCode = async () => {
@@ -133,7 +141,7 @@ export const DisplayLive = () => {
           {deviceName ?? 'Room Display'}
         </Typography>
         <Stack direction="row" alignItems="center" spacing={2}>
-          {activeSession?.endTime && (
+          {activeSession?.endTime != null && (
             <Typography variant="body2" color="text.secondary">
               Session in progress · ends at{' '}
               <Box component="span" sx={{ color: '#ffffff', fontWeight: 700 }}>
@@ -186,7 +194,11 @@ export const DisplayLive = () => {
               gap: 1,
             }}
           >
-            <Typography variant="caption" color="text.secondary" textAlign="center">
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              textAlign="center"
+            >
               Join with code
             </Typography>
             <Typography variant="h5" fontFamily="monospace" letterSpacing={3}>
@@ -194,7 +206,7 @@ export const DisplayLive = () => {
             </Typography>
             <Box sx={{ p: 1, bgcolor: '#ffffff', borderRadius: 1 }}>
               <QRCodeSVG
-                value={buildJoinUrl(joinCode)}
+                value={buildClientJoinUrl(joinCode)}
                 size={180}
                 bgColor="#ffffff"
                 fgColor="#000000"

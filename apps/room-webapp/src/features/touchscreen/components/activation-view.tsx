@@ -101,6 +101,12 @@ export const ActivationView = () => {
                     minHeight: 58,
                     fontSize: '1.25rem',
                     fontFamily: 'monospace',
+                    color: 'white',
+                    borderColor: 'white',
+                    '&:hover': {
+                      borderColor: 'white',
+                      bgcolor: 'rgba(255,255,255,0.1)',
+                    },
                   }}
                   disabled={isLoading}
                 >

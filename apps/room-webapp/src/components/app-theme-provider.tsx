@@ -40,12 +40,26 @@ export const AppThemeProvider = ({ children }: AppThemeProviderProps) => {
           'html, body, #root': {
             color: ROOM_TEXT_PRIMARY,
           },
-          '.MuiTypography-root:not(.MuiTypography-colorTranscriptionColor), .MuiListItemText-primary, .MuiListItemText-secondary, .MuiFormLabel-root, .MuiInputLabel-root, .MuiFormHelperText-root, .MuiInputBase-input, .MuiFormControlLabel-label, .MuiChip-label, .MuiTableCell-root': {
-            color: `${ROOM_TEXT_PRIMARY} !important`,
+          // MUI defaults `palette.background.paper` to white; this app forces
+          // light typography globally, so any paper/dialog surface must stay dark.
+          '.MuiDialog-paper': {
+            backgroundColor,
+            backgroundImage: 'none',
+            border: '1px solid rgba(255,255,255,0.12)',
           },
-          '.MuiTypography-root.MuiTypography-colorTextSecondary:not(.MuiTypography-colorTranscriptionColor), .MuiListItemText-secondary, .MuiFormHelperText-root, .MuiInputBase-input::placeholder': {
-            color: `${ROOM_TEXT_SECONDARY} !important`,
+          '.MuiModal-root .MuiPaper-root': {
+            backgroundColor,
+            backgroundImage: 'none',
+            border: '1px solid rgba(255,255,255,0.12)',
           },
+          '.MuiTypography-root:not(.MuiTypography-colorTranscriptionColor), .MuiListItemText-primary, .MuiListItemText-secondary, .MuiFormLabel-root, .MuiInputLabel-root, .MuiFormHelperText-root, .MuiInputBase-input, .MuiFormControlLabel-label, .MuiChip-label, .MuiTableCell-root':
+            {
+              color: `${ROOM_TEXT_PRIMARY} !important`,
+            },
+          '.MuiTypography-root.MuiTypography-colorTextSecondary:not(.MuiTypography-colorTranscriptionColor), .MuiListItemText-secondary, .MuiFormHelperText-root, .MuiInputBase-input::placeholder':
+            {
+              color: `${ROOM_TEXT_SECONDARY} !important`,
+            },
           '.MuiInputBase-input::placeholder': {
             color: `${ROOM_TEXT_SECONDARY} !important`,
             opacity: 1,

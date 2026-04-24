@@ -55,13 +55,18 @@ if (import.meta.hot) {
 export const createRoomServiceMiddleware =
   (microphoneService: MicrophoneService): Middleware<object, RootState> =>
   (store) => {
-    const isTouchscreenTab = window.location.pathname.startsWith('/touchscreen');
+    // Controller tabs own the RoomService lifecycle and drive session-manager
+    // interactions. The wall-panel and touchscreen both act as controllers; the
+    // display tab is read-only and receives state via BroadcastChannel.
+    const isControllerTab =
+      window.location.pathname.startsWith('/touchscreen') ||
+      window.location.pathname.startsWith('/wall-panel');
 
     // Clean up any previous instance (handles HMR module replacement).
     _activeRoomService?.removeAllListeners();
     _activeRoomService?.deactivate();
 
-    if (!isTouchscreenTab) {
+    if (!isControllerTab) {
       _activeRoomService = null;
       return (next) => (action) => next(action);
     }
