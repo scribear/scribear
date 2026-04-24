@@ -2,7 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { Type } from 'typebox';
 import { type Mock, beforeEach, describe, expect, vi } from 'vitest';
 
-import { HttpError } from '#src/server/errors/http-errors.js';
+import { BaseHttpError } from '#src/server/errors/http-errors.js';
 import schemaValidator from '#src/server/plugins/schema-validator.js';
 
 describe('Schema Validator Plugin', (it) => {
@@ -81,9 +81,13 @@ describe('Schema Validator Plugin', (it) => {
 
     // Assert
     expect(mockErrorHandler).toHaveBeenCalledExactlyOnceWith(
-      expect.any(HttpError.BadRequest),
+      expect.any(BaseHttpError),
       expect.anything(),
       expect.anything(),
     );
+    const [err] = mockErrorHandler.mock.calls[0] as [BaseHttpError];
+    expect(err.statusCode).toBe(400);
+    expect(err.code).toBe('VALIDATION_ERROR');
+    expect(err.details?.['validationErrors']).toBeInstanceOf(Array);
   });
 });

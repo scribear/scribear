@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { type Mock, beforeEach, describe, expect, vi } from 'vitest';
 
-import { HttpError } from '#src/server/errors/http-errors.js';
+import { BaseHttpError } from '#src/server/errors/http-errors.js';
 import jsonParser from '#src/server/plugins/json-parser.js';
 
 describe('JSON Parser Plugin', (it) => {
@@ -62,9 +62,12 @@ describe('JSON Parser Plugin', (it) => {
 
     // Assert
     expect(mockErrorHandler).toHaveBeenCalledExactlyOnceWith(
-      expect.any(HttpError.BadRequest),
+      expect.any(BaseHttpError),
       expect.anything(),
       expect.anything(),
     );
+    const [err] = mockErrorHandler.mock.calls[0] as [BaseHttpError];
+    expect(err.statusCode).toBe(400);
+    expect(err.code).toBe('VALIDATION_ERROR');
   });
 });

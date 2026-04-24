@@ -8,7 +8,7 @@ import type {
 
 import {
   NetworkError,
-  SchemaValidationError,
+  UnexpectedResponseError,
   createEndpointClient,
 } from '#src/index.js';
 
@@ -205,7 +205,7 @@ describe('createEndpointClient', () => {
       expect((error as NetworkError).cause).toBe(originalError);
     });
 
-    it('returns SchemaValidationError when response status has no schema defined', async () => {
+    it('returns UnexpectedResponseError when response status has no schema defined', async () => {
       // Arrange
       vi.stubGlobal(
         'fetch',
@@ -222,11 +222,11 @@ describe('createEndpointClient', () => {
 
       // Assert
       expect(response).toBeNull();
-      expect(error).toBeInstanceOf(SchemaValidationError);
-      expect((error as SchemaValidationError).status).toBe(403);
+      expect(error).toBeInstanceOf(UnexpectedResponseError);
+      expect((error as UnexpectedResponseError).status).toBe(403);
     });
 
-    it('returns SchemaValidationError when 200 body does not match schema', async () => {
+    it('returns UnexpectedResponseError when 200 body does not match schema', async () => {
       // Arrange
       vi.stubGlobal(
         'fetch',
@@ -243,11 +243,11 @@ describe('createEndpointClient', () => {
 
       // Assert
       expect(response).toBeNull();
-      expect(error).toBeInstanceOf(SchemaValidationError);
-      expect((error as SchemaValidationError).status).toBe(200);
+      expect(error).toBeInstanceOf(UnexpectedResponseError);
+      expect((error as UnexpectedResponseError).status).toBe(200);
     });
 
-    it('returns SchemaValidationError when 422 body does not match schema', async () => {
+    it('returns UnexpectedResponseError when 422 body does not match schema', async () => {
       // Arrange
       vi.stubGlobal(
         'fetch',
@@ -264,8 +264,8 @@ describe('createEndpointClient', () => {
 
       // Assert
       expect(response).toBeNull();
-      expect(error).toBeInstanceOf(SchemaValidationError);
-      expect((error as SchemaValidationError).status).toBe(422);
+      expect(error).toBeInstanceOf(UnexpectedResponseError);
+      expect((error as UnexpectedResponseError).status).toBe(422);
     });
   });
 });

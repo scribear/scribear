@@ -6,7 +6,8 @@ import { HttpError } from '#src/server/errors/http-errors.js';
 import type { BaseFastifyInstance } from '#src/server/types/base-fastify-types.js';
 
 /**
- * Integration tests for server error handling
+ * Integration tests that exercise the full error-handling chain: plugin
+ * registration, validator, and the canonical ErrorReply body shape.
  */
 describe('Integration Tests - Error Handling', (it) => {
   let fastify: BaseFastifyInstance;
@@ -17,70 +18,89 @@ describe('Integration Tests - Error Handling', (it) => {
     fastify = server.fastify;
   });
 
-  /**
-   * Test that server returns correct response containg request error when BadRequest error is thrown in handler
-   */
-  it('returns 400 response when BadRequest error is thrown in handler', async () => {
+  it('serializes a 400 validation error with details', async () => {
     // Arrange
-    const requestErrors = [
-      { message: 'something wrong', key: '/body' },
-      { message: 'something else', key: '/body/a' },
-    ];
+    const details = {
+      validationErrors: [
+        { message: 'something wrong', path: '/body' },
+        { message: 'something else', path: '/body/a' },
+      ],
+    };
     fastify.get('/error', () => {
-      throw new HttpError.BadRequest(requestErrors);
+      throw HttpError.badRequest('Request validation failed.', details);
     });
 
     // Act
-    const response = await fastify.inject({
-      method: 'GET',
-      url: '/error',
-    });
+    const response = await fastify.inject({ method: 'GET', url: '/error' });
 
     // Assert
     expect(response.statusCode).toBe(400);
-    expect(response.json()).toMatchObject({ requestErrors });
+    expect(response.json()).toStrictEqual({
+      code: 'VALIDATION_ERROR',
+      message: 'Request validation failed.',
+      details,
+    });
   });
 
-  /**
-   * Test that server returns correct response when HttpErrors are thrown in handler
-   */
   it.for([
-    { httpError: HttpError.Unauthorized, code: 401, name: 'Unauthorized' },
-    { httpError: HttpError.Forbidden, code: 403, name: 'Forbidden' },
-    { httpError: HttpError.NotFound, code: 404, name: 'NotFound' },
     {
-      httpError: HttpError.TooManyRequests,
-      code: 429,
-      name: 'TooManyRequests',
+      make: () => HttpError.unauthorized('nope'),
+      status: 401,
+      code: 'UNAUTHORIZED',
     },
-    { httpError: HttpError.ServerError, code: 500, name: 'ServerError' },
+    {
+      make: () => HttpError.forbidden('ADMIN_ONLY', 'admin only'),
+      status: 403,
+      code: 'ADMIN_ONLY',
+    },
+    {
+      make: () => HttpError.notFound('ROOM_NOT_FOUND', 'gone'),
+      status: 404,
+      code: 'ROOM_NOT_FOUND',
+    },
+    {
+      make: () => HttpError.conflict('SCHEDULE_CONFLICT', 'overlap'),
+      status: 409,
+      code: 'SCHEDULE_CONFLICT',
+    },
+    {
+      make: () => HttpError.unprocessable('INVALID_TIMEZONE', 'bad tz'),
+      status: 422,
+      code: 'INVALID_TIMEZONE',
+    },
+    {
+      make: () => HttpError.rateLimited(),
+      status: 429,
+      code: 'RATE_LIMITED',
+    },
+    {
+      make: () => HttpError.internal(),
+      status: 500,
+      code: 'INTERNAL_ERROR',
+    },
   ])(
-    'returns $code response for $name error is thrown in handler',
-    async ({ httpError, code }) => {
+    'serializes $code thrown in a handler as status $status',
+    async ({ make, status, code }) => {
       // Arrange
-      const errorMessage = 'Test unauthorized';
+      const err = make();
       fastify.get('/error', () => {
-        throw new httpError(errorMessage);
+        throw err;
       });
 
       // Act
-      const response = await fastify.inject({
-        method: 'GET',
-        url: '/error',
-      });
+      const response = await fastify.inject({ method: 'GET', url: '/error' });
 
       // Assert
-      expect(response.statusCode).toBe(code);
-      expect(response.json()).toMatchObject({ message: errorMessage });
+      expect(response.statusCode).toBe(status);
+      expect(response.json()).toMatchObject({
+        code,
+        message: err.message,
+      });
     },
   );
 
-  /**
-   * Test that server returns correct response when an invalid route is requested
-   */
-  it('returns 404 response when path is not found', async () => {
-    // Arrange
-    // Act
+  it('returns a ROUTE_NOT_FOUND body for unknown paths', async () => {
+    // Arrange / Act
     const response = await fastify.inject({
       method: 'GET',
       url: '/error/notfound',
@@ -88,30 +108,27 @@ describe('Integration Tests - Error Handling', (it) => {
 
     // Assert
     expect(response.statusCode).toBe(404);
-    expect(response.json()).toMatchObject({
-      message: 'Route GET: /error/notfound not found',
+    expect(response.json()).toStrictEqual({
+      code: 'ROUTE_NOT_FOUND',
+      message: 'Route GET: /error/notfound not found.',
     });
   });
 
-  /**
-   * Test that server returns correct response when a server error is thrown in handler
-   */
-  it('returns 500 response when general error is thrown in handler', async () => {
+  it('maps any non-HttpError thrown in a handler to 500 INTERNAL_ERROR', async () => {
     // Arrange
     fastify.get('/error', () => {
       throw new Error('Server Error');
     });
 
     // Act
-    const response = await fastify.inject({
-      method: 'GET',
-      url: '/error',
-    });
+    const response = await fastify.inject({ method: 'GET', url: '/error' });
 
     // Assert
     expect(response.statusCode).toBe(500);
-    expect(response.json()).toMatchObject({
-      message: 'Sever encountered an unexpected error. Please try again later.',
+    expect(response.json()).toStrictEqual({
+      code: 'INTERNAL_ERROR',
+      message:
+        'Server encountered an unexpected error. Please try again later.',
     });
   });
 });

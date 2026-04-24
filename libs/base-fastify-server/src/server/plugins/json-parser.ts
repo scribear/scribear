@@ -4,7 +4,8 @@ import { HttpError } from '../errors/http-errors.js';
 import type { BaseFastifyInstance } from '../types/base-fastify-types.js';
 
 /**
- * Custom fastify not found handler to throw custom 400 error
+ * JSON body parser that produces a canonical `VALIDATION_ERROR` on malformed
+ * input instead of fastify's default.
  */
 export default fastifyPlugin((fastify: BaseFastifyInstance) => {
   fastify.addContentTypeParser(
@@ -18,9 +19,11 @@ export default fastifyPlugin((fastify: BaseFastifyInstance) => {
         req.log.info({ msg: 'Failed to parse JSON body', err: parseError });
 
         done(
-          new HttpError.BadRequest([
-            { message: 'Invalid JSON found in request body.', key: '/body' },
-          ]),
+          HttpError.badRequest('Invalid JSON found in request body.', {
+            validationErrors: [
+              { message: 'Invalid JSON found in request body.', path: '/body' },
+            ],
+          }),
         );
       }
     },

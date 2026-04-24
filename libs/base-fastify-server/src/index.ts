@@ -1,7 +1,12 @@
 import createBaseServer from './server/create-base-server.js';
 import type { BaseLogger } from './server/create-logger.js';
 import { LogLevel } from './server/create-logger.js';
-import { BaseHttpError, HttpError } from './server/errors/http-errors.js';
+import {
+  BaseHttpError,
+  type ErrorReply,
+  HttpError,
+  type HttpErrorStatus,
+} from './server/errors/http-errors.js';
 import type { BaseDependencies } from './server/types/base-dependencies.js';
 import type {
   BaseFastifyInstance,
@@ -16,4 +21,6 @@ export type {
   BaseFastifyInstance,
   BaseFastifyReply,
   BaseFastifyRequest,
+  ErrorReply,
+  HttpErrorStatus,
 };

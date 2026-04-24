@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance, errorCodes } from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import { beforeEach, describe, expect } from 'vitest';
 
 import { HttpError } from '#src/server/errors/http-errors.js';
@@ -15,95 +15,127 @@ describe('Error Handler Plugin', (it) => {
   });
 
   /**
-   * Check that error handler handles HttpErrors by return API response containing message and request id
-   * Note: BadRequest has a different schema and is tested separately
+   * Ensures BaseHttpError subclasses serialize to `{code, message}` with the
+   * configured status.
    */
   it.for([
-    { httpError: HttpError.Unauthorized, code: 401, name: 'Unauthorized' },
-    { httpError: HttpError.Forbidden, code: 403, name: 'Forbidden' },
-    { httpError: HttpError.NotFound, code: 404, name: 'NotFound' },
     {
-      httpError: HttpError.UnprocessableEntity,
-      code: 422,
-      name: 'UnprocessableEntity',
+      make: () => HttpError.unauthorized('nope'),
+      status: 401,
+      code: 'UNAUTHORIZED',
     },
     {
-      httpError: HttpError.TooManyRequests,
-      code: 429,
-      name: 'TooManyRequests',
+      make: () => HttpError.forbidden('ADMIN_ONLY', 'admin only'),
+      status: 403,
+      code: 'ADMIN_ONLY',
     },
-    { httpError: HttpError.ServerError, code: 500, name: 'ServerError' },
+    {
+      make: () => HttpError.notFound('ROOM_NOT_FOUND', 'missing'),
+      status: 404,
+      code: 'ROOM_NOT_FOUND',
+    },
+    {
+      make: () =>
+        HttpError.conflict('SCHEDULE_CONFLICT', 'overlap', { sessionUid: 'x' }),
+      status: 409,
+      code: 'SCHEDULE_CONFLICT',
+    },
+    {
+      make: () => HttpError.unprocessable('INVALID_TIMEZONE', 'bad tz'),
+      status: 422,
+      code: 'INVALID_TIMEZONE',
+    },
+    {
+      make: () => HttpError.rateLimited(),
+      status: 429,
+      code: 'RATE_LIMITED',
+    },
+    {
+      make: () => HttpError.internal(),
+      status: 500,
+      code: 'INTERNAL_ERROR',
+    },
   ])(
-    'handles $name by returning error message and request id',
-    async ({ httpError, code }) => {
+    'serializes $code as status $status with canonical body',
+    async ({ make, status, code }) => {
       // Arrange
-      const errorMessage = 'Resource not found';
+      const err = make();
       fastify.get('/test', () => {
-        throw new httpError(errorMessage);
+        throw err;
       });
 
       // Act
       const response = await fastify.inject({ method: 'GET', url: '/test' });
 
-      // Assertions
-      expect(response.statusCode).toBe(code);
-      expect(JSON.parse(response.payload)).toStrictEqual({
-        message: errorMessage,
-      });
+      // Assert
+      expect(response.statusCode).toBe(status);
+      const body = JSON.parse(response.payload) as {
+        code: string;
+        message: string;
+        details?: Record<string, unknown>;
+      };
+      expect(body.code).toBe(code);
+      expect(body.message).toBe(err.message);
+      if (err.details !== undefined) {
+        expect(body.details).toStrictEqual(err.details);
+      }
     },
   );
 
-  /**
-   * Check that error handler handles BadRequest by returning API response containing request id and list of request errors
-   */
-  it('handles BadRequest by returning list of request errors', async () => {
+  it('includes details on the serialized body when provided', async () => {
     // Arrange
-    const testRequestErrors = [
-      { key: '/body/email', message: 'Invalid email format' },
-      { key: '/body/password', message: 'Password is too short' },
-    ];
-
+    const err = HttpError.conflict('SCHEDULE_CONFLICT', 'overlap', {
+      conflictingSessionUid: 'u-1',
+    });
     fastify.get('/test', () => {
-      throw new HttpError.BadRequest(testRequestErrors);
+      throw err;
     });
 
     // Act
     const response = await fastify.inject({ method: 'GET', url: '/test' });
 
     // Assert
-    expect(response.statusCode).toBe(400);
+    expect(response.statusCode).toBe(409);
     expect(JSON.parse(response.payload)).toStrictEqual({
-      requestErrors: testRequestErrors,
+      code: 'SCHEDULE_CONFLICT',
+      message: 'overlap',
+      details: { conflictingSessionUid: 'u-1' },
     });
   });
 
-  /**
-   * Check that error handler lets fastify handle fastify errors
-   */
-  it.for(
-    Object.entries(errorCodes).map(([key, value]) => {
-      return { name: key, error: value };
-    }),
-  )('avoids handling fastify error: $name', async ({ error, name }) => {
-    // Arrange
-    fastify.get('/test', () => {
-      throw new error('Fastify threw some error');
-    });
+  it.for([
+    {
+      statusCode: 405,
+      code: 'METHOD_NOT_ALLOWED',
+      message: 'Method not allowed.',
+    },
+    { statusCode: 406, code: 'NOT_ACCEPTABLE', message: 'Not acceptable.' },
+    {
+      statusCode: 415,
+      code: 'UNSUPPORTED_MEDIA_TYPE',
+      message: 'Unsupported media type.',
+    },
+  ])(
+    'normalizes framework $statusCode to $code',
+    async ({ statusCode, code, message }) => {
+      // Arrange - simulate a Fastify framework error (has statusCode but is not BaseHttpError)
+      const frameworkErr = Object.assign(new Error('framework'), {
+        statusCode,
+      });
+      fastify.get('/test', () => {
+        throw frameworkErr;
+      });
 
-    // Act
-    const response = await fastify.inject({ method: 'GET', url: '/test' });
+      // Act
+      const response = await fastify.inject({ method: 'GET', url: '/test' });
 
-    // Assert
-    expect(response.json()).toMatchObject({
-      // fastify error handler returns error name in code field
-      code: name,
-    });
-  });
+      // Assert
+      expect(response.statusCode).toBe(statusCode);
+      expect(JSON.parse(response.payload)).toStrictEqual({ code, message });
+    },
+  );
 
-  /**
-   * Check that error handler treats all other Errors as a 500 Server Error and returns appropriate response
-   */
-  it('handles non-HttpError as a 500 Server Error', async () => {
+  it('handles non-HttpError as 500 INTERNAL_ERROR', async () => {
     // Arrange
     fastify.get('/test', () => {
       throw new Error('Something went wrong');
@@ -115,7 +147,9 @@ describe('Error Handler Plugin', (it) => {
     // Assert
     expect(response.statusCode).toBe(500);
     expect(JSON.parse(response.payload)).toStrictEqual({
-      message: 'Sever encountered an unexpected error. Please try again later.',
+      code: 'INTERNAL_ERROR',
+      message:
+        'Server encountered an unexpected error. Please try again later.',
     });
   });
 });
