@@ -11,7 +11,7 @@ import {
   ADMIN_API_KEY_AUTH_HEADER_SCHEMA,
   ADMIN_API_KEY_SECURITY,
   INVALID_ADMIN_KEY_REPLY_SCHEMA,
-} from '#src/security/admin-api-key.js';
+} from '#src/shared/security/admin-api-key.js';
 import { DEVICE_MANAGEMENT_TAG } from '#src/tags.js';
 
 const REREGISTER_DEVICE_SCHEMA = {

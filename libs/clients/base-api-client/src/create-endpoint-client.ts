@@ -48,9 +48,9 @@ type EndpointResult<S extends BaseRouteSchema> =
  *
  * Contract:
  *
- * - Declared statuses with matching bodies → typed response.
- * - Fetch rejects → {@link NetworkError}.
- * - Any other status, or a body failing the declared schema → {@link UnexpectedResponseError}.
+ * - Declared statuses with matching bodies -> typed response.
+ * - Fetch rejects -> {@link NetworkError}.
+ * - Any other status, or a body failing the declared schema -> {@link UnexpectedResponseError}.
  *
  * Infrastructure statuses (429, 502, 503, 504) fall into
  * `UnexpectedResponseError` because routes don't declare them; callers

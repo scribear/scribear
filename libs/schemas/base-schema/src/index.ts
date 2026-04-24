@@ -17,3 +17,4 @@ export type {
   BaseWebSocketRouteSchema,
   WsCloseCode,
 } from './types/base-websocket-route-schema.js';
+export type { BaseLongPollRouteSchema } from './types/base-long-poll-route-schema.js';

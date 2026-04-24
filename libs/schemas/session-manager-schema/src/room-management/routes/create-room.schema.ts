@@ -11,7 +11,7 @@ import {
   ADMIN_API_KEY_AUTH_HEADER_SCHEMA,
   ADMIN_API_KEY_SECURITY,
   INVALID_ADMIN_KEY_REPLY_SCHEMA,
-} from '#src/security/admin-api-key.js';
+} from '#src/shared/security/admin-api-key.js';
 import { ROOM_MANAGEMENT_TAG } from '#src/tags.js';
 
 import { ROOM_SCHEMA } from '../entities/room.schema.js';
@@ -39,7 +39,8 @@ const CREATE_ROOM_SCHEMA = {
     ),
     sourceDeviceUids: Type.Array(Type.String({ format: 'uuid' }), {
       minItems: 1,
-      description: 'Source devices to be associated with room. Currently only exactly one allowed.',
+      description:
+        'Source devices to be associated with room. Currently only exactly one allowed.',
     }),
   }),
   response: {

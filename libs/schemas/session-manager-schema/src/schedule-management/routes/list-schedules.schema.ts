@@ -13,42 +13,39 @@ import {
   INVALID_ADMIN_KEY_REPLY_SCHEMA,
 } from '#src/shared/security/admin-api-key.js';
 import { paginatedQuerySchema } from '#src/shared/entities/pagination.schema.js';
-import { ROOM_MANAGEMENT_TAG } from '#src/tags.js';
+import { SCHEDULE_MANAGEMENT_TAG } from '#src/tags.js';
 
-import { ROOM_SCHEMA } from '../entities/room.schema.js';
+import { SESSION_SCHEDULE_SCHEMA } from '../entities/session-schedule.schema.js';
 
-const LIST_ROOMS_SCHEMA = {
+const LIST_SCHEDULES_SCHEMA = {
   description:
-    'List rooms, optionally filtered by a trigram-similarity search on name. Results are paginated.',
-  tags: [ROOM_MANAGEMENT_TAG],
+    'List session schedules for a room, optionally filtered by name.',
+  tags: [SCHEDULE_MANAGEMENT_TAG],
   security: ADMIN_API_KEY_SECURITY,
   headers: Type.Object({
     authorization: ADMIN_API_KEY_AUTH_HEADER_SCHEMA,
   }),
   querystring: paginatedQuerySchema({
+    roomUid: Type.String({ format: 'uuid' }),
     search: Type.Optional(
       Type.String({
-        description:
-          'Fuzzy substring to match against room name using trigram similarity.',
+        description: 'Fuzzy name filter using trigram similarity.',
       }),
     ),
   }),
   response: {
-    200: Type.Object(
-      {
-        items: Type.Array(ROOM_SCHEMA),
-        nextCursor: Type.Optional(Type.String()),
-      },
-      { description: 'Paginated rooms matching the optional search filter.' },
-    ),
+    200: Type.Object({
+      items: Type.Array(SESSION_SCHEDULE_SCHEMA),
+      nextCursor: Type.Optional(Type.String()),
+    }),
     ...STANDARD_ERROR_REPLIES,
     ...INVALID_ADMIN_KEY_REPLY_SCHEMA,
   },
 } satisfies BaseRouteSchema;
 
-const LIST_ROOMS_ROUTE: BaseRouteDefinition = {
+const LIST_SCHEDULES_ROUTE: BaseRouteDefinition = {
   method: 'GET',
-  url: `${SESSION_MANAGER_BASE_PATH}/room-management/list-rooms`,
+  url: `${SESSION_MANAGER_BASE_PATH}/session-management/list-schedules`,
 };
 
-export { LIST_ROOMS_SCHEMA, LIST_ROOMS_ROUTE };
+export { LIST_SCHEDULES_SCHEMA, LIST_SCHEDULES_ROUTE };

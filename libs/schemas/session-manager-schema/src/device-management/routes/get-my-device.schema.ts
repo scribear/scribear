@@ -8,7 +8,7 @@ import { SESSION_MANAGER_BASE_PATH } from '#src/base-path.js';
 import {
   DEVICE_TOKEN_SECURITY,
   INVALID_DEVICE_TOKEN_REPLY_SCHEMA,
-} from '#src/security/device-token.js';
+} from '#src/shared/security/device-token.js';
 import { DEVICE_MANAGEMENT_TAG } from '#src/tags.js';
 
 import { SELF_DEVICE_SCHEMA } from '../entities/device.schema.js';

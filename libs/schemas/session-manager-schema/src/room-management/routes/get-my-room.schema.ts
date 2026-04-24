@@ -10,8 +10,9 @@ import { SESSION_MANAGER_BASE_PATH } from '#src/base-path.js';
 import {
   DEVICE_TOKEN_SECURITY,
   INVALID_DEVICE_TOKEN_REPLY_SCHEMA,
-} from '#src/security/device-token.js';
+} from '#src/shared/security/device-token.js';
 import { ROOM_MANAGEMENT_TAG } from '#src/tags.js';
+
 import { SELF_ROOM_SCHEMA } from '../entities/room.schema.js';
 
 const GET_MY_ROOM_SCHEMA = {
