@@ -1,0 +1,45 @@
+{
+  "name": "@scribear/session-manager",
+  "version": "0.0.0",
+  "description": "",
+  "author": "scribear",
+  "main": "dist/src/index.js",
+  "type": "module",
+  "imports": {
+    "#src/*": "./dist/src/*",
+    "#tests/*": "./dist/tests/*"
+  },
+  "scripts": {
+    "build": "tsc --build && node esbuild.config.mjs",
+    "start": "node ./dist/src/index.js",
+    "dev": "tsc --build && concurrently -k \"tsc --build --watch\" \"node --watch-path=dist dist/src/index.js --dev | pino-pretty\"",
+    "format": "prettier --check ./src",
+    "format:fix": "prettier --write ./src",
+    "lint": "eslint ./src",
+    "lint:fix": "eslint ./src --fix",
+    "test:dev": "vitest --ui --coverage",
+    "test:integration": "vitest run --project integration",
+    "test:unit": "vitest run --project unit"
+  },
+  "dependencies": {
+    "@fastify/awilix": "8.2.0",
+    "@scribear/base-fastify-server": "*",
+    "@scribear/scribear-db": "*",
+    "@scribear/session-manager-schema": "*",
+    "@fastify/cookie": "11.0.2",
+    "@fastify/swagger": "9.7.0",
+    "@fastify/swagger-ui": "5.2.5",
+    "awilix": "13.0.0",
+    "bcrypt": "6.0.0",
+    "env-schema": "7.0.0",
+    "fastify": "5.7.4",
+    "fastify-plugin": "5.1.0",
+    "kysely": "0.28.11",
+    "pg": "8.19.0",
+    "typebox": "1.1.5"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "6.0.0",
+    "@types/pg": "8.16.0"
+  }
+}

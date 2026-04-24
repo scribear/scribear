@@ -1,0 +1,18 @@
+import crypto from 'node:crypto';
+
+const RANDOM_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+/**
+ * Generates a random alphanumeric code of given length
+ * @param length Length of random code
+ * @returns Generated random code
+ */
+export function generateRandomCode(length: number): string {
+  let code = '';
+  for (let i = 0; i < length; i++) {
+    code += RANDOM_CODE_CHARS.charAt(
+      crypto.randomInt(0, RANDOM_CODE_CHARS.length),
+    );
+  }
+  return code;
+}
