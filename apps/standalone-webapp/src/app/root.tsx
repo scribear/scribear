@@ -1,6 +1,9 @@
 import { useCallback } from 'react';
 
+import ClearAllIcon from '@mui/icons-material/ClearAll';
+import IconButton from '@mui/material/IconButton';
 import Stack from '@mui/material/Stack';
+import Tooltip from '@mui/material/Tooltip';
 
 import {
   selectIsHeaderHideEnabled,
@@ -28,6 +31,7 @@ import {
 } from '@scribear/theme-customization-store';
 import { ThemeCustomizationMenu } from '@scribear/theme-customization-ui';
 import {
+  clearTranscription,
   selectActiveSection,
   selectCommitedSections,
   selectInProgressTranscriptionText,
@@ -153,6 +157,11 @@ export const Root = () => {
   );
 
   const HeaderButtons = [
+    <Tooltip key="clear" title="Clear Transcription">
+      <IconButton color="inherit" onClick={() => dispatch(clearTranscription())}>
+        <ClearAllIcon />
+      </IconButton>
+    </Tooltip>,
     <ToggleMicrophoneButton
       key="mic"
       isMicrophoneActive={isMicrophoneActive}
