@@ -1,7 +1,7 @@
 import { type Updateable, sql } from 'kysely';
 import type { SelectQueryBuilder } from 'kysely';
 
-import type { DB, JsonValue, Rooms } from '@scribear/scribear-db';
+import type { DB, Rooms } from '@scribear/scribear-db';
 
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
 import {
@@ -14,9 +14,6 @@ interface RoomRow {
   uid: string;
   name: string;
   timezone: string;
-  auto_session_enabled: boolean;
-  auto_session_transcription_provider_id: string | null;
-  auto_session_transcription_stream_config: unknown;
   room_schedule_version: string;
   created_at: Date;
 }
@@ -33,11 +30,6 @@ function mapRoom(row: RoomRow) {
     uid: row.uid,
     name: row.name,
     timezone: row.timezone,
-    autoSessionEnabled: row.auto_session_enabled,
-    autoSessionTranscriptionProviderId:
-      row.auto_session_transcription_provider_id,
-    autoSessionTranscriptionStreamConfig:
-      row.auto_session_transcription_stream_config,
     roomScheduleVersion: Number(row.room_schedule_version),
     createdAt: row.created_at,
   };
@@ -75,9 +67,6 @@ export class RoomManagementRepository {
         'uid',
         'name',
         'timezone',
-        'auto_session_enabled',
-        'auto_session_transcription_provider_id',
-        'auto_session_transcription_stream_config',
         'room_schedule_version',
         'created_at',
       ])
@@ -110,9 +99,6 @@ export class RoomManagementRepository {
         'uid',
         'name',
         'timezone',
-        'auto_session_enabled',
-        'auto_session_transcription_provider_id',
-        'auto_session_transcription_stream_config',
         'room_schedule_version',
         'created_at',
       ]) as BaseRoomQuery;
@@ -217,37 +203,19 @@ export class RoomManagementRepository {
    * Inserts a new room.
    * @param data.name The display name for the room.
    * @param data.timezone A valid IANA timezone identifier.
-   * @param data.autoSessionEnabled Whether to enable automatic session creation.
-   * @param data.autoSessionTranscriptionProviderId Optional transcription provider for auto-sessions.
-   * @param data.autoSessionTranscriptionStreamConfig Optional provider-specific stream config.
    * @returns The newly created room.
    */
-  async create(data: {
-    name: string;
-    timezone: string;
-    autoSessionEnabled: boolean;
-    autoSessionTranscriptionProviderId?: string | null;
-    autoSessionTranscriptionStreamConfig?: unknown;
-  }) {
+  async create(data: { name: string; timezone: string }) {
     const row = (await this._dbClient.db
       .insertInto('rooms')
       .values({
         name: data.name,
         timezone: data.timezone,
-        auto_session_enabled: data.autoSessionEnabled,
-        auto_session_transcription_provider_id:
-          data.autoSessionTranscriptionProviderId ?? null,
-        auto_session_transcription_stream_config:
-          (data.autoSessionTranscriptionStreamConfig ??
-            null) as JsonValue | null,
       })
       .returning([
         'uid',
         'name',
         'timezone',
-        'auto_session_enabled',
-        'auto_session_transcription_provider_id',
-        'auto_session_transcription_stream_config',
         'room_schedule_version',
         'created_at',
       ])
@@ -266,22 +234,11 @@ export class RoomManagementRepository {
     data: {
       name?: string;
       timezone?: string;
-      autoSessionEnabled?: boolean;
-      autoSessionTranscriptionProviderId?: string | null;
-      autoSessionTranscriptionStreamConfig?: unknown;
     },
   ) {
     const updates: Partial<Updateable<Rooms>> = {};
     if (data.name !== undefined) updates.name = data.name;
     if (data.timezone !== undefined) updates.timezone = data.timezone;
-    if (data.autoSessionEnabled !== undefined)
-      updates.auto_session_enabled = data.autoSessionEnabled;
-    if ('autoSessionTranscriptionProviderId' in data)
-      updates.auto_session_transcription_provider_id =
-        data.autoSessionTranscriptionProviderId ?? null;
-    if ('autoSessionTranscriptionStreamConfig' in data)
-      updates.auto_session_transcription_stream_config =
-        (data.autoSessionTranscriptionStreamConfig ?? null) as JsonValue | null;
 
     if (Object.keys(updates).length === 0) {
       return this.findById(roomUid);
@@ -295,9 +252,6 @@ export class RoomManagementRepository {
         'uid',
         'name',
         'timezone',
-        'auto_session_enabled',
-        'auto_session_transcription_provider_id',
-        'auto_session_transcription_stream_config',
         'room_schedule_version',
         'created_at',
       ])

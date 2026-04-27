@@ -35,11 +35,13 @@
     "fastify": "5.7.4",
     "fastify-plugin": "5.1.0",
     "kysely": "0.28.11",
+    "luxon": "3.6.1",
     "pg": "8.19.0",
     "typebox": "1.1.5"
   },
   "devDependencies": {
     "@types/bcrypt": "6.0.0",
+    "@types/luxon": "3.6.2",
     "@types/pg": "8.16.0"
   }
 }

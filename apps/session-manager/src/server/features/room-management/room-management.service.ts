@@ -54,9 +54,6 @@ export class RoomManagementService {
   async createRoom(data: {
     name: string;
     timezone: string;
-    autoSessionEnabled?: boolean;
-    autoSessionTranscriptionProviderId?: string | null;
-    autoSessionTranscriptionStreamConfig?: unknown;
     sourceDeviceUids: string[];
   }) {
     if (!isValidTimezone(data.timezone)) {
@@ -84,15 +81,6 @@ export class RoomManagementService {
     const room = await this._roomManagementRepository.create({
       name: data.name,
       timezone: data.timezone,
-      autoSessionEnabled: data.autoSessionEnabled ?? false,
-      ...(data.autoSessionTranscriptionProviderId !== undefined && {
-        autoSessionTranscriptionProviderId:
-          data.autoSessionTranscriptionProviderId,
-      }),
-      ...(data.autoSessionTranscriptionStreamConfig !== undefined && {
-        autoSessionTranscriptionStreamConfig:
-          data.autoSessionTranscriptionStreamConfig,
-      }),
     });
 
     await this._roomManagementRepository.addDeviceToRoom(
@@ -209,7 +197,6 @@ export class RoomManagementService {
       uid: room.uid,
       name: room.name,
       timezone: room.timezone,
-      autoSessionEnabled: room.autoSessionEnabled,
       roomScheduleVersion: room.roomScheduleVersion,
     };
   }

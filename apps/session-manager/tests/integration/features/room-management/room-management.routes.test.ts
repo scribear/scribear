@@ -48,9 +48,6 @@ describe('Room Management Routes', () => {
         name,
         timezone: 'America/New_York',
         sourceDeviceUids: [deviceUid],
-        autoSessionEnabled: false,
-        autoSessionTranscriptionProviderId: null,
-        autoSessionTranscriptionStreamConfig: null,
       },
     });
     return res.json<{ uid: string; name: string }>();
@@ -67,9 +64,6 @@ describe('Room Management Routes', () => {
           name: 'Room',
           timezone: 'UTC',
           sourceDeviceUids: [NULL_UUID],
-          autoSessionEnabled: false,
-          autoSessionTranscriptionProviderId: null,
-          autoSessionTranscriptionStreamConfig: null,
         },
       });
 
@@ -92,9 +86,6 @@ describe('Room Management Routes', () => {
           name: 'My Room',
           timezone: 'America/New_York',
           sourceDeviceUids: [deviceUid],
-          autoSessionEnabled: false,
-          autoSessionTranscriptionProviderId: null,
-          autoSessionTranscriptionStreamConfig: null,
         },
       });
 
@@ -119,9 +110,6 @@ describe('Room Management Routes', () => {
           name: 'My Room',
           timezone: 'Not/ATimezone',
           sourceDeviceUids: [deviceUid],
-          autoSessionEnabled: false,
-          autoSessionTranscriptionProviderId: null,
-          autoSessionTranscriptionStreamConfig: null,
         },
       });
 
@@ -140,9 +128,6 @@ describe('Room Management Routes', () => {
           name: 'Room',
           timezone: 'America/New_York',
           sourceDeviceUids: [NULL_UUID],
-          autoSessionEnabled: false,
-          autoSessionTranscriptionProviderId: null,
-          autoSessionTranscriptionStreamConfig: null,
         },
       });
 
@@ -165,9 +150,6 @@ describe('Room Management Routes', () => {
           name: 'Room',
           timezone: 'America/New_York',
           sourceDeviceUids: [uid1, uid2],
-          autoSessionEnabled: false,
-          autoSessionTranscriptionProviderId: null,
-          autoSessionTranscriptionStreamConfig: null,
         },
       });
 
@@ -190,9 +172,6 @@ describe('Room Management Routes', () => {
           name: 'Another Room',
           timezone: 'America/New_York',
           sourceDeviceUids: [deviceUid],
-          autoSessionEnabled: false,
-          autoSessionTranscriptionProviderId: null,
-          autoSessionTranscriptionStreamConfig: null,
         },
       });
 

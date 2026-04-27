@@ -12,15 +12,6 @@ export const ROOM_SCHEMA = Type.Object(
       description: 'IANA timezone identifier.',
       examples: ['America/New_York'],
     }),
-    autoSessionEnabled: Type.Boolean(),
-    autoSessionTranscriptionProviderId: Type.Union([
-      Type.String(),
-      Type.Null(),
-    ]),
-    autoSessionTranscriptionStreamConfig: Type.Union([
-      Type.Unknown(),
-      Type.Null(),
-    ]),
     roomScheduleVersion: Type.Integer({
       description:
         'Monotonically increasing counter bumped on any session/schedule write in this room.',
@@ -44,7 +35,6 @@ export const SELF_ROOM_SCHEMA = Type.Object(
       description: 'IANA timezone identifier.',
       examples: ['America/New_York'],
     }),
-    autoSessionEnabled: Type.Boolean(),
     roomScheduleVersion: Type.Integer({
       description:
         'Monotonically increasing counter bumped on any session/schedule write in this room.',

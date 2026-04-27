@@ -10,9 +10,6 @@ const mockRoom = {
   uid: 'room-1',
   name: 'Test Room',
   timezone: VALID_TIMEZONE,
-  autoSessionEnabled: false,
-  autoSessionTranscriptionProviderId: null,
-  autoSessionTranscriptionStreamConfig: null,
   roomScheduleVersion: 1,
   createdAt: '2025-01-01T00:00:00.000Z',
 };
@@ -201,7 +198,7 @@ describe('RoomManagementService', () => {
       expect(mockDeviceRepo.findById).toHaveBeenCalledWith('device-1');
     });
 
-    it('calls repo.create with the correct name, timezone, and autoSessionEnabled', async () => {
+    it('calls repo.create with the correct name and timezone', async () => {
       // Arrange
       mockDeviceRepo.findById.mockResolvedValue(mockDevice);
       mockRoomRepo.create.mockResolvedValue(mockRoom);
@@ -219,7 +216,6 @@ describe('RoomManagementService', () => {
         expect.objectContaining({
           name: 'Test Room',
           timezone: VALID_TIMEZONE,
-          autoSessionEnabled: false,
         }),
       );
     });
@@ -581,9 +577,6 @@ describe('RoomManagementService', () => {
         uid: 'room-1',
         name: 'Test Room',
         timezone: VALID_TIMEZONE,
-        autoSessionEnabled: false,
-        autoSessionTranscriptionProviderId: null,
-        autoSessionTranscriptionStreamConfig: null,
         roomScheduleVersion: 1,
         createdAt: '2025-01-01T00:00:00.000Z',
       });
@@ -597,7 +590,6 @@ describe('RoomManagementService', () => {
         uid: 'room-1',
         name: 'Test Room',
         timezone: VALID_TIMEZONE,
-        autoSessionEnabled: false,
         roomScheduleVersion: 1,
       });
     });

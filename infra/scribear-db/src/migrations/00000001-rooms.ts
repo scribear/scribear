@@ -7,10 +7,6 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       name                                      TEXT NOT NULL,
       timezone                                  TEXT NOT NULL,
 
-      auto_session_enabled                      BOOLEAN NOT NULL DEFAULT FALSE,
-      auto_session_transcription_provider_id    TEXT NULL,
-      auto_session_transcription_stream_config  JSONB NULL,
-
       room_schedule_version                     BIGINT NOT NULL DEFAULT 1,
       last_materialized_at                      TIMESTAMPTZ NULL,
 

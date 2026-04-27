@@ -17,7 +17,11 @@ describe('Device Management Routes', () => {
       headers: { authorization: ADMIN_HEADER },
       body: { name },
     });
-    return res.json<{ deviceUid: string; activationCode: string; expiry: string }>();
+    return res.json<{
+      deviceUid: string;
+      activationCode: string;
+      expiry: string;
+    }>();
   }
 
   async function activateDevice(activationCode: string) {
@@ -64,7 +68,11 @@ describe('Device Management Routes', () => {
 
       // Assert
       expect(res.statusCode).toBe(201);
-      const body = res.json<{ deviceUid: string; activationCode: string; expiry: string }>();
+      const body = res.json<{
+        deviceUid: string;
+        activationCode: string;
+        expiry: string;
+      }>();
       expect(body.deviceUid).toEqual(expect.any(String));
       expect(body.activationCode).toEqual(expect.any(String));
       expect(body.expiry).toEqual(expect.any(String));
@@ -93,7 +101,9 @@ describe('Device Management Routes', () => {
 
       // Assert
       expect(res.statusCode).toBe(404);
-      expect(res.json<{ code: string }>().code).toBe('ACTIVATION_CODE_NOT_FOUND');
+      expect(res.json<{ code: string }>().code).toBe(
+        'ACTIVATION_CODE_NOT_FOUND',
+      );
     });
 
     it('returns 410 when the activation code is expired', async () => {
@@ -155,13 +165,18 @@ describe('Device Management Routes', () => {
 
     it('filters by roomUid and returns only devices in that room', async () => {
       // Arrange
-      const { deviceUid: inRoomUid, activationCode } = await registerDevice('In-Room Device');
+      const { deviceUid: inRoomUid, activationCode } =
+        await registerDevice('In-Room Device');
       await activateDevice(activationCode);
       const roomRes = await server.fastify.inject({
         method: 'POST',
         url: '/api/session-manager/v1/room-management/create-room',
         headers: { authorization: ADMIN_HEADER },
-        body: { name: 'Test Room', timezone: 'America/New_York', sourceDeviceUids: [inRoomUid], autoSessionEnabled: false, autoSessionTranscriptionProviderId: null, autoSessionTranscriptionStreamConfig: null },
+        body: {
+          name: 'Test Room',
+          timezone: 'America/New_York',
+          sourceDeviceUids: [inRoomUid],
+        },
       });
       const { uid: roomUid } = roomRes.json<{ uid: string }>();
       await registerDevice('Out-of-Room Device');
@@ -195,7 +210,10 @@ describe('Device Management Routes', () => {
 
       // Assert - first page has 2 items and a cursor
       expect(firstRes.statusCode).toBe(200);
-      const firstBody = firstRes.json<{ items: unknown[]; nextCursor: string | null }>();
+      const firstBody = firstRes.json<{
+        items: unknown[];
+        nextCursor: string | null;
+      }>();
       expect(firstBody.items).toHaveLength(2);
       expect(firstBody.nextCursor).toBeDefined();
 
@@ -208,7 +226,10 @@ describe('Device Management Routes', () => {
 
       // Assert - second page has the remaining item and no cursor
       expect(secondRes.statusCode).toBe(200);
-      const secondBody = secondRes.json<{ items: unknown[]; nextCursor: string | null }>();
+      const secondBody = secondRes.json<{
+        items: unknown[];
+        nextCursor: string | null;
+      }>();
       expect(secondBody.items).toHaveLength(1);
       expect(secondBody.nextCursor).toBeNull();
     });
@@ -353,7 +374,14 @@ describe('Device Management Routes', () => {
         method: 'POST',
         url: '/api/session-manager/v1/room-management/create-room',
         headers: { authorization: ADMIN_HEADER },
-        body: { name: 'Room', timezone: 'America/New_York', sourceDeviceUids: [deviceUid], autoSessionEnabled: false, autoSessionTranscriptionProviderId: null, autoSessionTranscriptionStreamConfig: null },
+        body: {
+          name: 'Room',
+          timezone: 'America/New_York',
+          sourceDeviceUids: [deviceUid],
+          autoSessionEnabled: false,
+          autoSessionTranscriptionProviderId: null,
+          autoSessionTranscriptionStreamConfig: null,
+        },
       });
 
       // Act
@@ -366,7 +394,9 @@ describe('Device Management Routes', () => {
 
       // Assert
       expect(res.statusCode).toBe(409);
-      expect(res.json<{ code: string }>().code).toBe('WOULD_LEAVE_ROOM_WITHOUT_SOURCE');
+      expect(res.json<{ code: string }>().code).toBe(
+        'WOULD_LEAVE_ROOM_WITHOUT_SOURCE',
+      );
     });
   });
 

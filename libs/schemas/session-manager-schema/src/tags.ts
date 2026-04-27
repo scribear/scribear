@@ -23,11 +23,6 @@ export const OPENAPI_TAGS: BaseTagsDefinition = [
     description: 'Recurring session schedules and their lifecycle.',
   },
   {
-    name: SESSION_MANAGEMENT_TAG,
-    description:
-      'Materialized sessions: list, on-demand creation, start/end early, and status streams.',
-  },
-  {
     name: SESSION_AUTH_TAG,
     description:
       'Join code issuance, join code exchange, source-device session auth, and session token refresh.',

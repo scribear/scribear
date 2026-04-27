@@ -43,6 +43,19 @@ export type SessionType = "AUTO" | "ON_DEMAND" | "SCHEDULED";
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
+export interface AutoSessionWindows {
+  active_end: Timestamp | null;
+  active_start: Generated<Timestamp>;
+  created_at: Generated<Timestamp>;
+  days_of_week: ArrayType<DayOfWeek>;
+  local_end_time: string;
+  local_start_time: string;
+  room_uid: string;
+  transcription_provider_id: string | null;
+  transcription_stream_config: Json | null;
+  uid: Generated<string>;
+}
+
 export interface CronJob {
   active: Generated<boolean>;
   command: string;
@@ -86,9 +99,6 @@ export interface RoomDevices {
 }
 
 export interface Rooms {
-  auto_session_enabled: Generated<boolean>;
-  auto_session_transcription_provider_id: string | null;
-  auto_session_transcription_stream_config: Json | null;
   created_at: Generated<Timestamp>;
   last_materialized_at: Timestamp | null;
   name: string;
@@ -149,6 +159,7 @@ export interface SessionSchedules {
 }
 
 export interface DB {
+  auto_session_windows: AutoSessionWindows;
   "cron.job": CronJob;
   "cron.job_run_details": CronJobRunDetails;
   devices: Devices;

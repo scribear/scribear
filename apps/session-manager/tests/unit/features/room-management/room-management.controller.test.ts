@@ -8,9 +8,6 @@ const mockRoom = {
   uid: 'room-1',
   name: 'Test Room',
   timezone: 'America/New_York',
-  autoSessionEnabled: false,
-  autoSessionTranscriptionProviderId: null,
-  autoSessionTranscriptionStreamConfig: null,
   roomScheduleVersion: 1,
   createdAt: FAKE_DATE,
 };
@@ -550,7 +547,6 @@ describe('RoomManagementController', () => {
         uid: 'room-1',
         name: 'Test Room',
         timezone: 'America/New_York',
-        autoSessionEnabled: false,
         roomScheduleVersion: 1,
       });
       const mockReq = { deviceUid: 'device-1' };
@@ -579,7 +575,6 @@ describe('RoomManagementController', () => {
         uid: 'room-1',
         name: 'Test Room',
         timezone: 'America/New_York',
-        autoSessionEnabled: false,
         roomScheduleVersion: 1,
       };
       mockService.getMyRoom.mockResolvedValue(myRoom);
@@ -594,7 +589,6 @@ describe('RoomManagementController', () => {
         uid: mockRoom.uid,
         name: mockRoom.name,
         timezone: mockRoom.timezone,
-        autoSessionEnabled: mockRoom.autoSessionEnabled,
         roomScheduleVersion: mockRoom.roomScheduleVersion,
       });
       expect(mockSend).not.toHaveBeenCalledWith(

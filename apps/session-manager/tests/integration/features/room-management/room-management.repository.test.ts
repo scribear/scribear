@@ -35,14 +35,12 @@ describe('RoomManagementRepository', () => {
       const result = await repository.create({
         name: 'My Room',
         timezone: 'America/New_York',
-        autoSessionEnabled: false,
       });
 
       // Assert
       expect(result.uid).toBeDefined();
       expect(result.name).toBe('My Room');
       expect(result.timezone).toBe('America/New_York');
-      expect(result.autoSessionEnabled).toBe(false);
       expect(result.roomScheduleVersion).toBe(1);
     });
   });

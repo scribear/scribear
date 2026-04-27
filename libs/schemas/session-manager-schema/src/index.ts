@@ -33,4 +33,3 @@ export * from './device-management/routes/get-my-device.schema.js';
 export * from './schedule-management/entities/day-of-week.schema.js';
 export * from './schedule-management/entities/schedule-frequency.schema.js';
 export * from './schedule-management/entities/session-schedule.schema.js';
-export * from './schedule-management/routes/update-room-schedule-config.schema.js';

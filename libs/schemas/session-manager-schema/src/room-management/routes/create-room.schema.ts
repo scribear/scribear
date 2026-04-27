@@ -31,15 +31,6 @@ const CREATE_ROOM_SCHEMA = {
       description: 'IANA timezone identifier.',
       examples: ['America/New_York'],
     }),
-    autoSessionEnabled: Type.Boolean({ default: false }),
-    autoSessionTranscriptionProviderId: Type.Union([
-      Type.String(),
-      Type.Null(),
-    ]),
-    autoSessionTranscriptionStreamConfig: Type.Union([
-      Type.Unknown(),
-      Type.Null(),
-    ]),
     sourceDeviceUids: Type.Array(Type.String({ format: 'uuid' }), {
       minItems: 1,
       description:
