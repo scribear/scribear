@@ -6,6 +6,7 @@ import { DAY_OF_WEEK_SCHEMA } from './day-of-week.schema.js';
 import { SCHEDULE_FREQUENCY_SCHEMA } from './schedule-frequency.schema.js';
 
 const LOCAL_TIME_SCHEMA = Type.String({
+  maxLength: 8,
   pattern: '^([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$',
   description:
     "Wall-clock time of day in the room's timezone (HH:MM or HH:MM:SS).",

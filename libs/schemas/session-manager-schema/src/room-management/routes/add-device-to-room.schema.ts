@@ -25,7 +25,7 @@ const ADD_DEVICE_TO_ROOM_SCHEMA = {
   body: Type.Object({
     roomUid: Type.String({ format: 'uuid' }),
     deviceUid: Type.String({ format: 'uuid' }),
-    asSource: Type.Optional(Type.Boolean({ default: false })),
+    asSource: Type.Boolean({ default: false }),
   }),
   response: {
     204: Type.Null({ description: 'Device attached.' }),

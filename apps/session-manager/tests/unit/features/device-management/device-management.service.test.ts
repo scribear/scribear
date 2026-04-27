@@ -47,7 +47,38 @@ describe('DeviceManagementService', () => {
     vi.useRealTimers();
   });
 
+  describe('listDevices', (it) => {
+    it('calls list with the provided params', async () => {
+      // Arrange
+      const params = {
+        search: 'test',
+        active: true,
+        roomUid: null,
+        cursor: null,
+        limit: 10,
+      };
+      mockRepository.list.mockResolvedValue({ items: [], nextCursor: null });
+
+      // Act
+      await service.listDevices(params);
+
+      // Assert
+      expect(mockRepository.list).toHaveBeenCalledWith(params);
+    });
+  });
+
   describe('getDevice', (it) => {
+    it('calls findById with the deviceUid', async () => {
+      // Arrange
+      mockRepository.findById.mockResolvedValue({ uid: 'device-1' });
+
+      // Act
+      await service.getDevice('device-1');
+
+      // Assert
+      expect(mockRepository.findById).toHaveBeenCalledWith('device-1');
+    });
+
     it("returns 'DEVICE_NOT_FOUND' when the device does not exist", async () => {
       // Arrange
       mockRepository.findById.mockResolvedValue(undefined);
@@ -109,16 +140,28 @@ describe('DeviceManagementService', () => {
       await service.registerDevice('Test');
 
       // Assert
-      const [, , expiry] = mockRepository.create.mock.calls[0] as [
-        unknown,
-        unknown,
-        Date,
-      ];
-      expect(expiry).toBeUndefined();
       const callArg = mockRepository.create.mock.calls[0]?.[0] as {
         expiry: Date;
       };
       expect(callArg.expiry).toEqual(FUTURE_EXPIRY);
+    });
+
+    it('calls create with the device name and an 8-character activation code', async () => {
+      // Arrange
+      mockRepository.create.mockResolvedValue({
+        uid: 'device-1',
+        name: 'Test',
+      });
+
+      // Act
+      await service.registerDevice('Test');
+
+      // Assert
+      const [callArg] = mockRepository.create.mock.calls[0] as [
+        { name: string; activationCode: string; expiry: Date },
+      ];
+      expect(callArg.name).toBe('Test');
+      expect(callArg.activationCode).toHaveLength(8);
     });
   });
 
@@ -152,7 +195,7 @@ describe('DeviceManagementService', () => {
       mockRepository.reregister.mockResolvedValue({
         uid: 'device-1',
         activation_code: 'ABCD1234',
-        expiry: FUTURE_EXPIRY,
+        expiry: FUTURE_EXPIRY.toISOString(),
       });
 
       // Act
@@ -164,9 +207,62 @@ describe('DeviceManagementService', () => {
         expiry: FUTURE_EXPIRY.toISOString(),
       });
     });
+
+    it('sets the activation expiry 5 minutes in the future', async () => {
+      // Arrange
+      mockRepository.findById.mockResolvedValue({ uid: 'device-1' });
+      mockRepository.reregister.mockResolvedValue({
+        uid: 'device-1',
+        activation_code: 'ABCD1234',
+        expiry: FUTURE_EXPIRY.toISOString(),
+      });
+
+      // Act
+      await service.reregisterDevice('device-1');
+
+      // Assert
+      const [, , expiry] = mockRepository.reregister.mock.calls[0] as [
+        unknown,
+        unknown,
+        Date,
+      ];
+      expect(expiry).toEqual(FUTURE_EXPIRY);
+    });
+
+    it('calls reregister with the deviceUid and an 8-character activation code', async () => {
+      // Arrange
+      mockRepository.findById.mockResolvedValue({ uid: 'device-1' });
+      mockRepository.reregister.mockResolvedValue({
+        uid: 'device-1',
+        activation_code: 'ABCD1234',
+        expiry: FUTURE_EXPIRY.toISOString(),
+      });
+
+      // Act
+      await service.reregisterDevice('device-1');
+
+      // Assert
+      const [deviceUid, activationCode] = mockRepository.reregister.mock
+        .calls[0] as [string, string, Date];
+      expect(deviceUid).toBe('device-1');
+      expect(activationCode).toHaveLength(8);
+    });
   });
 
   describe('activateDevice', (it) => {
+    it('calls findByActivationCode with the activation code', async () => {
+      // Arrange
+      mockRepository.findByActivationCode.mockResolvedValue(undefined);
+
+      // Act
+      await service.activateDevice('ABCD1234');
+
+      // Assert
+      expect(mockRepository.findByActivationCode).toHaveBeenCalledWith(
+        'ABCD1234',
+      );
+    });
+
     it("returns 'ACTIVATION_CODE_NOT_FOUND' when the code does not exist", async () => {
       // Arrange
       mockRepository.findByActivationCode.mockResolvedValue(undefined);
@@ -303,6 +399,19 @@ describe('DeviceManagementService', () => {
       // Assert
       expect(result).toStrictEqual(device);
     });
+
+    it('calls update with the deviceUid and data', async () => {
+      // Arrange
+      mockRepository.update.mockResolvedValue({ uid: 'device-1' });
+
+      // Act
+      await service.updateDevice('device-1', { name: 'New Name' });
+
+      // Assert
+      expect(mockRepository.update).toHaveBeenCalledWith('device-1', {
+        name: 'New Name',
+      });
+    });
   });
 
   describe('deleteDevice', (it) => {
@@ -364,9 +473,43 @@ describe('DeviceManagementService', () => {
       // Assert
       expect(result).toBeUndefined();
     });
+
+    it('calls delete with the deviceUid', async () => {
+      // Arrange
+      mockRepository.findById.mockResolvedValue({
+        uid: 'device-1',
+        isSource: false,
+        roomUid: null,
+      });
+      mockRepository.delete.mockResolvedValue(true);
+
+      // Act
+      await service.deleteDevice('device-1');
+
+      // Assert
+      expect(mockRepository.delete).toHaveBeenCalledWith('device-1');
+    });
   });
 
   describe('getMyDevice', (it) => {
+    it('calls findById with the deviceUid', async () => {
+      // Arrange
+      mockRepository.findById.mockResolvedValue({
+        uid: 'device-1',
+        name: 'Test',
+        active: true,
+        createdAt: '2025-01-01T00:00:00.000Z',
+        roomUid: null,
+        isSource: false,
+      });
+
+      // Act
+      await service.getMyDevice('device-1');
+
+      // Assert
+      expect(mockRepository.findById).toHaveBeenCalledWith('device-1');
+    });
+
     it("returns 'DEVICE_NOT_FOUND' when the device does not exist", async () => {
       // Arrange
       mockRepository.findById.mockResolvedValue(undefined);

@@ -18,7 +18,7 @@ import { ROOM_SCHEMA } from '../entities/room.schema.js';
 
 const CREATE_ROOM_SCHEMA = {
   description:
-    'Create a new room. The `timezone` must be a valid IANA identifier; auto-session fields are optional and default to disabled.',
+    'Create a new room. The `timezone` must be a valid IANA identifier.',
   tags: [ROOM_MANAGEMENT_TAG],
   security: ADMIN_API_KEY_SECURITY,
   headers: Type.Object({
@@ -27,16 +27,19 @@ const CREATE_ROOM_SCHEMA = {
   body: Type.Object({
     name: Type.String({ minLength: 1, maxLength: 256 }),
     timezone: Type.String({
+      maxLength: 16,
       description: 'IANA timezone identifier.',
       examples: ['America/New_York'],
     }),
-    autoSessionEnabled: Type.Optional(Type.Boolean({ default: false })),
-    autoSessionTranscriptionProviderId: Type.Optional(
-      Type.Union([Type.String(), Type.Null()]),
-    ),
-    autoSessionTranscriptionStreamConfig: Type.Optional(
-      Type.Union([Type.Unknown(), Type.Null()]),
-    ),
+    autoSessionEnabled: Type.Boolean({ default: false }),
+    autoSessionTranscriptionProviderId: Type.Union([
+      Type.String(),
+      Type.Null(),
+    ]),
+    autoSessionTranscriptionStreamConfig: Type.Union([
+      Type.Unknown(),
+      Type.Null(),
+    ]),
     sourceDeviceUids: Type.Array(Type.String({ format: 'uuid' }), {
       minItems: 1,
       description:

@@ -1,8 +1,14 @@
 import { Type } from 'typebox';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { BaseLongPollRouteSchema, BaseRouteDefinition } from '@scribear/base-schema';
-import { NetworkError, UnexpectedResponseError } from '@scribear/base-api-client';
+import {
+  NetworkError,
+  UnexpectedResponseError,
+} from '@scribear/base-api-client';
+import type {
+  BaseLongPollRouteSchema,
+  BaseRouteDefinition,
+} from '@scribear/base-schema';
 
 import { LongPollClient } from '#src/long-poll-client.js';
 
@@ -35,7 +41,9 @@ const BASE_URL = 'http://localhost:3000';
 const HANG = new Promise<never>(() => {});
 
 function makeClient(
-  overrides?: Partial<ConstructorParameters<typeof LongPollClient<typeof SCHEMA>>[0]>,
+  overrides?: Partial<
+    ConstructorParameters<typeof LongPollClient<typeof SCHEMA>>[0]
+  >,
 ) {
   return new LongPollClient({
     schema: SCHEMA,
@@ -93,18 +101,23 @@ describe('LongPollClient', () => {
     it('resets version cursor to initialVersion on each start', async () => {
       // Arrange
       mockEndpointFn
-        .mockResolvedValueOnce([{ status: 200, data: { versionKey: 7, payload: 'x' } }, null])
+        .mockResolvedValueOnce([
+          { status: 200, data: { versionKey: 7, payload: 'x' } },
+          null,
+        ])
         .mockReturnValue(HANG);
       client.start();
-      await vi.waitFor(() => { expect(mockEndpointFn).toHaveBeenCalledTimes(2); });
+      await vi.waitFor(() => {
+        expect(mockEndpointFn).toHaveBeenCalledTimes(2);
+      });
       client.close();
 
-      // Act – restart after close
+      // Act - restart after close
       mockEndpointFn.mockReset();
       mockEndpointFn.mockReturnValue(HANG);
       client.start();
 
-      // Assert – cursor back to 0
+      // Assert - cursor back to 0
       expect(mockEndpointFn).toHaveBeenCalledWith(
         expect.objectContaining({ querystring: { sinceVersion: 0 } }),
         expect.anything(),
@@ -129,10 +142,6 @@ describe('LongPollClient', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // Polling loop — 200 responses
-  // ---------------------------------------------------------------------------
-
   describe('200 responses', () => {
     it('fires data event with the response payload', async () => {
       // Arrange
@@ -145,7 +154,9 @@ describe('LongPollClient', () => {
 
       // Act
       client.start();
-      await vi.waitFor(() => { expect(dataSpy).toHaveBeenCalled(); });
+      await vi.waitFor(() => {
+        expect(dataSpy).toHaveBeenCalled();
+      });
 
       // Assert
       expect(dataSpy).toHaveBeenCalledWith(payload);
@@ -154,14 +165,19 @@ describe('LongPollClient', () => {
     it('advances version cursor from versionResponseKey', async () => {
       // Arrange
       mockEndpointFn
-        .mockResolvedValueOnce([{ status: 200, data: { versionKey: 9, payload: 'a' } }, null])
+        .mockResolvedValueOnce([
+          { status: 200, data: { versionKey: 9, payload: 'a' } },
+          null,
+        ])
         .mockReturnValue(HANG);
 
       // Act
       client.start();
-      await vi.waitFor(() => { expect(mockEndpointFn).toHaveBeenCalledTimes(2); });
+      await vi.waitFor(() => {
+        expect(mockEndpointFn).toHaveBeenCalledTimes(2);
+      });
 
-      // Assert – second call uses the new cursor
+      // Assert - second call uses the new cursor
       expect(mockEndpointFn).toHaveBeenNthCalledWith(
         2,
         expect.objectContaining({ querystring: { sinceVersion: 9 } }),
@@ -172,21 +188,22 @@ describe('LongPollClient', () => {
     it('re-polls immediately after 200', async () => {
       // Arrange
       mockEndpointFn
-        .mockResolvedValueOnce([{ status: 200, data: { versionKey: 1, payload: 'a' } }, null])
+        .mockResolvedValueOnce([
+          { status: 200, data: { versionKey: 1, payload: 'a' } },
+          null,
+        ])
         .mockReturnValue(HANG);
 
       // Act
       client.start();
-      await vi.waitFor(() => { expect(mockEndpointFn).toHaveBeenCalledTimes(2); });
+      await vi.waitFor(() => {
+        expect(mockEndpointFn).toHaveBeenCalledTimes(2);
+      });
 
       // Assert
       expect(client.state).toBe('POLLING');
     });
   });
-
-  // ---------------------------------------------------------------------------
-  // Polling loop — 204 responses
-  // ---------------------------------------------------------------------------
 
   describe('204 responses', () => {
     it('does not fire data event on 204', async () => {
@@ -199,7 +216,9 @@ describe('LongPollClient', () => {
 
       // Act
       client.start();
-      await vi.waitFor(() => { expect(mockEndpointFn).toHaveBeenCalledTimes(2); });
+      await vi.waitFor(() => {
+        expect(mockEndpointFn).toHaveBeenCalledTimes(2);
+      });
 
       // Assert
       expect(dataSpy).not.toHaveBeenCalled();
@@ -213,9 +232,11 @@ describe('LongPollClient', () => {
 
       // Act
       client.start();
-      await vi.waitFor(() => { expect(mockEndpointFn).toHaveBeenCalledTimes(2); });
+      await vi.waitFor(() => {
+        expect(mockEndpointFn).toHaveBeenCalledTimes(2);
+      });
 
-      // Assert – second call still uses initial cursor 0
+      // Assert - second call still uses initial cursor 0
       expect(mockEndpointFn).toHaveBeenNthCalledWith(
         2,
         expect.objectContaining({ querystring: { sinceVersion: 0 } }),
@@ -231,16 +252,14 @@ describe('LongPollClient', () => {
 
       // Act
       client.start();
-      await vi.waitFor(() => { expect(mockEndpointFn).toHaveBeenCalledTimes(2); });
+      await vi.waitFor(() => {
+        expect(mockEndpointFn).toHaveBeenCalledTimes(2);
+      });
 
       // Assert
       expect(client.state).toBe('POLLING');
     });
   });
-
-  // ---------------------------------------------------------------------------
-  // Request parameters
-  // ---------------------------------------------------------------------------
 
   describe('request parameters', () => {
     it('sends version cursor as querystring param on every poll', () => {
@@ -295,7 +314,9 @@ describe('LongPollClient', () => {
     it('merges custom headers into every request', () => {
       // Arrange
       mockEndpointFn.mockReturnValue(HANG);
-      const headerClient = makeClient({ headers: { Authorization: 'Bearer tok' } });
+      const headerClient = makeClient({
+        headers: { Authorization: 'Bearer tok' },
+      });
 
       // Act
       headerClient.start();
@@ -310,10 +331,6 @@ describe('LongPollClient', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // Error handling
-  // ---------------------------------------------------------------------------
-
   describe('error handling', () => {
     it('fires error event with NetworkError on fetch failure', async () => {
       // Arrange
@@ -326,7 +343,9 @@ describe('LongPollClient', () => {
 
       // Act
       client.start();
-      await vi.waitFor(() => { expect(errorSpy).toHaveBeenCalled(); });
+      await vi.waitFor(() => {
+        expect(errorSpy).toHaveBeenCalled();
+      });
 
       // Assert
       expect(errorSpy).toHaveBeenCalledWith(networkErr);
@@ -343,7 +362,9 @@ describe('LongPollClient', () => {
 
       // Act
       client.start();
-      await vi.waitFor(() => { expect(errorSpy).toHaveBeenCalled(); });
+      await vi.waitFor(() => {
+        expect(errorSpy).toHaveBeenCalled();
+      });
 
       // Assert
       expect(errorSpy).toHaveBeenCalledWith(unexpectedErr);
@@ -352,7 +373,11 @@ describe('LongPollClient', () => {
     it('does not fire error event when close() aborts the in-flight request', async () => {
       // Arrange
       let resolveAbort!: (v: [null, NetworkError]) => void;
-      mockEndpointFn.mockReturnValue(new Promise((resolve) => { resolveAbort = resolve; }));
+      mockEndpointFn.mockReturnValue(
+        new Promise((resolve) => {
+          resolveAbort = resolve;
+        }),
+      );
       const errorSpy = vi.fn();
       client.on('error', errorSpy);
 
@@ -371,10 +396,6 @@ describe('LongPollClient', () => {
       expect(client.state).toBe('CLOSED');
     });
   });
-
-  // ---------------------------------------------------------------------------
-  // Backoff and retry (fake timers)
-  // ---------------------------------------------------------------------------
 
   describe('backoff and retry', () => {
     beforeEach(() => vi.useFakeTimers());
@@ -419,8 +440,8 @@ describe('LongPollClient', () => {
 
       // Act
       client.start();
-      await Promise.resolve(); // → WAITING_RETRY
-      vi.runAllTimers(); // fire retry timer → POLLING
+      await Promise.resolve(); // -> WAITING_RETRY
+      vi.runAllTimers(); // fire retry timer -> POLLING
 
       // Assert
       expect(client.state).toBe('POLLING');
@@ -428,7 +449,10 @@ describe('LongPollClient', () => {
 
     it('increments attempt counter on consecutive failures', async () => {
       // Arrange
-      mockEndpointFn.mockResolvedValue([null, new NetworkError(new TypeError())]);
+      mockEndpointFn.mockResolvedValue([
+        null,
+        new NetworkError(new TypeError()),
+      ]);
 
       // Act
       client.start();
@@ -444,14 +468,17 @@ describe('LongPollClient', () => {
       // Arrange
       mockEndpointFn
         .mockResolvedValueOnce([null, new NetworkError(new TypeError())]) // fail
-        .mockResolvedValueOnce([{ status: 200, data: { versionKey: 1, payload: 'ok' } }, null]) // success
+        .mockResolvedValueOnce([
+          { status: 200, data: { versionKey: 1, payload: 'ok' } },
+          null,
+        ]) // success
         .mockReturnValue(HANG);
 
       // Act
       client.start();
-      await Promise.resolve(); // first failure → attempt = 1
-      vi.runAllTimers(); // fire retry → POLLING
-      await Promise.resolve(); // 200 → attempt reset
+      await Promise.resolve(); // first failure -> attempt = 1
+      vi.runAllTimers(); // fire retry -> POLLING
+      await Promise.resolve(); // 200 -> attempt reset
 
       // Assert
       expect(client.attempt).toBe(0);
@@ -464,7 +491,7 @@ describe('LongPollClient', () => {
         .mockReturnValue(HANG);
 
       client.start();
-      await Promise.resolve(); // → WAITING_RETRY
+      await Promise.resolve(); // -> WAITING_RETRY
       expect(client.state).toBe('WAITING_RETRY');
 
       // Act
@@ -475,10 +502,6 @@ describe('LongPollClient', () => {
       expect(client.state).toBe('CLOSED');
     });
   });
-
-  // ---------------------------------------------------------------------------
-  // close()
-  // ---------------------------------------------------------------------------
 
   describe('close()', () => {
     it('transitions to CLOSED', () => {
@@ -535,10 +558,6 @@ describe('LongPollClient', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // stateChange events
-  // ---------------------------------------------------------------------------
-
   describe('stateChange events', () => {
     it('fires stateChange with (to, from) on each transition', () => {
       // Arrange
@@ -547,8 +566,8 @@ describe('LongPollClient', () => {
       client.on('stateChange', stateChangeSpy);
 
       // Act
-      client.start(); // IDLE → POLLING
-      client.close(); // POLLING → CLOSED
+      client.start(); // IDLE -> POLLING
+      client.close(); // POLLING -> CLOSED
 
       // Assert
       expect(stateChangeSpy).toHaveBeenNthCalledWith(1, 'POLLING', 'IDLE');

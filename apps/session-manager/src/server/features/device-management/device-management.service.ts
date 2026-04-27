@@ -23,18 +23,18 @@ export class DeviceManagementService {
   }
 
   /**
-   * Lists devices with optional filtering and cursor-based pagination.
-   * @param params.search Case-insensitive name filter.
+   * Lists devices with optional fuzzy search, filtering, and cursor-based pagination.
+   * @param params.search Fuzzy name filter using pg_trgm word similarity.
    * @param params.active Filter by activation state.
    * @param params.roomUid Filter by room membership; pass `''` to return only devices not in any room.
    * @param params.cursor Opaque cursor from a previous response's `nextCursor` field.
    * @param params.limit Maximum number of items to return.
    */
   async listDevices(params: {
-    search?: string;
-    active?: boolean;
-    roomUid?: string;
-    cursor?: string;
+    search: string | null;
+    active: boolean | null;
+    roomUid: string | null;
+    cursor: string | null;
     limit: number;
   }) {
     return this._deviceManagementRepository.list(params);
@@ -98,7 +98,7 @@ export class DeviceManagementService {
     this._log.info({ deviceUid }, 'Device reregistered');
     return {
       activationCode: result.activation_code,
-      expiry: result.expiry.toISOString(),
+      expiry: result.expiry,
     };
   }
 

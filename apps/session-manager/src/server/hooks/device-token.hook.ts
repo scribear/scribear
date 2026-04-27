@@ -6,7 +6,7 @@ import { DEVICE_TOKEN_COOKIE_NAME } from '@scribear/session-manager-schema';
 
 declare module 'fastify' {
   interface FastifyRequest {
-    deviceUid: string;
+    deviceUid?: string;
   }
 }
 

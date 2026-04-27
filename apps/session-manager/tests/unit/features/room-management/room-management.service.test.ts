@@ -64,7 +64,33 @@ describe('RoomManagementService', () => {
     );
   });
 
+  describe('listRooms', (it) => {
+    it('delegates to the repository with the provided params', async () => {
+      // Arrange
+      mockRoomRepo.list.mockResolvedValue({ items: [], nextCursor: null });
+      const params = { search: 'conf', cursor: 'abc', limit: 20 };
+
+      // Act
+      const result = await service.listRooms(params);
+
+      // Assert
+      expect(mockRoomRepo.list).toHaveBeenCalledWith(params);
+      expect(result).toStrictEqual({ items: [], nextCursor: null });
+    });
+  });
+
   describe('getRoom', (it) => {
+    it('calls findById with the roomUid', async () => {
+      // Arrange
+      mockRoomRepo.findById.mockResolvedValue(mockRoom);
+
+      // Act
+      await service.getRoom('room-1');
+
+      // Assert
+      expect(mockRoomRepo.findById).toHaveBeenCalledWith('room-1');
+    });
+
     it("returns 'ROOM_NOT_FOUND' when the room does not exist", async () => {
       // Arrange
       mockRoomRepo.findById.mockResolvedValue(undefined);
@@ -158,6 +184,46 @@ describe('RoomManagementService', () => {
       expect(result).toBe('DEVICE_ALREADY_IN_ROOM');
     });
 
+    it('calls deviceRepo.findById with the source device uid', async () => {
+      // Arrange
+      mockDeviceRepo.findById.mockResolvedValue(mockDevice);
+      mockRoomRepo.create.mockResolvedValue(mockRoom);
+      mockRoomRepo.addDeviceToRoom.mockResolvedValue(undefined);
+
+      // Act
+      await service.createRoom({
+        name: 'Room',
+        timezone: VALID_TIMEZONE,
+        sourceDeviceUids: ['device-1'],
+      });
+
+      // Assert
+      expect(mockDeviceRepo.findById).toHaveBeenCalledWith('device-1');
+    });
+
+    it('calls repo.create with the correct name, timezone, and autoSessionEnabled', async () => {
+      // Arrange
+      mockDeviceRepo.findById.mockResolvedValue(mockDevice);
+      mockRoomRepo.create.mockResolvedValue(mockRoom);
+      mockRoomRepo.addDeviceToRoom.mockResolvedValue(undefined);
+
+      // Act
+      await service.createRoom({
+        name: 'Test Room',
+        timezone: VALID_TIMEZONE,
+        sourceDeviceUids: ['device-1'],
+      });
+
+      // Assert
+      expect(mockRoomRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'Test Room',
+          timezone: VALID_TIMEZONE,
+          autoSessionEnabled: false,
+        }),
+      );
+    });
+
     it('creates the room and adds the source device on success', async () => {
       // Arrange
       mockDeviceRepo.findById.mockResolvedValue(mockDevice);
@@ -182,14 +248,17 @@ describe('RoomManagementService', () => {
   });
 
   describe('updateRoom', (it) => {
-    it("returns 'INVALID_TIMEZONE' for an unknown timezone", async () => {
-      // Arrange / Act
-      const result = await service.updateRoom('room-1', {
-        timezone: INVALID_TIMEZONE,
-      });
+    it('calls repo.update with the roomUid and update data', async () => {
+      // Arrange
+      mockRoomRepo.update.mockResolvedValue(mockRoom);
+
+      // Act
+      await service.updateRoom('room-1', { name: 'New Name' });
 
       // Assert
-      expect(result).toBe('INVALID_TIMEZONE');
+      expect(mockRoomRepo.update).toHaveBeenCalledWith('room-1', {
+        name: 'New Name',
+      });
     });
 
     it("returns 'ROOM_NOT_FOUND' when the room does not exist", async () => {
@@ -216,6 +285,17 @@ describe('RoomManagementService', () => {
   });
 
   describe('deleteRoom', (it) => {
+    it('calls repo.delete with the roomUid', async () => {
+      // Arrange
+      mockRoomRepo.delete.mockResolvedValue(true);
+
+      // Act
+      await service.deleteRoom('room-1');
+
+      // Assert
+      expect(mockRoomRepo.delete).toHaveBeenCalledWith('room-1');
+    });
+
     it("returns 'ROOM_NOT_FOUND' when the room does not exist", async () => {
       // Arrange
       mockRoomRepo.delete.mockResolvedValue(false);
@@ -291,6 +371,27 @@ describe('RoomManagementService', () => {
       expect(result).toBe('DEVICE_ALREADY_IN_ROOM');
     });
 
+    it('calls repo.addDeviceToRoom with the correct args on success', async () => {
+      // Arrange
+      mockRoomRepo.findRoomExists.mockResolvedValue(true);
+      mockDeviceRepo.findById.mockResolvedValue(mockDevice);
+      mockRoomRepo.addDeviceToRoom.mockResolvedValue(undefined);
+
+      // Act
+      await service.addDeviceToRoom({
+        roomUid: 'room-1',
+        deviceUid: 'device-1',
+        asSource: true,
+      });
+
+      // Assert
+      expect(mockRoomRepo.addDeviceToRoom).toHaveBeenCalledWith(
+        'room-1',
+        'device-1',
+        true,
+      );
+    });
+
     it('returns undefined on success', async () => {
       // Arrange
       mockRoomRepo.findRoomExists.mockResolvedValue(true);
@@ -336,6 +437,23 @@ describe('RoomManagementService', () => {
       expect(mockRoomRepo.removeDeviceFromRoom).not.toHaveBeenCalled();
     });
 
+    it('calls repo.removeDeviceFromRoom with the deviceUid on success', async () => {
+      // Arrange
+      mockRoomRepo.findRoomMembership.mockResolvedValue({
+        room_uid: 'room-1',
+        is_source: false,
+      });
+      mockRoomRepo.removeDeviceFromRoom.mockResolvedValue(true);
+
+      // Act
+      await service.removeDeviceFromRoom('device-1');
+
+      // Assert
+      expect(mockRoomRepo.removeDeviceFromRoom).toHaveBeenCalledWith(
+        'device-1',
+      );
+    });
+
     it('returns undefined on success', async () => {
       // Arrange
       mockRoomRepo.findRoomMembership.mockResolvedValue({
@@ -376,6 +494,21 @@ describe('RoomManagementService', () => {
       expect(result).toBe('DEVICE_NOT_IN_ROOM');
     });
 
+    it('calls repo.setSourceDevice with the correct args on success', async () => {
+      // Arrange
+      mockRoomRepo.findRoomExists.mockResolvedValue(true);
+      mockRoomRepo.setSourceDevice.mockResolvedValue(true);
+
+      // Act
+      await service.setSourceDevice('room-1', 'device-1');
+
+      // Assert
+      expect(mockRoomRepo.setSourceDevice).toHaveBeenCalledWith(
+        'room-1',
+        'device-1',
+      );
+    });
+
     it('returns undefined on success', async () => {
       // Arrange
       mockRoomRepo.findRoomExists.mockResolvedValue(true);
@@ -390,6 +523,32 @@ describe('RoomManagementService', () => {
   });
 
   describe('getMyRoom', (it) => {
+    it('calls findRoomMembership with the deviceUid', async () => {
+      // Arrange
+      mockRoomRepo.findRoomMembership.mockResolvedValue(undefined);
+
+      // Act
+      await service.getMyRoom('device-1');
+
+      // Assert
+      expect(mockRoomRepo.findRoomMembership).toHaveBeenCalledWith('device-1');
+    });
+
+    it('calls findById with the room_uid from the membership', async () => {
+      // Arrange
+      mockRoomRepo.findRoomMembership.mockResolvedValue({
+        room_uid: 'room-1',
+        is_source: false,
+      });
+      mockRoomRepo.findById.mockResolvedValue(mockRoom);
+
+      // Act
+      await service.getMyRoom('device-1');
+
+      // Assert
+      expect(mockRoomRepo.findById).toHaveBeenCalledWith('room-1');
+    });
+
     it("returns 'DEVICE_NOT_IN_ROOM' when the device has no room membership", async () => {
       // Arrange
       mockRoomRepo.findRoomMembership.mockResolvedValue(undefined);
@@ -416,11 +575,17 @@ describe('RoomManagementService', () => {
       expect(result).toBe('DEVICE_NOT_IN_ROOM');
     });
 
-    it('returns the room on success', async () => {
+    it('returns a subset of room fields on success', async () => {
       // Arrange
       mockRoomRepo.findRoomMembership.mockResolvedValue({
-        room_uid: 'room-1',
-        is_source: false,
+        uid: 'room-1',
+        name: 'Test Room',
+        timezone: VALID_TIMEZONE,
+        autoSessionEnabled: false,
+        autoSessionTranscriptionProviderId: null,
+        autoSessionTranscriptionStreamConfig: null,
+        roomScheduleVersion: 1,
+        createdAt: '2025-01-01T00:00:00.000Z',
       });
       mockRoomRepo.findById.mockResolvedValue(mockRoom);
 
@@ -428,7 +593,13 @@ describe('RoomManagementService', () => {
       const result = await service.getMyRoom('device-1');
 
       // Assert
-      expect(result).toStrictEqual(mockRoom);
+      expect(result).toStrictEqual({
+        uid: 'room-1',
+        name: 'Test Room',
+        timezone: VALID_TIMEZONE,
+        autoSessionEnabled: false,
+        roomScheduleVersion: 1,
+      });
     });
   });
 });

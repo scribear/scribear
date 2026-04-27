@@ -41,9 +41,6 @@ describe('Integration Tests - Request validation', (it) => {
     );
   });
 
-  /**
-   * Test that valid requests are passed to request handler successfully
-   */
   it('returns 200 response for valid schema', async () => {
     // Arrange
     // Act
@@ -60,9 +57,6 @@ describe('Integration Tests - Request validation', (it) => {
     expect(response.statusCode).toBe(200);
   });
 
-  /**
-   * Test that invalid requests return 400 error
-   */
   it('returns 400 response for invalid schema', async () => {
     // Arrange
     // Act
@@ -78,12 +72,15 @@ describe('Integration Tests - Request validation', (it) => {
     // Assert
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({
-      requestErrors: [
-        {
-          key: '/querystring',
-          message: 'must have required properties string',
-        },
-      ],
+      code: 'VALIDATION_ERROR',
+      details: {
+        validationErrors: [
+          {
+            path: '/querystring',
+            message: 'must have required properties string',
+          },
+        ],
+      },
     });
   });
 });

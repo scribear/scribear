@@ -44,7 +44,14 @@ describe('Room Management Routes', () => {
       method: 'POST',
       url: `${ROOM_BASE}/create-room`,
       headers: { authorization: ADMIN_HEADER },
-      body: { name, timezone: 'America/New_York', sourceDeviceUids: [deviceUid] },
+      body: {
+        name,
+        timezone: 'America/New_York',
+        sourceDeviceUids: [deviceUid],
+        autoSessionEnabled: false,
+        autoSessionTranscriptionProviderId: null,
+        autoSessionTranscriptionStreamConfig: null,
+      },
     });
     return res.json<{ uid: string; name: string }>();
   }
@@ -56,7 +63,14 @@ describe('Room Management Routes', () => {
         method: 'POST',
         url: `${ROOM_BASE}/create-room`,
         headers: { authorization: 'Bearer wrongkey' },
-        body: { name: 'Room', timezone: 'UTC', sourceDeviceUids: [NULL_UUID] },
+        body: {
+          name: 'Room',
+          timezone: 'UTC',
+          sourceDeviceUids: [NULL_UUID],
+          autoSessionEnabled: false,
+          autoSessionTranscriptionProviderId: null,
+          autoSessionTranscriptionStreamConfig: null,
+        },
       });
 
       // Assert
@@ -78,6 +92,9 @@ describe('Room Management Routes', () => {
           name: 'My Room',
           timezone: 'America/New_York',
           sourceDeviceUids: [deviceUid],
+          autoSessionEnabled: false,
+          autoSessionTranscriptionProviderId: null,
+          autoSessionTranscriptionStreamConfig: null,
         },
       });
 
@@ -102,6 +119,9 @@ describe('Room Management Routes', () => {
           name: 'My Room',
           timezone: 'Not/ATimezone',
           sourceDeviceUids: [deviceUid],
+          autoSessionEnabled: false,
+          autoSessionTranscriptionProviderId: null,
+          autoSessionTranscriptionStreamConfig: null,
         },
       });
 
@@ -116,7 +136,14 @@ describe('Room Management Routes', () => {
         method: 'POST',
         url: `${ROOM_BASE}/create-room`,
         headers: { authorization: ADMIN_HEADER },
-        body: { name: 'Room', timezone: 'America/New_York', sourceDeviceUids: [NULL_UUID] },
+        body: {
+          name: 'Room',
+          timezone: 'America/New_York',
+          sourceDeviceUids: [NULL_UUID],
+          autoSessionEnabled: false,
+          autoSessionTranscriptionProviderId: null,
+          autoSessionTranscriptionStreamConfig: null,
+        },
       });
 
       // Assert
@@ -134,7 +161,14 @@ describe('Room Management Routes', () => {
         method: 'POST',
         url: `${ROOM_BASE}/create-room`,
         headers: { authorization: ADMIN_HEADER },
-        body: { name: 'Room', timezone: 'America/New_York', sourceDeviceUids: [uid1, uid2] },
+        body: {
+          name: 'Room',
+          timezone: 'America/New_York',
+          sourceDeviceUids: [uid1, uid2],
+          autoSessionEnabled: false,
+          autoSessionTranscriptionProviderId: null,
+          autoSessionTranscriptionStreamConfig: null,
+        },
       });
 
       // Assert
@@ -152,7 +186,14 @@ describe('Room Management Routes', () => {
         method: 'POST',
         url: `${ROOM_BASE}/create-room`,
         headers: { authorization: ADMIN_HEADER },
-        body: { name: 'Another Room', timezone: 'America/New_York', sourceDeviceUids: [deviceUid] },
+        body: {
+          name: 'Another Room',
+          timezone: 'America/New_York',
+          sourceDeviceUids: [deviceUid],
+          autoSessionEnabled: false,
+          autoSessionTranscriptionProviderId: null,
+          autoSessionTranscriptionStreamConfig: null,
+        },
       });
 
       // Assert
@@ -220,7 +261,10 @@ describe('Room Management Routes', () => {
 
       // Assert - first page has 2 items and a cursor
       expect(firstRes.statusCode).toBe(200);
-      const firstBody = firstRes.json<{ items: unknown[]; nextCursor?: string }>();
+      const firstBody = firstRes.json<{
+        items: unknown[];
+        nextCursor: string | null;
+      }>();
       expect(firstBody.items).toHaveLength(2);
       expect(firstBody.nextCursor).toBeDefined();
 
@@ -233,9 +277,12 @@ describe('Room Management Routes', () => {
 
       // Assert - second page has the remaining item and no cursor
       expect(secondRes.statusCode).toBe(200);
-      const secondBody = secondRes.json<{ items: unknown[]; nextCursor?: string }>();
+      const secondBody = secondRes.json<{
+        items: unknown[];
+        nextCursor: string | null;
+      }>();
       expect(secondBody.items).toHaveLength(1);
-      expect(secondBody.nextCursor).toBeUndefined();
+      expect(secondBody.nextCursor).toBeNull();
     });
   });
 
@@ -306,24 +353,6 @@ describe('Room Management Routes', () => {
       expect(res.statusCode).toBe(404);
       expect(res.json<{ code: string }>().code).toBe('ROOM_NOT_FOUND');
     });
-
-    it('returns 422 for an invalid timezone', async () => {
-      // Arrange
-      const { deviceUid } = await setupActivatedDevice();
-      const { uid: roomUid } = await createRoom(deviceUid);
-
-      // Act
-      const res = await server.fastify.inject({
-        method: 'POST',
-        url: `${ROOM_BASE}/update-room`,
-        headers: { authorization: ADMIN_HEADER },
-        body: { roomUid, timezone: 'Not/ATimezone' },
-      });
-
-      // Assert
-      expect(res.statusCode).toBe(422);
-      expect(res.json<{ code: string }>().code).toBe('INVALID_TIMEZONE');
-    });
   });
 
   describe('POST /delete-room', (it) => {
@@ -371,7 +400,7 @@ describe('Room Management Routes', () => {
         method: 'POST',
         url: `${ROOM_BASE}/add-device-to-room`,
         headers: { authorization: ADMIN_HEADER },
-        body: { roomUid, deviceUid: memberUid },
+        body: { roomUid, deviceUid: memberUid, asSource: false },
       });
 
       // Assert
@@ -387,7 +416,7 @@ describe('Room Management Routes', () => {
         method: 'POST',
         url: `${ROOM_BASE}/add-device-to-room`,
         headers: { authorization: ADMIN_HEADER },
-        body: { roomUid: NULL_UUID, deviceUid },
+        body: { roomUid: NULL_UUID, deviceUid, asSource: false },
       });
 
       // Assert
@@ -405,7 +434,7 @@ describe('Room Management Routes', () => {
         method: 'POST',
         url: `${ROOM_BASE}/add-device-to-room`,
         headers: { authorization: ADMIN_HEADER },
-        body: { roomUid, deviceUid: NULL_UUID },
+        body: { roomUid, deviceUid: NULL_UUID, asSource: false },
       });
 
       // Assert
@@ -423,7 +452,7 @@ describe('Room Management Routes', () => {
         method: 'POST',
         url: `${ROOM_BASE}/add-device-to-room`,
         headers: { authorization: ADMIN_HEADER },
-        body: { roomUid, deviceUid: sourceUid },
+        body: { roomUid, deviceUid: sourceUid, asSource: false },
       });
 
       // Assert
@@ -442,7 +471,7 @@ describe('Room Management Routes', () => {
         method: 'POST',
         url: `${ROOM_BASE}/add-device-to-room`,
         headers: { authorization: ADMIN_HEADER },
-        body: { roomUid, deviceUid: memberUid },
+        body: { roomUid, deviceUid: memberUid, asSource: false },
       });
 
       // Act
@@ -489,7 +518,9 @@ describe('Room Management Routes', () => {
 
       // Assert
       expect(res.statusCode).toBe(409);
-      expect(res.json<{ code: string }>().code).toBe('WOULD_LEAVE_ROOM_WITHOUT_SOURCE');
+      expect(res.json<{ code: string }>().code).toBe(
+        'WOULD_LEAVE_ROOM_WITHOUT_SOURCE',
+      );
     });
   });
 
@@ -503,7 +534,7 @@ describe('Room Management Routes', () => {
         method: 'POST',
         url: `${ROOM_BASE}/add-device-to-room`,
         headers: { authorization: ADMIN_HEADER },
-        body: { roomUid, deviceUid: memberUid },
+        body: { roomUid, deviceUid: memberUid, asSource: false },
       });
 
       // Act

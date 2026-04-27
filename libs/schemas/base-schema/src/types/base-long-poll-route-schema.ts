@@ -9,7 +9,7 @@ import type { BaseRouteSchema } from './base-route-schema.js';
  *
  * The version cursor is passed by the client as a querystring parameter and
  * updated from the 200 response body on each successful poll. The client
- * library handles cursor bookkeeping — `versionParam` and `versionResponseKey`
+ * library handles cursor bookkeeping - `versionParam` and `versionResponseKey`
  * on `LongPollClientOptions` tell it which field to read and write.
  */
 type BaseLongPollRouteSchema = BaseRouteSchema & {

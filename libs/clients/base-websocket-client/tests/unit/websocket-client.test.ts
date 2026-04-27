@@ -155,11 +155,11 @@ describe('WebSocketClient', () => {
       );
     });
 
-    // Assert: still handshaking
+    // Assert - still handshaking
     expect(client.state).toBe('HANDSHAKING');
     expect(openHandler).not.toHaveBeenCalled();
 
-    // Act: handshake resolves
+    // Act - handshake resolves
     resolveHandshake();
     await vi.waitFor(() => {
       expect(client.state).toBe('OPEN');
@@ -179,20 +179,20 @@ describe('WebSocketClient', () => {
       backoff: { initialMs: 100, maxMs: 1000, factor: 2, jitterPct: 0 },
     });
 
-    // Act: open and immediately get abnormal close
+    // Act - open and immediately get abnormal close
     client.start();
     currentSocket().onopen!({ type: 'open' });
     expect(client.state).toBe('OPEN');
     currentSocket().onclose!({ code: 1006, reason: 'lost' });
 
-    // Assert: moved to WAITING_RETRY
+    // Assert - moved to WAITING_RETRY
     expect(client.state).toBe('WAITING_RETRY');
     expect(client.attempt).toBe(1);
 
-    // Act: advance past first backoff (100ms with 0 jitter)
+    // Act - advance past first backoff (100ms with 0 jitter)
     vi.advanceTimersByTime(100);
 
-    // Assert: a new socket was created
+    // Assert - a new socket was created
     expect(mockWsInstances.length).toBe(2);
     expect(client.state).toBe('CONNECTING');
   });
@@ -219,7 +219,7 @@ describe('WebSocketClient', () => {
   });
 
   it('emits close with reconnectInMs set when a reconnect is scheduled', () => {
-    // Arrange: zero-jitter backoff so the delay is deterministic.
+    // Arrange - zero-jitter backoff so the delay is deterministic.
     const client = new WebSocketClient({
       schema: TEST_SCHEMA,
       route: TEST_ROUTE,
@@ -248,17 +248,17 @@ describe('WebSocketClient', () => {
       params: { params: { room: 'r1' } },
     });
 
-    // Act: queue a message before opening
+    // Act - queue a message before opening
     client.start();
     client.send({ type: ClientMsgType.PING });
 
-    // Assert: nothing sent yet
+    // Assert - nothing sent yet
     expect(currentSocket().send).not.toHaveBeenCalled();
 
-    // Act: open, which triggers flush
+    // Act - open, which triggers flush
     currentSocket().onopen!({ type: 'open' });
 
-    // Assert: flushed
+    // Assert - flushed
     expect(currentSocket().send).toHaveBeenCalledWith(
       JSON.stringify({ type: 'ping' }),
     );
@@ -275,14 +275,14 @@ describe('WebSocketClient', () => {
       sendQueueOverflow: 'drop-oldest',
     });
 
-    // Act: enqueue 3 while not open
+    // Act - enqueue 3 while not open
     client.start();
     client.send({ type: ClientMsgType.PING });
     client.send({ type: ClientMsgType.AUTH, token: 'A' });
     client.send({ type: ClientMsgType.AUTH, token: 'B' });
     currentSocket().onopen!({ type: 'open' });
 
-    // Assert: the earliest PING was dropped, remaining two flushed in order
+    // Assert - the earliest PING was dropped, remaining two flushed in order
     expect(currentSocket().send).toHaveBeenCalledTimes(2);
     expect(currentSocket().send).toHaveBeenNthCalledWith(
       1,
@@ -308,10 +308,10 @@ describe('WebSocketClient', () => {
     currentSocket().onclose!({ code: 1006, reason: 'lost' });
     expect(client.state).toBe('WAITING_RETRY');
 
-    // Act: terminate before the retry fires
+    // Act - terminate before the retry fires
     client.terminate(1000);
 
-    // Assert: no new sockets after timer advance
+    // Assert - no new sockets after timer advance
     vi.advanceTimersByTime(10_000);
     expect(mockWsInstances.length).toBe(1);
     expect(client.state).toBe('CLOSED');
@@ -350,10 +350,10 @@ describe('WebSocketClient', () => {
     // Act
     client.sendBinary(data);
 
-    // Assert: not sent yet
+    // Assert - not sent yet
     expect(currentSocket().send).not.toHaveBeenCalled();
 
-    // Act: open triggers flush
+    // Act - open triggers flush
     currentSocket().onopen!({ type: 'open' });
 
     // Assert
@@ -372,13 +372,13 @@ describe('WebSocketClient', () => {
     });
     client.start();
 
-    // Act: enqueue 3 while not open; third should be dropped
+    // Act - enqueue 3 while not open; third should be dropped
     client.send({ type: ClientMsgType.AUTH, token: 'A' });
     client.send({ type: ClientMsgType.AUTH, token: 'B' });
     client.send({ type: ClientMsgType.AUTH, token: 'C' });
     currentSocket().onopen!({ type: 'open' });
 
-    // Assert: A and B flushed, C was silently dropped
+    // Assert - A and B flushed, C was silently dropped
     expect(currentSocket().send).toHaveBeenCalledTimes(2);
     expect(currentSocket().send).toHaveBeenNthCalledWith(
       1,
@@ -404,7 +404,7 @@ describe('WebSocketClient', () => {
     const errorHandler = vi.fn();
     client.on('error', errorHandler);
 
-    // Act: fill queue then overflow
+    // Act - fill queue then overflow
     client.send({ type: ClientMsgType.PING });
     client.send({ type: ClientMsgType.PING });
 
@@ -430,7 +430,7 @@ describe('WebSocketClient', () => {
     client.send({ type: ClientMsgType.PING });
     currentSocket().onopen!({ type: 'open' });
 
-    // Assert: nothing sent, no error emitted
+    // Assert - nothing sent, no error emitted
     expect(currentSocket().send).not.toHaveBeenCalled();
     expect(errorHandler).not.toHaveBeenCalled();
   });
@@ -522,7 +522,7 @@ describe('WebSocketClient', () => {
     expect(errorHandler).toHaveBeenCalledWith(expect.any(ConnectionError));
     expect(client.state).toBe('WAITING_RETRY');
 
-    // Assert: reconnects after backoff
+    // Assert - reconnects after backoff
     vi.advanceTimersByTime(100);
     expect(mockWsInstances.length).toBe(2);
   });
@@ -544,7 +544,7 @@ describe('WebSocketClient', () => {
     // Act
     currentSocket().onerror!({ error: socketError, message: '' });
 
-    // Assert: error forwarded, state unchanged (close event handles reconnect)
+    // Assert - error forwarded, state unchanged (close event handles reconnect)
     expect(errorHandler).toHaveBeenCalledWith(socketError);
     expect(client.state).toBe('OPEN');
   });
@@ -655,7 +655,7 @@ describe('WebSocketClient', () => {
     const errorHandler = vi.fn();
     client.on('error', errorHandler);
 
-    // Act: TEST_SCHEMA.closeCodes has 1000, 1006, 4001; use 4999 which is not declared
+    // Act - TEST_SCHEMA.closeCodes has 1000, 1006, 4001; use 4999 which is not declared
     currentSocket().onclose!({ code: 4999, reason: 'unknown' });
 
     // Assert
@@ -666,7 +666,7 @@ describe('WebSocketClient', () => {
   });
 
   it('treats onHandshake rejection as a connection failure and retries', async () => {
-    // Arrange: long backoff so the retry timer doesn't fire during waitFor's
+    // Arrange - long backoff so the retry timer doesn't fire during waitFor's
     // own timer advancement while polling for the error handler.
     const handshakeError = new Error('bad token');
     const client = new WebSocketClient({
@@ -692,7 +692,7 @@ describe('WebSocketClient', () => {
       expect(errorHandler).toHaveBeenCalledWith(handshakeError);
     });
 
-    // Assert: we scheduled a retry and haven't yet reconnected
+    // Assert - we scheduled a retry and haven't yet reconnected
     expect(client.state).toBe('WAITING_RETRY');
     expect(mockWsInstances.length).toBe(1);
 

@@ -6,7 +6,7 @@ import { type TProperties, Type } from 'typebox';
  */
 export const PAGINATION_QUERY_SCHEMA = Type.Object(
   {
-    cursor: Type.Optional(Type.String()),
+    cursor: Type.Optional(Type.String({ maxLength: 256 })),
     limit: Type.Optional(
       Type.Integer({ minimum: 1, maximum: 200, default: 50 }),
     ),
@@ -25,7 +25,7 @@ export const PAGINATION_QUERY_SCHEMA = Type.Object(
 export function paginatedQuerySchema<T extends TProperties>(extras: T) {
   return Type.Object({
     ...extras,
-    cursor: Type.Optional(Type.String()),
+    cursor: Type.Optional(Type.String({ maxLength: 256 })),
     limit: Type.Optional(
       Type.Integer({ minimum: 1, maximum: 200, default: 50 }),
     ),
@@ -33,11 +33,11 @@ export function paginatedQuerySchema<T extends TProperties>(extras: T) {
 }
 
 /**
- * Standard list response envelope. `nextCursor` is omitted when the result is
+ * Standard list response envelope. `nextCursor` is `null` when the result is
  * exhausted.
  *
  * @param item Per-row TypeBox schema.
- * @returns A `{ items, nextCursor? }` object schema parameterized on `item`.
+ * @returns A `{ items, nextCursor }` object schema parameterized on `item`.
  */
 export const paginatedResponseSchema = <
   T extends ReturnType<typeof Type.Object>,
@@ -46,5 +46,5 @@ export const paginatedResponseSchema = <
 ) =>
   Type.Object({
     items: Type.Array(item),
-    nextCursor: Type.Optional(Type.String()),
+    nextCursor: Type.Union([Type.String(), Type.Null()]),
   });

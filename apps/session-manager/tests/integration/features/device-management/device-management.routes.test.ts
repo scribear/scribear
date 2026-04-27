@@ -161,7 +161,7 @@ describe('Device Management Routes', () => {
         method: 'POST',
         url: '/api/session-manager/v1/room-management/create-room',
         headers: { authorization: ADMIN_HEADER },
-        body: { name: 'Test Room', timezone: 'America/New_York', sourceDeviceUids: [inRoomUid] },
+        body: { name: 'Test Room', timezone: 'America/New_York', sourceDeviceUids: [inRoomUid], autoSessionEnabled: false, autoSessionTranscriptionProviderId: null, autoSessionTranscriptionStreamConfig: null },
       });
       const { uid: roomUid } = roomRes.json<{ uid: string }>();
       await registerDevice('Out-of-Room Device');
@@ -195,7 +195,7 @@ describe('Device Management Routes', () => {
 
       // Assert - first page has 2 items and a cursor
       expect(firstRes.statusCode).toBe(200);
-      const firstBody = firstRes.json<{ items: unknown[]; nextCursor?: string }>();
+      const firstBody = firstRes.json<{ items: unknown[]; nextCursor: string | null }>();
       expect(firstBody.items).toHaveLength(2);
       expect(firstBody.nextCursor).toBeDefined();
 
@@ -208,9 +208,9 @@ describe('Device Management Routes', () => {
 
       // Assert - second page has the remaining item and no cursor
       expect(secondRes.statusCode).toBe(200);
-      const secondBody = secondRes.json<{ items: unknown[]; nextCursor?: string }>();
+      const secondBody = secondRes.json<{ items: unknown[]; nextCursor: string | null }>();
       expect(secondBody.items).toHaveLength(1);
-      expect(secondBody.nextCursor).toBeUndefined();
+      expect(secondBody.nextCursor).toBeNull();
     });
   });
 
@@ -353,7 +353,7 @@ describe('Device Management Routes', () => {
         method: 'POST',
         url: '/api/session-manager/v1/room-management/create-room',
         headers: { authorization: ADMIN_HEADER },
-        body: { name: 'Room', timezone: 'America/New_York', sourceDeviceUids: [deviceUid] },
+        body: { name: 'Room', timezone: 'America/New_York', sourceDeviceUids: [deviceUid], autoSessionEnabled: false, autoSessionTranscriptionProviderId: null, autoSessionTranscriptionStreamConfig: null },
       });
 
       // Act

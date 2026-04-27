@@ -90,7 +90,7 @@ describe('createEndpointClient', () => {
       expect(response).toStrictEqual({ status: 200, data: responseBody });
     });
 
-    it('returns typed non-2xx response in result slot (not an error)', async () => {
+    it('returns typed non-2xx response in result slot', async () => {
       // Arrange
       const errorBody = { message: 'Validation failed' };
       vi.stubGlobal(

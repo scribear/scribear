@@ -17,9 +17,6 @@ describe('Not Found Handler Plugin', (it) => {
     fastify.register(notFoundHandler);
   });
 
-  /**
-   * Test that Not Found handler plugin throws Not Found error when called
-   */
   it('throws NotFound error', async () => {
     // Arrange / Act
     await fastify.inject({

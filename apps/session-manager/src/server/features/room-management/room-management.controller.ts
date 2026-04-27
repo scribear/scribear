@@ -31,14 +31,19 @@ export class RoomManagementController {
     const { search, cursor, limit = 50 } = req.query;
 
     const result = await this._roomManagementService.listRooms({
-      ...(search !== undefined && { search }),
-      ...(cursor !== undefined && { cursor }),
+      search: search ?? null,
+      cursor: cursor ?? null,
       limit,
     });
 
     res.code(200).send({
-      items: result.items,
-      ...(result.nextCursor !== undefined && { nextCursor: result.nextCursor }),
+      items: result.items.map((room) => {
+        return {
+          ...room,
+          createdAt: room.createdAt.toISOString(),
+        };
+      }),
+      nextCursor: result.nextCursor,
     });
   }
 
@@ -53,7 +58,10 @@ export class RoomManagementController {
       throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
     }
 
-    res.code(200).send(result);
+    res.code(200).send({
+      ...result,
+      createdAt: result.createdAt.toISOString(),
+    });
   }
 
   async createRoom(
@@ -89,7 +97,10 @@ export class RoomManagementController {
       );
     }
 
-    res.code(201).send(result);
+    res.code(201).send({
+      ...result,
+      createdAt: result.createdAt.toISOString(),
+    });
   }
 
   async updateRoom(
@@ -102,17 +113,14 @@ export class RoomManagementController {
       roomUid,
       updates,
     );
-    if (result === 'INVALID_TIMEZONE') {
-      throw HttpError.unprocessable(
-        'INVALID_TIMEZONE',
-        'Invalid IANA timezone identifier.',
-      );
-    }
     if (result === 'ROOM_NOT_FOUND') {
       throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
     }
 
-    res.code(200).send(result);
+    res.code(200).send({
+      ...result,
+      createdAt: result.createdAt.toISOString(),
+    });
   }
 
   async deleteRoom(
@@ -133,7 +141,7 @@ export class RoomManagementController {
     req: BaseFastifyRequest<typeof ADD_DEVICE_TO_ROOM_SCHEMA>,
     res: BaseFastifyReply<typeof ADD_DEVICE_TO_ROOM_SCHEMA>,
   ) {
-    const { roomUid, deviceUid, asSource = false } = req.body;
+    const { roomUid, deviceUid, asSource } = req.body;
 
     const result = await this._roomManagementService.addDeviceToRoom({
       roomUid,
@@ -206,6 +214,8 @@ export class RoomManagementController {
     req: BaseFastifyRequest<typeof GET_MY_ROOM_SCHEMA>,
     res: BaseFastifyReply<typeof GET_MY_ROOM_SCHEMA>,
   ) {
+    if (!req.deviceUid) throw HttpError.internal();
+
     const result = await this._roomManagementService.getMyRoom(req.deviceUid);
     if (result === 'DEVICE_NOT_IN_ROOM') {
       throw HttpError.notFound(

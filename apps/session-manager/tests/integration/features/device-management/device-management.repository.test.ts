@@ -316,11 +316,11 @@ describe('DeviceManagementRepository', () => {
         .execute();
 
       // Act
-      const result = await repository.list({ limit: 50 });
+      const result = await repository.list({ search: null, active: null, roomUid: null, cursor: null, limit: 50 });
 
       // Assert
       expect(result.items).toHaveLength(2);
-      expect(result.nextCursor).toBeUndefined();
+      expect(result.nextCursor).toBeNull();
     });
 
     it('returns a nextCursor when there are more results than the limit', async () => {
@@ -342,7 +342,7 @@ describe('DeviceManagementRepository', () => {
         .execute();
 
       // Act
-      const result = await repository.list({ limit: 1 });
+      const result = await repository.list({ search: null, active: null, roomUid: null, cursor: null, limit: 1 });
 
       // Assert
       expect(result.items).toHaveLength(1);
@@ -364,7 +364,7 @@ describe('DeviceManagementRepository', () => {
         .execute();
 
       // Act
-      const result = await repository.list({ active: true, limit: 50 });
+      const result = await repository.list({ search: null, active: true, roomUid: null, cursor: null, limit: 50 });
 
       // Assert
       expect(result.items).toHaveLength(1);
@@ -400,7 +400,7 @@ describe('DeviceManagementRepository', () => {
         .execute();
 
       // Act
-      const result = await repository.list({ roomUid: '', limit: 50 });
+      const result = await repository.list({ search: null, active: null, roomUid: '', cursor: null, limit: 50 });
 
       // Assert
       expect(result.items).toHaveLength(1);

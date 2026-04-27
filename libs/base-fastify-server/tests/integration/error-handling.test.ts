@@ -5,10 +5,6 @@ import createBaseServer from '#src/server/create-base-server.js';
 import { HttpError } from '#src/server/errors/http-errors.js';
 import type { BaseFastifyInstance } from '#src/server/types/base-fastify-types.js';
 
-/**
- * Integration tests that exercise the full error-handling chain: plugin
- * registration, validator, and the canonical ErrorReply body shape.
- */
 describe('Integration Tests - Error Handling', (it) => {
   let fastify: BaseFastifyInstance;
 

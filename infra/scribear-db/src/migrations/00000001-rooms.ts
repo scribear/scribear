@@ -11,7 +11,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       auto_session_transcription_provider_id    TEXT NULL,
       auto_session_transcription_stream_config  JSONB NULL,
 
-      room_schedule_version                     BIGINT NOT NULL DEFAULT 0,
+      room_schedule_version                     BIGINT NOT NULL DEFAULT 1,
       last_materialized_at                      TIMESTAMPTZ NULL,
 
       created_at                                TIMESTAMPTZ NOT NULL DEFAULT now()

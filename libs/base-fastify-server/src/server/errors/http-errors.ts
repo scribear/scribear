@@ -91,8 +91,12 @@ const HttpError = {
   rateLimited: (message = 'Rate limit exceeded.') =>
     new BaseHttpError(429, 'RATE_LIMITED', message),
 
-  internal: (message = 'Server encountered an unexpected error.') =>
-    new BaseHttpError(500, 'INTERNAL_ERROR', message),
+  internal: () =>
+    new BaseHttpError(
+      500,
+      'INTERNAL_ERROR',
+      'Server encountered an unexpected error.',
+    ),
 };
 
 export { BaseHttpError, HttpError };

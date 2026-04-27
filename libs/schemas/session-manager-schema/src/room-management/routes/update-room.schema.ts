@@ -17,8 +17,7 @@ import { ROOM_MANAGEMENT_TAG } from '#src/tags.js';
 import { ROOM_SCHEMA } from '../entities/room.schema.js';
 
 const UPDATE_ROOM_SCHEMA = {
-  description:
-    'Update mutable fields on a room. Changing `timezone` triggers re-materialization of future scheduled sessions under the new timezone.',
+  description: 'Update mutable fields on a room.',
   tags: [ROOM_MANAGEMENT_TAG],
   security: ADMIN_API_KEY_SECURITY,
   headers: Type.Object({
@@ -27,14 +26,6 @@ const UPDATE_ROOM_SCHEMA = {
   body: Type.Object({
     roomUid: Type.String({ format: 'uuid' }),
     name: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
-    timezone: Type.Optional(Type.String()),
-    autoSessionEnabled: Type.Optional(Type.Boolean()),
-    autoSessionTranscriptionProviderId: Type.Optional(
-      Type.Union([Type.String(), Type.Null()]),
-    ),
-    autoSessionTranscriptionStreamConfig: Type.Optional(
-      Type.Union([Type.Unknown(), Type.Null()]),
-    ),
   }),
   response: {
     200: ROOM_SCHEMA,
@@ -42,10 +33,6 @@ const UPDATE_ROOM_SCHEMA = {
     ...INVALID_ADMIN_KEY_REPLY_SCHEMA,
     404: Type.Object({
       code: Type.Literal('ROOM_NOT_FOUND'),
-      message: Type.String(),
-    }),
-    422: Type.Object({
-      code: Type.Literal('INVALID_TIMEZONE'),
       message: Type.String(),
     }),
   },

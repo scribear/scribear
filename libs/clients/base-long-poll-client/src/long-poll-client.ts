@@ -119,7 +119,7 @@ type PollResult<S extends BaseLongPollRouteSchema> =
  * State machine:
  * ```
  *   IDLE -> POLLING (start())
- *   POLLING -> POLLING (200 or 204 — re-polls immediately)
+ *   POLLING -> POLLING (200 or 204 - re-polls immediately)
  *   POLLING -> WAITING_RETRY (network error or non-2xx response)
  *   POLLING -> CLOSED (close() called)
  *   WAITING_RETRY -> POLLING (retry timer fires)
@@ -143,7 +143,7 @@ export class LongPollClient<
    * Single-shot typed fetch built from `createEndpointClient`. The poll loop
    * calls this per iteration; retry and cursor management live outside it.
    * Cast to a loose signature because the version cursor querystring param is
-   * injected dynamically — the public API remains fully typed via events.
+   * injected dynamically - the public API remains fully typed via events.
    */
   private readonly _endpointFn: (
     params: Record<string, unknown>,

@@ -38,19 +38,24 @@ export class DeviceManagementController {
     req: BaseFastifyRequest<typeof LIST_DEVICES_SCHEMA>,
     res: BaseFastifyReply<typeof LIST_DEVICES_SCHEMA>,
   ) {
-    const { search, active, roomUid, cursor, limit = 50 } = req.query;
+    const { active, search, roomUid, cursor, limit = 50 } = req.query;
 
     const result = await this._deviceManagementService.listDevices({
-      ...(search !== undefined && { search }),
-      ...(active !== undefined && { active }),
-      ...(roomUid !== undefined && { roomUid }),
-      ...(cursor !== undefined && { cursor }),
+      search: search ?? null,
+      active: active ?? null,
+      roomUid: roomUid ?? null,
+      cursor: cursor ?? null,
       limit,
     });
 
     res.code(200).send({
-      items: result.items,
-      ...(result.nextCursor !== undefined && { nextCursor: result.nextCursor }),
+      items: result.items.map((device) => {
+        return {
+          ...device,
+          createdAt: device.createdAt.toISOString(),
+        };
+      }),
+      nextCursor: result.nextCursor,
     });
   }
 
@@ -65,7 +70,10 @@ export class DeviceManagementController {
       throw HttpError.notFound('DEVICE_NOT_FOUND', 'Device not found.');
     }
 
-    res.code(200).send(result);
+    res.code(200).send({
+      ...result,
+      createdAt: result.createdAt.toISOString(),
+    });
   }
 
   async registerDevice(
@@ -94,7 +102,10 @@ export class DeviceManagementController {
       throw HttpError.notFound('DEVICE_NOT_FOUND', 'Device not found.');
     }
 
-    res.code(200).send(result);
+    res.code(200).send({
+      activationCode: result.activationCode,
+      expiry: result.expiry.toISOString(),
+    });
   }
 
   async activateDevice(
@@ -128,6 +139,7 @@ export class DeviceManagementController {
       sameSite: 'strict',
       maxAge: COOKIE_MAX_AGE_SECONDS,
     });
+
     res.code(200).send({ deviceUid: result.deviceUid });
   }
 
@@ -145,7 +157,10 @@ export class DeviceManagementController {
       throw HttpError.notFound('DEVICE_NOT_FOUND', 'Device not found.');
     }
 
-    res.code(200).send(result);
+    res.code(200).send({
+      ...result,
+      createdAt: result.createdAt.toISOString(),
+    });
   }
 
   async deleteDevice(
@@ -172,6 +187,8 @@ export class DeviceManagementController {
     req: BaseFastifyRequest<typeof GET_MY_DEVICE_SCHEMA>,
     res: BaseFastifyReply<typeof GET_MY_DEVICE_SCHEMA>,
   ) {
+    if (!req.deviceUid) throw HttpError.internal();
+
     const result = await this._deviceManagementService.getMyDevice(
       req.deviceUid,
     );

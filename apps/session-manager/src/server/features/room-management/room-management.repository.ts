@@ -1,9 +1,14 @@
 import { type Updateable, sql } from 'kysely';
+import type { SelectQueryBuilder } from 'kysely';
 
-import type { JsonValue, Rooms } from '@scribear/scribear-db';
+import type { DB, JsonValue, Rooms } from '@scribear/scribear-db';
 
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
-import { decodeCursor, encodeCursor } from '#src/server/utils/pagination.js';
+import {
+  decodeCursor,
+  encodeCreatedAtCursor,
+  encodeSimilarityCursor,
+} from '#src/server/utils/pagination.js';
 
 interface RoomRow {
   uid: string;
@@ -16,6 +21,13 @@ interface RoomRow {
   created_at: Date;
 }
 
+type BaseRoomQuery = SelectQueryBuilder<DB, 'rooms', RoomRow>;
+
+/**
+ * Maps a room database row to an internal room object.
+ * @param row The database row to map.
+ * @returns Internal room object.
+ */
 function mapRoom(row: RoomRow) {
   return {
     uid: row.uid,
@@ -27,8 +39,21 @@ function mapRoom(row: RoomRow) {
     autoSessionTranscriptionStreamConfig:
       row.auto_session_transcription_stream_config,
     roomScheduleVersion: Number(row.room_schedule_version),
-    createdAt: row.created_at.toISOString(),
+    createdAt: row.created_at,
   };
+}
+
+/**
+ * Slices a raw result set into a page and signals whether more rows exist.
+ * Callers should fetch `limit + 1` rows and pass them here; the extra row is
+ * never included in `items` but its presence sets `hasMore`.
+ * @param rows Raw rows fetched from the database (`limit + 1` requested).
+ * @param limit Maximum number of items to return.
+ */
+function buildPage<T>(rows: T[], limit: number) {
+  const hasMore = rows.length > limit;
+  const items = hasMore ? rows.slice(0, limit) : rows;
+  return { items, hasMore, last: items.at(-1) };
 }
 
 export class RoomManagementRepository {
@@ -63,16 +88,23 @@ export class RoomManagementRepository {
   }
 
   /**
-   * Lists rooms with optional text search and cursor-based pagination.
-   * @param params.search Case-insensitive name filter.
+   * Lists rooms with optional fuzzy search and cursor-based pagination.
+   * When `search` is provided results are ordered by trigram similarity
+   * descending and the cursor encodes `(similarity, uid)`. Without `search`,
+   * results are ordered by `created_at` ascending and the cursor encodes
+   * `(createdAt, uid)`.
+   * @param params.search Fuzzy name filter using pg_trgm word similarity.
    * @param params.cursor Opaque cursor from a previous response's `nextCursor` field.
    * @param params.limit Maximum number of items to return.
    */
-  async list(params: { search?: string; cursor?: string; limit: number }) {
-    const { search, cursor: cursorStr, limit } = params;
-    const cursor = cursorStr ? decodeCursor(cursorStr) : null;
+  async list(params: {
+    search: string | null;
+    cursor: string | null;
+    limit: number;
+  }) {
+    const { search, cursor, limit } = params;
 
-    let query = this._dbClient.db
+    const base: BaseRoomQuery = this._dbClient.db
       .selectFrom('rooms')
       .select([
         'uid',
@@ -83,40 +115,102 @@ export class RoomManagementRepository {
         'auto_session_transcription_stream_config',
         'room_schedule_version',
         'created_at',
-      ]);
+      ]) as BaseRoomQuery;
 
-    if (search !== undefined) {
-      query = query.where('name', 'ilike', `%${search}%`);
-    }
+    return search !== null
+      ? this._listBySimilarity(base, search, cursor, limit)
+      : this._listByCreatedAt(base, cursor, limit);
+  }
 
-    if (cursor) {
-      const cursorTs = new Date(cursor.createdAt);
-      query = query.where((eb) =>
+  /**
+   * Executes the similarity-search pagination path. Orders by `word_similarity` descending,
+   * breaking ties by `uid` ascending. The cursor encodes `(similarity, uid)`.
+   */
+  private async _listBySimilarity(
+    base: BaseRoomQuery,
+    search: string,
+    rawCursor: string | null,
+    limit: number,
+  ) {
+    const cursor = rawCursor ? decodeCursor(rawCursor) : null;
+    const simCursor = cursor?.type === 'similarity' ? cursor : null;
+
+    let q = base
+      .where(sql`word_similarity(${search}, name)`, '>', 0.3)
+      .select(sql<number>`word_similarity(${search}, name)`.as('_similarity'));
+
+    if (simCursor) {
+      q = q.where((eb) =>
         eb.or([
-          eb(sql`date_trunc('milliseconds', created_at)`, '>', cursorTs),
+          eb(sql`word_similarity(${search}, name)`, '<', simCursor.similarity),
           eb.and([
-            eb(sql`date_trunc('milliseconds', created_at)`, '=', cursorTs),
-            eb('uid', '>', cursor.uid),
+            eb(
+              sql`word_similarity(${search}, name)`,
+              '=',
+              simCursor.similarity,
+            ),
+            eb('uid', '>', simCursor.uid),
           ]),
         ]),
       );
     }
 
-    const rows = (await query
+    const rows = (await q
+      .orderBy(sql`word_similarity(${search}, name) desc`)
+      .orderBy('uid', 'asc')
+      .limit(limit + 1)
+      // eslint-disable-next-line @typescript-eslint/naming-convention
+      .execute()) as (RoomRow & { _similarity: number })[];
+
+    const { items, hasMore, last } = buildPage(rows, limit);
+    return {
+      items: items.map(mapRoom),
+      nextCursor:
+        hasMore && last
+          ? encodeSimilarityCursor(last._similarity, last.uid)
+          : null,
+    };
+  }
+
+  /**
+   * Executes the chronological pagination path. Orders by `created_at` ascending,
+   * breaking ties by `uid` ascending. The cursor encodes `(createdAt, uid)`.
+   */
+  private async _listByCreatedAt(
+    base: BaseRoomQuery,
+    rawCursor: string | null,
+    limit: number,
+  ) {
+    const cursor = rawCursor ? decodeCursor(rawCursor) : null;
+    const createdAtCursor = cursor?.type === 'createdAt' ? cursor : null;
+
+    if (createdAtCursor) {
+      const ts = new Date(createdAtCursor.createdAt);
+      base = base.where((eb) =>
+        eb.or([
+          eb(sql`date_trunc('milliseconds', created_at)`, '>', ts),
+          eb.and([
+            eb(sql`date_trunc('milliseconds', created_at)`, '=', ts),
+            eb('uid', '>', createdAtCursor.uid),
+          ]),
+        ]),
+      );
+    }
+
+    const rows = (await base
       .orderBy('created_at', 'asc')
       .orderBy('uid', 'asc')
       .limit(limit + 1)
       .execute()) as RoomRow[];
 
-    const hasMore = rows.length > limit;
-    const items = hasMore ? rows.slice(0, limit) : rows;
-    const lastItem = items.at(-1);
-    const nextCursor =
-      hasMore && lastItem
-        ? encodeCursor(lastItem.created_at, lastItem.uid)
-        : undefined;
-
-    return { items: items.map(mapRoom), nextCursor };
+    const { items, hasMore, last } = buildPage(rows, limit);
+    return {
+      items: items.map(mapRoom),
+      nextCursor:
+        hasMore && last
+          ? encodeCreatedAtCursor(last.created_at, last.uid)
+          : null,
+    };
   }
 
   /**

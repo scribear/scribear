@@ -7,12 +7,12 @@ import {
 } from '@scribear/base-schema';
 
 import { SESSION_MANAGER_BASE_PATH } from '#src/base-path.js';
+import { paginatedQuerySchema } from '#src/shared/entities/pagination.schema.js';
 import {
   ADMIN_API_KEY_AUTH_HEADER_SCHEMA,
   ADMIN_API_KEY_SECURITY,
   INVALID_ADMIN_KEY_REPLY_SCHEMA,
 } from '#src/shared/security/admin-api-key.js';
-import { paginatedQuerySchema } from '#src/shared/entities/pagination.schema.js';
 import { ROOM_MANAGEMENT_TAG } from '#src/tags.js';
 
 import { ROOM_SCHEMA } from '../entities/room.schema.js';
@@ -37,7 +37,7 @@ const LIST_ROOMS_SCHEMA = {
     200: Type.Object(
       {
         items: Type.Array(ROOM_SCHEMA),
-        nextCursor: Type.Optional(Type.String()),
+        nextCursor: Type.Union([Type.String(), Type.Null()]),
       },
       { description: 'Paginated rooms matching the optional search filter.' },
     ),

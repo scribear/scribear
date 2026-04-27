@@ -14,10 +14,6 @@ describe('Error Handler Plugin', (it) => {
     fastify.register(errorHandler);
   });
 
-  /**
-   * Ensures BaseHttpError subclasses serialize to `{code, message}` with the
-   * configured status.
-   */
   it.for([
     {
       make: () => HttpError.unauthorized('nope'),

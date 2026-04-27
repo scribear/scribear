@@ -43,7 +43,7 @@ describe('RoomManagementRepository', () => {
       expect(result.name).toBe('My Room');
       expect(result.timezone).toBe('America/New_York');
       expect(result.autoSessionEnabled).toBe(false);
-      expect(result.roomScheduleVersion).toBe(0);
+      expect(result.roomScheduleVersion).toBe(1);
     });
   });
 
@@ -136,11 +136,11 @@ describe('RoomManagementRepository', () => {
       await insertRoom('Room B');
 
       // Act
-      const result = await repository.list({ limit: 50 });
+      const result = await repository.list({ search: null, cursor: null, limit: 50 });
 
       // Assert
       expect(result.items).toHaveLength(2);
-      expect(result.nextCursor).toBeUndefined();
+      expect(result.nextCursor).toBeNull();
     });
 
     it('returns a nextCursor when there are more results than the limit', async () => {
@@ -149,7 +149,7 @@ describe('RoomManagementRepository', () => {
       await insertRoom('Room B');
 
       // Act
-      const result = await repository.list({ limit: 1 });
+      const result = await repository.list({ search: null, cursor: null, limit: 1 });
 
       // Assert
       expect(result.items).toHaveLength(1);
@@ -162,7 +162,7 @@ describe('RoomManagementRepository', () => {
       await insertRoom('Beta Room');
 
       // Act
-      const result = await repository.list({ search: 'alpha', limit: 50 });
+      const result = await repository.list({ search: 'alpha', cursor: null, limit: 50 });
 
       // Assert
       expect(result.items).toHaveLength(1);

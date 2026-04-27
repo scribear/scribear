@@ -18,9 +18,6 @@ describe('Schema Validator Plugin', (it) => {
     fastify.register(schemaValidator);
   });
 
-  /**
-   * Test that schemaValidator is able to parse valid requests
-   */
   it('successfully parses valid request', async () => {
     // Arrange
     const validPayload = { string: 'string', num: 123 };
@@ -51,9 +48,6 @@ describe('Schema Validator Plugin', (it) => {
     expect(JSON.parse(response.payload)).toEqual(validPayload);
   });
 
-  /**
-   * Test that schemaValidator throws BadRequest error when parsing invalid requests
-   */
   it('throws BadRequest error for invalid request', async () => {
     // Arrange
     const invalidPayload = { string: 'string', num: 'not a num' };

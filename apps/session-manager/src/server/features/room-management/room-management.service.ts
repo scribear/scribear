@@ -22,12 +22,16 @@ export class RoomManagementService {
   }
 
   /**
-   * Lists rooms with optional text search and cursor-based pagination.
-   * @param params.search Case-insensitive name filter.
+   * Lists rooms with optional fuzzy search and cursor-based pagination.
+   * @param params.search Fuzzy name filter using pg_trgm word similarity.
    * @param params.cursor Opaque cursor from a previous response's `nextCursor` field.
    * @param params.limit Maximum number of items to return.
    */
-  async listRooms(params: { search?: string; cursor?: string; limit: number }) {
+  async listRooms(params: {
+    search: string | null;
+    cursor: string | null;
+    limit: number;
+  }) {
     return this._roomManagementRepository.list(params);
   }
 
@@ -102,25 +106,12 @@ export class RoomManagementService {
   }
 
   /**
-   * Updates mutable fields on a room. Validates the timezone if provided.
+   * Updates the name of a room.
    * @param roomUid The room to update.
    * @param data Fields to update; omit any field to leave it unchanged.
-   * @returns The updated room, `'ROOM_NOT_FOUND'`, or `'INVALID_TIMEZONE'` for a bad timezone value.
+   * @returns The updated room, or `'ROOM_NOT_FOUND'`.
    */
-  async updateRoom(
-    roomUid: string,
-    data: {
-      name?: string;
-      timezone?: string;
-      autoSessionEnabled?: boolean;
-      autoSessionTranscriptionProviderId?: string | null;
-      autoSessionTranscriptionStreamConfig?: unknown;
-    },
-  ) {
-    if (data.timezone !== undefined && !isValidTimezone(data.timezone)) {
-      return 'INVALID_TIMEZONE';
-    }
-
+  async updateRoom(roomUid: string, data: { name?: string }) {
     const room = await this._roomManagementRepository.update(roomUid, data);
     return room ?? 'ROOM_NOT_FOUND';
   }
@@ -212,6 +203,14 @@ export class RoomManagementService {
     const room = await this._roomManagementRepository.findById(
       membership.room_uid,
     );
-    return room ?? 'DEVICE_NOT_IN_ROOM';
+    if (!room) return 'DEVICE_NOT_IN_ROOM';
+
+    return {
+      uid: room.uid,
+      name: room.name,
+      timezone: room.timezone,
+      autoSessionEnabled: room.autoSessionEnabled,
+      roomScheduleVersion: room.roomScheduleVersion,
+    };
   }
 }

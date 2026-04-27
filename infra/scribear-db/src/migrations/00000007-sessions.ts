@@ -23,7 +23,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       transcription_provider_id    TEXT NULL,
       transcription_stream_config  JSONB NULL,
 
-      session_config_version       BIGINT NOT NULL DEFAULT 0,
+      session_config_version       BIGINT NOT NULL DEFAULT 1,
 
       created_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
 
