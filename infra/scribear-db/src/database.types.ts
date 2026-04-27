@@ -51,8 +51,8 @@ export interface AutoSessionWindows {
   local_end_time: string;
   local_start_time: string;
   room_uid: string;
-  transcription_provider_id: string | null;
-  transcription_stream_config: Json | null;
+  transcription_provider_id: string;
+  transcription_stream_config: Json;
   uid: Generated<string>;
 }
 
@@ -99,6 +99,7 @@ export interface RoomDevices {
 }
 
 export interface Rooms {
+  auto_session_enabled: boolean;
   created_at: Generated<Timestamp>;
   last_materialized_at: Timestamp | null;
   name: string;
@@ -136,8 +137,8 @@ export interface Sessions {
   scheduled_start_time: Timestamp;
   session_config_version: Generated<Int8>;
   start_override: Timestamp | null;
-  transcription_provider_id: string | null;
-  transcription_stream_config: Json | null;
+  transcription_provider_id: string;
+  transcription_stream_config: Json;
   type: SessionType;
   uid: Generated<string>;
 }
@@ -153,8 +154,8 @@ export interface SessionSchedules {
   local_start_time: string;
   name: string;
   room_uid: string;
-  transcription_provider_id: string | null;
-  transcription_stream_config: Json | null;
+  transcription_provider_id: string;
+  transcription_stream_config: Json;
   uid: Generated<string>;
 }
 

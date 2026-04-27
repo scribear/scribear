@@ -43,7 +43,7 @@ describe('materializeAutoSessions', () => {
       // Act
       const result = materializeAutoSessions([], windows, now, MIN_DURATION);
 
-      // Assert: slot starts at now (window already started), ends at window end
+      // Assert - slot starts at now (window already started), ends at window end
       expect(result).toHaveLength(1);
       expect(result[0]!.startTime).toEqual(now);
       expect(result[0]!.endTime).toEqual(new Date('2024-06-03T17:00:00Z'));
@@ -100,7 +100,7 @@ describe('materializeAutoSessions', () => {
     });
 
     it('produces only a trailing slot when the session covers the window start', () => {
-      // Arrange: active session started before now, ends mid-window
+      // Arrange - active session started before now, ends mid-window
       const now = new Date('2024-06-03T09:00:00Z');
       const windows = [window('2024-06-03T08:00:00Z', '2024-06-03T17:00:00Z')];
       const sessions = [session('2024-06-03T07:00:00Z', '2024-06-03T11:00:00Z')];
@@ -113,7 +113,7 @@ describe('materializeAutoSessions', () => {
         MIN_DURATION,
       );
 
-      // Assert: [now, 11:00] is blocked; trailing slot is [11:00, 17:00]
+      // Assert - [now, 11:00] is blocked; trailing slot is [11:00, 17:00]
       expect(result).toHaveLength(1);
       expect(result[0]!.startTime).toEqual(new Date('2024-06-03T11:00:00Z'));
       expect(result[0]!.endTime).toEqual(new Date('2024-06-03T17:00:00Z'));
@@ -133,7 +133,7 @@ describe('materializeAutoSessions', () => {
         MIN_DURATION,
       );
 
-      // Assert: session blocks [15:00, 17:00] within the window; leading slot [09:00, 15:00]
+      // Assert - session blocks [15:00, 17:00] within the window; leading slot [09:00, 15:00]
       expect(result).toHaveLength(1);
       expect(result[0]!.startTime).toEqual(now);
       expect(result[0]!.endTime).toEqual(new Date('2024-06-03T15:00:00Z'));
@@ -160,7 +160,7 @@ describe('materializeAutoSessions', () => {
 
   describe('multiple active windows', () => {
     it('produces slots within each window independently', () => {
-      // Arrange: two windows — morning and afternoon
+      // Arrange - two windows — morning and afternoon
       const now = new Date('2024-06-03T07:00:00Z');
       const windows = [
         window('2024-06-03T09:00:00Z', '2024-06-03T12:00:00Z', 'win-morning'),
@@ -170,7 +170,7 @@ describe('materializeAutoSessions', () => {
       // Act
       const result = materializeAutoSessions([], windows, now, MIN_DURATION);
 
-      // Assert: one slot per window, each carrying the correct windowUid
+      // Assert - one slot per window, each carrying the correct windowUid
       expect(result).toHaveLength(2);
       expect(result[0]!.startTime).toEqual(new Date('2024-06-03T09:00:00Z'));
       expect(result[0]!.endTime).toEqual(new Date('2024-06-03T12:00:00Z'));
@@ -181,7 +181,7 @@ describe('materializeAutoSessions', () => {
     });
 
     it('handles windows provided in unsorted order', () => {
-      // Arrange: windows in reverse order
+      // Arrange - windows in reverse order
       const now = new Date('2024-06-03T07:00:00Z');
       const windows = [
         window('2024-06-03T14:00:00Z', '2024-06-03T17:00:00Z', 'win-afternoon'),
@@ -191,7 +191,7 @@ describe('materializeAutoSessions', () => {
       // Act
       const result = materializeAutoSessions([], windows, now, MIN_DURATION);
 
-      // Assert: sorted order is applied; windowUids match the windows, not the input order
+      // Assert - sorted order is applied; windowUids match the windows, not the input order
       expect(result).toHaveLength(2);
       expect(result[0]!.startTime).toEqual(new Date('2024-06-03T09:00:00Z'));
       expect(result[0]!.windowUid).toBe('win-morning');
@@ -200,7 +200,7 @@ describe('materializeAutoSessions', () => {
     });
 
     it('a session spanning the gap between windows blocks only within each window', () => {
-      // Arrange: session runs 11:00-15:00, spanning the gap between 09-12 and 14-17 windows
+      // Arrange - session runs 11:00-15:00, spanning the gap between 09-12 and 14-17 windows
       const now = new Date('2024-06-03T07:00:00Z');
       const windows = [
         window('2024-06-03T09:00:00Z', '2024-06-03T12:00:00Z', 'win-morning'),
@@ -216,7 +216,7 @@ describe('materializeAutoSessions', () => {
         MIN_DURATION,
       );
 
-      // Assert: [09:00, 11:00] in first window; [15:00, 17:00] in second window
+      // Assert - [09:00, 11:00] in first window; [15:00, 17:00] in second window
       expect(result).toHaveLength(2);
       expect(result[0]!.startTime).toEqual(new Date('2024-06-03T09:00:00Z'));
       expect(result[0]!.endTime).toEqual(new Date('2024-06-03T11:00:00Z'));
@@ -227,7 +227,7 @@ describe('materializeAutoSessions', () => {
     });
 
     it('sessions outside all windows are ignored', () => {
-      // Arrange: session runs 12:30-13:30 — entirely in the gap between windows
+      // Arrange - session runs 12:30-13:30 — entirely in the gap between windows
       const now = new Date('2024-06-03T07:00:00Z');
       const windows = [
         window('2024-06-03T09:00:00Z', '2024-06-03T12:00:00Z'),
@@ -243,7 +243,7 @@ describe('materializeAutoSessions', () => {
         MIN_DURATION,
       );
 
-      // Assert: both windows are unaffected
+      // Assert - both windows are unaffected
       expect(result).toHaveLength(2);
       expect(result[0]!.startTime).toEqual(new Date('2024-06-03T09:00:00Z'));
       expect(result[0]!.endTime).toEqual(new Date('2024-06-03T12:00:00Z'));
@@ -254,7 +254,7 @@ describe('materializeAutoSessions', () => {
 
   describe('minimum duration filtering', () => {
     it('omits interior gaps shorter than minDurationSeconds', () => {
-      // Arrange: 30-second gap between two sessions within the window
+      // Arrange - 30-second gap between two sessions within the window
       const now = new Date('2024-06-03T09:00:00Z');
       const windows = [window('2024-06-03T08:00:00Z', '2024-06-03T17:00:00Z')];
       const sessions = [
@@ -270,14 +270,14 @@ describe('materializeAutoSessions', () => {
         MIN_DURATION,
       );
 
-      // Assert: 30s gap is omitted; leading and trailing slots are kept
+      // Assert - 30s gap is omitted; leading and trailing slots are kept
       expect(result).toHaveLength(2);
       expect(result[0]!.endTime).toEqual(new Date('2024-06-03T11:00:00Z'));
       expect(result[1]!.startTime).toEqual(new Date('2024-06-03T13:00:00Z'));
     });
 
     it('includes interior gaps exactly equal to minDurationSeconds', () => {
-      // Arrange: exactly 60s gap
+      // Arrange - exactly 60s gap
       const now = new Date('2024-06-03T09:00:00Z');
       const windows = [window('2024-06-03T08:00:00Z', '2024-06-03T17:00:00Z')];
       const sessions = [
@@ -288,7 +288,7 @@ describe('materializeAutoSessions', () => {
       // Act
       const result = materializeAutoSessions(sessions, windows, now, 60);
 
-      // Assert: 60s gap qualifies
+      // Assert - 60s gap qualifies
       expect(result).toHaveLength(3);
       expect(result[1]!.startTime).toEqual(new Date('2024-06-03T12:00:00Z'));
       expect(result[1]!.endTime).toEqual(new Date('2024-06-03T12:01:00Z'));

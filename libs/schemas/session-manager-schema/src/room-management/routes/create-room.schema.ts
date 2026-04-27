@@ -31,6 +31,10 @@ const CREATE_ROOM_SCHEMA = {
       description: 'IANA timezone identifier.',
       examples: ['America/New_York'],
     }),
+    autoSessionEnabled: Type.Boolean({
+      description:
+        "Master switch for the room's auto sessions. When false, no AUTO sessions are produced regardless of any auto-session windows.",
+    }),
     sourceDeviceUids: Type.Array(Type.String({ format: 'uuid' }), {
       minItems: 1,
       description:

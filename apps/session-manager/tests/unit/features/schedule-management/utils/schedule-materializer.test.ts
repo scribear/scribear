@@ -71,7 +71,7 @@ describe('materializeSchedule', () => {
     });
 
     it('drops the occurrence when occurrence start is before activeStart', () => {
-      // Arrange: activeStart is late in the day; localStartTime is earlier, so
+      // Arrange - activeStart is late in the day; localStartTime is earlier, so
       // the computed UTC start would be before activeStart.
       const schedule = makeSchedule({
         activeStart: new Date('2024-06-03T14:00:00Z'), // 14:00 UTC = 10:00 EDT
@@ -96,7 +96,7 @@ describe('materializeSchedule', () => {
 
   describe('WEEKLY', () => {
     it('materializes occurrences on the correct weekdays within the window', () => {
-      // Arrange: MON/WED/FRI, 14:00-14:30 UTC for one week
+      // Arrange - MON/WED/FRI, 14:00-14:30 UTC for one week
       const schedule = makeSchedule({
         localStartTime: '14:00:00',
         localEndTime: '14:30:00',
@@ -137,7 +137,7 @@ describe('materializeSchedule', () => {
         new Date('2024-06-10T00:00:00Z'),
       );
 
-      // Assert: Mon and Wed qualify; Fri's end (14:30) > activeEnd (14:30 on Wed) — wait, activeEnd is Jun 5 14:30
+      // Assert - Mon and Wed qualify; Fri's end (14:30) > activeEnd (14:30 on Wed) — wait, activeEnd is Jun 5 14:30
       // Fri Jun 7 14:30 > Jun 5 14:30 → excluded
       // Wed Jun 5 14:30 <= Jun 5 14:30 → included
       expect(result).toHaveLength(2);
@@ -146,7 +146,7 @@ describe('materializeSchedule', () => {
     });
 
     it('includes an occurrence that started before windowStart but ends within it', () => {
-      // Arrange: occurrence is 23:00-01:00 wrapping midnight
+      // Arrange - occurrence is 23:00-01:00 wrapping midnight
       const schedule = makeSchedule({
         localStartTime: '23:00:00',
         localEndTime: '01:00:00', // wraps to next day
@@ -154,7 +154,7 @@ describe('materializeSchedule', () => {
         daysOfWeek: ['MON'],
       });
 
-      // Act: window starts at Mon 23:30 UTC, so the Mon 23:00 start is before it
+      // Act - window starts at Mon 23:30 UTC, so the Mon 23:00 start is before it
       const result = materializeSchedule(
         schedule,
         TZ_UTC,
@@ -162,7 +162,7 @@ describe('materializeSchedule', () => {
         new Date('2024-06-04T12:00:00Z'),
       );
 
-      // Assert: endUtc (Tue 01:00) > windowStart (Mon 23:30) → included
+      // Assert - endUtc (Tue 01:00) > windowStart (Mon 23:30) → included
       expect(result).toHaveLength(1);
       expect(result[0]!.startUtc).toEqual(new Date('2024-06-03T23:00:00Z'));
       expect(result[0]!.endUtc).toEqual(new Date('2024-06-04T01:00:00Z'));
@@ -171,7 +171,7 @@ describe('materializeSchedule', () => {
 
   describe('BIWEEKLY', () => {
     it('fires every other week from the anchor, skipping off weeks', () => {
-      // Arrange: anchor week = ISO week of 2024-01-08 (Mon Jan 8).
+      // Arrange - anchor week = ISO week of 2024-01-08 (Mon Jan 8).
       // Even-offset weeks from that anchor: Jan 8, Jan 22, Feb 5, ...
       const schedule = makeSchedule({
         activeStart: new Date('2024-01-08T14:00:00Z'),
@@ -181,7 +181,7 @@ describe('materializeSchedule', () => {
         daysOfWeek: ['MON'],
       });
 
-      // Act: window covers Jan 8 - Feb 6 (four Mondays: Jan 8, 15, 22, 29)
+      // Act - window covers Jan 8 - Feb 6 (four Mondays: Jan 8, 15, 22, 29)
       const result = materializeSchedule(
         schedule,
         TZ_UTC,
@@ -189,14 +189,14 @@ describe('materializeSchedule', () => {
         new Date('2024-02-05T00:00:00Z'),
       );
 
-      // Assert: only Jan 8 and Jan 22 qualify (0 and 2 weeks from anchor)
+      // Assert - only Jan 8 and Jan 22 qualify (0 and 2 weeks from anchor)
       expect(result).toHaveLength(2);
       expect(result[0]!.startUtc).toEqual(new Date('2024-01-08T14:00:00Z'));
       expect(result[1]!.startUtc).toEqual(new Date('2024-01-22T14:00:00Z'));
     });
 
     it('handles anchor weeks that span a year boundary', () => {
-      // Arrange: anchor week contains 2024-12-30 (Mon, ISO week 1 of 2025).
+      // Arrange - anchor week contains 2024-12-30 (Mon, ISO week 1 of 2025).
       const schedule = makeSchedule({
         activeStart: new Date('2024-12-30T09:00:00Z'),
         localStartTime: '09:00:00',
@@ -205,7 +205,7 @@ describe('materializeSchedule', () => {
         daysOfWeek: ['MON'],
       });
 
-      // Act: window covers Dec 30 - Jan 20 2025
+      // Act - window covers Dec 30 - Jan 20 2025
       const result = materializeSchedule(
         schedule,
         TZ_UTC,
@@ -213,7 +213,7 @@ describe('materializeSchedule', () => {
         new Date('2025-01-21T00:00:00Z'),
       );
 
-      // Assert: Dec 30, Jan 13 (2 weeks later) qualify; Jan 6 (1 week) does not
+      // Assert - Dec 30, Jan 13 (2 weeks later) qualify; Jan 6 (1 week) does not
       expect(result).toHaveLength(2);
       expect(result[0]!.startUtc).toEqual(new Date('2024-12-30T09:00:00Z'));
       expect(result[1]!.startUtc).toEqual(new Date('2025-01-13T09:00:00Z'));
@@ -222,7 +222,7 @@ describe('materializeSchedule', () => {
 
   describe('midnight-wrap', () => {
     it('produces a cross-midnight occurrence when localEndTime < localStartTime', () => {
-      // Arrange: 23:00-01:00 means the session runs from Mon 23:00 to Tue 01:00
+      // Arrange - 23:00-01:00 means the session runs from Mon 23:00 to Tue 01:00
       const schedule = makeSchedule({
         localStartTime: '23:00:00',
         localEndTime: '01:00:00',
@@ -247,7 +247,7 @@ describe('materializeSchedule', () => {
 
   describe('DST — spring-forward (America/New_York, 2024-03-10)', () => {
     it('snaps an occurrence whose start is in the gap to the first valid instant', () => {
-      // Arrange: 02:30-04:00 on spring-forward day; 02:30 does not exist.
+      // Arrange - 02:30-04:00 on spring-forward day; 02:30 does not exist.
       // Start should snap to 03:00 EDT; end is 04:00 EDT.
       const schedule = makeSchedule({
         activeStart: new Date('2024-03-10T05:00:00Z'), // midnight EST = Mar 10 local
@@ -265,14 +265,14 @@ describe('materializeSchedule', () => {
         new Date('2024-03-11T00:00:00Z'),
       );
 
-      // Assert: 03:00 EDT = 07:00 UTC, 04:00 EDT = 08:00 UTC
+      // Assert - 03:00 EDT = 07:00 UTC, 04:00 EDT = 08:00 UTC
       expect(result).toHaveLength(1);
       expect(result[0]!.startUtc).toEqual(new Date('2024-03-10T07:00:00Z'));
       expect(result[0]!.endUtc).toEqual(new Date('2024-03-10T08:00:00Z'));
     });
 
     it('snaps an occurrence whose end is in the gap', () => {
-      // Arrange: 01:30-02:30 on spring-forward day; end (02:30) does not exist.
+      // Arrange - 01:30-02:30 on spring-forward day; end (02:30) does not exist.
       // Start is 01:30 EST; end should snap to 03:00 EDT.
       const schedule = makeSchedule({
         activeStart: new Date('2024-03-10T05:00:00Z'), // midnight EST = Mar 10 local
@@ -290,14 +290,14 @@ describe('materializeSchedule', () => {
         new Date('2024-03-11T00:00:00Z'),
       );
 
-      // Assert: 01:30 EST = 06:30 UTC, snapped end 03:00 EDT = 07:00 UTC
+      // Assert - 01:30 EST = 06:30 UTC, snapped end 03:00 EDT = 07:00 UTC
       expect(result).toHaveLength(1);
       expect(result[0]!.startUtc).toEqual(new Date('2024-03-10T06:30:00Z'));
       expect(result[0]!.endUtc).toEqual(new Date('2024-03-10T07:00:00Z'));
     });
 
     it('drops an occurrence whose entire span falls within the gap', () => {
-      // Arrange: 02:15-02:45 — both endpoints are inside the 02:00-03:00 gap.
+      // Arrange - 02:15-02:45 — both endpoints are inside the 02:00-03:00 gap.
       const schedule = makeSchedule({
         activeStart: new Date('2024-03-10T05:00:00Z'), // midnight EST = Mar 10 local
         localStartTime: '02:15:00',
@@ -314,12 +314,12 @@ describe('materializeSchedule', () => {
         new Date('2024-03-11T00:00:00Z'),
       );
 
-      // Assert: both endpoints snap to 07:00 UTC → start >= end → dropped
+      // Assert - both endpoints snap to 07:00 UTC → start >= end → dropped
       expect(result).toHaveLength(0);
     });
 
     it('produces normal occurrences on other days of the same week', () => {
-      // Arrange: schedule fires Sun-Mon; spring-forward is Sunday Mar 10.
+      // Arrange - schedule fires Sun-Mon; spring-forward is Sunday Mar 10.
       // Sunday 02:30 snaps; Monday is unaffected.
       const schedule = makeSchedule({
         activeStart: new Date('2024-03-10T05:00:00Z'), // midnight EST = Mar 10 local
@@ -337,7 +337,7 @@ describe('materializeSchedule', () => {
         new Date('2024-03-13T00:00:00Z'),
       );
 
-      // Assert: Sun snaps to 07:00 UTC; Mon 02:30 EDT = 06:30 UTC
+      // Assert - Sun snaps to 07:00 UTC; Mon 02:30 EDT = 06:30 UTC
       expect(result).toHaveLength(2);
       expect(result[0]!.startUtc).toEqual(new Date('2024-03-10T07:00:00Z')); // snapped
       expect(result[1]!.startUtc).toEqual(new Date('2024-03-11T06:30:00Z')); // Mon 02:30 EDT = 06:30 UTC
@@ -346,7 +346,7 @@ describe('materializeSchedule', () => {
 
   describe('DST — fall-back (America/New_York, 2024-11-03)', () => {
     it('picks the later (standard-time) UTC instant for an ambiguous local time', () => {
-      // Arrange: 01:30-03:00 on fall-back day.
+      // Arrange - 01:30-03:00 on fall-back day.
       // 01:30 occurs twice: first as EDT (05:30 UTC), then as EST (06:30 UTC).
       // We want 06:30 UTC (the later, standard-time occurrence).
       const schedule = makeSchedule({
@@ -365,14 +365,14 @@ describe('materializeSchedule', () => {
         new Date('2024-11-04T00:00:00Z'),
       );
 
-      // Assert: 01:30 EST = 06:30 UTC, 03:00 EST = 08:00 UTC
+      // Assert - 01:30 EST = 06:30 UTC, 03:00 EST = 08:00 UTC
       expect(result).toHaveLength(1);
       expect(result[0]!.startUtc).toEqual(new Date('2024-11-03T06:30:00Z'));
       expect(result[0]!.endUtc).toEqual(new Date('2024-11-03T08:00:00Z'));
     });
 
     it('does not affect times outside the ambiguous window', () => {
-      // Arrange: 10:00-11:00 — well outside the fall-back ambiguous hour.
+      // Arrange - 10:00-11:00 — well outside the fall-back ambiguous hour.
       const schedule = makeSchedule({
         activeStart: new Date('2024-11-03T04:00:00Z'), // midnight EDT = Nov 3 local
         localStartTime: '10:00:00',
@@ -389,7 +389,7 @@ describe('materializeSchedule', () => {
         new Date('2024-11-04T00:00:00Z'),
       );
 
-      // Assert: 10:00 EST = 15:00 UTC, 11:00 EST = 16:00 UTC
+      // Assert - 10:00 EST = 15:00 UTC, 11:00 EST = 16:00 UTC
       expect(result).toHaveLength(1);
       expect(result[0]!.startUtc).toEqual(new Date('2024-11-03T15:00:00Z'));
       expect(result[0]!.endUtc).toEqual(new Date('2024-11-03T16:00:00Z'));
@@ -398,7 +398,7 @@ describe('materializeSchedule', () => {
 
   describe('timezone offset application', () => {
     it('converts local times correctly using the room timezone', () => {
-      // Arrange: schedule at 09:00-10:00 in America/New_York (EDT, UTC-4 in June)
+      // Arrange - schedule at 09:00-10:00 in America/New_York (EDT, UTC-4 in June)
       const schedule = makeSchedule({
         activeStart: new Date('2024-06-03T04:00:00Z'), // midnight EDT = Jun 3 local
         localStartTime: '09:00:00',
@@ -415,7 +415,7 @@ describe('materializeSchedule', () => {
         new Date('2024-06-30T00:00:00Z'),
       );
 
-      // Assert: 09:00 EDT = 13:00 UTC
+      // Assert - 09:00 EDT = 13:00 UTC
       expect(result).toHaveLength(1);
       expect(result[0]!.startUtc).toEqual(new Date('2024-06-03T13:00:00Z'));
       expect(result[0]!.endUtc).toEqual(new Date('2024-06-03T14:00:00Z'));

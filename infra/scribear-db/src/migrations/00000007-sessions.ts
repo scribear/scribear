@@ -20,8 +20,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       end_override                 TIMESTAMPTZ NULL,
 
       join_code_scopes             session_scope[] NOT NULL DEFAULT '{}',
-      transcription_provider_id    TEXT NULL,
-      transcription_stream_config  JSONB NULL,
+      transcription_provider_id    TEXT NOT NULL,
+      transcription_stream_config  JSONB NOT NULL,
 
       session_config_version       BIGINT NOT NULL DEFAULT 1,
 

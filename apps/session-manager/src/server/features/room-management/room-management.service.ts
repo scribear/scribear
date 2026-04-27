@@ -49,11 +49,13 @@ export class RoomManagementService {
    * Validates the timezone against the IANA list and requires exactly one source device.
    * The source device must not already belong to another room.
    * @param data.timezone Must be a valid IANA timezone identifier.
+   * @param data.autoSessionEnabled Master switch for auto sessions in the room.
    * @param data.sourceDeviceUids Must contain exactly one UID; that device must not already be in a room.
    */
   async createRoom(data: {
     name: string;
     timezone: string;
+    autoSessionEnabled: boolean;
     sourceDeviceUids: string[];
   }) {
     if (!isValidTimezone(data.timezone)) {
@@ -81,6 +83,7 @@ export class RoomManagementService {
     const room = await this._roomManagementRepository.create({
       name: data.name,
       timezone: data.timezone,
+      autoSessionEnabled: data.autoSessionEnabled,
     });
 
     await this._roomManagementRepository.addDeviceToRoom(

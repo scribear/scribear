@@ -15,9 +15,12 @@ import { ReadinessController } from '#src/server/features/probes/readiness.contr
 import { RoomManagementController } from '#src/server/features/room-management/room-management.controller.js';
 import { RoomManagementRepository } from '#src/server/features/room-management/room-management.repository.js';
 import { RoomManagementService } from '#src/server/features/room-management/room-management.service.js';
+import { ScheduleManagementRepository } from '#src/server/features/schedule-management/schedule-management.repository.js';
+import { ScheduleManagementService } from '#src/server/features/schedule-management/schedule-management.service.js';
 import { DeviceAuthRepository } from '#src/server/shared/repositories/device-auth.repository.js';
 import { AdminAuthService } from '#src/server/shared/services/admin-auth.service.js';
 import { DeviceAuthService } from '#src/server/shared/services/device-auth.service.js';
+import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
 import { HashService } from '#src/server/shared/services/hash.service.js';
 
 import type { AppConfig } from './app-dependencies.js';
@@ -47,6 +50,9 @@ function registerDependencies(
     }),
     deviceAuthService: asClass(DeviceAuthService, {
       lifetime: Lifetime.SCOPED,
+    }),
+    eventBusService: asClass(EventBusService, {
+      lifetime: Lifetime.SINGLETON,
     }),
 
     // Shared repositories
@@ -81,6 +87,14 @@ function registerDependencies(
       lifetime: Lifetime.SCOPED,
     }),
     deviceManagementRepository: asClass(DeviceManagementRepository, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+
+    // Schedule management
+    scheduleManagementService: asClass(ScheduleManagementService, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    scheduleManagementRepository: asClass(ScheduleManagementRepository, {
       lifetime: Lifetime.SINGLETON,
     }),
   } as NameAndRegistrationPair<AppDependencies>);

@@ -16,7 +16,7 @@ class NetworkError extends Error {
 }
 
 /**
- * Thrown when the response is not part of the declared contract: the status
+ * Thrown when the response is not part of the declared contrAct - the status
  * code is not in the route schema's `response` map, or the body failed to
  * match the schema declared for that status.
  *

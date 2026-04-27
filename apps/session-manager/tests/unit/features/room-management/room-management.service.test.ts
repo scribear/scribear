@@ -118,6 +118,7 @@ describe('RoomManagementService', () => {
         name: 'Room',
         timezone: INVALID_TIMEZONE,
         sourceDeviceUids: ['device-1'],
+        autoSessionEnabled: true,
       });
 
       // Assert
@@ -130,6 +131,7 @@ describe('RoomManagementService', () => {
         name: 'Room',
         timezone: VALID_TIMEZONE,
         sourceDeviceUids: ['device-1', 'device-2'],
+        autoSessionEnabled: true,
       });
 
       // Assert
@@ -142,6 +144,7 @@ describe('RoomManagementService', () => {
         name: 'Room',
         timezone: VALID_TIMEZONE,
         sourceDeviceUids: [],
+        autoSessionEnabled: true,
       });
 
       // Assert
@@ -157,6 +160,7 @@ describe('RoomManagementService', () => {
         name: 'Room',
         timezone: VALID_TIMEZONE,
         sourceDeviceUids: ['device-1'],
+        autoSessionEnabled: true,
       });
 
       // Assert
@@ -175,6 +179,7 @@ describe('RoomManagementService', () => {
         name: 'Room',
         timezone: VALID_TIMEZONE,
         sourceDeviceUids: ['device-1'],
+        autoSessionEnabled: true,
       });
 
       // Assert
@@ -192,6 +197,7 @@ describe('RoomManagementService', () => {
         name: 'Room',
         timezone: VALID_TIMEZONE,
         sourceDeviceUids: ['device-1'],
+        autoSessionEnabled: true,
       });
 
       // Assert
@@ -209,6 +215,7 @@ describe('RoomManagementService', () => {
         name: 'Test Room',
         timezone: VALID_TIMEZONE,
         sourceDeviceUids: ['device-1'],
+        autoSessionEnabled: true,
       });
 
       // Assert
@@ -231,6 +238,7 @@ describe('RoomManagementService', () => {
         name: 'Test Room',
         timezone: VALID_TIMEZONE,
         sourceDeviceUids: ['device-1'],
+        autoSessionEnabled: true,
       });
 
       // Assert

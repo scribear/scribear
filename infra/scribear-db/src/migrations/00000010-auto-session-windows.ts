@@ -10,8 +10,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       local_end_time                  TIME NOT NULL,
       days_of_week                    day_of_week[] NOT NULL,
 
-      transcription_provider_id       TEXT NULL,
-      transcription_stream_config     JSONB NULL,
+      transcription_provider_id       TEXT NOT NULL,
+      transcription_stream_config     JSONB NOT NULL,
 
       active_start      TIMESTAMPTZ NOT NULL DEFAULT now(),
       active_end        TIMESTAMPTZ NULL,

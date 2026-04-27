@@ -68,10 +68,6 @@ describe('LongPollClient', () => {
     client.close();
   });
 
-  // ---------------------------------------------------------------------------
-  // start()
-  // ---------------------------------------------------------------------------
-
   describe('start()', () => {
     it('transitions from IDLE to POLLING immediately', () => {
       // Arrange

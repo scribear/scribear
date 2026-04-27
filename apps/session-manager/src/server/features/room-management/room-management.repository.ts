@@ -14,6 +14,7 @@ interface RoomRow {
   uid: string;
   name: string;
   timezone: string;
+  auto_session_enabled: boolean;
   room_schedule_version: string;
   created_at: Date;
 }
@@ -30,6 +31,7 @@ function mapRoom(row: RoomRow) {
     uid: row.uid,
     name: row.name,
     timezone: row.timezone,
+    autoSessionEnabled: row.auto_session_enabled,
     roomScheduleVersion: Number(row.room_schedule_version),
     createdAt: row.created_at,
   };
@@ -67,6 +69,7 @@ export class RoomManagementRepository {
         'uid',
         'name',
         'timezone',
+        'auto_session_enabled',
         'room_schedule_version',
         'created_at',
       ])
@@ -99,6 +102,7 @@ export class RoomManagementRepository {
         'uid',
         'name',
         'timezone',
+        'auto_session_enabled',
         'room_schedule_version',
         'created_at',
       ]) as BaseRoomQuery;
@@ -203,19 +207,26 @@ export class RoomManagementRepository {
    * Inserts a new room.
    * @param data.name The display name for the room.
    * @param data.timezone A valid IANA timezone identifier.
+   * @param data.autoSessionEnabled Master switch for auto sessions in this room.
    * @returns The newly created room.
    */
-  async create(data: { name: string; timezone: string }) {
+  async create(data: {
+    name: string;
+    timezone: string;
+    autoSessionEnabled: boolean;
+  }) {
     const row = (await this._dbClient.db
       .insertInto('rooms')
       .values({
         name: data.name,
         timezone: data.timezone,
+        auto_session_enabled: data.autoSessionEnabled,
       })
       .returning([
         'uid',
         'name',
         'timezone',
+        'auto_session_enabled',
         'room_schedule_version',
         'created_at',
       ])
@@ -225,7 +236,11 @@ export class RoomManagementRepository {
   }
 
   /**
-   * Updates a room's fields. Returns the current state via `findById` when no fields are provided.
+   * Updates a room's display name. Schedule-affecting fields (`timezone`,
+   * `auto_session_enabled`) are not exposed here; use
+   * `ScheduleManagementService.updateRoomScheduleConfig` for those, since
+   * changing them requires re-materializing sessions atomically. Returns the
+   * current state via `findById` when no fields are provided.
    * @param roomUid The room to update.
    * @param data Fields to update; any omitted field is left unchanged.
    */
@@ -233,12 +248,10 @@ export class RoomManagementRepository {
     roomUid: string,
     data: {
       name?: string;
-      timezone?: string;
     },
   ) {
     const updates: Partial<Updateable<Rooms>> = {};
     if (data.name !== undefined) updates.name = data.name;
-    if (data.timezone !== undefined) updates.timezone = data.timezone;
 
     if (Object.keys(updates).length === 0) {
       return this.findById(roomUid);
@@ -252,6 +265,7 @@ export class RoomManagementRepository {
         'uid',
         'name',
         'timezone',
+        'auto_session_enabled',
         'room_schedule_version',
         'created_at',
       ])

@@ -13,10 +13,13 @@ import type { ReadinessController } from '#src/server/features/probes/readiness.
 import type { RoomManagementController } from '#src/server/features/room-management/room-management.controller.js';
 import type { RoomManagementRepository } from '#src/server/features/room-management/room-management.repository.js';
 import type { RoomManagementService } from '#src/server/features/room-management/room-management.service.js';
+import type { ScheduleManagementRepository } from '#src/server/features/schedule-management/schedule-management.repository.js';
+import type { ScheduleManagementService } from '#src/server/features/schedule-management/schedule-management.service.js';
 import type { DeviceAuthRepository } from '#src/server/shared/repositories/device-auth.repository.js';
 import type { AdminAuthConfig } from '#src/server/shared/services/admin-auth.service.js';
 import type { AdminAuthService } from '#src/server/shared/services/admin-auth.service.js';
 import type { DeviceAuthService } from '#src/server/shared/services/device-auth.service.js';
+import type { EventBusService } from '#src/server/shared/services/event-bus.service.js';
 import type { HashService } from '#src/server/shared/services/hash.service.js';
 
 /**
@@ -35,6 +38,7 @@ interface AppDependencies extends BaseDependencies {
   hashService: HashService;
   adminAuthService: AdminAuthService;
   deviceAuthService: DeviceAuthService;
+  eventBusService: EventBusService;
 
   // Shared repositories
   deviceAuthRepository: DeviceAuthRepository;
@@ -52,6 +56,10 @@ interface AppDependencies extends BaseDependencies {
   deviceManagementController: DeviceManagementController;
   deviceManagementService: DeviceManagementService;
   deviceManagementRepository: DeviceManagementRepository;
+
+  // Schedule management
+  scheduleManagementService: ScheduleManagementService;
+  scheduleManagementRepository: ScheduleManagementRepository;
 }
 
 /**

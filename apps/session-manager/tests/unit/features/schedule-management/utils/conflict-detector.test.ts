@@ -36,7 +36,7 @@ describe('detectConflict', () => {
       // Act
       const result = detectConflict(a, b, TZ_UTC, NOW);
 
-      // Assert: both fire Mon 09:00-10:00 and 09:30-10:30 — overlap exists
+      // Assert - both fire Mon 09:00-10:00 and 09:30-10:30 — overlap exists
       expect(result).toBe(true);
     });
 
@@ -53,7 +53,7 @@ describe('detectConflict', () => {
       // Act
       const result = detectConflict(a, b, TZ_UTC, NOW);
 
-      // Assert: a ends at 10:00 exactly when b starts — no overlap (half-open intervals)
+      // Assert - a ends at 10:00 exactly when b starts — no overlap (half-open intervals)
       expect(result).toBe(false);
     });
 
@@ -72,7 +72,7 @@ describe('detectConflict', () => {
 
   describe('BIWEEKLY vs WEEKLY', () => {
     it('detects a conflict on even weeks when they share the same time slot', () => {
-      // Arrange: biweekly fires Mon every two weeks; weekly fires every Mon
+      // Arrange - biweekly fires Mon every two weeks; weekly fires every Mon
       const a = makeSchedule({
         uid: 'a',
         activeStart: new Date('2024-06-03T00:00:00Z'), // anchor: week of Jun 3
@@ -84,12 +84,12 @@ describe('detectConflict', () => {
       // Act
       const result = detectConflict(a, b, TZ_UTC, NOW);
 
-      // Assert: Jun 3 (anchor week, offset 0 — even) is an overlap
+      // Assert - Jun 3 (anchor week, offset 0 — even) is an overlap
       expect(result).toBe(true);
     });
 
     it('returns false when the biweekly off-weeks are all the weekly fires', () => {
-      // Arrange: biweekly fires Mon every other week; we only check an off-week window
+      // Arrange - biweekly fires Mon every other week; we only check an off-week window
       const a = makeSchedule({
         uid: 'a',
         activeStart: new Date('2024-06-03T00:00:00Z'), // anchor: week of Jun 3
@@ -123,12 +123,12 @@ describe('detectConflict', () => {
       // Act
       const result = detectConflict(a, b, TZ_UTC, NOW);
 
-      // Assert: Jun 3 is a Monday; both produce 09:00-10:00 UTC
+      // Assert - Jun 3 is a Monday; both produce 09:00-10:00 UTC
       expect(result).toBe(true);
     });
 
     it('returns false when a ONCE schedule fires outside the other schedule', () => {
-      // Arrange: ONCE fires on a Wednesday; weekly fires only on Monday
+      // Arrange - ONCE fires on a Wednesday; weekly fires only on Monday
       const a = makeSchedule({
         uid: 'a',
         activeStart: new Date('2024-06-05T00:00:00Z'), // Wed Jun 5
@@ -147,7 +147,7 @@ describe('detectConflict', () => {
 
   describe('non-overlapping active windows', () => {
     it('returns false when scheduleA ends before the check window starts', () => {
-      // Arrange: a has already ended before the horizon begins
+      // Arrange - a has already ended before the horizon begins
       const a = makeSchedule({
         uid: 'a',
         activeEnd: new Date('2024-05-01T00:00:00Z'), // ended in May
@@ -157,13 +157,13 @@ describe('detectConflict', () => {
       // Act
       const result = detectConflict(a, b, TZ_UTC, NOW);
 
-      // Assert: checkStart = max(a.activeStart, b.activeStart, now) = now = Jun 3;
+      // Assert - checkStart = max(a.activeStart, b.activeStart, now) = now = Jun 3;
       // a.activeEnd = May 1 <= Jun 3 → quick-exit false
       expect(result).toBe(false);
     });
 
     it('returns false when the two active windows do not overlap', () => {
-      // Arrange: a is done before b starts
+      // Arrange - a is done before b starts
       const a = makeSchedule({
         uid: 'a',
         activeStart: new Date('2024-01-01T00:00:00Z'),
@@ -176,7 +176,7 @@ describe('detectConflict', () => {
         daysOfWeek: ['MON'],
       });
 
-      // Act: checkStart = max(Jan 1, Sep 1, Jun 3) = Sep 1;
+      // Act - checkStart = max(Jan 1, Sep 1, Jun 3) = Sep 1;
       // a.activeEnd = Mar 1 <= Sep 1 → quick-exit false
       const result = detectConflict(a, b, TZ_UTC, NOW);
 
@@ -187,7 +187,7 @@ describe('detectConflict', () => {
 
   describe('active-session edge case', () => {
     it('detects a conflict when the old schedule activeEnd is set to the active session end', () => {
-      // Arrange: simulates the update-with-active-session path.
+      // Arrange - simulates the update-with-active-session path.
       // Old schedule closes with activeEnd = Mon 10:00 (the active session's effectiveEnd).
       // New (replacement) schedule starts at now (Mon 09:30) and fires Mon 09:30-10:30.
       // The old schedule's Mon 09:00-10:00 occurrence must still be visible (endUtc <= activeEnd).
@@ -207,7 +207,7 @@ describe('detectConflict', () => {
         localEndTime: '10:30:00',
       });
 
-      // Act: now = 09:30; checkStart = max(old.activeStart, new.activeStart, now) = 09:30
+      // Act - now = 09:30; checkStart = max(old.activeStart, new.activeStart, now) = 09:30
       // Old: Mon [09:00, 10:00]; endUtc=10:00 <= activeEnd=10:00 → included
       // New: Mon [09:30, 10:30]; startUtc=09:30 >= activeStart=09:30 → included
       // Overlap: 09:00 < 10:30 AND 09:30 < 10:00 → true
@@ -218,7 +218,7 @@ describe('detectConflict', () => {
         new Date('2024-06-03T09:30:00Z'),
       );
 
-      // Assert: conflict detected (the active session's slot overlaps the new schedule)
+      // Assert - conflict detected (the active session's slot overlaps the new schedule)
       expect(result).toBe(true);
     });
 
@@ -252,7 +252,7 @@ describe('detectConflict', () => {
         new Date('2024-06-03T09:30:00Z'),
       );
 
-      // Assert: conflict is missed — old occurrence excluded because endUtc=10:00 > activeEnd=09:30
+      // Assert - conflict is missed — old occurrence excluded because endUtc=10:00 > activeEnd=09:30
       expect(result).toBe(false);
     });
   });

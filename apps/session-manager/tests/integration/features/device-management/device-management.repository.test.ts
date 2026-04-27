@@ -60,7 +60,7 @@ describe('DeviceManagementRepository', () => {
       // Arrange
       const { uid: roomUid } = await dbContext.db
         .insertInto('rooms')
-        .values({ name: 'Room', timezone: 'UTC' })
+        .values({ name: 'Room', timezone: 'UTC', auto_session_enabled: true })
         .returning('uid')
         .executeTakeFirstOrThrow();
 
@@ -375,7 +375,7 @@ describe('DeviceManagementRepository', () => {
       // Arrange
       const { uid: roomUid } = await dbContext.db
         .insertInto('rooms')
-        .values({ name: 'Room', timezone: 'UTC' })
+        .values({ name: 'Room', timezone: 'UTC', auto_session_enabled: true })
         .returning('uid')
         .executeTakeFirstOrThrow();
 

@@ -16,7 +16,7 @@ describe('RoomManagementRepository', () => {
   async function insertRoom(name = 'Test Room', timezone = 'UTC') {
     return dbContext.db
       .insertInto('rooms')
-      .values({ name, timezone })
+      .values({ name, timezone, auto_session_enabled: true })
       .returning('uid')
       .executeTakeFirstOrThrow();
   }
@@ -35,6 +35,7 @@ describe('RoomManagementRepository', () => {
       const result = await repository.create({
         name: 'My Room',
         timezone: 'America/New_York',
+        autoSessionEnabled: true,
       });
 
       // Assert

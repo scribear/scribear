@@ -175,6 +175,7 @@ describe('Device Management Routes', () => {
         body: {
           name: 'Test Room',
           timezone: 'America/New_York',
+          autoSessionEnabled: true,
           sourceDeviceUids: [inRoomUid],
         },
       });
@@ -377,10 +378,8 @@ describe('Device Management Routes', () => {
         body: {
           name: 'Room',
           timezone: 'America/New_York',
+          autoSessionEnabled: true,
           sourceDeviceUids: [deviceUid],
-          autoSessionEnabled: false,
-          autoSessionTranscriptionProviderId: null,
-          autoSessionTranscriptionStreamConfig: null,
         },
       });
 

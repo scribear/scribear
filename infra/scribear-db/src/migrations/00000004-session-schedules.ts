@@ -29,8 +29,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       days_of_week                 day_of_week[] NULL,
 
       join_code_scopes             session_scope[] NOT NULL DEFAULT '{}',
-      transcription_provider_id    TEXT NULL,
-      transcription_stream_config  JSONB NULL,
+      transcription_provider_id    TEXT NOT NULL,
+      transcription_stream_config  JSONB NOT NULL,
 
       created_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
 

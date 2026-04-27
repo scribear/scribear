@@ -12,6 +12,10 @@ export const ROOM_SCHEMA = Type.Object(
       description: 'IANA timezone identifier.',
       examples: ['America/New_York'],
     }),
+    autoSessionEnabled: Type.Boolean({
+      description:
+        "Master switch for the room's auto sessions. When false, no AUTO sessions are produced regardless of any auto-session windows.",
+    }),
     roomScheduleVersion: Type.Integer({
       description:
         'Monotonically increasing counter bumped on any session/schedule write in this room.',

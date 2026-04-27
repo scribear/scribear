@@ -47,6 +47,7 @@ describe('Room Management Routes', () => {
       body: {
         name,
         timezone: 'America/New_York',
+        autoSessionEnabled: true,
         sourceDeviceUids: [deviceUid],
       },
     });
@@ -63,6 +64,7 @@ describe('Room Management Routes', () => {
         body: {
           name: 'Room',
           timezone: 'UTC',
+          autoSessionEnabled: true,
           sourceDeviceUids: [NULL_UUID],
         },
       });
@@ -85,6 +87,7 @@ describe('Room Management Routes', () => {
         body: {
           name: 'My Room',
           timezone: 'America/New_York',
+          autoSessionEnabled: true,
           sourceDeviceUids: [deviceUid],
         },
       });
@@ -109,6 +112,7 @@ describe('Room Management Routes', () => {
         body: {
           name: 'My Room',
           timezone: 'Not/ATimezone',
+          autoSessionEnabled: true,
           sourceDeviceUids: [deviceUid],
         },
       });
@@ -127,6 +131,7 @@ describe('Room Management Routes', () => {
         body: {
           name: 'Room',
           timezone: 'America/New_York',
+          autoSessionEnabled: true,
           sourceDeviceUids: [NULL_UUID],
         },
       });
@@ -149,6 +154,7 @@ describe('Room Management Routes', () => {
         body: {
           name: 'Room',
           timezone: 'America/New_York',
+          autoSessionEnabled: true,
           sourceDeviceUids: [uid1, uid2],
         },
       });
@@ -171,6 +177,7 @@ describe('Room Management Routes', () => {
         body: {
           name: 'Another Room',
           timezone: 'America/New_York',
+          autoSessionEnabled: true,
           sourceDeviceUids: [deviceUid],
         },
       });
