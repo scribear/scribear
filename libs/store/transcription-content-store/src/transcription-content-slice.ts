@@ -33,7 +33,7 @@ export interface TranscriptionSection {
 /**
  * The active (in-progress) paragraph being built from finalized sequences.
  * Sequences are kept individually rather than concatenated so each can be
- * rendered as a stable keyed DOM node — avoiding full-paragraph re-layout
+ * rendered as a stable keyed DOM node - avoiding full-paragraph re-layout
  * as the active section grows.
  */
 export interface ActiveSection {

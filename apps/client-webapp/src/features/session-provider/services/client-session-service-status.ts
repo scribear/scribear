@@ -1,18 +1,36 @@
 /**
- * Enum representing all possible runtime states of the `ClientSessionService`.
+ * Top-level lifecycle phase of the client app, mirroring the three states in
+ * the client app specification:
  *
- * - `IDLE` - not connected to any session.
- * - `JOINING` - join code submitted, awaiting authentication.
- * - `JOIN_ERROR` - join code authentication failed (invalid code, etc.).
- * - `CONNECTING` - authenticated, opening WebSocket connection.
- * - `CONNECTION_ERROR` - WebSocket connection or token refresh failed.
- * - `ACTIVE` - connected and receiving transcriptions.
+ * - `INITIALIZING` - on entry, attempting to resume a stored session.
+ * - `IDLE` - no active session. UI shows the join-code form.
+ * - `ACTIVE` - connected (or reconnecting) to a live session.
  */
-export enum ClientSessionServiceStatus {
+export enum ClientLifecycle {
+  INITIALIZING = 'INITIALIZING',
   IDLE = 'IDLE',
-  JOINING = 'JOINING',
-  JOIN_ERROR = 'JOIN_ERROR',
-  CONNECTING = 'CONNECTING',
-  CONNECTION_ERROR = 'CONNECTION_ERROR',
   ACTIVE = 'ACTIVE',
+}
+
+/**
+ * Sub-status of a session connection while the client is `ACTIVE`. Drives the
+ * connection indicator in the UI; not used outside `ACTIVE`.
+ */
+export enum SessionConnectionStatus {
+  CONNECTING = 'CONNECTING',
+  CONNECTED = 'CONNECTED',
+  DISCONNECTED = 'DISCONNECTED',
+}
+
+/**
+ * Outcome of the most recent join-code submission. Surfaces a specific
+ * failure mode to the UI without polluting the lifecycle state machine -
+ * `JOIN_ERROR` lives alongside `IDLE`, not as its own lifecycle phase.
+ */
+export enum JoinError {
+  NETWORK_ERROR = 'NETWORK_ERROR',
+  JOIN_CODE_NOT_FOUND = 'JOIN_CODE_NOT_FOUND',
+  JOIN_CODE_EXPIRED = 'JOIN_CODE_EXPIRED',
+  SESSION_NOT_CURRENTLY_ACTIVE = 'SESSION_NOT_CURRENTLY_ACTIVE',
+  UNKNOWN = 'UNKNOWN',
 }

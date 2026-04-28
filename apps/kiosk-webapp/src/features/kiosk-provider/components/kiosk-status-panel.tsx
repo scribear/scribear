@@ -4,43 +4,26 @@ import Typography from '@mui/material/Typography';
 
 import { useAppSelector } from '#src/store/use-redux';
 
-import { KioskServiceStatus } from '../services/kiosk-service-status';
+import { KioskLifecycle } from '../services/kiosk-service-status';
 import {
-  selectActiveSessionId,
-  selectDeviceName,
-} from '../stores/kiosk-config-slice';
-import {
-  selectJoinCode,
-  selectKioskServiceStatus,
-  selectSessionStatus,
-} from '../stores/kiosk-service-slice';
+  selectActiveSession,
+  selectDevice,
+  selectLifecycle,
+  selectRoom,
+} from '../stores/kiosk-slice';
 import { JoinCodeQrCode } from './join-code-qr-code';
 import { KioskActivationForm } from './kiosk-activation-form';
 
 /**
  * Side-panel component that displays the current kiosk status. Shows the
  * `KioskActivationForm` when the device is not yet registered, and otherwise
- * renders the device name and active session ID (if connected).
+ * renders the device/room name plus active session info.
  */
 export const KioskStatusPanel = () => {
-  const deviceName = useAppSelector(selectDeviceName);
-  const sessionId = useAppSelector(selectActiveSessionId);
-  const kioskServiceStatus = useAppSelector(selectKioskServiceStatus);
-  const sessionStatus = useAppSelector(selectSessionStatus);
-  const joinCode = useAppSelector(selectJoinCode);
-
-  const isNotActivated =
-    kioskServiceStatus === KioskServiceStatus.NOT_REGISTERED ||
-    kioskServiceStatus === KioskServiceStatus.REGISTERING ||
-    kioskServiceStatus === KioskServiceStatus.REGISTRATION_ERROR;
-
-  const isIdle = kioskServiceStatus === KioskServiceStatus.IDLE;
-
-  const isInSession =
-    kioskServiceStatus === KioskServiceStatus.SESSION_CONNECTING ||
-    kioskServiceStatus === KioskServiceStatus.SESSION_ERROR ||
-    kioskServiceStatus === KioskServiceStatus.ACTIVE ||
-    kioskServiceStatus === KioskServiceStatus.ACTIVE_MUTE;
+  const lifecycle = useAppSelector(selectLifecycle);
+  const device = useAppSelector(selectDevice);
+  const room = useAppSelector(selectRoom);
+  const activeSession = useAppSelector(selectActiveSession);
 
   return (
     <Stack
@@ -56,36 +39,33 @@ export const KioskStatusPanel = () => {
           padding: 2,
         }}
       >
-        {isNotActivated ? (
+        {lifecycle === KioskLifecycle.UNREGISTERED ? (
           <KioskActivationForm />
         ) : (
           <Stack spacing={2}>
-            <Typography variant="h5">Device Name: {deviceName} </Typography>
-            {isIdle && (
+            {device && (
+              <Typography variant="h5">Device: {device.name}</Typography>
+            )}
+            {room && <Typography>Room: {room.name}</Typography>}
+            {lifecycle === KioskLifecycle.INITIALIZING && (
+              <Typography>Initializing...</Typography>
+            )}
+            {lifecycle === KioskLifecycle.IDLE && (
               <Typography>Inactive, waiting for a session to start.</Typography>
             )}
-            {isInSession && (
+            {activeSession && (
               <>
-                <Typography>Connected to session: {sessionId}</Typography>
-                {joinCode && (
+                <Typography>Session: {activeSession.name}</Typography>
+                {activeSession.currentJoinCode && (
                   <>
                     <Typography variant="h4" fontFamily="monospace">
-                      Join Code: {joinCode}
+                      Join Code: {activeSession.currentJoinCode.joinCode}
                     </Typography>
-                    <JoinCodeQrCode joinCode={joinCode} />
+                    <JoinCodeQrCode
+                      joinCode={activeSession.currentJoinCode.joinCode}
+                    />
                   </>
                 )}
-                {sessionStatus && !sessionStatus.sourceDeviceConnected && (
-                  <Typography color="warning.main">
-                    Waiting for source device
-                  </Typography>
-                )}
-                {sessionStatus &&
-                  !sessionStatus.transcriptionServiceConnected && (
-                    <Typography color="warning.main">
-                      Waiting for transcription service
-                    </Typography>
-                  )}
               </>
             )}
           </Stack>

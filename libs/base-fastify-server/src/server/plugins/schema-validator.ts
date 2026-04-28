@@ -6,11 +6,14 @@ import {
 import fastifyPlugin from 'fastify-plugin';
 import type { FastifyRouteSchemaDef } from 'fastify/types/schema.js';
 
-import { HttpError } from '../errors/http-errors.js';
+import { BaseHttpError } from '../errors/http-errors.js';
 import type { BaseFastifyInstance } from '../types/base-fastify-types.js';
 
 /**
- * Custom fastify schema validator to throw custom 400 error
+ * Schema validator that converts TypeBox validation failures into a
+ * `BaseHttpError` with status 400 and code `VALIDATION_ERROR`. The error
+ * handler then serializes it as the canonical `ErrorReply` body, with
+ * per-field issues under `details.validationErrors`.
  */
 export default fastifyPlugin((fastify: BaseFastifyInstance) => {
   fastify.withTypeProvider<TypeBoxTypeProvider>();
@@ -30,14 +33,20 @@ export default fastifyPlugin((fastify: BaseFastifyInstance) => {
         return { value: result.value };
       }
 
-      const requestErrors = result.error.map(({ message, instancePath }) => {
-        return {
+      const validationErrors = result.error.map(
+        ({ message, instancePath }) => ({
           message,
-          key: `/${schemaDef.httpPart ?? ''}${instancePath}`,
-        };
-      });
+          path: `/${schemaDef.httpPart ?? ''}${instancePath}`,
+        }),
+      );
+
       return {
-        error: new HttpError.BadRequest(requestErrors),
+        error: new BaseHttpError(
+          400,
+          'VALIDATION_ERROR',
+          'Request validation failed.',
+          { validationErrors },
+        ),
       };
     };
   });

@@ -1,23 +1,19 @@
 import { AppConfig } from './app-config/app-config.js';
 import createServer from './server/create-server.js';
 
-/**
- * Main entrypoint for session manager server
- */
 async function main() {
   const config = new AppConfig();
   const { logger, fastify } = await createServer(config);
 
-  // Handle uncaught exceptions and rejections
   process.on('uncaughtException', (err) => {
     logger.fatal({ msg: 'Uncaught exception', err });
-    throw err; // terminate on uncaught errors
+    throw err;
   });
 
   process.on('unhandledRejection', (reason) => {
     const err = Error('Unhandled rejection', { cause: reason });
     logger.fatal({ msg: 'Unhandled rejection', err });
-    throw err; // terminate on uncaught rejection
+    throw err;
   });
 
   try {
@@ -27,7 +23,7 @@ async function main() {
     });
   } catch (err) {
     logger.fatal({ msg: 'Failed to start fastify webserver', err });
-    throw err; // terminate if failed to start
+    throw err;
   }
 }
 

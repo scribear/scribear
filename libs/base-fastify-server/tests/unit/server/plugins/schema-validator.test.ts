@@ -2,7 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { Type } from 'typebox';
 import { type Mock, beforeEach, describe, expect, vi } from 'vitest';
 
-import { HttpError } from '#src/server/errors/http-errors.js';
+import { BaseHttpError } from '#src/server/errors/http-errors.js';
 import schemaValidator from '#src/server/plugins/schema-validator.js';
 
 describe('Schema Validator Plugin', (it) => {
@@ -18,9 +18,6 @@ describe('Schema Validator Plugin', (it) => {
     fastify.register(schemaValidator);
   });
 
-  /**
-   * Test that schemaValidator is able to parse valid requests
-   */
   it('successfully parses valid request', async () => {
     // Arrange
     const validPayload = { string: 'string', num: 123 };
@@ -51,9 +48,6 @@ describe('Schema Validator Plugin', (it) => {
     expect(JSON.parse(response.payload)).toEqual(validPayload);
   });
 
-  /**
-   * Test that schemaValidator throws BadRequest error when parsing invalid requests
-   */
   it('throws BadRequest error for invalid request', async () => {
     // Arrange
     const invalidPayload = { string: 'string', num: 'not a num' };
@@ -81,9 +75,13 @@ describe('Schema Validator Plugin', (it) => {
 
     // Assert
     expect(mockErrorHandler).toHaveBeenCalledExactlyOnceWith(
-      expect.any(HttpError.BadRequest),
+      expect.any(BaseHttpError),
       expect.anything(),
       expect.anything(),
     );
+    const [err] = mockErrorHandler.mock.calls[0] as [BaseHttpError];
+    expect(err.statusCode).toBe(400);
+    expect(err.code).toBe('VALIDATION_ERROR');
+    expect(err.details?.['validationErrors']).toBeInstanceOf(Array);
   });
 });

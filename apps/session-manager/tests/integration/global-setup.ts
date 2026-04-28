@@ -15,20 +15,13 @@ const DB_DOCKERFILE_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../../infra/scribear-db',
 );
-const REDIS_DOCKERFILE_DIR = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../../../../infra/scribear-redis',
-);
 
 const DB_NAME = 'test';
 const DB_USER = 'test';
 const DB_PASSWORD = 'test';
 const DB_PORT = 5432;
-const REDIS_PORT = 6379;
-const REDIS_PASSWORD = 'test';
 
 let dbContainer: StartedTestContainer;
-let redisContainer: StartedTestContainer;
 
 export async function setup({
   provide,
@@ -38,42 +31,23 @@ export async function setup({
     value: ProvidedContext[T],
   ) => void;
 }) {
-  const prebuiltDBImage = process.env['SCRIBEAR_DB_IMAGE'];
-  const dbImage =
-    prebuiltDBImage != null
-      ? new GenericContainer(prebuiltDBImage)
+  const prebuiltImage = process.env['SCRIBEAR_DB_IMAGE'];
+  const image =
+    prebuiltImage != null
+      ? new GenericContainer(prebuiltImage)
       : await GenericContainer.fromDockerfile(DB_DOCKERFILE_DIR)
           .withCache(true)
           .build();
 
-  const prebuiltRedisImage = process.env['SCRIBEAR_REDIS_IMAGE'];
-  const redisImage =
-    prebuiltRedisImage != null
-      ? new GenericContainer(prebuiltRedisImage)
-      : await GenericContainer.fromDockerfile(REDIS_DOCKERFILE_DIR)
-          .withCache(true)
-          .build();
-
-  const [dbStarted, redisStarted] = await Promise.all([
-    dbImage
-      .withEnvironment({
-        POSTGRES_DB: DB_NAME,
-        POSTGRES_USER: DB_USER,
-        POSTGRES_PASSWORD: DB_PASSWORD,
-      })
-      .withExposedPorts(DB_PORT)
-      .withWaitStrategy(Wait.forHealthCheck())
-      .start(),
-    redisImage
-      .withEnvironment({ REDIS_PASSWORD })
-      .withCommand(['redis-server', '--requirepass', REDIS_PASSWORD])
-      .withExposedPorts(REDIS_PORT)
-      .withWaitStrategy(Wait.forHealthCheck())
-      .start(),
-  ]);
-
-  dbContainer = dbStarted;
-  redisContainer = redisStarted;
+  dbContainer = await image
+    .withEnvironment({
+      POSTGRES_DB: DB_NAME,
+      POSTGRES_USER: DB_USER,
+      POSTGRES_PASSWORD: DB_PASSWORD,
+    })
+    .withExposedPorts(DB_PORT)
+    .withWaitStrategy(Wait.forHealthCheck())
+    .start();
 
   const dbHost = dbContainer.getHost();
   const dbPort = dbContainer.getMappedPort(DB_PORT);
@@ -95,11 +69,8 @@ export async function setup({
 
   if (error) {
     console.error(error);
-    throw new Error('Failed to migrate', error);
+    throw new Error('Failed to migrate', { cause: error });
   }
-
-  const redisHost = redisContainer.getHost();
-  const redisPort = redisContainer.getMappedPort(REDIS_PORT);
 
   provide('dbConfig', {
     dbHost,
@@ -108,13 +79,8 @@ export async function setup({
     dbUser: DB_USER,
     dbPassword: DB_PASSWORD,
   });
-
-  provide(
-    'redisUrl',
-    `redis://:${REDIS_PASSWORD}@${redisHost}:${String(redisPort)}`,
-  );
 }
 
 export async function teardown() {
-  await Promise.all([dbContainer.stop(), redisContainer.stop()]);
+  await dbContainer.stop();
 }

@@ -23,13 +23,5 @@
     "lint": "eslint ./src",
     "lint:fix": "eslint ./src --fix"
   },
-  "dependencies": {
-    "eventemitter3": "5.0.4",
-    "isomorphic-ws": "5.0.0",
-    "typebox": "1.1.5",
-    "ws": "8.19.0"
-  },
-  "devDependencies": {
-    "@types/ws": "8.18.1"
-  }
+  "dependencies": {}
 }

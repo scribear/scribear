@@ -6,8 +6,9 @@ import { themePreferencesSchema } from '@scribear/theme-customization-store';
 import { transcriptionDisplayPreferencesSchema } from '@scribear/transcription-display-store';
 
 const clientSessionConfigSchema = Type.Object({
-  sessionId: Type.Union([Type.String(), Type.Null()]),
+  sessionUid: Type.Union([Type.String(), Type.Null()]),
   sessionRefreshToken: Type.Union([Type.String(), Type.Null()]),
+  clientId: Type.Union([Type.String(), Type.Null()]),
   joinCode: Type.Union([Type.String(), Type.Null()]),
 });
 

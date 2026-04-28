@@ -19,9 +19,6 @@
   "references": [
     {
       "path": "../base-schema"
-    },
-    {
-      "path": "../transcription-service-schema"
     }
   ]
 }

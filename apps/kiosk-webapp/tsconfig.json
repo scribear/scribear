@@ -32,6 +32,12 @@
       "path": "../../libs/clients/base-api-client"
     },
     {
+      "path": "../../libs/clients/base-websocket-client"
+    },
+    {
+      "path": "../../libs/clients/base-long-poll-client"
+    },
+    {
       "path": "../../libs/schemas/session-manager-schema"
     },
     {

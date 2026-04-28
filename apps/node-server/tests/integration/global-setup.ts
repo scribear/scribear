@@ -1,35 +1,46 @@
-import fs from 'node:fs';
-import http from 'node:http';
+import { Kysely, PostgresDialect } from 'kysely';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import pg from 'pg';
 import {
   GenericContainer,
+  Network,
+  type StartedNetwork,
   type StartedTestContainer,
   Wait,
 } from 'testcontainers';
 import type { ProvidedContext } from 'vitest';
 
-const TRANSCRIPTION_SERVICE_DIR = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../../../../transcription_service',
+import { getMigrator } from '@scribear/scribear-db';
+
+const TESTS_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(TESTS_DIR, '../../../..');
+const DB_DOCKERFILE_DIR = path.join(REPO_ROOT, 'infra/scribear-db');
+const SESSION_MANAGER_DOCKERFILE = 'apps/session-manager/Dockerfile';
+const TRANSCRIPTION_SERVICE_CONTEXT = path.join(
+  REPO_ROOT,
+  'transcription_service',
 );
 
-const PROVIDER_CONFIG_PATH = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  'provider-config.json',
-);
+const DB_NAME = 'test';
+const DB_USER = 'test';
+const DB_PASSWORD = 'test';
+const DB_PORT = 5432;
+const DB_NETWORK_ALIAS = 'postgres';
 
-const API_KEY = 'test-api-key';
-const NODE_SERVER_KEY = 'test-node-server-key';
-const PORT = 80;
-const REDIS_PORT = 6379;
+const SESSION_MANAGER_PORT = 80;
 
-const DEBUG_PROVIDER_KEY = 'debug';
-const DEBUG_PROVIDER_CONFIG = { sample_rate: 48000, num_channels: 1 };
+const TEST_ADMIN_API_KEY = 'test-admin-api-key';
+const TEST_SERVICE_API_KEY = 'test-service-api-key';
+const TEST_SESSION_TOKEN_SIGNING_KEY = 'test-session-token-signing-key';
+const TEST_TRANSCRIPTION_API_KEY = 'test-transcription-api-key';
 
-let transcriptionContainer: StartedTestContainer;
-let redisContainer: StartedTestContainer;
-let mockSessionManagerServer: http.Server;
+const TRANSCRIPTION_PORT = 80;
+
+let network: StartedNetwork | undefined;
+let dbContainer: StartedTestContainer | undefined;
+let sessionManagerContainer: StartedTestContainer | undefined;
+let transcriptionContainer: StartedTestContainer | undefined;
 
 export async function setup({
   provide,
@@ -39,118 +50,165 @@ export async function setup({
     value: ProvidedContext[T],
   ) => void;
 }) {
-  const providerConfig = fs.readFileSync(PROVIDER_CONFIG_PATH, 'utf-8');
+  network = await new Network().start();
 
-  const prebuiltImage = process.env['TRANSCRIPTION_SERVICE_IMAGE'];
-  const transcriptionImage =
-    prebuiltImage != null
-      ? new GenericContainer(prebuiltImage)
+  // 1. Build / start postgres + migrate.
+  const dbImageEnv = process.env['SCRIBEAR_DB_IMAGE'];
+  const dbImage =
+    dbImageEnv != null
+      ? new GenericContainer(dbImageEnv)
+      : await GenericContainer.fromDockerfile(DB_DOCKERFILE_DIR)
+          .withCache(true)
+          .build();
+
+  dbContainer = await dbImage
+    .withEnvironment({
+      POSTGRES_DB: DB_NAME,
+      POSTGRES_USER: DB_USER,
+      POSTGRES_PASSWORD: DB_PASSWORD,
+    })
+    .withExposedPorts(DB_PORT)
+    .withNetwork(network)
+    .withNetworkAliases(DB_NETWORK_ALIAS)
+    .withWaitStrategy(Wait.forHealthCheck())
+    .start();
+
+  const dbHost = dbContainer.getHost();
+  const dbPort = dbContainer.getMappedPort(DB_PORT);
+
+  const migrationKysely = new Kysely<unknown>({
+    dialect: new PostgresDialect({
+      pool: new pg.Pool({
+        host: dbHost,
+        port: dbPort,
+        database: DB_NAME,
+        user: DB_USER,
+        password: DB_PASSWORD,
+      }),
+    }),
+  });
+  const { error: migrationError } =
+    await getMigrator(migrationKysely).migrateToLatest();
+  await migrationKysely.destroy();
+  if (migrationError) {
+    console.error(migrationError);
+    throw new Error('Failed to migrate test database', {
+      cause: migrationError,
+    });
+  }
+
+  // 2. Build / start the Session Manager container against the migrated DB.
+  const sessionManagerImageEnv = process.env['SCRIBEAR_SESSION_MANAGER_IMAGE'];
+  const sessionManagerImage =
+    sessionManagerImageEnv != null
+      ? new GenericContainer(sessionManagerImageEnv)
       : await GenericContainer.fromDockerfile(
-          TRANSCRIPTION_SERVICE_DIR,
+          REPO_ROOT,
+          SESSION_MANAGER_DOCKERFILE,
+        )
+          .withCache(true)
+          .build();
+
+  sessionManagerContainer = await sessionManagerImage
+    .withEnvironment({
+      LOG_LEVEL: 'silent',
+      HOST: '0.0.0.0',
+      PORT: String(SESSION_MANAGER_PORT),
+      ADMIN_API_KEY: TEST_ADMIN_API_KEY,
+      SESSION_MANAGER_SERVICE_API_KEY: TEST_SERVICE_API_KEY,
+      SESSION_TOKEN_SIGNING_KEY: TEST_SESSION_TOKEN_SIGNING_KEY,
+      DB_HOST: DB_NETWORK_ALIAS,
+      DB_PORT: String(DB_PORT),
+      DB_NAME,
+      DB_USER,
+      DB_PASSWORD,
+    })
+    .withExposedPorts(SESSION_MANAGER_PORT)
+    .withNetwork(network)
+    .withWaitStrategy(Wait.forHealthCheck())
+    .start();
+
+  const sessionManagerHost = sessionManagerContainer.getHost();
+  const sessionManagerMappedPort =
+    sessionManagerContainer.getMappedPort(SESSION_MANAGER_PORT);
+  const sessionManagerBaseUrl = `http://${sessionManagerHost}:${sessionManagerMappedPort.toString()}`;
+
+  // 3. Build / start the transcription service (CPU image).
+  const txImageEnv = process.env['SCRIBEAR_TRANSCRIPTION_SERVICE_IMAGE'];
+  const txImage =
+    txImageEnv != null
+      ? new GenericContainer(txImageEnv)
+      : await GenericContainer.fromDockerfile(
+          TRANSCRIPTION_SERVICE_CONTEXT,
           'Dockerfile_CPU',
         )
           .withCache(true)
           .build();
 
-  [transcriptionContainer, redisContainer] = await Promise.all([
-    transcriptionImage
-      .withEnvironment({
-        API_KEY,
-        WS_INIT_TIMEOUT_SEC: '5',
-        LOG_LEVEL: 'error',
-      })
-      .withCopyContentToContainer([
-        {
-          content: providerConfig,
-          target: '/app/provider_config.json',
-        },
-      ])
-      .withExposedPorts(PORT)
-      .withWaitStrategy(Wait.forHealthCheck())
-      .start(),
-    new GenericContainer('redis:7-alpine')
-      .withExposedPorts(REDIS_PORT)
-      .withWaitStrategy(Wait.forListeningPorts())
-      .start(),
-  ]);
-
-  // Mock session manager: serves GET /api/session-manager/session-management/v1/session-config/:sessionId
-  // Session IDs starting with "not-found-" return 404.
-  // Session IDs starting with "error-" return 500.
-  // All others return 200 with debug provider config.
-  const mockSessionManagerPort = await new Promise<number>(
-    (resolve, reject) => {
-      mockSessionManagerServer = http.createServer((req, res) => {
-        const configRouteMatch = req.url?.match(
-          /^\/api\/session-manager\/session-management\/v1\/session-config\/(.+)$/,
-        );
-        if (req.method === 'GET' && configRouteMatch?.[1]) {
-          const authHeader = req.headers.authorization;
-          if (authHeader !== `Bearer ${NODE_SERVER_KEY}`) {
-            res.writeHead(401, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ message: 'Unauthorized' }));
-            return;
-          }
-
-          const sessionId = configRouteMatch[1];
-
-          if (sessionId.startsWith('not-found-')) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ message: 'Session not found' }));
-            return;
-          }
-          if (sessionId.startsWith('error-')) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ message: 'Internal server error' }));
-            return;
-          }
-
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(
-            JSON.stringify({
-              transcriptionProviderKey: DEBUG_PROVIDER_KEY,
-              transcriptionProviderConfig: DEBUG_PROVIDER_CONFIG,
-              endTimeUnixMs: null,
-            }),
-          );
-        } else {
-          res.writeHead(404);
-          res.end();
-        }
-      });
-      mockSessionManagerServer.listen(0, () => {
-        const addr = mockSessionManagerServer.address();
-        if (addr && typeof addr === 'object') {
-          resolve(addr.port);
-        } else {
-          reject(new Error('Failed to start mock session manager'));
-        }
-      });
-    },
-  );
-
-  const host = transcriptionContainer.getHost();
-  const mappedPort = transcriptionContainer.getMappedPort(PORT);
-  const redisHost = redisContainer.getHost();
-  const redisMappedPort = redisContainer.getMappedPort(REDIS_PORT);
-
-  provide('transcriptionServiceManagerConfig', {
-    transcriptionServiceAddress: `http://${host}:${mappedPort.toString()}`,
-    transcriptionServiceApiKey: API_KEY,
-    sessionManagerAddress: `http://localhost:${mockSessionManagerPort.toString()}`,
-    nodeServerKey: NODE_SERVER_KEY,
-    redisUrl: `redis://${redisHost}:${redisMappedPort.toString()}`,
+  // Minimal provider config for the test: just the debug provider at the
+  // 48000Hz sample rate of the bundled `mono_f64le.wav` test fixture, no
+  // whisper / silero contexts, so the container boots without GPU deps even
+  // on the CPU image.
+  const providerConfigJson = JSON.stringify({
+    num_workers: 1,
+    rolling_utilization_window_sec: 600,
+    contexts: [],
+    providers: [
+      {
+        provider_key: 'debug',
+        provider_uid: 'debug',
+        provider_config: { sample_rate: 48000, num_channels: 1 },
+      },
+    ],
   });
+
+  transcriptionContainer = await txImage
+    .withEnvironment({
+      LOG_LEVEL: 'fatal',
+      HOST: '0.0.0.0',
+      PORT: String(TRANSCRIPTION_PORT),
+      API_KEY: TEST_TRANSCRIPTION_API_KEY,
+      WS_INIT_TIMEOUT_SEC: '10',
+      PROVIDER_CONFIG_PATH: '/app/provider_config.json',
+    })
+    .withCopyContentToContainer([
+      {
+        content: providerConfigJson,
+        target: '/app/provider_config.json',
+      },
+    ])
+    .withExposedPorts(TRANSCRIPTION_PORT)
+    .withWaitStrategy(
+      Wait.forHttp('/healthcheck', TRANSCRIPTION_PORT).withStartupTimeout(
+        180_000,
+      ),
+    )
+    .start();
+
+  const transcriptionHost = transcriptionContainer.getHost();
+  const transcriptionPort =
+    transcriptionContainer.getMappedPort(TRANSCRIPTION_PORT);
+  const transcriptionServiceBaseUrl = `http://${transcriptionHost}:${transcriptionPort.toString()}`;
+
+  provide('sessionManagerBaseUrl', sessionManagerBaseUrl);
+  provide('transcriptionServiceBaseUrl', transcriptionServiceBaseUrl);
+  provide('adminApiKey', TEST_ADMIN_API_KEY);
+  provide('serviceApiKey', TEST_SERVICE_API_KEY);
+  provide('sessionTokenSigningKey', TEST_SESSION_TOKEN_SIGNING_KEY);
+  provide('transcriptionApiKey', TEST_TRANSCRIPTION_API_KEY);
 }
 
 export async function teardown() {
-  await Promise.all([
-    transcriptionContainer.stop(),
-    redisContainer.stop(),
-    new Promise<void>((resolve) => {
-      mockSessionManagerServer.close(() => {
-        resolve();
-      });
-    }),
-  ]);
+  if (transcriptionContainer !== undefined) {
+    await transcriptionContainer.stop();
+  }
+  if (sessionManagerContainer !== undefined) {
+    await sessionManagerContainer.stop();
+  }
+  if (dbContainer !== undefined) {
+    await dbContainer.stop();
+  }
+  if (network !== undefined) {
+    await network.stop();
+  }
 }

@@ -4,8 +4,18 @@ import type { Static } from 'typebox';
 
 import { LogLevel } from '@scribear/base-fastify-server';
 
-import type { JwtServiceConfig } from '#src/server/features/session-streaming/jwt.service.js';
-import type { TranscriptionServiceManagerConfig } from '#src/server/features/session-streaming/transcription-service-manager.js';
+import type { SessionTokenConfig } from '#src/server/shared/services/session-token.service.js';
+
+const CONFIG_SCHEMA = Type.Object({
+  LOG_LEVEL: Type.Enum(LogLevel),
+  PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
+  HOST: Type.String(),
+  SESSION_TOKEN_SIGNING_KEY: Type.String(),
+  SESSION_MANAGER_BASE_URL: Type.String(),
+  SESSION_MANAGER_SERVICE_API_KEY: Type.String(),
+  TRANSCRIPTION_SERVICE_BASE_URL: Type.String(),
+  TRANSCRIPTION_SERVICE_API_KEY: Type.String(),
+});
 
 export interface BaseConfig {
   isDevelopment: boolean;
@@ -14,22 +24,17 @@ export interface BaseConfig {
   host: string;
 }
 
-const CONFIG_SCHEMA = Type.Object({
-  LOG_LEVEL: Type.Enum(LogLevel),
-  PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
-  HOST: Type.String(),
-  JWT_SECRET: Type.String({ minLength: 32 }),
-  TRANSCRIPTION_SERVICE_ADDRESS: Type.String(),
-  TRANSCRIPTION_SERVICE_API_KEY: Type.String(),
-  REDIS_URL: Type.String(),
-  SESSION_MANAGER_ADDRESS: Type.String(),
-  NODE_SERVER_KEY: Type.String(),
-});
+export interface SessionManagerClientConfig {
+  baseUrl: string;
+  serviceApiKey: string;
+}
 
-/**
- * Class that loads and provides application configuration
- */
-class AppConfig {
+export interface TranscriptionServiceClientConfig {
+  baseUrl: string;
+  apiKey: string;
+}
+
+export class AppConfig {
   private _isDevelopment: boolean;
   private _env: Static<typeof CONFIG_SCHEMA>;
 
@@ -42,19 +47,23 @@ class AppConfig {
     };
   }
 
-  get jwtServiceConfig(): JwtServiceConfig {
+  get sessionTokenConfig(): SessionTokenConfig {
     return {
-      jwtSecret: this._env.JWT_SECRET,
+      signingKey: this._env.SESSION_TOKEN_SIGNING_KEY,
     };
   }
 
-  get transcriptionServiceManagerConfig(): TranscriptionServiceManagerConfig {
+  get sessionManagerClientConfig(): SessionManagerClientConfig {
     return {
-      transcriptionServiceAddress: this._env.TRANSCRIPTION_SERVICE_ADDRESS,
-      transcriptionServiceApiKey: this._env.TRANSCRIPTION_SERVICE_API_KEY,
-      sessionManagerAddress: this._env.SESSION_MANAGER_ADDRESS,
-      nodeServerKey: this._env.NODE_SERVER_KEY,
-      redisUrl: this._env.REDIS_URL,
+      baseUrl: this._env.SESSION_MANAGER_BASE_URL,
+      serviceApiKey: this._env.SESSION_MANAGER_SERVICE_API_KEY,
+    };
+  }
+
+  get transcriptionServiceClientConfig(): TranscriptionServiceClientConfig {
+    return {
+      baseUrl: this._env.TRANSCRIPTION_SERVICE_BASE_URL,
+      apiKey: this._env.TRANSCRIPTION_SERVICE_API_KEY,
     };
   }
 
@@ -67,5 +76,3 @@ class AppConfig {
     });
   }
 }
-
-export default AppConfig;

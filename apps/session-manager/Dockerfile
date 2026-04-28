@@ -26,6 +26,8 @@ RUN npm run build --workspace=@scribear/session-manager
 
 FROM node:${NODE_VERSION}-alpine3.22
 
+RUN apk add --no-cache dumb-init
+
 WORKDIR /app
 
 COPY --from=package-jsons /app/ .
@@ -39,6 +41,7 @@ WORKDIR /app/apps/session-manager
 ENV HOST=0.0.0.0
 ENV PORT=80
 
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --start-interval=1s --retries=3 CMD wget -qO- http://127.0.0.1:80/api/session-manager/healthcheck/v1 || exit 1
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --start-interval=1s --retries=3 CMD wget -qO- http://127.0.0.1:80/api/session-manager/v1/probes/liveness || exit 1
 
+ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "dist/bundle.mjs"]

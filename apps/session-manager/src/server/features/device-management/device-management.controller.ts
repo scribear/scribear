@@ -1,70 +1,201 @@
-import type {
-  BaseFastifyReply,
-  BaseFastifyRequest,
+import {
+  type BaseFastifyReply,
+  type BaseFastifyRequest,
+  HttpError,
 } from '@scribear/base-fastify-server';
-import { HttpError } from '@scribear/base-fastify-server';
 import {
   ACTIVATE_DEVICE_SCHEMA,
-  DEVICE_COOKIE_NAME,
+  DELETE_DEVICE_SCHEMA,
+  DEVICE_TOKEN_COOKIE_NAME,
+  GET_DEVICE_SCHEMA,
+  GET_MY_DEVICE_SCHEMA,
+  LIST_DEVICES_SCHEMA,
   REGISTER_DEVICE_SCHEMA,
+  REREGISTER_DEVICE_SCHEMA,
+  UPDATE_DEVICE_SCHEMA,
 } from '@scribear/session-manager-schema';
 
-import type { AppDependencies } from '#src/server/dependency-injection/register-dependencies.js';
+import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
+
+const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
 export class DeviceManagementController {
   private _useSecureCookie: boolean;
   private _deviceManagementService: AppDependencies['deviceManagementService'];
-  private _authService: AppDependencies['authService'];
+  private _deviceAuthService: AppDependencies['deviceAuthService'];
 
   constructor(
     baseConfig: AppDependencies['baseConfig'],
     deviceManagementService: AppDependencies['deviceManagementService'],
-    authService: AppDependencies['authService'],
+    deviceAuthService: AppDependencies['deviceAuthService'],
   ) {
     this._useSecureCookie = !baseConfig.isDevelopment;
     this._deviceManagementService = deviceManagementService;
-    this._authService = authService;
+    this._deviceAuthService = deviceAuthService;
+  }
+
+  async listDevices(
+    req: BaseFastifyRequest<typeof LIST_DEVICES_SCHEMA>,
+    res: BaseFastifyReply<typeof LIST_DEVICES_SCHEMA>,
+  ) {
+    const { active, search, roomUid, cursor, limit = 50 } = req.query;
+
+    const result = await this._deviceManagementService.listDevices({
+      search: search ?? null,
+      active: active ?? null,
+      roomUid: roomUid ?? null,
+      cursor: cursor ?? null,
+      limit,
+    });
+
+    res.code(200).send({
+      items: result.items.map((device) => {
+        return {
+          ...device,
+          createdAt: device.createdAt.toISOString(),
+        };
+      }),
+      nextCursor: result.nextCursor,
+    });
+  }
+
+  async getDevice(
+    req: BaseFastifyRequest<typeof GET_DEVICE_SCHEMA>,
+    res: BaseFastifyReply<typeof GET_DEVICE_SCHEMA>,
+  ) {
+    const result = await this._deviceManagementService.getDevice(
+      req.params.deviceUid,
+    );
+    if (result === 'DEVICE_NOT_FOUND') {
+      throw HttpError.notFound('DEVICE_NOT_FOUND', 'Device not found.');
+    }
+
+    res.code(200).send({
+      ...result,
+      createdAt: result.createdAt.toISOString(),
+    });
   }
 
   async registerDevice(
     req: BaseFastifyRequest<typeof REGISTER_DEVICE_SCHEMA>,
     res: BaseFastifyReply<typeof REGISTER_DEVICE_SCHEMA>,
   ) {
-    const { deviceName } = req.body;
+    const result = await this._deviceManagementService.registerDevice(
+      req.body.name,
+    );
 
-    const { deviceId, activationCode } =
-      await this._deviceManagementService.registerDevice(deviceName);
+    res.code(201).send({
+      deviceUid: result.deviceUid,
+      activationCode: result.activationCode,
+      expiry: result.expiry.toISOString(),
+    });
+  }
 
-    res.code(200).send({ deviceId, activationCode });
+  async reregisterDevice(
+    req: BaseFastifyRequest<typeof REREGISTER_DEVICE_SCHEMA>,
+    res: BaseFastifyReply<typeof REREGISTER_DEVICE_SCHEMA>,
+  ) {
+    const result = await this._deviceManagementService.reregisterDevice(
+      req.body.deviceUid,
+    );
+    if (result === 'DEVICE_NOT_FOUND') {
+      throw HttpError.notFound('DEVICE_NOT_FOUND', 'Device not found.');
+    }
+
+    res.code(200).send({
+      activationCode: result.activationCode,
+      expiry: result.expiry.toISOString(),
+    });
   }
 
   async activateDevice(
     req: BaseFastifyRequest<typeof ACTIVATE_DEVICE_SCHEMA>,
     res: BaseFastifyReply<typeof ACTIVATE_DEVICE_SCHEMA>,
   ) {
-    const { activationCode } = req.body;
-
-    const result =
-      await this._deviceManagementService.activateDevice(activationCode);
-    if (!result) {
-      throw new HttpError.UnprocessableEntity(
-        'Invalid or expired activation code.',
+    const result = await this._deviceManagementService.activateDevice(
+      req.body.activationCode,
+    );
+    if (result === 'ACTIVATION_CODE_NOT_FOUND') {
+      throw HttpError.notFound(
+        'ACTIVATION_CODE_NOT_FOUND',
+        'Activation code not found.',
+      );
+    }
+    if (result === 'ACTIVATION_CODE_EXPIRED') {
+      throw HttpError.gone(
+        'ACTIVATION_CODE_EXPIRED',
+        'Activation code has expired.',
       );
     }
 
-    const cookieValue = this._authService.encodeDeviceToken(
-      result.deviceId,
-      result.deviceSecret,
+    const cookieValue = this._deviceAuthService.encode(
+      result.deviceUid,
+      result.secret,
     );
-    res.setCookie(DEVICE_COOKIE_NAME, cookieValue, {
+    res.setCookie(DEVICE_TOKEN_COOKIE_NAME, cookieValue, {
       httpOnly: true,
       path: '/',
       secure: this._useSecureCookie,
       sameSite: 'strict',
-      maxAge: 60 * 60 * 24 * 365,
+      maxAge: COOKIE_MAX_AGE_SECONDS,
     });
-    res
-      .code(200)
-      .send({ deviceId: result.deviceId, deviceName: result.deviceName });
+
+    res.code(200).send({ deviceUid: result.deviceUid });
+  }
+
+  async updateDevice(
+    req: BaseFastifyRequest<typeof UPDATE_DEVICE_SCHEMA>,
+    res: BaseFastifyReply<typeof UPDATE_DEVICE_SCHEMA>,
+  ) {
+    const { deviceUid, ...updates } = req.body;
+
+    const result = await this._deviceManagementService.updateDevice(
+      deviceUid,
+      updates,
+    );
+    if (result === 'DEVICE_NOT_FOUND') {
+      throw HttpError.notFound('DEVICE_NOT_FOUND', 'Device not found.');
+    }
+
+    res.code(200).send({
+      ...result,
+      createdAt: result.createdAt.toISOString(),
+    });
+  }
+
+  async deleteDevice(
+    req: BaseFastifyRequest<typeof DELETE_DEVICE_SCHEMA>,
+    res: BaseFastifyReply<typeof DELETE_DEVICE_SCHEMA>,
+  ) {
+    const result = await this._deviceManagementService.deleteDevice(
+      req.body.deviceUid,
+    );
+    if (result === 'DEVICE_NOT_FOUND') {
+      throw HttpError.notFound('DEVICE_NOT_FOUND', 'Device not found.');
+    }
+    if (result === 'WOULD_LEAVE_ROOM_WITHOUT_SOURCE') {
+      throw HttpError.conflict(
+        'WOULD_LEAVE_ROOM_WITHOUT_SOURCE',
+        'Cannot delete the source device of a room. Assign a new source first.',
+      );
+    }
+
+    res.code(204).send(null);
+  }
+
+  async getMyDevice(
+    req: BaseFastifyRequest<typeof GET_MY_DEVICE_SCHEMA>,
+    res: BaseFastifyReply<typeof GET_MY_DEVICE_SCHEMA>,
+  ) {
+    if (!req.deviceUid) throw HttpError.internal();
+
+    const result = await this._deviceManagementService.getMyDevice(
+      req.deviceUid,
+    );
+    if (result === 'DEVICE_NOT_FOUND') {
+      throw HttpError.notFound('DEVICE_NOT_FOUND', 'Device not found.');
+    }
+
+    res.code(200).send(result);
   }
 }

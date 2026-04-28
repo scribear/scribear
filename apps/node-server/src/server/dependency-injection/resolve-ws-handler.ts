@@ -1,32 +1,27 @@
-import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyRequest } from 'fastify';
+import type WebSocket from 'ws';
 
-import type { AppDependencies } from './register-dependencies.js';
+import type { AppDependencies } from './app-dependencies.js';
 
 /**
- * Creates a wrapper function around provided controller websocket route handler
- *  Wrapper function resolves controller from request dependency container scope
- *  and passes socket and request to handler
+ * Creates a wrapper that resolves a controller from the request DI scope and
+ * delegates to the named WebSocket-handling method. Mirrors {@link resolveHandler}
+ * for non-WS routes so feature routers stay free of direct class imports and
+ * DI calls, and so each feature's HTTP and WS routes share one wiring style.
  *
- * Need to cast to ((req: FastifyRequest, res: FastifyReply) => void) due to bug with @fastify/websocket
- * @see https://github.com/fastify/fastify-websocket/issues/314
- *
- * @param controller Name of controller to resolve
- * @param method Name of method on controller to call
- * @returns Wrapped controller method
+ * @param controller Name of a controller registered in the Awilix container.
+ * @param method Name of a method on that controller.
+ * @returns A wrapped handler suitable for `wsHandler:` on a `fastify.route()` call.
  */
-export function resolveWsHandler<
+function resolveWsHandler<
   C extends keyof AppDependencies,
   M extends keyof AppDependencies[C],
->(
-  controller: C,
-  method: M,
-): AppDependencies[C][M] & ((req: FastifyRequest, res: FastifyReply) => void) {
+>(controller: C, method: M): AppDependencies[C][M] {
   const wrapper = async (socket: WebSocket, req: FastifyRequest) => {
     const routeController = req.diScope.resolve(
       controller,
     ) as AppDependencies[C];
 
-    // Throw exception if method is not a function
     if (
       !(method in routeController) ||
       typeof routeController[method] !== 'function'
@@ -44,7 +39,7 @@ export function resolveWsHandler<
     return await handler(socket, req);
   };
 
-  // Cast the type of the wrapper to be the same as the wrapped handler
-  return wrapper as unknown as AppDependencies[C][M] &
-    ((req: FastifyRequest, res: FastifyReply) => void);
+  return wrapper as AppDependencies[C][M];
 }
+
+export default resolveWsHandler;

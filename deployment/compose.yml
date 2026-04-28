@@ -64,11 +64,8 @@ services:
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
     depends_on:
       scribear-db:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     networks:
       - backend
@@ -85,11 +82,8 @@ services:
       TRANSCRIPTION_SERVICE_API_KEY: ${TRANSCRIPTION_API_KEY}
       SESSION_MANAGER_ADDRESS: http://session-manager:80
       NODE_SERVER_KEY: ${NODE_SERVER_KEY}
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
     depends_on:
       transcription-service:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     networks:
       - backend
@@ -109,22 +103,6 @@ services:
     networks:
       - backend
     restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    command: redis-server --requirepass ${REDIS_PASSWORD}
-    expose:
-      - "6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - backend
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   transcription-service:
     image: scribear/transcription-service-${TRANSCRIPTION_DEVICE:-cpu}:${IMAGE_TAG:-latest}
@@ -153,4 +131,3 @@ networks:
 
 volumes:
   postgres_data:
-  redis_data:

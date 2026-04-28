@@ -158,7 +158,10 @@ export const Root = () => {
 
   const HeaderButtons = [
     <Tooltip key="clear" title="Clear Transcription">
-      <IconButton color="inherit" onClick={() => dispatch(clearTranscription())}>
+      <IconButton
+        color="inherit"
+        onClick={() => dispatch(clearTranscription())}
+      >
         <ClearAllIcon />
       </IconButton>
     </Tooltip>,

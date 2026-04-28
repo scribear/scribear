@@ -1,135 +1,101 @@
-// Need to import so that declare module '@fastify/awilix' below works
-import '@fastify/awilix';
 import {
   type AwilixContainer,
   Lifetime,
   type NameAndRegistrationPair,
   asClass,
-  asFunction,
   asValue,
 } from 'awilix';
 
-import type { BaseDependencies } from '@scribear/base-fastify-server';
-import type { RedisPublisher } from '@scribear/scribear-redis';
-import { createRedisPublisher } from '@scribear/scribear-redis';
-import { SESSION_EVENT_CHANNEL } from '@scribear/session-manager-schema';
+import { DBClient } from '#src/db/db-client.js';
+import { DeviceManagementController } from '#src/server/features/device-management/device-management.controller.js';
+import { DeviceManagementRepository } from '#src/server/features/device-management/device-management.repository.js';
+import { DeviceManagementService } from '#src/server/features/device-management/device-management.service.js';
+import { LivenessController } from '#src/server/features/probes/liveness.controller.js';
+import { ReadinessController } from '#src/server/features/probes/readiness.controller.js';
+import { RoomManagementController } from '#src/server/features/room-management/room-management.controller.js';
+import { RoomManagementRepository } from '#src/server/features/room-management/room-management.repository.js';
+import { RoomManagementService } from '#src/server/features/room-management/room-management.service.js';
+import { MaterializationWorker } from '#src/server/features/schedule-management/materialization.worker.js';
+import { ScheduleManagementController } from '#src/server/features/schedule-management/schedule-management.controller.js';
+import { ScheduleManagementRepository } from '#src/server/features/schedule-management/schedule-management.repository.js';
+import { ScheduleManagementService } from '#src/server/features/schedule-management/schedule-management.service.js';
+import { SessionAuthController } from '#src/server/features/session-auth/session-auth.controller.js';
+import { SessionAuthRepository } from '#src/server/features/session-auth/session-auth.repository.js';
+import { SessionAuthService } from '#src/server/features/session-auth/session-auth.service.js';
+import { DeviceAuthRepository } from '#src/server/shared/repositories/device-auth.repository.js';
+import { AdminAuthService } from '#src/server/shared/services/admin-auth.service.js';
+import { DeviceAuthService } from '#src/server/shared/services/device-auth.service.js';
+import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
+import { HashService } from '#src/server/shared/services/hash.service.js';
+import { ServiceAuthService } from '#src/server/shared/services/service-auth.service.js';
+import { SessionTokenService } from '#src/server/shared/services/session-token.service.js';
 
-import type { AppConfig, BaseConfig } from '#src/app-config/app-config.js';
-import { DBClient, type DBClientConfig } from '#src/db/db-client.js';
-
-import { DeviceManagementController } from '../features/device-management/device-management.controller.js';
-import { DeviceManagementRepository } from '../features/device-management/device-management.repository.js';
-import { DeviceManagementService } from '../features/device-management/device-management.service.js';
-import { HealthcheckController } from '../features/healthcheck/healthcheck.controller.js';
-import { JwtService } from '../features/session-management/jwt.service.js';
-import { SessionEventBusService } from '../features/session-management/session-event-bus.service.js';
-import { SessionJoinCodeRepository } from '../features/session-management/session-join-code.repository.js';
-import { SessionManagementController } from '../features/session-management/session-management.controller.js';
-import { SessionManagementRepository } from '../features/session-management/session-management.repository.js';
-import { SessionManagementService } from '../features/session-management/session-management.service.js';
-import { SessionRefreshTokenRepository } from '../features/session-management/session-refresh-token.repository.js';
-import { AuthRepository } from '../repositories/auth.repository.js';
-import {
-  AuthService,
-  type AuthServiceConfig,
-} from '../services/auth.service.js';
-import { HashService } from '../services/hash.service.js';
-
-/**
- * Define types for entities in dependency container
- */
-interface AppDependencies extends BaseDependencies {
-  // Base Config
-  baseConfig: BaseConfig;
-
-  // Database
-  dbClientConfig: DBClientConfig;
-  dbClient: DBClient;
-
-  // Auth
-  authServiceConfig: AuthServiceConfig;
-  authService: AuthService;
-  authRepository: AuthRepository;
-
-  // JWT
-  jwtServiceConfig: { jwtSecret: string };
-  jwtService: JwtService;
-
-  // Hash
-  hashService: HashService;
-
-  // Redis
-  redisPublisher: RedisPublisher<
-    (typeof SESSION_EVENT_CHANNEL)['schema'],
-    [sessionId: string]
-  >;
-
-  // Healthcheck
-  healthcheckController: HealthcheckController;
-
-  // Device Management
-  deviceManagementController: DeviceManagementController;
-  deviceManagementService: DeviceManagementService;
-  deviceManagementRepository: DeviceManagementRepository;
-
-  // Session Management
-  sessionEventBusService: SessionEventBusService;
-  sessionManagementController: SessionManagementController;
-  sessionManagementService: SessionManagementService;
-  sessionManagementRepository: SessionManagementRepository;
-  sessionJoinCodeRepository: SessionJoinCodeRepository;
-  sessionRefreshTokenRepository: SessionRefreshTokenRepository;
-}
+import type { AppConfig } from './app-dependencies.js';
+import type { AppDependencies } from './app-dependencies.js';
 
 /**
- * Ensure fastify awilix container is typed correctly
- * @see https://github.com/fastify/fastify-awilix?tab=readme-ov-file#typescript-usage
- */
-declare module '@fastify/awilix' {
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-  interface Cradle extends AppDependencies {}
-
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-  interface RequestCradle extends AppDependencies {}
-}
-
-/**
- * Register all controller, service, and repository classes into dependency container
- * @param dependencyContainer Container to load dependencies into
- * @param config AppConfig to be registered into dependency controller
+ * Register all controller, service, and repository classes into the Awilix
+ * dependency container.
  */
 function registerDependencies(
   dependencyContainer: AwilixContainer,
   config: AppConfig,
 ) {
   dependencyContainer.register({
-    // Base Config
+    // Config values
     baseConfig: asValue(config.baseConfig),
+    adminAuthConfig: asValue(config.adminAuthConfig),
+    serviceAuthConfig: asValue(config.serviceAuthConfig),
+    sessionTokenConfig: asValue(config.sessionTokenConfig),
+    dbClientConfig: asValue(config.dbClientConfig),
+    materializationWorkerConfig: asValue(config.materializationWorkerConfig),
 
     // Database
-    dbClientConfig: asValue(config.dbClientConfig),
-    dbClient: asClass(DBClient, {
+    dbClient: asClass(DBClient, { lifetime: Lifetime.SINGLETON }),
+
+    // Shared services
+    hashService: asClass(HashService, { lifetime: Lifetime.SINGLETON }),
+    adminAuthService: asClass(AdminAuthService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    serviceAuthService: asClass(ServiceAuthService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    deviceAuthService: asClass(DeviceAuthService, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    sessionTokenService: asClass(SessionTokenService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    eventBusService: asClass(EventBusService, {
       lifetime: Lifetime.SINGLETON,
     }),
 
-    // Auth
-    authServiceConfig: asValue(config.authServiceConfig),
-    authService: asClass(AuthService, { lifetime: Lifetime.SCOPED }),
-    authRepository: asClass(AuthRepository, { lifetime: Lifetime.SINGLETON }),
+    // Shared repositories
+    deviceAuthRepository: asClass(DeviceAuthRepository, {
+      lifetime: Lifetime.SINGLETON,
+    }),
 
-    // JWT
-    jwtServiceConfig: asValue(config.jwtServiceConfig),
-    jwtService: asClass(JwtService, { lifetime: Lifetime.SINGLETON }),
-
-    // Hash
-    hashService: asClass(HashService, { lifetime: Lifetime.SINGLETON }),
-
-    // Healthcheck
-    healthcheckController: asClass(HealthcheckController, {
+    // Probes
+    livenessController: asClass(LivenessController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    readinessController: asClass(ReadinessController, {
       lifetime: Lifetime.SCOPED,
     }),
 
-    // Device Management
+    // Room management
+    roomManagementController: asClass(RoomManagementController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    roomManagementService: asClass(RoomManagementService, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    roomManagementRepository: asClass(RoomManagementRepository, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+
+    // Device management
     deviceManagementController: asClass(DeviceManagementController, {
       lifetime: Lifetime.SCOPED,
     }),
@@ -140,32 +106,36 @@ function registerDependencies(
       lifetime: Lifetime.SINGLETON,
     }),
 
-    // Redis
-    redisPublisher: asFunction(() =>
-      createRedisPublisher(SESSION_EVENT_CHANNEL, config.redisUrl),
-    ).singleton(),
+    // Schedule management
+    scheduleManagementController: asClass(ScheduleManagementController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    scheduleManagementService: asClass(ScheduleManagementService, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    scheduleManagementRepository: asClass(ScheduleManagementRepository, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    // SCOPED rather than SINGLETON because the worker depends on
+    // `scheduleManagementService`, which is SCOPED. Awilix forbids a longer
+    // lifetime depending on a shorter one. Resolving the worker at startup
+    // from the root container produces a single instance for the process,
+    // with its scoped dependencies cached on the same root scope.
+    materializationWorker: asClass(MaterializationWorker, {
+      lifetime: Lifetime.SCOPED,
+    }),
 
-    // Session Management
-    sessionEventBusService: asClass(SessionEventBusService, {
-      lifetime: Lifetime.SINGLETON,
-    }),
-    sessionManagementController: asClass(SessionManagementController, {
+    // Session auth
+    sessionAuthController: asClass(SessionAuthController, {
       lifetime: Lifetime.SCOPED,
     }),
-    sessionManagementService: asClass(SessionManagementService, {
+    sessionAuthService: asClass(SessionAuthService, {
       lifetime: Lifetime.SCOPED,
     }),
-    sessionManagementRepository: asClass(SessionManagementRepository, {
-      lifetime: Lifetime.SINGLETON,
-    }),
-    sessionJoinCodeRepository: asClass(SessionJoinCodeRepository, {
-      lifetime: Lifetime.SINGLETON,
-    }),
-    sessionRefreshTokenRepository: asClass(SessionRefreshTokenRepository, {
+    sessionAuthRepository: asClass(SessionAuthRepository, {
       lifetime: Lifetime.SINGLETON,
     }),
   } as NameAndRegistrationPair<AppDependencies>);
 }
 
 export default registerDependencies;
-export type { AppDependencies };

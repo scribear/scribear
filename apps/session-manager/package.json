@@ -4,6 +4,20 @@
   "description": "",
   "author": "scribear",
   "main": "dist/src/index.js",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./server": {
+      "development": "./src/server/create-server.ts",
+      "default": "./dist/src/server/create-server.js"
+    },
+    "./app-config": {
+      "development": "./src/app-config/app-config.ts",
+      "default": "./dist/src/app-config/app-config.js"
+    }
+  },
   "type": "module",
   "imports": {
     "#src/*": "./dist/src/*",
@@ -12,11 +26,11 @@
   "scripts": {
     "build": "tsc --build && node esbuild.config.mjs",
     "start": "node ./dist/src/index.js",
-    "dev": "tsc --build && concurrently -k \"tsc --build --watch\" \"node --watch dist/src/index.js --dev | pino-pretty\"",
-    "format": "prettier --check ./src ./tests",
-    "format:fix": "prettier --write ./src ./tests",
-    "lint": "eslint ./src ./tests",
-    "lint:fix": "eslint ./src ./tests --fix",
+    "dev": "tsc --build && concurrently -k \"tsc --build --watch\" \"node --watch-path=dist dist/src/index.js --dev | pino-pretty\"",
+    "format": "prettier --check ./src",
+    "format:fix": "prettier --write ./src",
+    "lint": "eslint ./src",
+    "lint:fix": "eslint ./src --fix",
     "test:dev": "vitest --ui --coverage",
     "test:integration": "vitest run --project integration",
     "test:unit": "vitest run --project unit"
@@ -31,14 +45,14 @@
     "env-schema": "7.0.0",
     "fastify": "5.7.4",
     "fastify-plugin": "5.1.0",
-    "jsonwebtoken": "9.0.3",
     "kysely": "0.28.11",
+    "luxon": "3.6.1",
     "pg": "8.19.0",
     "typebox": "1.1.5"
   },
   "devDependencies": {
     "@types/bcrypt": "6.0.0",
-    "@types/jsonwebtoken": "9.0.10",
+    "@types/luxon": "3.6.2",
     "@types/pg": "8.16.0"
   }
 }

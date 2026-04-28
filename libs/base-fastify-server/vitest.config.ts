@@ -15,6 +15,15 @@ export default mergeConfig(
             exclude: ['tests/integration/**'],
           },
         },
+        {
+          extends: true,
+          test: {
+            name: 'integration',
+            environment: 'node',
+            fileParallelism: false,
+            exclude: ['tests/unit/**'],
+          },
+        },
       ],
     },
   }),

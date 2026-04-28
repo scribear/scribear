@@ -1,16 +1,13 @@
 import type { BaseTagsDefinition } from '@scribear/base-schema';
 
-export const HEALTHCHECK_TAG = 'Healthcheck';
-export const SESSION_STREAMING_TAG = 'Session Streaming';
+export const PROBES_TAG = 'Probes';
+export const TRANSCRIPTION_STREAM_TAG = 'Transcription Stream';
 
 export const OPENAPI_TAGS: BaseTagsDefinition = [
+  { name: PROBES_TAG, description: 'Liveness and readiness probe endpoints.' },
   {
-    name: HEALTHCHECK_TAG,
-    description: 'Server health probe endpoint',
-  },
-  {
-    name: SESSION_STREAMING_TAG,
+    name: TRANSCRIPTION_STREAM_TAG,
     description:
-      'Endpoints for streaming audio to the server and receiving live transcriptions',
+      'Bidirectional WebSocket endpoint for source devices to push audio and for any session participant to receive transcripts.',
   },
 ];

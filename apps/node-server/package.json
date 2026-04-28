@@ -12,11 +12,11 @@
   "scripts": {
     "build": "tsc --build && node esbuild.config.mjs",
     "start": "node ./dist/src/index.js",
-    "dev": "tsc --build && concurrently -k \"tsc --build --watch\" \"node --watch dist/src/index.js --dev | pino-pretty\"",
-    "format": "prettier --check ./src ./tests",
-    "format:fix": "prettier --write ./src ./tests",
-    "lint": "eslint ./src ./tests",
-    "lint:fix": "eslint ./src ./tests --fix",
+    "dev": "tsc --build && concurrently -k \"tsc --build --watch\" \"node --watch-path=dist dist/src/index.js --dev | pino-pretty\"",
+    "format": "prettier --check ./src",
+    "format:fix": "prettier --write ./src",
+    "lint": "eslint ./src",
+    "lint:fix": "eslint ./src --fix",
     "test:dev": "vitest --ui --coverage",
     "test:integration": "vitest run --project integration",
     "test:unit": "vitest run --project unit"
@@ -31,11 +31,13 @@
     "eventemitter3": "5.0.4",
     "fastify": "5.7.4",
     "fastify-plugin": "5.1.0",
-    "jsonwebtoken": "9.0.3",
-    "typebox": "1.1.5"
+    "typebox": "1.1.5",
+    "ws": "8.19.0"
   },
   "devDependencies": {
-    "@types/jsonwebtoken": "9.0.10",
-    "@types/ws": "8.18.1"
+    "@types/pg": "8.16.0",
+    "@types/ws": "8.18.1",
+    "kysely": "0.28.11",
+    "pg": "8.19.0"
   }
 }

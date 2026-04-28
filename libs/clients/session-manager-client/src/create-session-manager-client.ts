@@ -1,93 +1,28 @@
-import { createEndpointClient } from '@scribear/base-api-client';
-import {
-  ACTIVATE_DEVICE_ROUTE,
-  ACTIVATE_DEVICE_SCHEMA,
-  CREATE_SESSION_ROUTE,
-  CREATE_SESSION_SCHEMA,
-  DEVICE_SESSION_EVENTS_ROUTE,
-  DEVICE_SESSION_EVENTS_SCHEMA,
-  END_SESSION_ROUTE,
-  END_SESSION_SCHEMA,
-  GET_SESSION_CONFIG_ROUTE,
-  GET_SESSION_CONFIG_SCHEMA,
-  GET_SESSION_JOIN_CODE_ROUTE,
-  GET_SESSION_JOIN_CODE_SCHEMA,
-  HEALTHCHECK_ROUTE,
-  HEALTHCHECK_SCHEMA,
-  REFRESH_SESSION_TOKEN_ROUTE,
-  REFRESH_SESSION_TOKEN_SCHEMA,
-  REGISTER_DEVICE_ROUTE,
-  REGISTER_DEVICE_SCHEMA,
-  SESSION_JOIN_CODE_AUTH_ROUTE,
-  SESSION_JOIN_CODE_AUTH_SCHEMA,
-  SOURCE_DEVICE_SESSION_AUTH_ROUTE,
-  SOURCE_DEVICE_SESSION_AUTH_SCHEMA,
-} from '@scribear/session-manager-schema';
+import { createDeviceManagementClient } from './device-management-client.js';
+import { createProbesClient } from './probes-client.js';
+import { createRoomManagementClient } from './room-management-client.js';
+import { createScheduleManagementClient } from './schedule-management-client.js';
+import { createSessionAuthClient } from './session-auth-client.js';
 
 /**
- * Creates a typed API client for the session manager service.
+ * Builds typed clients for every Session Manager HTTP route, grouped by
+ * domain. Regular endpoints are exposed as fetch functions from
+ * `createEndpointClient`; the schedule `sessionConfigStream` is a
+ * `LongPollClientFactory` that constructs an independent poll client per call.
  *
- * @param baseUrl - Base URL of the session manager API (e.g. "http://localhost:8001").
- * @returns An object containing typed endpoint functions for each session manager route.
+ * @param baseUrl Base URL of the Session Manager service (no trailing slash).
  */
 function createSessionManagerClient(baseUrl: string) {
   return {
-    healthcheck: createEndpointClient(
-      HEALTHCHECK_SCHEMA,
-      HEALTHCHECK_ROUTE,
-      baseUrl,
-    ),
-    registerDevice: createEndpointClient(
-      REGISTER_DEVICE_SCHEMA,
-      REGISTER_DEVICE_ROUTE,
-      baseUrl,
-    ),
-    activateDevice: createEndpointClient(
-      ACTIVATE_DEVICE_SCHEMA,
-      ACTIVATE_DEVICE_ROUTE,
-      baseUrl,
-    ),
-    createSession: createEndpointClient(
-      CREATE_SESSION_SCHEMA,
-      CREATE_SESSION_ROUTE,
-      baseUrl,
-    ),
-    sessionJoinCodeAuth: createEndpointClient(
-      SESSION_JOIN_CODE_AUTH_SCHEMA,
-      SESSION_JOIN_CODE_AUTH_ROUTE,
-      baseUrl,
-    ),
-    sourceDeviceSessionAuth: createEndpointClient(
-      SOURCE_DEVICE_SESSION_AUTH_SCHEMA,
-      SOURCE_DEVICE_SESSION_AUTH_ROUTE,
-      baseUrl,
-    ),
-    getDeviceSessionEvents: createEndpointClient(
-      DEVICE_SESSION_EVENTS_SCHEMA,
-      DEVICE_SESSION_EVENTS_ROUTE,
-      baseUrl,
-    ),
-    refreshSessionToken: createEndpointClient(
-      REFRESH_SESSION_TOKEN_SCHEMA,
-      REFRESH_SESSION_TOKEN_ROUTE,
-      baseUrl,
-    ),
-    getSessionJoinCode: createEndpointClient(
-      GET_SESSION_JOIN_CODE_SCHEMA,
-      GET_SESSION_JOIN_CODE_ROUTE,
-      baseUrl,
-    ),
-    getSessionConfig: createEndpointClient(
-      GET_SESSION_CONFIG_SCHEMA,
-      GET_SESSION_CONFIG_ROUTE,
-      baseUrl,
-    ),
-    endSession: createEndpointClient(
-      END_SESSION_SCHEMA,
-      END_SESSION_ROUTE,
-      baseUrl,
-    ),
+    probes: createProbesClient(baseUrl),
+    roomManagement: createRoomManagementClient(baseUrl),
+    deviceManagement: createDeviceManagementClient(baseUrl),
+    scheduleManagement: createScheduleManagementClient(baseUrl),
+    sessionAuth: createSessionAuthClient(baseUrl),
   };
 }
 
+type SessionManagerClient = ReturnType<typeof createSessionManagerClient>;
+
 export { createSessionManagerClient };
+export type { SessionManagerClient };

@@ -20,17 +20,16 @@ import {
   urlConfigReducer,
 } from '@scribear/url-config-store';
 
-import { kioskConfigReducer } from '#src/features/kiosk-provider/stores/kiosk-config-slice';
-import { createKioskServiceMiddleware } from '#src/features/kiosk-provider/stores/kiosk-service-middleware';
-import { kioskServiceReducer } from '#src/features/kiosk-provider/stores/kiosk-service-slice';
+import { createKioskMiddleware } from '#src/features/kiosk-provider/stores/kiosk-middleware';
+import { kioskReducer } from '#src/features/kiosk-provider/stores/kiosk-slice';
 import { splitScreenPreferencesReducer } from '#src/features/kiosk-split-screen/stores/split-screen-preferences-slice';
 import { urlConfigSchemas } from '#src/features/url-config/schemas/url-config-schemas';
 
 /**
- * Redux reducers map for the kiosk webapp store. Includes slices for app layout,
- * theme preferences, transcription content, transcription display preferences,
- * microphone preferences and service state, kiosk configuration and service state,
- * split-screen preferences, and redux-remember rehydration bookkeeping.
+ * Redux reducers map for the kiosk webapp store. The kiosk slice itself has
+ * no persisted state - the only persisted credential is the `DEVICE_TOKEN`
+ * cookie, which is HTTP-only and managed by the browser - but display/UI
+ * preference slices remain persisted via redux-remember.
  */
 const reducers = {
   reduxRemember: reduxRememberReducer,
@@ -41,19 +40,19 @@ const reducers = {
   transcriptionDisplayPreferences: transcriptionDisplayPreferencesReducer,
   microphonePreferences: microphonePreferencesReducer,
   microphoneService: microphoneServiceReducer,
-  kioskConfig: kioskConfigReducer,
-  kioskService: kioskServiceReducer,
+  kiosk: kioskReducer,
   splitScreenPreferences: splitScreenPreferencesReducer,
 };
 
-// Slice keys that are persisted to `localStorage` via redux-remember.
+// Slice keys that are persisted to `localStorage` via redux-remember. The
+// kiosk slice is intentionally absent: per spec, all kiosk runtime state is
+// rebuilt from API responses on page load.
 export const rememberedKeys: (keyof typeof reducers)[] = [
   'appLayoutPreferences',
   'microphonePreferences',
   'splitScreenPreferences',
   'themePreferences',
   'transcriptionDisplayPreferences',
-  'kioskConfig',
 ];
 
 // Combined root reducer with redux-remember support.
@@ -67,7 +66,7 @@ export const createAppStore = (microphoneService: MicrophoneService) => {
       getDefaultMiddleware()
         .concat(createUrlConfigMiddleware(urlConfigSchemas))
         .concat(createMicrophoneServiceMiddleware(microphoneService))
-        .concat(createKioskServiceMiddleware(microphoneService)),
+        .concat(createKioskMiddleware(microphoneService)),
     enhancers: (getDefaultEnhancers) =>
       getDefaultEnhancers().prepend(
         rememberEnhancer(window.localStorage, rememberedKeys, {

@@ -1,103 +1,119 @@
-// Need to import so that declare module '@fastify/awilix' below works
-import '@fastify/awilix';
 import {
   type AwilixContainer,
   Lifetime,
   type NameAndRegistrationPair,
   asClass,
+  asFunction,
   asValue,
 } from 'awilix';
 
-import type { BaseDependencies } from '@scribear/base-fastify-server';
-
-import type AppConfig from '../../app-config/app-config.js';
-import { HealthcheckController } from '../features/healthcheck/healthcheck.controller.js';
+import { LongPollClient } from '@scribear/base-long-poll-client';
+import { createSessionManagerClient } from '@scribear/session-manager-client';
 import {
-  JwtService,
-  type JwtServiceConfig,
-} from '../features/session-streaming/jwt.service.js';
-import { SessionStreamingController } from '../features/session-streaming/session-streaming.controller.js';
-import { SessionStreamingService } from '../features/session-streaming/session-streaming.service.js';
-import { StreamingEventBusService } from '../features/session-streaming/streaming-event-bus.service.js';
+  SESSION_CONFIG_STREAM_ROUTE,
+  SESSION_CONFIG_STREAM_SCHEMA,
+} from '@scribear/session-manager-schema';
+import { createTranscriptionServiceClient } from '@scribear/transcription-service-client';
+
+import { LivenessController } from '#src/server/features/probes/liveness.controller.js';
+import { ReadinessController } from '#src/server/features/probes/readiness.controller.js';
 import {
-  TranscriptionServiceManager,
-  type TranscriptionServiceManagerConfig,
-} from '../features/session-streaming/transcription-service-manager.js';
+  type SessionConfigPollFactory,
+  TranscriptionOrchestratorService,
+} from '#src/server/features/transcription-stream/transcription-orchestrator.service.js';
+import { TranscriptionStreamController } from '#src/server/features/transcription-stream/transcription-stream.controller.js';
+import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
+import { SessionTokenService } from '#src/server/shared/services/session-token.service.js';
+
+import type { AppConfig, AppDependencies } from './app-dependencies.js';
 
 /**
- * Define types for entities in dependency container
- */
-interface AppDependencies extends BaseDependencies {
-  // Config
-  config: AppConfig;
-
-  // Healthcheck
-  healthcheckController: HealthcheckController;
-
-  // JWT Service
-  jwtServiceConfig: JwtServiceConfig;
-  jwtService: JwtService;
-
-  // Session Streaming
-  transcriptionServiceManagerConfig: TranscriptionServiceManagerConfig;
-  streamingEventBusService: StreamingEventBusService;
-  transcriptionServiceManager: TranscriptionServiceManager;
-  sessionStreamingService: SessionStreamingService;
-  sessionStreamingController: SessionStreamingController;
-}
-
-/**
- * Ensure fastify awilix container is typed correctly
- * @see https://github.com/fastify/fastify-awilix?tab=readme-ov-file#typescript-usage
- */
-declare module '@fastify/awilix' {
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-  interface Cradle extends AppDependencies {}
-
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-  interface RequestCradle extends AppDependencies {}
-}
-
-/**
- * Register all controller, service, and repository classes into dependency container
- * @param dependencyContainer Container to load dependencies into
- * @param config AppConfig to be registered into dependency controller
+ * Register all controller, service, and client classes into the Awilix
+ * dependency container.
  */
 function registerDependencies(
   dependencyContainer: AwilixContainer,
   config: AppConfig,
 ) {
   dependencyContainer.register({
-    // Config
-    config: asValue(config),
-
-    // JWT
-    jwtServiceConfig: asValue(config.jwtServiceConfig),
-    jwtService: asClass(JwtService, { lifetime: Lifetime.SINGLETON }),
-
-    // Healthcheck
-    healthcheckController: asClass(HealthcheckController, {
-      lifetime: Lifetime.SCOPED,
-    }),
-
-    // Session Streaming
-    transcriptionServiceManagerConfig: asValue(
-      config.transcriptionServiceManagerConfig,
+    // Config values
+    baseConfig: asValue(config.baseConfig),
+    sessionTokenConfig: asValue(config.sessionTokenConfig),
+    sessionManagerClientConfig: asValue(config.sessionManagerClientConfig),
+    transcriptionServiceClientConfig: asValue(
+      config.transcriptionServiceClientConfig,
     ),
-    streamingEventBusService: asClass(StreamingEventBusService, {
+
+    // Shared services
+    sessionTokenService: asClass(SessionTokenService, {
       lifetime: Lifetime.SINGLETON,
     }),
-    transcriptionServiceManager: asClass(TranscriptionServiceManager, {
+    eventBusService: asClass(EventBusService, {
       lifetime: Lifetime.SINGLETON,
     }),
-    sessionStreamingService: asClass(SessionStreamingService, {
+
+    // Outbound clients
+    // asFunction in Awilix CLASSIC injection mode resolves dependencies by
+    // parameter NAME, so each factory below uses plain named parameters that
+    // exactly match registered keys - destructured object patterns silently
+    // receive `undefined` and break the resulting service.
+    sessionManagerClient: asFunction(
+      (
+        sessionManagerClientConfig: AppDependencies['sessionManagerClientConfig'],
+      ) => createSessionManagerClient(sessionManagerClientConfig.baseUrl),
+      { lifetime: Lifetime.SINGLETON },
+    ),
+    transcriptionServiceClient: asFunction(
+      (
+        transcriptionServiceClientConfig: AppDependencies['transcriptionServiceClientConfig'],
+      ) =>
+        createTranscriptionServiceClient(
+          transcriptionServiceClientConfig.baseUrl,
+        ),
+      { lifetime: Lifetime.SINGLETON },
+    ),
+
+    // Long-poll factory for tracking per-session config from Session Manager.
+    // Captured here (rather than constructed inside the orchestrator) so
+    // unit/integration tests can swap in stubs.
+    sessionConfigPollFactory: asFunction(
+      (
+        sessionManagerClientConfig: AppDependencies['sessionManagerClientConfig'],
+      ): SessionConfigPollFactory =>
+        (sessionUid: string) =>
+          new LongPollClient({
+            schema: SESSION_CONFIG_STREAM_SCHEMA,
+            route: SESSION_CONFIG_STREAM_ROUTE,
+            baseUrl: sessionManagerClientConfig.baseUrl,
+            params: { params: { sessionUid } },
+            versionParam: 'sinceVersion',
+            versionResponseKey: 'sessionConfigVersion',
+            headers: {
+              authorization: `Bearer ${sessionManagerClientConfig.serviceApiKey}`,
+            },
+          }),
+      { lifetime: Lifetime.SINGLETON },
+    ),
+
+    // Probes
+    livenessController: asClass(LivenessController, {
       lifetime: Lifetime.SCOPED,
     }),
-    sessionStreamingController: asClass(SessionStreamingController, {
+    readinessController: asClass(ReadinessController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+
+    // Transcription stream
+    transcriptionOrchestratorService: asClass(
+      TranscriptionOrchestratorService,
+      {
+        lifetime: Lifetime.SINGLETON,
+      },
+    ),
+    transcriptionStreamController: asClass(TranscriptionStreamController, {
       lifetime: Lifetime.SCOPED,
     }),
   } as NameAndRegistrationPair<AppDependencies>);
 }
 
 export default registerDependencies;
-export type { AppDependencies };

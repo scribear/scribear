@@ -9,7 +9,7 @@ import type { BaseFastifyInstance } from '#src/server/types/base-fastify-types.j
  */
 export default fastifyPlugin((fastify: BaseFastifyInstance) => {
   fastify.addHook('onRequest', (req, reply, done) => {
-    req.diScope.register({ logger: asValue(req.log) });
+    req.diScope.register({ logger: asValue(req.log.child({ reqId: req.id })) });
     done();
   });
 });

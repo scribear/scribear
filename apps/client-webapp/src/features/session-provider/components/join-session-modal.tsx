@@ -10,29 +10,45 @@ import TextField from '@mui/material/TextField';
 
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
-import { ClientSessionServiceStatus } from '../services/client-session-service-status';
-import { selectClientSessionServiceStatus } from '../stores/client-session-service-slice';
-import { joinSession } from '../stores/client-session-service-slice';
+import {
+  ClientLifecycle,
+  JoinError,
+} from '../services/client-session-service-status';
+import {
+  joinSession,
+  selectJoinError,
+  selectLifecycle,
+} from '../stores/client-session-service-slice';
+
+const JOIN_ERROR_MESSAGES: Record<JoinError, string> = {
+  [JoinError.NETWORK_ERROR]:
+    'Network error. Check your connection and try again.',
+  [JoinError.JOIN_CODE_NOT_FOUND]: 'Invalid join code. Please try again.',
+  [JoinError.JOIN_CODE_EXPIRED]:
+    'This join code has expired. Ask for a new one.',
+  [JoinError.SESSION_NOT_CURRENTLY_ACTIVE]:
+    'The session is not currently active.',
+  [JoinError.UNKNOWN]: 'Unable to join session. Please try again.',
+};
 
 /**
- * Modal dialog that prompts the user to enter a join code to connect
- * to an active transcription session. Shown when no session is active.
+ * Modal dialog that prompts the user to enter a join code to connect to an
+ * active transcription session. Open while the client is in `IDLE`; closes
+ * automatically once the lifecycle reaches `ACTIVE`.
  */
 export const JoinSessionModal = () => {
   const dispatch = useAppDispatch();
-  const status = useAppSelector(selectClientSessionServiceStatus);
+  const lifecycle = useAppSelector(selectLifecycle);
+  const joinError = useAppSelector(selectJoinError);
   const [joinCode, setJoinCode] = useState('');
 
-  const isOpen =
-    status === ClientSessionServiceStatus.IDLE ||
-    status === ClientSessionServiceStatus.JOIN_ERROR;
-  const isError = status === ClientSessionServiceStatus.JOIN_ERROR;
+  const isOpen = lifecycle === ClientLifecycle.IDLE;
 
   const handleSubmit = (e: SyntheticEvent) => {
     e.preventDefault();
     const trimmed = joinCode.trim();
     if (trimmed.length === 0) return;
-    void dispatch(joinSession(trimmed));
+    dispatch(joinSession(trimmed));
   };
 
   return (
@@ -48,13 +64,13 @@ export const JoinSessionModal = () => {
             onChange={(e) => {
               setJoinCode(e.target.value.toUpperCase());
             }}
-            error={isError}
+            error={joinError !== null}
             slotProps={{ htmlInput: { maxLength: 16 } }}
             sx={{ mb: 2, fontFamily: 'monospace' }}
           />
-          {isError && (
+          {joinError !== null && (
             <Alert severity="error" sx={{ mb: 2 }}>
-              Invalid join code. Please try again.
+              {JOIN_ERROR_MESSAGES[joinError]}
             </Alert>
           )}
           <Button

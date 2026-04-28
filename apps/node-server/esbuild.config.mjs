@@ -1,4 +1,4 @@
-import { build } from 'esbuild'
+import { build } from 'esbuild';
 
 await build({
   entryPoints: ['dist/src/index.js'],
@@ -12,10 +12,10 @@ await build({
       setup(build) {
         // Externalize all imports that aren't relative, subpath (#), or @scribear workspace libs
         build.onResolve({ filter: /^[^./#]/ }, ({ path }) => {
-          if (path.startsWith('@scribear/')) return null
-          return { path, external: true }
-        })
+          if (path.startsWith('@scribear/')) return null;
+          return { path, external: true };
+        });
       },
     },
   ],
-})
+});

@@ -5,17 +5,21 @@ import type { Static } from 'typebox';
 import { LogLevel } from '@scribear/base-fastify-server';
 
 import type { DBClientConfig } from '#src/db/db-client.js';
-import type { JwtServiceConfig } from '#src/server/features/session-management/jwt.service.js';
-import type { AuthServiceConfig } from '#src/server/services/auth.service.js';
+import {
+  DEFAULT_MATERIALIZATION_WORKER_CONFIG,
+  type MaterializationWorkerConfig,
+} from '#src/server/features/schedule-management/materialization.worker.js';
+import type { AdminAuthConfig } from '#src/server/shared/services/admin-auth.service.js';
+import type { ServiceAuthConfig } from '#src/server/shared/services/service-auth.service.js';
+import type { SessionTokenConfig } from '#src/server/shared/services/session-token.service.js';
 
 const CONFIG_SCHEMA = Type.Object({
   LOG_LEVEL: Type.Enum(LogLevel),
   PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
   HOST: Type.String(),
-  API_KEY: Type.String(),
-  NODE_SERVER_KEY: Type.String(),
-  JWT_SECRET: Type.String({ minLength: 32 }),
-  REDIS_URL: Type.String(),
+  ADMIN_API_KEY: Type.String(),
+  SESSION_MANAGER_SERVICE_API_KEY: Type.String(),
+  SESSION_TOKEN_SIGNING_KEY: Type.String(),
   DB_HOST: Type.String(),
   DB_PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
   DB_NAME: Type.String(),
@@ -30,9 +34,6 @@ export interface BaseConfig {
   host: string;
 }
 
-/**
- * Class that loads and provides application configuration
- */
 export class AppConfig {
   private _isDevelopment: boolean;
   private _env: Static<typeof CONFIG_SCHEMA>;
@@ -46,20 +47,21 @@ export class AppConfig {
     };
   }
 
-  get authServiceConfig(): AuthServiceConfig {
+  get adminAuthConfig(): AdminAuthConfig {
     return {
-      apiKey: this._env.API_KEY,
-      nodeServerKey: this._env.NODE_SERVER_KEY,
+      adminApiKey: this._env.ADMIN_API_KEY,
     };
   }
 
-  get redisUrl(): string {
-    return this._env.REDIS_URL;
+  get serviceAuthConfig(): ServiceAuthConfig {
+    return {
+      serviceApiKey: this._env.SESSION_MANAGER_SERVICE_API_KEY,
+    };
   }
 
-  get jwtServiceConfig(): JwtServiceConfig {
+  get sessionTokenConfig(): SessionTokenConfig {
     return {
-      jwtSecret: this._env.JWT_SECRET,
+      signingKey: this._env.SESSION_TOKEN_SIGNING_KEY,
     };
   }
 
@@ -71,6 +73,10 @@ export class AppConfig {
       dbUser: this._env.DB_USER,
       dbPassword: this._env.DB_PASSWORD,
     };
+  }
+
+  get materializationWorkerConfig(): MaterializationWorkerConfig {
+    return DEFAULT_MATERIALIZATION_WORKER_CONFIG;
   }
 
   constructor(path?: string) {

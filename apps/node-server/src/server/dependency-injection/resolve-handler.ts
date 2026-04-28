@@ -1,16 +1,12 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
-import type { AppDependencies } from './register-dependencies.js';
+import type { AppDependencies } from './app-dependencies.js';
 
 /**
- * Creates a wrapper function around provided controller route handler
- *  Wrapper function resolves controller from request dependency container scope
- *  and passes request/reply to handler
- * @param controller Name of controller to resolve
- * @param method Name of method on controller to call
- * @returns Wrapped controller method
+ * Creates a wrapper that resolves a controller from the request DI scope and
+ * delegates to the named method. Keeps routers free of direct class imports.
  */
-export function resolveHandler<
+function resolveHandler<
   C extends keyof AppDependencies,
   M extends keyof AppDependencies[C],
 >(controller: C, method: M): AppDependencies[C][M] {
@@ -19,7 +15,6 @@ export function resolveHandler<
       controller,
     ) as AppDependencies[C];
 
-    // Throw exception if method is not a function
     if (
       !(method in routeController) ||
       typeof routeController[method] !== 'function'
@@ -37,6 +32,7 @@ export function resolveHandler<
     return await handler(req, res);
   };
 
-  // Cast the type of the wrapper to be the same as the wrapped handler
   return wrapper as AppDependencies[C][M];
 }
+
+export default resolveHandler;
