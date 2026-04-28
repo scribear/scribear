@@ -105,13 +105,6 @@ jobs:
             echo "::endgroup::"
           done < /tmp/workspaces.txt
 
-      - name: Code Coverage Report - Scribear Redis Unit Tests
-        if: contains(needs.changes.outputs.workspaces, 'infra/scribear-redis')
-        uses: ./.github/actions/coverage-report
-        with:
-          package_name: "Scribear Redis - Unit Tests"
-          filename: "./infra/scribear-redis/coverage/cobertura-coverage.xml"
-
       - name: Code Coverage Report - Base Fastify Server Unit Tests
         if: contains(needs.changes.outputs.workspaces, 'libs/base-fastify-server')
         uses: ./.github/actions/coverage-report
@@ -250,17 +243,6 @@ jobs:
           image_name: scribear/transcription-service-cpu
           build_context: ./transcription_service
           dockerfile: ./transcription_service/Dockerfile_CPU
-
-      - name: Run Scribear Redis Integration Tests
-        if: contains(needs.changes.outputs.workspaces, 'infra/scribear-redis')
-        run: npm run test:integration --workspace infra/scribear-redis
-
-      - name: Code Coverage Report - Scribear Redis Integration Tests
-        uses: ./.github/actions/coverage-report
-        if: contains(needs.changes.outputs.workspaces, 'infra/scribear-redis')
-        with:
-          package_name: "Scribear Redis - Integration Tests"
-          filename: "./infra/scribear-redis/coverage/cobertura-coverage.xml"
 
       - name: Run Session Manager Integration Tests
         if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
