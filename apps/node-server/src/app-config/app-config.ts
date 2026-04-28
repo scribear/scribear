@@ -11,9 +11,9 @@ const CONFIG_SCHEMA = Type.Object({
   PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
   HOST: Type.String(),
   SESSION_TOKEN_SIGNING_KEY: Type.String(),
-  SESSION_MANAGER_BASE_URL: Type.String({ format: 'uri' }),
+  SESSION_MANAGER_BASE_URL: Type.String(),
   SESSION_MANAGER_SERVICE_API_KEY: Type.String(),
-  TRANSCRIPTION_SERVICE_BASE_URL: Type.String({ format: 'uri' }),
+  TRANSCRIPTION_SERVICE_BASE_URL: Type.String(),
   TRANSCRIPTION_SERVICE_API_KEY: Type.String(),
 });
 

@@ -18,6 +18,8 @@ import {
   GET_SCHEDULE_SCHEMA,
   GET_SESSION_ROUTE,
   GET_SESSION_SCHEMA,
+  LIST_AUTO_SESSION_WINDOWS_ROUTE,
+  LIST_AUTO_SESSION_WINDOWS_SCHEMA,
   LIST_SCHEDULES_ROUTE,
   LIST_SCHEDULES_SCHEMA,
   MY_SCHEDULE_ROUTE,
@@ -77,6 +79,16 @@ export function scheduleManagementRouter(fastify: BaseFastifyInstance) {
   });
 
   // Auto-session window CRUD
+  fastify.route({
+    ...LIST_AUTO_SESSION_WINDOWS_ROUTE,
+    schema: LIST_AUTO_SESSION_WINDOWS_SCHEMA,
+    preHandler: adminApiKeyHook,
+    handler: resolveHandler(
+      'scheduleManagementController',
+      'listAutoSessionWindows',
+    ),
+  });
+
   fastify.route({
     ...CREATE_AUTO_SESSION_WINDOW_ROUTE,
     schema: CREATE_AUTO_SESSION_WINDOW_SCHEMA,

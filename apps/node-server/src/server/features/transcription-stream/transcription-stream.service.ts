@@ -10,6 +10,7 @@ import type { SessionScope } from '@scribear/session-manager-schema';
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
 
 import { AudioFrameChannel } from './events/audio-frame.events.js';
+import { SessionEndedChannel } from './events/session-ended.events.js';
 import { SessionStatusChannel } from './events/session-status.events.js';
 import { TranscriptChannel } from './events/transcript.events.js';
 
@@ -72,6 +73,7 @@ export class TranscriptionStreamService extends EventEmitter<TranscriptionStream
   private _authTimer: ReturnType<typeof setTimeout> | null = null;
   private _unsubscribeTranscripts: (() => void) | null = null;
   private _unsubscribeSessionStatus: (() => void) | null = null;
+  private _unsubscribeSessionEnded: (() => void) | null = null;
   private _orchestratorUnregister: (() => void) | null = null;
   private _closed = false;
 
@@ -193,6 +195,18 @@ export class TranscriptionStreamService extends EventEmitter<TranscriptionStream
       this._urlSessionUid,
     );
 
+    this._unsubscribeSessionEnded = this._eventBusService.subscribe(
+      SessionEndedChannel,
+      () => {
+        if (this._closed) return;
+        this.emit('send', {
+          type: TranscriptionStreamServerMessageType.SESSION_ENDED,
+        });
+        this._closeWith(1000, 'session-ended');
+      },
+      this._urlSessionUid,
+    );
+
     this._authed = true;
     this._authPending = false;
     if (this._authTimer !== null) {
@@ -262,6 +276,8 @@ export class TranscriptionStreamService extends EventEmitter<TranscriptionStream
     this._unsubscribeTranscripts = null;
     this._unsubscribeSessionStatus?.();
     this._unsubscribeSessionStatus = null;
+    this._unsubscribeSessionEnded?.();
+    this._unsubscribeSessionEnded = null;
     this._orchestratorUnregister?.();
     this._orchestratorUnregister = null;
   }

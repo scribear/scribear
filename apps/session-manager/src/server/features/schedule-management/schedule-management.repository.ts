@@ -617,6 +617,41 @@ export class ScheduleManagementRepository {
   }
 
   /**
+   * Returns auto-session windows for a room whose active range overlaps the
+   * given time window. Both bounds are optional; omitting `from` includes
+   * windows regardless of when they end, omitting `to` includes windows
+   * regardless of when they start. Results are ordered by `active_start`
+   * ascending.
+   * @param db Kysely client or transaction.
+   * @param roomUid Room to query.
+   * @param range Optional `from`/`to` bounds; `null active_end` is treated as +infinity.
+   */
+  async listWindowsForRoom(
+    db: DBOrTrx,
+    roomUid: string,
+    range: { from?: Date; to?: Date },
+  ): Promise<AutoSessionWindow[]> {
+    let q = db
+      .selectFrom('auto_session_windows')
+      .select(WINDOW_COLUMNS)
+      .where('room_uid', '=', roomUid);
+
+    if (range.from !== undefined) {
+      const from = range.from;
+      q = q.where((eb) =>
+        eb.or([eb('active_end', 'is', null), eb('active_end', '>=', from)]),
+      );
+    }
+
+    if (range.to !== undefined) {
+      q = q.where('active_start', '<=', range.to);
+    }
+
+    const rows = await q.orderBy('active_start', 'asc').execute();
+    return rows.map(mapWindow);
+  }
+
+  /**
    * Inserts a new `auto_session_windows` row and returns the mapped result.
    * When `activeStart` is omitted the database default `now()` is used.
    * @param db Kysely client or transaction.

@@ -641,6 +641,23 @@ export class ScheduleManagementService {
   }
 
   /**
+   * Lists auto-session windows for a room, optionally filtered by a time
+   * range. Returns windows whose active range overlaps `[from, to]` (both
+   * bounds are optional; omitting them returns all windows for the room).
+   * @param roomUid Room to query.
+   * @param range Optional `from`/`to` bounds.
+   * @returns The matching windows, or `'ROOM_NOT_FOUND'` if the room does not exist.
+   */
+  async listAutoSessionWindowsForRoom(
+    roomUid: string,
+    range: { from?: Date; to?: Date },
+  ): Promise<AutoSessionWindow[] | 'ROOM_NOT_FOUND'> {
+    const exists = await this._repo.roomExists(this._repo.db, roomUid);
+    if (!exists) return 'ROOM_NOT_FOUND' as const;
+    return this._repo.listWindowsForRoom(this._repo.db, roomUid, range);
+  }
+
+  /**
    * Closes (or hard-deletes) an auto-session window and reconciles AUTO
    * sessions in the room.
    * @param uid The window to delete.

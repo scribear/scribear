@@ -507,6 +507,122 @@ describe('Schedule Management Routes', () => {
     });
   });
 
+  describe('GET /list-auto-session-windows', (it) => {
+    it('returns 401 without credentials', async () => {
+      // Arrange / Act - must supply a valid roomUid so schema validation passes
+      // and the auth preHandler actually runs.
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${SCHEDULE_BASE}/list-auto-session-windows?roomUid=${NULL_UUID}`,
+        headers: { authorization: 'Bearer wrong-key' },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(401);
+    });
+
+    it('returns 404 when the room does not exist', async () => {
+      // Arrange / Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${SCHEDULE_BASE}/list-auto-session-windows?roomUid=${NULL_UUID}`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(404);
+      expect(res.json<{ code: string }>().code).toBe('ROOM_NOT_FOUND');
+    });
+
+    it('returns 200 with empty items when the room has no windows', async () => {
+      // Arrange
+      const { roomUid } = await setupRoom();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${SCHEDULE_BASE}/list-auto-session-windows?roomUid=${roomUid}`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      expect(res.json<{ items: unknown[] }>().items).toEqual([]);
+    });
+
+    it('returns all windows when no time range is given', async () => {
+      // Arrange
+      const { roomUid } = await setupRoom();
+      await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/create-auto-session-window`,
+        headers: { authorization: ADMIN_HEADER },
+        body: defaultWindowBody(roomUid),
+      });
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${SCHEDULE_BASE}/list-auto-session-windows?roomUid=${roomUid}`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      expect(res.json<{ items: unknown[] }>().items).toHaveLength(1);
+    });
+
+    it('includes windows whose active range overlaps the requested window', async () => {
+      // Arrange
+      const { roomUid } = await setupRoom();
+      await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/create-auto-session-window`,
+        headers: { authorization: ADMIN_HEADER },
+        body: defaultWindowBody(roomUid, {
+          activeStart: '2030-01-02T00:00:00.000Z',
+          activeEnd: '2030-06-01T00:00:00.000Z',
+        }),
+      });
+
+      // Act - range that overlaps the window's active range
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${SCHEDULE_BASE}/list-auto-session-windows?roomUid=${roomUid}&from=2030-03-01T00:00:00.000Z&to=2030-09-01T00:00:00.000Z`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      expect(res.json<{ items: unknown[] }>().items).toHaveLength(1);
+    });
+
+    it('excludes windows whose active range does not overlap the requested window', async () => {
+      // Arrange
+      const { roomUid } = await setupRoom();
+      await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/create-auto-session-window`,
+        headers: { authorization: ADMIN_HEADER },
+        body: defaultWindowBody(roomUid, {
+          activeStart: '2030-07-01T00:00:00.000Z',
+          activeEnd: null,
+        }),
+      });
+
+      // Act - to is before the window's activeStart
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${SCHEDULE_BASE}/list-auto-session-windows?roomUid=${roomUid}&to=2030-06-01T00:00:00.000Z`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      expect(res.json<{ items: unknown[] }>().items).toHaveLength(0);
+    });
+  });
+
   describe('POST /create-auto-session-window', (it) => {
     it('returns 201 with the created window', async () => {
       // Arrange

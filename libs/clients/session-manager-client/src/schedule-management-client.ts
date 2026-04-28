@@ -19,6 +19,8 @@ import {
   GET_SCHEDULE_SCHEMA,
   GET_SESSION_ROUTE,
   GET_SESSION_SCHEMA,
+  LIST_AUTO_SESSION_WINDOWS_ROUTE,
+  LIST_AUTO_SESSION_WINDOWS_SCHEMA,
   LIST_SCHEDULES_ROUTE,
   LIST_SCHEDULES_SCHEMA,
   MY_SCHEDULE_ROUTE,
@@ -72,6 +74,11 @@ function createScheduleManagementClient(baseUrl: string) {
     updateRoomScheduleConfig: createEndpointClient(
       UPDATE_ROOM_SCHEDULE_CONFIG_SCHEMA,
       UPDATE_ROOM_SCHEDULE_CONFIG_ROUTE,
+      baseUrl,
+    ),
+    listAutoSessionWindows: createEndpointClient(
+      LIST_AUTO_SESSION_WINDOWS_SCHEMA,
+      LIST_AUTO_SESSION_WINDOWS_ROUTE,
       baseUrl,
     ),
     createAutoSessionWindow: createEndpointClient(

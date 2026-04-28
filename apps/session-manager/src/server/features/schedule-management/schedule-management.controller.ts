@@ -14,6 +14,7 @@ import {
   GET_AUTO_SESSION_WINDOW_SCHEMA,
   GET_SCHEDULE_SCHEMA,
   GET_SESSION_SCHEMA,
+  LIST_AUTO_SESSION_WINDOWS_SCHEMA,
   LIST_SCHEDULES_SCHEMA,
   MY_SCHEDULE_SCHEMA,
   SESSION_CONFIG_STREAM_SCHEMA,
@@ -203,6 +204,26 @@ export class ScheduleManagementController {
       throw HttpError.notFound('SCHEDULE_NOT_FOUND', 'Schedule not found.');
 
     res.code(204).send(null);
+  }
+
+  async listAutoSessionWindows(
+    req: BaseFastifyRequest<typeof LIST_AUTO_SESSION_WINDOWS_SCHEMA>,
+    res: BaseFastifyReply<typeof LIST_AUTO_SESSION_WINDOWS_SCHEMA>,
+  ) {
+    const { roomUid, from, to } = req.query;
+
+    const result = await this._scheduleService.listAutoSessionWindowsForRoom(
+      roomUid,
+      {
+        ...(from !== undefined && { from: new Date(from) }),
+        ...(to !== undefined && { to: new Date(to) }),
+      },
+    );
+
+    if (result === 'ROOM_NOT_FOUND')
+      throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
+
+    res.code(200).send({ items: result.map((w) => this._mapWindow(w)) });
   }
 
   async createAutoSessionWindow(

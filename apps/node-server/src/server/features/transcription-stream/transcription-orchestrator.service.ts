@@ -12,6 +12,7 @@ import {
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
 
 import { AudioFrameChannel } from './events/audio-frame.events.js';
+import { SessionEndedChannel } from './events/session-ended.events.js';
 import {
   SessionStatusChannel,
   type SessionStatusMessage,
@@ -44,6 +45,23 @@ interface SessionState {
    * connections without recomputing from sub-objects.
    */
   status: SessionStatusMessage;
+  /**
+   * Scheduled timer that publishes `SessionEndedChannel` at the session's
+   * `effectiveEnd`. Re-armed on every config update so extensions/contractions
+   * are honored. `null` for open-ended sessions (`effectiveEnd === null`).
+   */
+  endTimer: ReturnType<typeof setTimeout> | null;
+  /**
+   * Last `effectiveEnd` (epoch ms) we armed `endTimer` for. Used to skip
+   * re-arming when an unrelated config bump arrives without changing the end.
+   */
+  endTimerArmedFor: number | null;
+  /**
+   * Latches once the orchestrator has published `SessionEndedChannel` for this
+   * session. Prevents duplicate publishes if a config change races with the
+   * timer or if teardown is already in progress.
+   */
+  ended: boolean;
 }
 
 /**
@@ -171,6 +189,9 @@ export class TranscriptionOrchestratorService {
         transcriptionServiceConnected: false,
         sourceDeviceConnected: false,
       },
+      endTimer: null,
+      endTimerArmedFor: null,
+      ended: false,
     };
 
     upstream.on('message', (msg) => {
@@ -218,11 +239,82 @@ export class TranscriptionOrchestratorService {
       // can observe config-bump events in production.
       this._logger.info(
         { sessionUid, version: session.sessionConfigVersion },
-        'session config changed (no-op)',
+        'session config changed',
       );
+      this._armEndTimer(sessionUid, state, session);
     });
 
+    this._armEndTimer(sessionUid, state, initial);
+
     return state;
+  }
+
+  /**
+   * Arm (or re-arm) the end timer for `state` based on the session's current
+   * `effectiveEnd`. Called once on initial config and again on every
+   * config-stream update so extensions/contractions are honored. Idempotent
+   * when the new end matches the currently-armed end.
+   *
+   * If `effectiveEnd` is in the past relative to wall clock, the orchestrator
+   * publishes `SessionEndedChannel` synchronously rather than scheduling a
+   * zero-delay timer, so callers see the end signal as soon as the config
+   * surfaces.
+   */
+  private _armEndTimer(
+    sessionUid: string,
+    state: SessionState,
+    session: Session,
+  ): void {
+    if (state.ended) return;
+
+    if (session.effectiveEnd === null) {
+      // Open-ended: cancel any prior timer (the previous config may have had
+      // a finite end) and leave the session running until a future update or
+      // until the last source disconnects.
+      if (state.endTimer !== null) {
+        clearTimeout(state.endTimer);
+        state.endTimer = null;
+      }
+      state.endTimerArmedFor = null;
+      return;
+    }
+
+    const endMs = Date.parse(session.effectiveEnd);
+    if (state.endTimerArmedFor === endMs) return;
+
+    if (state.endTimer !== null) {
+      clearTimeout(state.endTimer);
+      state.endTimer = null;
+    }
+    state.endTimerArmedFor = endMs;
+
+    const delayMs = endMs - Date.now();
+    if (delayMs <= 0) {
+      this._publishSessionEnded(sessionUid, state);
+      return;
+    }
+    state.endTimer = setTimeout(() => {
+      state.endTimer = null;
+      // The session may have been torn down between scheduling and firing
+      // (last source disconnected); the map check guards against a stale
+      // publish from such a race.
+      if (this._sessions.get(sessionUid) !== state) return;
+      this._publishSessionEnded(sessionUid, state);
+    }, delayMs);
+  }
+
+  private _publishSessionEnded(sessionUid: string, state: SessionState): void {
+    if (state.ended) return;
+    state.ended = true;
+    if (state.endTimer !== null) {
+      clearTimeout(state.endTimer);
+      state.endTimer = null;
+    }
+    this._logger.info({ sessionUid }, 'session reached effectiveEnd');
+    // Connections subscribed on the bus will send `sessionEnded` and close
+    // 1000; their close handlers unregister sources, which drains
+    // `_unregisterSource` to zero and tears down upstream + long-poll.
+    this._eventBus.publish(SessionEndedChannel, {}, sessionUid);
   }
 
   private async _awaitFirstConfig(
@@ -265,6 +357,10 @@ export class TranscriptionOrchestratorService {
     state.audioUnsubscribe();
     state.longPoll.close();
     state.upstream.terminate(1000, 'no-more-sources');
+    if (state.endTimer !== null) {
+      clearTimeout(state.endTimer);
+      state.endTimer = null;
+    }
 
     if (
       state.status.transcriptionServiceConnected ||

@@ -68,6 +68,7 @@ describe('ScheduleManagementController', () => {
     findScheduleByUid: Mock;
     updateSchedule: Mock;
     deleteSchedule: Mock;
+    listAutoSessionWindowsForRoom: Mock;
     createAutoSessionWindow: Mock;
     findAutoSessionWindowByUid: Mock;
     updateAutoSessionWindow: Mock;
@@ -93,6 +94,7 @@ describe('ScheduleManagementController', () => {
       findScheduleByUid: vi.fn(),
       updateSchedule: vi.fn(),
       deleteSchedule: vi.fn(),
+      listAutoSessionWindowsForRoom: vi.fn(),
       createAutoSessionWindow: vi.fn(),
       findAutoSessionWindowByUid: vi.fn(),
       updateAutoSessionWindow: vi.fn(),
@@ -916,6 +918,85 @@ describe('ScheduleManagementController', () => {
         'room-1',
         {},
       );
+    });
+  });
+
+  describe('listAutoSessionWindows', (it) => {
+    it('returns 200 with serialized items on success', async () => {
+      // Arrange
+      mockScheduleService.listAutoSessionWindowsForRoom.mockResolvedValue([
+        mockWindow,
+      ]);
+
+      // Act
+      await controller.listAutoSessionWindows(
+        { query: { roomUid: 'room-1' } } as never,
+        mockRes as never,
+      );
+
+      // Assert
+      expect(mockCode).toHaveBeenCalledWith(200);
+      expect(mockSend).toHaveBeenCalledWith({
+        items: [
+          expect.objectContaining({
+            uid: 'win-1',
+            activeStart: FAKE_DATE.toISOString(),
+            createdAt: FAKE_DATE.toISOString(),
+          }),
+        ],
+      });
+    });
+
+    it("throws 404 when service returns 'ROOM_NOT_FOUND'", async () => {
+      // Arrange
+      mockScheduleService.listAutoSessionWindowsForRoom.mockResolvedValue(
+        'ROOM_NOT_FOUND',
+      );
+
+      // Act + Assert
+      await expect(
+        controller.listAutoSessionWindows(
+          { query: { roomUid: 'room-1' } } as never,
+          mockRes as never,
+        ),
+      ).rejects.toMatchObject({ statusCode: 404, code: 'ROOM_NOT_FOUND' });
+    });
+
+    it('passes parsed Date bounds to the service when from/to are provided', async () => {
+      // Arrange
+      mockScheduleService.listAutoSessionWindowsForRoom.mockResolvedValue([]);
+      const from = '2026-01-01T00:00:00.000Z';
+      const to = '2026-06-01T00:00:00.000Z';
+
+      // Act
+      await controller.listAutoSessionWindows(
+        { query: { roomUid: 'room-1', from, to } } as never,
+        mockRes as never,
+      );
+
+      // Assert
+      expect(
+        mockScheduleService.listAutoSessionWindowsForRoom,
+      ).toHaveBeenCalledWith('room-1', {
+        from: new Date(from),
+        to: new Date(to),
+      });
+    });
+
+    it('passes empty range object when from/to are omitted', async () => {
+      // Arrange
+      mockScheduleService.listAutoSessionWindowsForRoom.mockResolvedValue([]);
+
+      // Act
+      await controller.listAutoSessionWindows(
+        { query: { roomUid: 'room-1' } } as never,
+        mockRes as never,
+      );
+
+      // Assert
+      expect(
+        mockScheduleService.listAutoSessionWindowsForRoom,
+      ).toHaveBeenCalledWith('room-1', {});
     });
   });
 

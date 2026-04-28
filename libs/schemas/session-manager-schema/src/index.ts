@@ -44,6 +44,7 @@ export * from './schedule-management/routes/get-schedule.schema.js';
 export * from './schedule-management/routes/update-schedule.schema.js';
 export * from './schedule-management/routes/delete-schedule.schema.js';
 export * from './schedule-management/routes/update-room-schedule-config.schema.js';
+export * from './schedule-management/routes/list-auto-session-windows.schema.js';
 export * from './schedule-management/routes/create-auto-session-window.schema.js';
 export * from './schedule-management/routes/get-auto-session-window.schema.js';
 export * from './schedule-management/routes/update-auto-session-window.schema.js';
