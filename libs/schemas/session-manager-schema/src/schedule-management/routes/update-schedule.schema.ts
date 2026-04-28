@@ -24,7 +24,7 @@ import {
 
 const UPDATE_SCHEDULE_SCHEMA = {
   description:
-    "Update an open schedule by closing it at the current instant and re-inserting a new row with the merged fields. Past sessions are preserved; future occurrences are re-materialized. The schedule must be open (activeEnd is null). The merged activeStart must be strictly in the future — when updating a schedule that has already taken effect, the caller must explicitly supply a future activeStart. The schedule's BIWEEKLY anchor is preserved verbatim across updates so cadence does not shift.",
+    "Update an open schedule by closing it at the current instant and re-inserting a new row with the merged fields. Past sessions are preserved; future occurrences are re-materialized. The schedule must be open (activeEnd is null). The merged activeStart must be strictly in the future - when updating a schedule that has already taken effect, the caller must explicitly supply a future activeStart. The schedule's BIWEEKLY anchor is preserved verbatim across updates so cadence does not shift.",
   tags: [SCHEDULE_MANAGEMENT_TAG],
   security: ADMIN_API_KEY_SECURITY,
   headers: Type.Object({
@@ -41,7 +41,10 @@ const UPDATE_SCHEDULE_SCHEMA = {
     localEndTime: Type.Optional(LOCAL_TIME_SCHEMA),
     frequency: Type.Optional(SCHEDULE_FREQUENCY_SCHEMA),
     daysOfWeek: Type.Optional(
-      Type.Union([Type.Array(DAY_OF_WEEK_SCHEMA), Type.Null()]),
+      Type.Union([
+        Type.Array(DAY_OF_WEEK_SCHEMA, { uniqueItems: true }),
+        Type.Null(),
+      ]),
     ),
     joinCodeScopes: Type.Optional(Type.Array(SESSION_SCOPE_SCHEMA)),
     transcriptionProviderId: Type.Optional(Type.String()),

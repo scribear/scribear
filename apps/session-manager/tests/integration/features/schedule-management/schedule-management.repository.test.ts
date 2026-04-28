@@ -478,7 +478,7 @@ describe('ScheduleManagementRepository', () => {
         joinCodeScopes: [],
       });
 
-      // Act - query at the close instant — strict `>` filter excludes equal end.
+      // Act - query at the close instant - strict `>` filter excludes equal end.
       const found = await repository.findSchedulesOverlapping(
         repository.db,
         roomUid,

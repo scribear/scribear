@@ -36,7 +36,7 @@ const CREATE_SCHEDULE_SCHEMA = {
     activeStart: Type.String({
       format: 'date-time',
       description:
-        'UTC instant at which the schedule begins producing occurrences. Must be strictly in the future — schedules never produce occurrences in the past.',
+        'UTC instant at which the schedule begins producing occurrences. Must be strictly in the future - schedules never produce occurrences in the past.',
     }),
     activeEnd: Type.Union([
       Type.String({
@@ -52,6 +52,7 @@ const CREATE_SCHEDULE_SCHEMA = {
     daysOfWeek: Type.Union([
       Type.Array(DAY_OF_WEEK_SCHEMA, {
         description: 'Required when frequency is WEEKLY or BIWEEKLY.',
+        uniqueItems: true,
       }),
       Type.Null(),
     ]),

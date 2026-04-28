@@ -18,6 +18,8 @@ import {
   GET_SCHEDULE_SCHEMA,
   GET_SESSION_ROUTE,
   GET_SESSION_SCHEMA,
+  LIST_SCHEDULES_ROUTE,
+  LIST_SCHEDULES_SCHEMA,
   MY_SCHEDULE_ROUTE,
   MY_SCHEDULE_SCHEMA,
   SESSION_CONFIG_STREAM_ROUTE,
@@ -39,6 +41,13 @@ import { serviceApiKeyHook } from '#src/server/hooks/service-api-key.hook.js';
 
 export function scheduleManagementRouter(fastify: BaseFastifyInstance) {
   // Schedule CRUD
+  fastify.route({
+    ...LIST_SCHEDULES_ROUTE,
+    schema: LIST_SCHEDULES_SCHEMA,
+    preHandler: adminApiKeyHook,
+    handler: resolveHandler('scheduleManagementController', 'listSchedules'),
+  });
+
   fastify.route({
     ...CREATE_SCHEDULE_ROUTE,
     schema: CREATE_SCHEDULE_SCHEMA,

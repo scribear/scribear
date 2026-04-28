@@ -30,7 +30,9 @@ const UPDATE_AUTO_SESSION_WINDOW_SCHEMA = {
     windowUid: Type.String({ format: 'uuid' }),
     localStartTime: Type.Optional(LOCAL_TIME_SCHEMA),
     localEndTime: Type.Optional(LOCAL_TIME_SCHEMA),
-    daysOfWeek: Type.Optional(Type.Array(DAY_OF_WEEK_SCHEMA, { minItems: 1 })),
+    daysOfWeek: Type.Optional(
+      Type.Array(DAY_OF_WEEK_SCHEMA, { minItems: 1, uniqueItems: true }),
+    ),
     activeStart: Type.Optional(Type.String({ format: 'date-time' })),
     activeEnd: Type.Optional(
       Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
@@ -48,6 +50,10 @@ const UPDATE_AUTO_SESSION_WINDOW_SCHEMA = {
     }),
     409: Type.Object({
       code: Type.Literal('CONFLICT'),
+      message: Type.String(),
+    }),
+    422: Type.Object({
+      code: Type.Literal('INVALID_ACTIVE_END'),
       message: Type.String(),
     }),
   },

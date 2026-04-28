@@ -30,7 +30,10 @@ const CREATE_AUTO_SESSION_WINDOW_SCHEMA = {
     roomUid: Type.String({ format: 'uuid' }),
     localStartTime: LOCAL_TIME_SCHEMA,
     localEndTime: LOCAL_TIME_SCHEMA,
-    daysOfWeek: Type.Array(DAY_OF_WEEK_SCHEMA, { minItems: 1 }),
+    daysOfWeek: Type.Array(DAY_OF_WEEK_SCHEMA, {
+      minItems: 1,
+      uniqueItems: true,
+    }),
     activeStart: Type.String({ format: 'date-time' }),
     activeEnd: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
     transcriptionProviderId: Type.String(),
@@ -46,6 +49,10 @@ const CREATE_AUTO_SESSION_WINDOW_SCHEMA = {
     }),
     409: Type.Object({
       code: Type.Literal('CONFLICT'),
+      message: Type.String(),
+    }),
+    422: Type.Object({
+      code: Type.Literal('INVALID_ACTIVE_END'),
       message: Type.String(),
     }),
   },

@@ -200,7 +200,7 @@ function inRange(
  * Luxon returns a DateTime whose local time differs from what was requested
  * (it uses the pre-transition offset, producing a post-transition wall-clock
  * time). We detect the mismatch and binary-search for the true transition
- * instant — the first UTC moment with the post-transition offset — which is
+ * instant - the first UTC moment with the post-transition offset - which is
  * the correct snap point.
  *
  * Fall-back: Luxon may return the DST (earlier UTC) interpretation for an

@@ -40,7 +40,7 @@ describe('detectConflict', () => {
       // Act
       const result = detectConflict(a, b, TZ_UTC, NOW);
 
-      // Assert - both fire Mon 09:00-10:00 and 09:30-10:30 — overlap exists
+      // Assert - both fire Mon 09:00-10:00 and 09:30-10:30 - overlap exists
       expect(result).toBe(true);
     });
 
@@ -57,7 +57,7 @@ describe('detectConflict', () => {
       // Act
       const result = detectConflict(a, b, TZ_UTC, NOW);
 
-      // Assert - a ends at 10:00 exactly when b starts — no overlap (half-open intervals)
+      // Assert - a ends at 10:00 exactly when b starts - no overlap (half-open intervals)
       expect(result).toBe(false);
     });
 
@@ -88,7 +88,7 @@ describe('detectConflict', () => {
       // Act
       const result = detectConflict(a, b, TZ_UTC, NOW);
 
-      // Assert - Jun 3 (anchor week, offset 0 — even) is an overlap
+      // Assert - Jun 3 (anchor week, offset 0 - even) is an overlap
       expect(result).toBe(true);
     });
 
@@ -100,7 +100,7 @@ describe('detectConflict', () => {
         frequency: 'BIWEEKLY',
         daysOfWeek: ['MON'],
       });
-      // b fires on Tue — never conflicts with a (which fires only on Mon)
+      // b fires on Tue - never conflicts with a (which fires only on Mon)
       const b = makeSchedule({ uid: 'b', daysOfWeek: ['TUE'] });
 
       // Act
@@ -229,7 +229,7 @@ describe('detectConflict', () => {
     it('does not detect a conflict when activeEnd is set to now() (the naive approach)', () => {
       // This test documents the gap that the activeEnd=effectiveEnd fix closes.
       // When activeEnd = now, the active session occurrence is filtered out
-      // (endUtc=10:00 > activeEnd=09:30 fails the filter), so no conflict is returned —
+      // (endUtc=10:00 > activeEnd=09:30 fails the filter), so no conflict is returned -
       // even though the session is still running. The DB exclusion constraint catches it,
       // but the in-memory check misses it.
       const oldSchedule = makeSchedule({
@@ -244,7 +244,7 @@ describe('detectConflict', () => {
         uid: 'new',
         activeStart: new Date('2024-06-03T09:30:00Z'),
         daysOfWeek: ['MON'],
-        localStartTime: '09:30:00', // same setup as above — would conflict if old were visible
+        localStartTime: '09:30:00', // same setup as above - would conflict if old were visible
         localEndTime: '10:30:00',
       });
 
@@ -256,7 +256,7 @@ describe('detectConflict', () => {
         new Date('2024-06-03T09:30:00Z'),
       );
 
-      // Assert - conflict is missed — old occurrence excluded because endUtc=10:00 > activeEnd=09:30
+      // Assert - conflict is missed - old occurrence excluded because endUtc=10:00 > activeEnd=09:30
       expect(result).toBe(false);
     });
   });

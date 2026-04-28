@@ -160,7 +160,7 @@ describe('materializeAutoSessions', () => {
 
   describe('multiple active windows', () => {
     it('produces slots within each window independently', () => {
-      // Arrange - two windows — morning and afternoon
+      // Arrange - two windows - morning and afternoon
       const now = new Date('2024-06-03T07:00:00Z');
       const windows = [
         window('2024-06-03T09:00:00Z', '2024-06-03T12:00:00Z', 'win-morning'),
@@ -227,7 +227,7 @@ describe('materializeAutoSessions', () => {
     });
 
     it('sessions outside all windows are ignored', () => {
-      // Arrange - session runs 12:30-13:30 — entirely in the gap between windows
+      // Arrange - session runs 12:30-13:30 - entirely in the gap between windows
       const now = new Date('2024-06-03T07:00:00Z');
       const windows = [
         window('2024-06-03T09:00:00Z', '2024-06-03T12:00:00Z'),

@@ -27,7 +27,7 @@ const CREATE_ROOM_SCHEMA = {
   body: Type.Object({
     name: Type.String({ minLength: 1, maxLength: 256 }),
     timezone: Type.String({
-      maxLength: 16,
+      maxLength: 64,
       description: 'IANA timezone identifier.',
       examples: ['America/New_York'],
     }),

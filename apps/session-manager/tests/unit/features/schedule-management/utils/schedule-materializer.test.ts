@@ -83,7 +83,7 @@ describe('materializeSchedule', () => {
         activeStart: new Date('2024-06-03T14:00:00Z'), // 14:00 UTC = 10:00 EDT
         frequency: 'ONCE',
         daysOfWeek: null,
-        localStartTime: '09:00:00', // 09:00 EDT = 13:00 UTC — before activeStart
+        localStartTime: '09:00:00', // 09:00 EDT = 13:00 UTC - before activeStart
         localEndTime: '10:00:00',
       });
 
@@ -143,7 +143,7 @@ describe('materializeSchedule', () => {
         new Date('2024-06-10T00:00:00Z'),
       );
 
-      // Assert - Mon and Wed qualify; Fri's end (14:30) > activeEnd (14:30 on Wed) — wait, activeEnd is Jun 5 14:30
+      // Assert - Mon and Wed qualify; Fri's end (14:30) > activeEnd (14:30 on Wed) - wait, activeEnd is Jun 5 14:30
       // Fri Jun 7 14:30 > Jun 5 14:30 → excluded
       // Wed Jun 5 14:30 <= Jun 5 14:30 → included
       expect(result).toHaveLength(2);
@@ -251,7 +251,7 @@ describe('materializeSchedule', () => {
     });
   });
 
-  describe('DST — spring-forward (America/New_York, 2024-03-10)', () => {
+  describe('DST - spring-forward (America/New_York, 2024-03-10)', () => {
     it('snaps an occurrence whose start is in the gap to the first valid instant', () => {
       // Arrange - 02:30-04:00 on spring-forward day; 02:30 does not exist.
       // Start should snap to 03:00 EDT; end is 04:00 EDT.
@@ -303,7 +303,7 @@ describe('materializeSchedule', () => {
     });
 
     it('drops an occurrence whose entire span falls within the gap', () => {
-      // Arrange - 02:15-02:45 — both endpoints are inside the 02:00-03:00 gap.
+      // Arrange - 02:15-02:45 - both endpoints are inside the 02:00-03:00 gap.
       const schedule = makeSchedule({
         activeStart: new Date('2024-03-10T05:00:00Z'), // midnight EST = Mar 10 local
         localStartTime: '02:15:00',
@@ -350,7 +350,7 @@ describe('materializeSchedule', () => {
     });
   });
 
-  describe('DST — fall-back (America/New_York, 2024-11-03)', () => {
+  describe('DST - fall-back (America/New_York, 2024-11-03)', () => {
     it('picks the later (standard-time) UTC instant for an ambiguous local time', () => {
       // Arrange - 01:30-03:00 on fall-back day.
       // 01:30 occurs twice: first as EDT (05:30 UTC), then as EST (06:30 UTC).
@@ -378,7 +378,7 @@ describe('materializeSchedule', () => {
     });
 
     it('does not affect times outside the ambiguous window', () => {
-      // Arrange - 10:00-11:00 — well outside the fall-back ambiguous hour.
+      // Arrange - 10:00-11:00 - well outside the fall-back ambiguous hour.
       const schedule = makeSchedule({
         activeStart: new Date('2024-11-03T04:00:00Z'), // midnight EDT = Nov 3 local
         localStartTime: '10:00:00',

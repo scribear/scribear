@@ -12,12 +12,12 @@ import {
   DEVICE_TOKEN_SECURITY,
   INVALID_DEVICE_TOKEN_REPLY_SCHEMA,
 } from '#src/shared/security/device-token.js';
-import { ROOM_MANAGEMENT_TAG } from '#src/tags.js';
+import { SCHEDULE_MANAGEMENT_TAG } from '#src/tags.js';
 
 const MY_SCHEDULE_SCHEMA = {
   description:
-    "Long-poll endpoint returning the device's current room schedule. The server holds the request until `room_schedule_version` exceeds `sinceVersion`, then responds with the full session list. 204 indicates no change within the server timeout — re-poll immediately with the same cursor. Responds with a new `roomUid` and schedule if the device is reassigned to a different room while polling. Returns 404 if the device is unassigned from all rooms.",
-  tags: [ROOM_MANAGEMENT_TAG],
+    "Long-poll endpoint returning the device's current room schedule. The server holds the request until `room_schedule_version` exceeds `sinceVersion`, then responds with the full session list. 204 indicates no change within the server timeout - re-poll immediately with the same cursor. Responds with a new `roomUid` and schedule if the device is reassigned to a different room while polling. Returns 404 if the device is unassigned from all rooms.",
+  tags: [SCHEDULE_MANAGEMENT_TAG],
   security: DEVICE_TOKEN_SECURITY,
   querystring: Type.Object({
     sinceVersion: Type.Integer({ minimum: 0 }),
@@ -45,7 +45,7 @@ const MY_SCHEDULE_SCHEMA = {
 
 const MY_SCHEDULE_ROUTE: BaseRouteDefinition = {
   method: 'GET',
-  url: `${SESSION_MANAGER_BASE_PATH}/room-management/my-schedule`,
+  url: `${SESSION_MANAGER_BASE_PATH}/schedule-management/my-schedule`,
 };
 
 export { MY_SCHEDULE_SCHEMA, MY_SCHEDULE_ROUTE };

@@ -107,6 +107,11 @@ describe('Error Handler Plugin', (it) => {
     },
     { statusCode: 406, code: 'NOT_ACCEPTABLE', message: 'Not acceptable.' },
     {
+      statusCode: 413,
+      code: 'PAYLOAD_TOO_LARGE',
+      message: 'Request body too large.',
+    },
+    {
       statusCode: 415,
       code: 'UNSUPPORTED_MEDIA_TYPE',
       message: 'Unsupported media type.',

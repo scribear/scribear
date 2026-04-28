@@ -3,10 +3,7 @@ import type {
   ScheduleManagementRepository,
 } from '#src/server/features/schedule-management/schedule-management.repository.js';
 
-import {
-  type AutoSessionSlot,
-  materializeAutoSessions,
-} from './auto-session-materializer.js';
+import { materializeAutoSessions } from './auto-session-materializer.js';
 import { buildAutoSessionRow } from './occurrence-to-session.js';
 import { materializeWindow } from './window-materializer.js';
 
@@ -72,66 +69,105 @@ export async function reconcileAutoSessions(
     to: windowEnd,
   });
 
+  const blockerSessions = nonAuto.map((s) => ({
+    effectiveStart: s.effectiveStart,
+    // Open-ended on-demand sessions block any auto session beyond `now` -
+    // model that as a session that ends at the materialization horizon.
+    effectiveEnd: s.effectiveEnd ?? windowEnd,
+  }));
+
+  const active = await repo.findActiveAutoSession(db, roomUid, now);
+
+  // Decide whether the active AUTO can be preserved. The "preserve" branch
+  // looks at expanded window ranges (unclipped) rather than materializer
+  // slots (clipped to `now`) - active AUTOs typically have
+  // `effectiveStart < now`, so a clipped slot can never start at or before
+  // `effectiveStart` and the slot-based check would always fall through to
+  // `end_override`, interrupting the running AUTO on every reconcile.
+  let preservedActive: {
+    uid: string;
+    effectiveStart: Date;
+    newEnd: Date;
+  } | null = null;
+  if (active) {
+    const coveringWin = expandedWindows.find(
+      (w) =>
+        w.start.getTime() <= active.effectiveStart.getTime() &&
+        w.end.getTime() > active.effectiveStart.getTime(),
+    );
+    if (coveringWin) {
+      // The new end is the natural extent of the covering window, bounded
+      // by the earliest non-auto session that begins after the active AUTO
+      // started (within the same window range).
+      const blocker = blockerSessions
+        .filter(
+          (s) =>
+            s.effectiveStart.getTime() > active.effectiveStart.getTime() &&
+            s.effectiveStart.getTime() < coveringWin.end.getTime(),
+        )
+        .sort(
+          (a, b) => a.effectiveStart.getTime() - b.effectiveStart.getTime(),
+        )[0];
+      const newEndMs = blocker
+        ? Math.min(coveringWin.end.getTime(), blocker.effectiveStart.getTime())
+        : coveringWin.end.getTime();
+      preservedActive = {
+        uid: active.uid,
+        effectiveStart: active.effectiveStart,
+        newEnd: new Date(newEndMs),
+      };
+    }
+  }
+
+  // Add the preserved AUTO to the materializer's blocker set so its range
+  // is excluded from new slot generation.
+  const materializerBlockers = preservedActive
+    ? [
+        ...blockerSessions,
+        {
+          effectiveStart: preservedActive.effectiveStart,
+          effectiveEnd: preservedActive.newEnd,
+        },
+      ]
+    : blockerSessions;
+
   const slots = materializeAutoSessions(
-    nonAuto.map((s) => ({
-      effectiveStart: s.effectiveStart,
-      // Open-ended on-demand sessions block any auto session beyond `now` —
-      // model that as a session that ends at the materialization horizon.
-      effectiveEnd: s.effectiveEnd ?? windowEnd,
-    })),
+    materializerBlockers,
     expandedWindows,
     now,
     minAutoDurationSeconds,
   );
 
-  const active = await repo.findActiveAutoSession(db, roomUid, now);
-
   await repo.setSessionsConstraintsDeferred(db);
   await repo.deleteUpcomingAutoSessions(db, roomUid, now);
 
-  let preservedSlot: AutoSessionSlot | null = null;
-  if (active) {
-    const slot = slots.find(
-      (s) =>
-        s.startTime.getTime() <= active.effectiveStart.getTime() &&
-        s.endTime.getTime() > active.effectiveStart.getTime(),
-    );
-    if (slot) {
-      // Preserve the active row in place; update its end if the slot has shifted.
-      const currentEnd = active.effectiveEnd?.getTime() ?? null;
-      if (currentEnd !== slot.endTime.getTime()) {
-        const newVersion = await repo.updateSessionScheduledEnd(
-          db,
-          active.uid,
-          slot.endTime,
-        );
-        sessionBumps.set(active.uid, newVersion);
-      }
-      preservedSlot = slot;
-    } else {
-      // No covering slot: end the active auto session cleanly.
-      const newVersion = await repo.updateSessionEndOverride(
+  if (active && preservedActive) {
+    const currentEnd = active.effectiveEnd?.getTime() ?? null;
+    if (currentEnd !== preservedActive.newEnd.getTime()) {
+      const newVersion = await repo.updateSessionScheduledEnd(
         db,
-        active.uid,
-        now,
+        preservedActive.uid,
+        preservedActive.newEnd,
       );
-      sessionBumps.set(active.uid, newVersion);
+      sessionBumps.set(preservedActive.uid, newVersion);
     }
+  } else if (active) {
+    // No covering window: end the active auto session cleanly.
+    const newVersion = await repo.updateSessionEndOverride(db, active.uid, now);
+    sessionBumps.set(active.uid, newVersion);
   }
 
   const winById = new Map(windows.map((w) => [w.uid, w]));
-  const rows = slots
-    .filter((s) => s !== preservedSlot)
-    .map((s) => {
-      const win = winById.get(s.windowUid);
-      if (!win) {
-        // Materializer should never produce a slot with an unknown window uid.
-        throw new Error(
-          `auto-session reconciler: slot references unknown window ${s.windowUid}`,
-        );
-      }
-      return buildAutoSessionRow(s, win);
-    });
+  const rows = slots.map((s) => {
+    const win = winById.get(s.windowUid);
+    if (!win) {
+      // Materializer should never produce a slot with an unknown window uid.
+      throw new Error(
+        `auto-session reconciler: slot references unknown window ${s.windowUid}`,
+      );
+    }
+    return buildAutoSessionRow(s, win);
+  });
 
   await repo.insertSessions(db, rows);
 }

@@ -790,7 +790,7 @@ export class ScheduleManagementRepository {
 
   /**
    * Returns SCHEDULED and ON_DEMAND sessions whose effective interval overlaps
-   * `[range.from, range.to)`. Auto sessions are excluded — this is the input
+   * `[range.from, range.to)`. Auto sessions are excluded - this is the input
    * the auto-session reconciler uses to figure out where the gaps are.
    */
   async findNonAutoSessionsInRange(
@@ -1039,6 +1039,52 @@ export class ScheduleManagementRepository {
       .returning('session_config_version')
       .executeTakeFirstOrThrow();
     return Number(row.session_config_version);
+  }
+
+  /**
+   * Returns true if a room with the given UID exists.
+   */
+  async roomExists(db: DBOrTrx, roomUid: string): Promise<boolean> {
+    const row = await db
+      .selectFrom('rooms')
+      .select('uid')
+      .where('uid', '=', roomUid)
+      .executeTakeFirst();
+    return row !== undefined;
+  }
+
+  /**
+   * Returns schedules for a room whose active range overlaps the given time
+   * window. Both bounds are optional; omitting `from` includes schedules
+   * regardless of when they end, omitting `to` includes schedules regardless
+   * of when they start. Results are ordered by `active_start` ascending.
+   * @param db Kysely client or transaction.
+   * @param roomUid Room to query.
+   * @param range Optional `from`/`to` bounds; `null active_end` is treated as +infinity.
+   */
+  async listSchedulesForRoom(
+    db: DBOrTrx,
+    roomUid: string,
+    range: { from?: Date; to?: Date },
+  ): Promise<Schedule[]> {
+    let q = db
+      .selectFrom('session_schedules')
+      .select(SCHEDULE_COLUMNS)
+      .where('room_uid', '=', roomUid);
+
+    if (range.from !== undefined) {
+      const from = range.from;
+      q = q.where((eb) =>
+        eb.or([eb('active_end', 'is', null), eb('active_end', '>=', from)]),
+      );
+    }
+
+    if (range.to !== undefined) {
+      q = q.where('active_start', '<=', range.to);
+    }
+
+    const rows = await q.orderBy('active_start', 'asc').execute();
+    return rows.map((r) => mapSchedule(r as ScheduleRow));
   }
 
   /**

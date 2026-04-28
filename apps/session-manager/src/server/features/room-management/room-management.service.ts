@@ -1,9 +1,18 @@
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
 
-const VALID_TIMEZONES = new Set(Intl.supportedValuesOf('timeZone'));
-
+// `Intl.supportedValuesOf('timeZone')` returns only canonical region zones
+// (e.g. `America/New_York`) and omits aliases like `UTC` and `Etc/UTC` even
+// though both are valid IANA identifiers accepted by Luxon. Constructing a
+// DateTimeFormat throws RangeError for any unknown zone and accepts every
+// alias the host's ICU database recognizes, so it's both more permissive and
+// always in sync with the runtime.
 function isValidTimezone(tz: string): boolean {
-  return VALID_TIMEZONES.has(tz);
+  try {
+    new Intl.DateTimeFormat(undefined, { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export class RoomManagementService {

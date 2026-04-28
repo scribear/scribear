@@ -63,6 +63,7 @@ const mockSession = {
 
 describe('ScheduleManagementController', () => {
   let mockScheduleService: {
+    listSchedulesForRoom: Mock;
     createSchedule: Mock;
     findScheduleByUid: Mock;
     updateSchedule: Mock;
@@ -87,6 +88,7 @@ describe('ScheduleManagementController', () => {
 
   beforeEach(() => {
     mockScheduleService = {
+      listSchedulesForRoom: vi.fn(),
       createSchedule: vi.fn(),
       findScheduleByUid: vi.fn(),
       updateSchedule: vi.fn(),
@@ -115,10 +117,6 @@ describe('ScheduleManagementController', () => {
     mockCode = vi.fn().mockReturnValue({ send: mockSend });
     mockRes = { code: mockCode };
   });
-
-  // ---------------------------------------------------------------------------
-  // Schedule CRUD
-  // ---------------------------------------------------------------------------
 
   describe('createSchedule', (it) => {
     function makeBody() {
@@ -346,10 +344,6 @@ describe('ScheduleManagementController', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // Auto-session window CRUD
-  // ---------------------------------------------------------------------------
-
   describe('createAutoSessionWindow', (it) => {
     function makeBody() {
       return {
@@ -537,10 +531,6 @@ describe('ScheduleManagementController', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // Room schedule config
-  // ---------------------------------------------------------------------------
-
   describe('updateRoomScheduleConfig', (it) => {
     it("throws 404 when service returns 'ROOM_NOT_FOUND'", async () => {
       // Arrange
@@ -603,10 +593,6 @@ describe('ScheduleManagementController', () => {
       ).rejects.toMatchObject({ statusCode: 500 });
     });
   });
-
-  // ---------------------------------------------------------------------------
-  // Session operations
-  // ---------------------------------------------------------------------------
 
   describe('getSession', (it) => {
     it('returns 200 with serialized dates when found', async () => {
@@ -859,9 +845,79 @@ describe('ScheduleManagementController', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // Long-poll: mySchedule
-  // ---------------------------------------------------------------------------
+  describe('listSchedules', (it) => {
+    it('returns 200 with serialized items on success', async () => {
+      // Arrange
+      mockScheduleService.listSchedulesForRoom.mockResolvedValue([mockSchedule]);
+
+      // Act
+      await controller.listSchedules(
+        { query: { roomUid: 'room-1' } } as never,
+        mockRes as never,
+      );
+
+      // Assert
+      expect(mockCode).toHaveBeenCalledWith(200);
+      expect(mockSend).toHaveBeenCalledWith({
+        items: [
+          expect.objectContaining({
+            uid: 'sched-1',
+            activeStart: FAKE_DATE.toISOString(),
+            createdAt: FAKE_DATE.toISOString(),
+          }),
+        ],
+      });
+    });
+
+    it("throws 404 when service returns 'ROOM_NOT_FOUND'", async () => {
+      // Arrange
+      mockScheduleService.listSchedulesForRoom.mockResolvedValue('ROOM_NOT_FOUND');
+
+      // Act + Assert
+      await expect(
+        controller.listSchedules(
+          { query: { roomUid: 'room-1' } } as never,
+          mockRes as never,
+        ),
+      ).rejects.toMatchObject({ statusCode: 404, code: 'ROOM_NOT_FOUND' });
+    });
+
+    it('passes parsed Date bounds to the service when from/to are provided', async () => {
+      // Arrange
+      mockScheduleService.listSchedulesForRoom.mockResolvedValue([]);
+      const from = '2026-01-01T00:00:00.000Z';
+      const to = '2026-06-01T00:00:00.000Z';
+
+      // Act
+      await controller.listSchedules(
+        { query: { roomUid: 'room-1', from, to } } as never,
+        mockRes as never,
+      );
+
+      // Assert
+      expect(mockScheduleService.listSchedulesForRoom).toHaveBeenCalledWith(
+        'room-1',
+        { from: new Date(from), to: new Date(to) },
+      );
+    });
+
+    it('passes empty range object when from/to are omitted', async () => {
+      // Arrange
+      mockScheduleService.listSchedulesForRoom.mockResolvedValue([]);
+
+      // Act
+      await controller.listSchedules(
+        { query: { roomUid: 'room-1' } } as never,
+        mockRes as never,
+      );
+
+      // Assert
+      expect(mockScheduleService.listSchedulesForRoom).toHaveBeenCalledWith(
+        'room-1',
+        {},
+      );
+    });
+  });
 
   describe('mySchedule', (it) => {
     function makeReq(opts: { deviceUid?: string; sinceVersion: number }): {
@@ -982,10 +1038,6 @@ describe('ScheduleManagementController', () => {
       expect(mockSend).toHaveBeenCalledWith(null);
     });
   });
-
-  // ---------------------------------------------------------------------------
-  // Long-poll: sessionConfigStream
-  // ---------------------------------------------------------------------------
 
   describe('sessionConfigStream', (it) => {
     function makeReq(opts: { sessionUid: string; sinceVersion: number }): {

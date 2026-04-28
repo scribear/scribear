@@ -185,6 +185,18 @@ function scheduleToMaterializationRecord(
 }
 
 /**
+ * Thrown inside a `_runWithEvents` transaction callback to force a rollback
+ * while still returning a typed result code to the caller. Kysely commits on
+ * normal return and rolls back on throw; this sentinel bridges the gap for
+ * mutation helpers that must abort mid-transaction on validation errors.
+ */
+class RollbackError extends Error {
+  constructor(readonly result: unknown) {
+    super('transaction aborted');
+  }
+}
+
+/**
  * Orchestrates schedule and auto-session-window CRUD inside a single
  * transaction per operation. Each method:
  *  - Locks the room row.
@@ -224,11 +236,16 @@ export class ScheduleManagementService {
     fn: (trx: Transaction<DB>, collector: EventCollector) => Promise<R>,
   ): Promise<R> {
     const collector = newEventCollector();
-    const result = await this._dbClient.db
-      .transaction()
-      .execute((trx) => fn(trx, collector));
-    this._publishEvents(collector);
-    return result;
+    try {
+      const result = await this._dbClient.db
+        .transaction()
+        .execute((trx) => fn(trx, collector));
+      this._publishEvents(collector);
+      return result;
+    } catch (e) {
+      if (e instanceof RollbackError) return e.result as R;
+      throw e;
+    }
   }
 
   /** Fan out the collector's accumulated bumps onto the in-process event bus. */
@@ -426,7 +443,13 @@ export class ScheduleManagementService {
     data: CreateScheduleInput,
     now: Date,
   ): Promise<
-    Schedule | 'ROOM_NOT_FOUND' | 'CONFLICT' | 'INVALID_ACTIVE_START'
+    | Schedule
+    | 'ROOM_NOT_FOUND'
+    | 'CONFLICT'
+    | 'INVALID_ACTIVE_START'
+    | 'INVALID_ACTIVE_END'
+    | 'INVALID_LOCAL_TIMES'
+    | 'INVALID_FREQUENCY_FIELDS'
   > {
     return this._runWithEvents(async (trx, collector) => {
       const room = await this._repo.lockRoom(trx, data.roomUid);
@@ -448,6 +471,23 @@ export class ScheduleManagementService {
       await this._finalizeRoomWrite(trx, data.roomUid, now, collector);
       return result;
     });
+  }
+
+  /**
+   * Lists schedules for a room, optionally filtered by a time range.
+   * Returns schedules whose active range overlaps `[from, to]` (both bounds
+   * are optional; omitting them returns all schedules for the room).
+   * @param roomUid Room to query.
+   * @param range Optional `from`/`to` bounds.
+   * @returns The matching schedules, or `'ROOM_NOT_FOUND'` if the room does not exist.
+   */
+  async listSchedulesForRoom(
+    roomUid: string,
+    range: { from?: Date; to?: Date },
+  ): Promise<Schedule[] | 'ROOM_NOT_FOUND'> {
+    const exists = await this._repo.roomExists(this._repo.db, roomUid);
+    if (!exists) return 'ROOM_NOT_FOUND' as const;
+    return this._repo.listSchedulesForRoom(this._repo.db, roomUid, range);
   }
 
   /**
@@ -494,7 +534,15 @@ export class ScheduleManagementService {
     uid: string,
     data: UpdateScheduleInput,
     now: Date,
-  ): Promise<Schedule | 'NOT_FOUND' | 'CONFLICT' | 'INVALID_ACTIVE_START'> {
+  ): Promise<
+    | Schedule
+    | 'NOT_FOUND'
+    | 'CONFLICT'
+    | 'INVALID_ACTIVE_START'
+    | 'INVALID_ACTIVE_END'
+    | 'INVALID_LOCAL_TIMES'
+    | 'INVALID_FREQUENCY_FIELDS'
+  > {
     return this._runWithEvents(async (trx, collector) => {
       const existing = await this._repo.findScheduleByUid(trx, uid);
       if (existing?.activeEnd !== null) {
@@ -541,8 +589,8 @@ export class ScheduleManagementService {
         now,
         collector,
       );
-      if (created === 'CONFLICT' || created === 'INVALID_ACTIVE_START') {
-        return created;
+      if (typeof created === 'string') {
+        throw new RollbackError(created);
       }
 
       await this._finalizeRoomWrite(trx, existing.roomUid, now, collector);
@@ -559,7 +607,9 @@ export class ScheduleManagementService {
   async createAutoSessionWindow(
     data: CreateWindowInput,
     now: Date,
-  ): Promise<AutoSessionWindow | 'ROOM_NOT_FOUND' | 'CONFLICT'> {
+  ): Promise<
+    AutoSessionWindow | 'ROOM_NOT_FOUND' | 'CONFLICT' | 'INVALID_ACTIVE_END'
+  > {
     return this._runWithEvents(async (trx, collector) => {
       const room = await this._repo.lockRoom(trx, data.roomUid);
       if (!room) return 'ROOM_NOT_FOUND' as const;
@@ -571,7 +621,7 @@ export class ScheduleManagementService {
         now,
         collector,
       );
-      if (result === 'CONFLICT') return 'CONFLICT' as const;
+      if (typeof result === 'string') return result;
 
       await this._finalizeRoomWrite(trx, data.roomUid, now, collector);
       return result;
@@ -622,7 +672,9 @@ export class ScheduleManagementService {
     uid: string,
     data: UpdateWindowInput,
     now: Date,
-  ): Promise<AutoSessionWindow | 'NOT_FOUND' | 'CONFLICT'> {
+  ): Promise<
+    AutoSessionWindow | 'NOT_FOUND' | 'CONFLICT' | 'INVALID_ACTIVE_END'
+  > {
     return this._runWithEvents(async (trx, collector) => {
       const existing = await this._repo.findWindowByUid(trx, uid);
       if (existing?.activeEnd !== null) {
@@ -632,15 +684,24 @@ export class ScheduleManagementService {
       const room = await this._repo.lockRoom(trx, existing.roomUid);
       if (!room) return 'NOT_FOUND' as const;
 
-      const deleted = await this._doDeleteWindow(trx, uid, now, collector);
+      // Skip the inner reconciles: the intermediate "no window" state would
+      // wrongly end the active AUTO before the new window is inserted. We run
+      // a single reconcile after both delete and create complete.
+      const deleted = await this._doDeleteWindow(trx, uid, now, collector, {
+        skipReconcile: true,
+      });
       if (deleted === 'NOT_FOUND') return 'NOT_FOUND' as const;
 
+      // Preserve the existing activeStart on merge (don't bump to `now`).
+      // Bumping would push the materializer's inRange check past today's
+      // already-running occurrence, so the new window wouldn't cover it
+      // and the active AUTO would be ended instead of preserved.
       const merged: CreateWindowInput = {
         roomUid: existing.roomUid,
         localStartTime: data.localStartTime ?? existing.localStartTime,
         localEndTime: data.localEndTime ?? existing.localEndTime,
         daysOfWeek: data.daysOfWeek ?? existing.daysOfWeek,
-        activeStart: data.activeStart ?? maxDate(existing.activeStart, now),
+        activeStart: data.activeStart ?? existing.activeStart,
         activeEnd:
           'activeEnd' in data ? (data.activeEnd ?? null) : existing.activeEnd,
         transcriptionProviderId:
@@ -655,8 +716,22 @@ export class ScheduleManagementService {
         room,
         now,
         collector,
+        { skipReconcile: true },
       );
-      if (created === 'CONFLICT') return 'CONFLICT' as const;
+      if (typeof created === 'string') throw new RollbackError(created);
+
+      const windowEnd = addDays(now, MATERIALIZATION_WINDOW_DAYS);
+      await reconcileAutoSessions(
+        trx,
+        this._repo,
+        existing.roomUid,
+        room.timezone,
+        now,
+        windowEnd,
+        MIN_AUTO_SESSION_DURATION_SECONDS,
+        room.autoSessionEnabled,
+        collector.sessionBumps,
+      );
 
       await this._finalizeRoomWrite(trx, existing.roomUid, now, collector);
       return created;
@@ -966,22 +1041,48 @@ export class ScheduleManagementService {
     room: { uid: string; timezone: string; autoSessionEnabled: boolean },
     now: Date,
     collector: EventCollector,
-  ): Promise<Schedule | 'CONFLICT' | 'INVALID_ACTIVE_START'> {
+  ): Promise<
+    | Schedule
+    | 'CONFLICT'
+    | 'INVALID_ACTIVE_START'
+    | 'INVALID_ACTIVE_END'
+    | 'INVALID_LOCAL_TIMES'
+    | 'INVALID_FREQUENCY_FIELDS'
+  > {
     // Schedules must produce occurrences strictly in the future; past sessions
     // are immutable history.
     if (data.activeStart.getTime() <= now.getTime()) {
       return 'INVALID_ACTIVE_START';
     }
 
+    // Validate before the DB CHECK fires (local_times_distinct constraint).
+    if (data.localStartTime === data.localEndTime) {
+      return 'INVALID_LOCAL_TIMES';
+    }
+
+    // Validate before the DB CHECK fires (frequency_fields_valid constraint).
+    // ONCE must have null daysOfWeek; WEEKLY/BIWEEKLY must have a non-empty array.
+    // Note: the DB constraint uses array_length() which returns NULL for an empty
+    // array, so PostgreSQL treats [] as passing the CHECK - we must catch it here.
+    if (data.frequency === 'ONCE' && data.daysOfWeek !== null) {
+      return 'INVALID_FREQUENCY_FIELDS';
+    }
+    if (
+      data.frequency !== 'ONCE' &&
+      (data.daysOfWeek === null || data.daysOfWeek.length === 0)
+    ) {
+      return 'INVALID_FREQUENCY_FIELDS';
+    }
+
     const activeEnd = data.activeEnd ?? null;
 
-    // Reject zero/negative-length active range up front; the DB CHECK would
-    // catch it on insert but failing fast keeps the error path clean.
+    // Reject invalid active range before the DB CHECK fires
+    // (session_schedules_active_end_after_start constraint).
     if (
       activeEnd !== null &&
       activeEnd.getTime() <= data.activeStart.getTime()
     ) {
-      return 'CONFLICT';
+      return 'INVALID_ACTIVE_END';
     }
 
     // Read overlapping schedules, narrowing by the new schedule's end.
@@ -1086,7 +1187,7 @@ export class ScheduleManagementService {
         uid,
         now,
       );
-      // Schedule has produced at least one realized session — close at its
+      // Schedule has produced at least one realized session - close at its
       // effective end. If a session was realized but has no scheduled_end
       // (open-ended ON_DEMAND-style data, shouldn't happen for SCHEDULED) we
       // fall back to `now`. In the rare case there's no realized session at
@@ -1135,10 +1236,11 @@ export class ScheduleManagementService {
     room: { uid: string; timezone: string; autoSessionEnabled: boolean },
     now: Date,
     collector: EventCollector,
-  ): Promise<AutoSessionWindow | 'CONFLICT'> {
+    options: { skipReconcile?: boolean } = {},
+  ): Promise<AutoSessionWindow | 'CONFLICT' | 'INVALID_ACTIVE_END'> {
     const { activeStart, activeEnd } = data;
     if (activeEnd !== null && activeEnd.getTime() <= activeStart.getTime()) {
-      return 'CONFLICT';
+      return 'INVALID_ACTIVE_END';
     }
 
     const windowEnd = addDays(now, MATERIALIZATION_WINDOW_DAYS);
@@ -1197,17 +1299,19 @@ export class ScheduleManagementService {
       activeEnd,
     });
 
-    await reconcileAutoSessions(
-      trx,
-      this._repo,
-      data.roomUid,
-      room.timezone,
-      now,
-      windowEnd,
-      MIN_AUTO_SESSION_DURATION_SECONDS,
-      room.autoSessionEnabled,
-      collector.sessionBumps,
-    );
+    if (!options.skipReconcile) {
+      await reconcileAutoSessions(
+        trx,
+        this._repo,
+        data.roomUid,
+        room.timezone,
+        now,
+        windowEnd,
+        MIN_AUTO_SESSION_DURATION_SECONDS,
+        room.autoSessionEnabled,
+        collector.sessionBumps,
+      );
+    }
 
     return window;
   }
@@ -1223,6 +1327,7 @@ export class ScheduleManagementService {
     uid: string,
     now: Date,
     collector: EventCollector,
+    options: { skipReconcile?: boolean } = {},
   ): Promise<{ roomUid: string } | 'NOT_FOUND'> {
     const window = await this._repo.findWindowByUid(trx, uid);
     if (window?.activeEnd !== null) return 'NOT_FOUND' as const;
@@ -1237,18 +1342,20 @@ export class ScheduleManagementService {
       await this._repo.updateWindowActiveEnd(trx, uid, closeAt);
     }
 
-    const windowEnd = addDays(now, MATERIALIZATION_WINDOW_DAYS);
-    await reconcileAutoSessions(
-      trx,
-      this._repo,
-      window.roomUid,
-      room.timezone,
-      now,
-      windowEnd,
-      MIN_AUTO_SESSION_DURATION_SECONDS,
-      room.autoSessionEnabled,
-      collector.sessionBumps,
-    );
+    if (!options.skipReconcile) {
+      const windowEnd = addDays(now, MATERIALIZATION_WINDOW_DAYS);
+      await reconcileAutoSessions(
+        trx,
+        this._repo,
+        window.roomUid,
+        room.timezone,
+        now,
+        windowEnd,
+        MIN_AUTO_SESSION_DURATION_SECONDS,
+        room.autoSessionEnabled,
+        collector.sessionBumps,
+      );
+    }
 
     return { roomUid: window.roomUid };
   }

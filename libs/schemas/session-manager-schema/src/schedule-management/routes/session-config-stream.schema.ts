@@ -18,7 +18,7 @@ import { SESSION_SCHEMA } from '../entities/session.schema.js';
 
 const SESSION_CONFIG_STREAM_SCHEMA = {
   description:
-    'Long-poll endpoint for Session Stream Server to track config changes on a single session. The server holds the request until `session_config_version` exceeds `sinceVersion`, then responds with the full updated session. 204 indicates no change within the server timeout — re-poll immediately with the same cursor.',
+    'Long-poll endpoint for Session Stream Server to track config changes on a single session. The server holds the request until `session_config_version` exceeds `sinceVersion`, then responds with the full updated session. 204 indicates no change within the server timeout - re-poll immediately with the same cursor.',
   tags: [SCHEDULE_MANAGEMENT_TAG],
   security: SERVICE_API_KEY_SECURITY,
   headers: Type.Object({

@@ -19,7 +19,6 @@ export * from './room-management/routes/add-device-to-room.schema.js';
 export * from './room-management/routes/remove-device-from-room.schema.js';
 export * from './room-management/routes/set-source-device.schema.js';
 export * from './room-management/routes/get-my-room.schema.js';
-export * from './room-management/routes/my-schedule.schema.js';
 
 export * from './device-management/entities/device.schema.js';
 export * from './device-management/routes/list-devices.schema.js';
@@ -38,6 +37,8 @@ export * from './schedule-management/entities/session-type.schema.js';
 export * from './schedule-management/entities/session.schema.js';
 export * from './schedule-management/entities/auto-session-window.schema.js';
 
+export * from './schedule-management/routes/my-schedule.schema.js';
+export * from './schedule-management/routes/list-schedules.schema.js';
 export * from './schedule-management/routes/create-schedule.schema.js';
 export * from './schedule-management/routes/get-schedule.schema.js';
 export * from './schedule-management/routes/update-schedule.schema.js';
@@ -52,3 +53,8 @@ export * from './schedule-management/routes/create-on-demand-session.schema.js';
 export * from './schedule-management/routes/start-session-early.schema.js';
 export * from './schedule-management/routes/end-session-early.schema.js';
 export * from './schedule-management/routes/session-config-stream.schema.js';
+
+export * from './session-auth/routes/fetch-join-code.schema.js';
+export * from './session-auth/routes/exchange-device-token.schema.js';
+export * from './session-auth/routes/exchange-join-code.schema.js';
+export * from './session-auth/routes/refresh-session-token.schema.js';

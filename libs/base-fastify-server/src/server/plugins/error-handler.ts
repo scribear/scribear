@@ -15,6 +15,7 @@ import type {
 const FRAMEWORK_ERRORS: Record<number, ErrorReply> = {
   405: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed.' },
   406: { code: 'NOT_ACCEPTABLE', message: 'Not acceptable.' },
+  413: { code: 'PAYLOAD_TOO_LARGE', message: 'Request body too large.' },
   415: { code: 'UNSUPPORTED_MEDIA_TYPE', message: 'Unsupported media type.' },
 };
 

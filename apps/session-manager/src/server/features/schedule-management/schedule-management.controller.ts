@@ -14,6 +14,7 @@ import {
   GET_AUTO_SESSION_WINDOW_SCHEMA,
   GET_SCHEDULE_SCHEMA,
   GET_SESSION_SCHEMA,
+  LIST_SCHEDULES_SCHEMA,
   MY_SCHEDULE_SCHEMA,
   SESSION_CONFIG_STREAM_SCHEMA,
   START_SESSION_EARLY_SCHEMA,
@@ -52,9 +53,22 @@ export class ScheduleManagementController {
     this._eventBus = eventBusService;
   }
 
-  // ---------------------------------------------------------------------------
-  // Schedule CRUD
-  // ---------------------------------------------------------------------------
+  async listSchedules(
+    req: BaseFastifyRequest<typeof LIST_SCHEDULES_SCHEMA>,
+    res: BaseFastifyReply<typeof LIST_SCHEDULES_SCHEMA>,
+  ) {
+    const { roomUid, from, to } = req.query;
+
+    const result = await this._scheduleService.listSchedulesForRoom(roomUid, {
+      ...(from !== undefined && { from: new Date(from) }),
+      ...(to !== undefined && { to: new Date(to) }),
+    });
+
+    if (result === 'ROOM_NOT_FOUND')
+      throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
+
+    res.code(200).send({ items: result.map((s) => this._mapSchedule(s)) });
+  }
 
   async createSchedule(
     req: BaseFastifyRequest<typeof CREATE_SCHEDULE_SCHEMA>,
@@ -90,6 +104,18 @@ export class ScheduleManagementController {
       throw HttpError.unprocessable(
         'INVALID_ACTIVE_START',
         'Schedule activeStart must be strictly in the future.',
+      );
+    if (result === 'INVALID_ACTIVE_END')
+      throw HttpError.badRequest(
+        'activeEnd must be strictly after activeStart.',
+      );
+    if (result === 'INVALID_LOCAL_TIMES')
+      throw HttpError.badRequest(
+        'localStartTime and localEndTime must not be equal.',
+      );
+    if (result === 'INVALID_FREQUENCY_FIELDS')
+      throw HttpError.badRequest(
+        'daysOfWeek must be null for ONCE schedules and a non-empty array for WEEKLY or BIWEEKLY schedules.',
       );
 
     res.code(201).send(this._mapSchedule(result));
@@ -149,6 +175,18 @@ export class ScheduleManagementController {
         'INVALID_ACTIVE_START',
         'Schedule activeStart must be strictly in the future.',
       );
+    if (result === 'INVALID_ACTIVE_END')
+      throw HttpError.badRequest(
+        'activeEnd must be strictly after activeStart.',
+      );
+    if (result === 'INVALID_LOCAL_TIMES')
+      throw HttpError.badRequest(
+        'localStartTime and localEndTime must not be equal.',
+      );
+    if (result === 'INVALID_FREQUENCY_FIELDS')
+      throw HttpError.badRequest(
+        'daysOfWeek must be null for ONCE schedules and a non-empty array for WEEKLY or BIWEEKLY schedules.',
+      );
 
     res.code(200).send(this._mapSchedule(result));
   }
@@ -166,10 +204,6 @@ export class ScheduleManagementController {
 
     res.code(204).send(null);
   }
-
-  // ---------------------------------------------------------------------------
-  // Auto-session window CRUD
-  // ---------------------------------------------------------------------------
 
   async createAutoSessionWindow(
     req: BaseFastifyRequest<typeof CREATE_AUTO_SESSION_WINDOW_SCHEMA>,
@@ -200,6 +234,11 @@ export class ScheduleManagementController {
       throw HttpError.conflict(
         'CONFLICT',
         'Window conflicts with an existing one.',
+      );
+    if (result === 'INVALID_ACTIVE_END')
+      throw HttpError.unprocessable(
+        'INVALID_ACTIVE_END',
+        'activeEnd must be strictly after activeStart.',
       );
 
     res.code(201).send(this._mapWindow(result));
@@ -260,6 +299,11 @@ export class ScheduleManagementController {
         'CONFLICT',
         'Window conflicts with an existing one.',
       );
+    if (result === 'INVALID_ACTIVE_END')
+      throw HttpError.unprocessable(
+        'INVALID_ACTIVE_END',
+        'activeEnd must be strictly after activeStart.',
+      );
 
     res.code(200).send(this._mapWindow(result));
   }
@@ -281,10 +325,6 @@ export class ScheduleManagementController {
     res.code(204).send(null);
   }
 
-  // ---------------------------------------------------------------------------
-  // Room schedule config
-  // ---------------------------------------------------------------------------
-
   async updateRoomScheduleConfig(
     req: BaseFastifyRequest<typeof UPDATE_ROOM_SCHEDULE_CONFIG_SCHEMA>,
     res: BaseFastifyReply<typeof UPDATE_ROOM_SCHEDULE_CONFIG_SCHEMA>,
@@ -305,10 +345,6 @@ export class ScheduleManagementController {
 
     res.code(200).send({ ...room, createdAt: room.createdAt.toISOString() });
   }
-
-  // ---------------------------------------------------------------------------
-  // Session operations
-  // ---------------------------------------------------------------------------
 
   async getSession(
     req: BaseFastifyRequest<typeof GET_SESSION_SCHEMA>,
@@ -399,10 +435,6 @@ export class ScheduleManagementController {
 
     res.code(200).send(this._mapSession(result));
   }
-
-  // ---------------------------------------------------------------------------
-  // Long-poll endpoints
-  // ---------------------------------------------------------------------------
 
   async mySchedule(
     req: BaseFastifyRequest<typeof MY_SCHEDULE_SCHEMA>,
@@ -527,10 +559,6 @@ export class ScheduleManagementController {
 
     res.code(200).send(this._mapSession(updated));
   }
-
-  // ---------------------------------------------------------------------------
-  // Private helpers
-  // ---------------------------------------------------------------------------
 
   private async _buildSchedulePayload(
     roomUid: string,
