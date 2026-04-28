@@ -17,11 +17,11 @@ export interface ChannelDefinition<
 }
 
 /**
- * In-process publish/subscribe bus. The Node Server intentionally relies on
- * the in-memory variant (rather than a Redis-backed one) because the audio
- * channel carries raw binary frames that should not be serialized, and the
+ * In-process publish/subscribe bus. Single-process by design: the audio
+ * channel carries raw binary frames that should not be serialized, and
  * sticky-routed transcription-stream URLs guarantee every connection for a
- * given session lands on the same process anyway.
+ * given session lands on the same process anyway, so cross-process fanout is
+ * not required.
  *
  * Listener exceptions are caught and logged so one bad subscriber cannot
  * starve the others. Publishers are fire-and-forget; there is no retry, no

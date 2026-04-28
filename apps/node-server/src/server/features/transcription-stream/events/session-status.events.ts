@@ -21,9 +21,6 @@ export type SessionStatusMessage = Static<typeof SESSION_STATUS_MESSAGE_SCHEMA>;
  * every authenticated transcription-stream service (source or client role)
  * subscribes once after auth so newly-arriving connections start receiving
  * status changes alongside transcripts.
- *
- * JSON-serializable, so a future Redis-backed implementation could carry
- * these across processes alongside `TranscriptChannel`.
  */
 export const SessionStatusChannel: ChannelDefinition<
   typeof SESSION_STATUS_MESSAGE_SCHEMA,

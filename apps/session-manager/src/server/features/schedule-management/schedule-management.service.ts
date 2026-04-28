@@ -118,6 +118,7 @@ interface CreateWindowInput {
   daysOfWeek: DayOfWeek[];
   activeStart: Date;
   activeEnd: Date | null;
+  joinCodeScopes: SessionScope[];
   transcriptionProviderId: string;
   transcriptionStreamConfig: Json;
 }
@@ -151,6 +152,7 @@ interface UpdateWindowInput {
   daysOfWeek?: DayOfWeek[];
   activeStart?: Date;
   activeEnd?: Date | null;
+  joinCodeScopes?: SessionScope[];
   transcriptionProviderId?: string;
   transcriptionStreamConfig?: Json;
 }
@@ -721,6 +723,7 @@ export class ScheduleManagementService {
         activeStart: data.activeStart ?? existing.activeStart,
         activeEnd:
           'activeEnd' in data ? (data.activeEnd ?? null) : existing.activeEnd,
+        joinCodeScopes: data.joinCodeScopes ?? existing.joinCodeScopes,
         transcriptionProviderId:
           data.transcriptionProviderId ?? existing.transcriptionProviderId,
         transcriptionStreamConfig:
@@ -1272,6 +1275,7 @@ export class ScheduleManagementService {
       localStartTime: data.localStartTime,
       localEndTime: data.localEndTime,
       daysOfWeek: data.daysOfWeek,
+      joinCodeScopes: data.joinCodeScopes,
       transcriptionProviderId: data.transcriptionProviderId,
       transcriptionStreamConfig: data.transcriptionStreamConfig,
       activeStart,

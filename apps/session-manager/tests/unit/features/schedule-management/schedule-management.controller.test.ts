@@ -35,6 +35,7 @@ const mockWindow = {
   localStartTime: '09:00:00',
   localEndTime: '17:00:00',
   daysOfWeek: ['MON', 'TUE'],
+  joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS'],
   transcriptionProviderId: 'whisper',
   transcriptionStreamConfig: {},
   activeStart: FAKE_DATE,
@@ -355,6 +356,7 @@ describe('ScheduleManagementController', () => {
         daysOfWeek: ['MON', 'TUE'],
         activeStart: FAKE_DATE.toISOString(),
         activeEnd: null,
+        joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS'],
         transcriptionProviderId: 'whisper',
         transcriptionStreamConfig: {},
       };

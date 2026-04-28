@@ -6,12 +6,11 @@ import type { ChannelDefinition } from '#src/server/shared/services/event-bus.se
  * In-process channel carrying raw PCM-or-encoded audio frames from a session
  * source connection to the transcription orchestrator.
  *
- * Frames are passed by reference as `Buffer` instances - no JSON serialization
- * is performed - so this channel is intentionally NOT compatible with a
- * Redis-backed event bus implementation. The transcription-stream feature
- * relies on sticky URL routing (sessionUid in the WS path) to keep audio
- * traffic on a single Node Server instance, which is exactly the case the
- * in-process bus handles natively.
+ * Frames are passed by reference as `Buffer` instances with no serialization,
+ * so this channel is intrinsically single-process. The transcription-stream
+ * feature relies on sticky URL routing (sessionUid in the WS path) to keep
+ * audio traffic on a single Node Server instance, which is exactly the case
+ * the in-process bus handles natively.
  */
 export const AUDIO_FRAME_SCHEMA = Type.Unsafe<Buffer>(Type.Any());
 

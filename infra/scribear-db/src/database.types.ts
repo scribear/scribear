@@ -48,6 +48,7 @@ export interface AutoSessionWindows {
   active_start: Generated<Timestamp>;
   created_at: Generated<Timestamp>;
   days_of_week: ArrayType<DayOfWeek>;
+  join_code_scopes: Generated<ArrayType<SessionScope>>;
   local_end_time: string;
   local_start_time: string;
   room_uid: string;

@@ -96,6 +96,7 @@ describe('Schedule Management Routes', () => {
       daysOfWeek: ['MON', 'TUE'],
       activeStart: '2030-06-02T00:00:00.000Z',
       activeEnd: null,
+      joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS'],
       transcriptionProviderId: 'whisper',
       transcriptionStreamConfig: {},
       ...overrides,

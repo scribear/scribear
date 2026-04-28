@@ -20,9 +20,6 @@ export type TranscriptMessage = Static<typeof TRANSCRIPT_MESSAGE_SCHEMA>;
  * Bus channel keyed by sessionUid. The orchestrator publishes transcripts as
  * the upstream provider emits them; per-connection services (both source and
  * client roles) subscribe once authenticated and forward to their socket.
- *
- * Unlike the audio channel, transcript messages are JSON-serializable and a
- * future Redis-backed implementation could carry them across processes.
  */
 export const TranscriptChannel: ChannelDefinition<
   typeof TRANSCRIPT_MESSAGE_SCHEMA,

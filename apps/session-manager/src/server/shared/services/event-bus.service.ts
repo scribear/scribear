@@ -18,9 +18,8 @@ export interface ChannelDefinition<
 
 /**
  * In-process publish/subscribe bus. Backs SSE fanout for the
- * schedule-changes-stream and session-config-stream endpoints in single-host
- * deployments. Multi-instance deployments swap this for a Redis pub/sub
- * implementation that satisfies the same interface.
+ * schedule-changes-stream and session-config-stream endpoints. Single-process
+ * only: subscribers on other instances will not receive events.
  *
  * Listener exceptions are caught and logged so one bad subscriber cannot
  * starve the others. Publishers are fire-and-forget; there is no retry, no

@@ -7,6 +7,7 @@ import {
 } from '@scribear/base-schema';
 
 import { SESSION_MANAGER_BASE_PATH } from '#src/base-path.js';
+import { SESSION_SCOPE_SCHEMA } from '#src/shared/entities/session-scope.schema.js';
 import {
   ADMIN_API_KEY_AUTH_HEADER_SCHEMA,
   ADMIN_API_KEY_SECURITY,
@@ -37,6 +38,7 @@ const UPDATE_AUTO_SESSION_WINDOW_SCHEMA = {
     activeEnd: Type.Optional(
       Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
     ),
+    joinCodeScopes: Type.Optional(Type.Array(SESSION_SCOPE_SCHEMA)),
     transcriptionProviderId: Type.Optional(Type.String()),
     transcriptionStreamConfig: Type.Optional(Type.Unknown()),
   }),

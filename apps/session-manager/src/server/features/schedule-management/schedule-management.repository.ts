@@ -38,6 +38,7 @@ const WINDOW_COLUMNS = [
   'local_start_time',
   'local_end_time',
   'days_of_week',
+  'join_code_scopes',
   'transcription_provider_id',
   'transcription_stream_config',
   'active_start',
@@ -85,6 +86,7 @@ interface WindowRow {
   local_start_time: string;
   local_end_time: string;
   days_of_week: DayOfWeek[];
+  join_code_scopes: SessionScope[];
   transcription_provider_id: string;
   transcription_stream_config: Json;
   active_start: Date;
@@ -139,6 +141,7 @@ export interface AutoSessionWindow {
   localStartTime: string;
   localEndTime: string;
   daysOfWeek: DayOfWeek[];
+  joinCodeScopes: SessionScope[];
   transcriptionProviderId: string;
   transcriptionStreamConfig: Json;
   activeStart: Date;
@@ -226,7 +229,7 @@ function mapSchedule(row: ScheduleRow): Schedule {
 
 /**
  * Maps an `auto_session_windows` row to an `AutoSessionWindow`. Decodes the raw
- * pg enum-array shape returned for `days_of_week`.
+ * pg enum-array shape returned for `days_of_week` and `join_code_scopes`.
  * @param row The database row to map.
  * @returns The mapped auto-session window.
  */
@@ -237,6 +240,7 @@ function mapWindow(row: WindowRow): AutoSessionWindow {
     localStartTime: row.local_start_time,
     localEndTime: row.local_end_time,
     daysOfWeek: parsePgEnumArray(row.days_of_week) as DayOfWeek[],
+    joinCodeScopes: parsePgEnumArray(row.join_code_scopes) as SessionScope[],
     transcriptionProviderId: row.transcription_provider_id,
     transcriptionStreamConfig: row.transcription_stream_config,
     activeStart: row.active_start,
@@ -665,6 +669,7 @@ export class ScheduleManagementRepository {
       localStartTime: string;
       localEndTime: string;
       daysOfWeek: DayOfWeek[];
+      joinCodeScopes: SessionScope[];
       activeStart: Date;
       activeEnd: Date | null;
       transcriptionProviderId: string;
@@ -678,6 +683,7 @@ export class ScheduleManagementRepository {
         local_start_time: data.localStartTime,
         local_end_time: data.localEndTime,
         days_of_week: data.daysOfWeek,
+        join_code_scopes: data.joinCodeScopes,
         transcription_provider_id: data.transcriptionProviderId,
         transcription_stream_config: data.transcriptionStreamConfig,
         active_end: data.activeEnd,

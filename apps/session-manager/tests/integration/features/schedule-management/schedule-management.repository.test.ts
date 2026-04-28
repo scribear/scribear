@@ -700,6 +700,7 @@ describe('ScheduleManagementRepository', () => {
         localStartTime: '08:00:00',
         localEndTime: '18:00:00',
         daysOfWeek: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+        joinCodeScopes: ['SEND_AUDIO'],
         transcriptionProviderId: 'whisper',
         transcriptionStreamConfig: {},
         activeStart: new Date('2024-01-01T00:00:00Z'),
@@ -713,6 +714,7 @@ describe('ScheduleManagementRepository', () => {
       // Assert
       expect(found).toEqual(created);
       expect(created.daysOfWeek).toEqual(['MON', 'TUE', 'WED', 'THU', 'FRI']);
+      expect(created.joinCodeScopes).toEqual(['SEND_AUDIO']);
     });
 
     it('findWindowsOverlapping respects active_end and excludeUid', async () => {
@@ -723,6 +725,7 @@ describe('ScheduleManagementRepository', () => {
         localStartTime: '08:00:00',
         localEndTime: '12:00:00',
         daysOfWeek: ['MON'],
+        joinCodeScopes: [],
         activeStart: new Date('2024-01-01T00:00:00Z'),
         transcriptionProviderId: 'whisper',
         transcriptionStreamConfig: {},
@@ -733,6 +736,7 @@ describe('ScheduleManagementRepository', () => {
         localStartTime: '13:00:00',
         localEndTime: '17:00:00',
         daysOfWeek: ['TUE'],
+        joinCodeScopes: [],
         activeStart: new Date('2024-01-01T00:00:00Z'),
         activeEnd: new Date('2024-06-01T00:00:00Z'),
         transcriptionProviderId: 'whisper',
@@ -758,6 +762,7 @@ describe('ScheduleManagementRepository', () => {
         localStartTime: '08:00:00',
         localEndTime: '12:00:00',
         daysOfWeek: ['MON'],
+        joinCodeScopes: [],
         activeStart: new Date('2024-01-01T00:00:00Z'),
         activeEnd: new Date('2024-03-01T00:00:00Z'),
         transcriptionProviderId: 'whisper',
@@ -783,6 +788,7 @@ describe('ScheduleManagementRepository', () => {
         localStartTime: '08:00:00',
         localEndTime: '12:00:00',
         daysOfWeek: ['MON'],
+        joinCodeScopes: [],
         transcriptionProviderId: 'whisper',
         transcriptionStreamConfig: {},
         activeStart: new Date('2024-01-01T00:00:00Z'),

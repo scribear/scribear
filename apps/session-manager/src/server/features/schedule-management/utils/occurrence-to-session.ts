@@ -31,8 +31,8 @@ export function buildScheduledSessionRow(
 
 /**
  * Builds the `SessionInsert` row for one auto session slot. Copies the
- * transcription config from the source window; auto sessions always have
- * empty `join_code_scopes`.
+ * transcription config and join-code scopes from the source window onto
+ * the session.
  */
 export function buildAutoSessionRow(
   slot: AutoSessionSlot,
@@ -45,7 +45,7 @@ export function buildAutoSessionRow(
     scheduledSessionUid: null,
     scheduledStartTime: slot.startTime,
     scheduledEndTime: slot.endTime,
-    joinCodeScopes: [],
+    joinCodeScopes: window.joinCodeScopes,
     transcriptionProviderId: window.transcriptionProviderId,
     transcriptionStreamConfig: window.transcriptionStreamConfig,
   };

@@ -1,5 +1,7 @@
 import { type Static, Type } from 'typebox';
 
+import { SESSION_SCOPE_SCHEMA } from '#src/shared/entities/session-scope.schema.js';
+
 import { DAY_OF_WEEK_SCHEMA } from './day-of-week.schema.js';
 import { LOCAL_TIME_SCHEMA } from './session-schedule.schema.js';
 
@@ -17,6 +19,7 @@ export const AUTO_SESSION_WINDOW_SCHEMA = Type.Object(
     localEndTime: LOCAL_TIME_SCHEMA,
     daysOfWeek: Type.Array(DAY_OF_WEEK_SCHEMA),
 
+    joinCodeScopes: Type.Array(SESSION_SCOPE_SCHEMA),
     transcriptionProviderId: Type.String(),
     transcriptionStreamConfig: Type.Unknown(),
 
