@@ -147,6 +147,13 @@ jobs:
           package_name: "Base WebSocket Client - Unit Tests"
           filename: "./libs/clients/base-websocket-client/coverage/cobertura-coverage.xml"
 
+      - name: Code Coverage Report - Base Long Poll Client Unit Tests
+        if: contains(needs.changes.outputs.workspaces, 'libs/clients/base-long-poll-client')
+        uses: ./.github/actions/coverage-report
+        with:
+          package_name: "Base Long Poll Client - Unit Tests"
+          filename: "./libs/clients/base-long-poll-client/coverage/cobertura-coverage.xml"
+
   docker-build:
     needs: [changes, format, lint, build, test]
     if: needs.changes.outputs.has_changes == 'true'
@@ -222,11 +229,19 @@ jobs:
 
       - name: Prepare Scribear DB Container
         uses: ./.github/actions/prepare-test-container
-        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
+        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager') || contains(needs.changes.outputs.workspaces, 'apps/node-server')
         with:
           image_name: scribear/scribear-db
           build_context: ./infra/scribear-db
           dockerfile: infra/scribear-db/Dockerfile
+
+      - name: Prepare Session Manager Container
+        uses: ./.github/actions/prepare-test-container
+        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
+        with:
+          image_name: scribear/session-manager
+          build_context: .
+          dockerfile: apps/session-manager/Dockerfile
 
       - name: Prepare Transcription Service CPU Container
         uses: ./.github/actions/prepare-test-container
@@ -263,6 +278,8 @@ jobs:
       - name: Run Node Server Integration Tests
         if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
         env:
+          SCRIBEAR_DB_IMAGE: scribear/scribear-db:test
+          SCRIBEAR_SESSION_MANAGER_IMAGE: scribear/session-manager:test
           TRANSCRIPTION_SERVICE_IMAGE: scribear/transcription-service-cpu:test
         run: npm run test:integration --workspace apps/node-server
 
