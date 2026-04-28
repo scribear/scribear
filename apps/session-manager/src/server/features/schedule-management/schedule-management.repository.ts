@@ -21,6 +21,7 @@ const SCHEDULE_COLUMNS = [
   'name',
   'active_start',
   'active_end',
+  'anchor_start',
   'local_start_time',
   'local_end_time',
   'frequency',
@@ -67,6 +68,7 @@ interface ScheduleRow {
   name: string;
   active_start: Date;
   active_end: Date | null;
+  anchor_start: Date;
   local_start_time: string;
   local_end_time: string;
   frequency: ScheduleFrequency;
@@ -114,6 +116,12 @@ export interface Schedule {
   name: string;
   activeStart: Date;
   activeEnd: Date | null;
+  /**
+   * BIWEEKLY parity reference. Equals the original `activeStart` at creation
+   * and is preserved verbatim across updates so that updates never shift the
+   * schedule's biweekly cadence. Unused for ONCE/WEEKLY but always present.
+   */
+  anchorStart: Date;
   localStartTime: string;
   localEndTime: string;
   frequency: ScheduleFrequency;
@@ -201,6 +209,7 @@ function mapSchedule(row: ScheduleRow): Schedule {
     name: row.name,
     activeStart: row.active_start,
     activeEnd: row.active_end,
+    anchorStart: row.anchor_start,
     localStartTime: row.local_start_time,
     localEndTime: row.local_end_time,
     frequency: row.frequency,
@@ -309,8 +318,72 @@ export class ScheduleManagementRepository {
   }
 
   /**
-   * Updates schedule-affecting fields on the rooms row. Only the fields
-   * present in `data` are written; omitted fields are left unchanged.
+   * Picks the oldest stale room for re-materialization and locks it via
+   * `FOR UPDATE SKIP LOCKED`. A row is "stale" when its `last_materialized_at`
+   * is null or older than `cutoff`. Multiple workers may call this in parallel:
+   * each one gets a distinct row (or undefined if none are eligible). The
+   * caller must hold the returned lock for the duration of the materialization
+   * so other workers and API writes serialize behind it on commit.
+   * @param db Kysely transaction (lock is only meaningful within one).
+   * @param cutoff Rooms last materialized at or before this instant are eligible.
+   */
+  async findOneStaleRoomForMaterialization(
+    db: DBOrTrx,
+    cutoff: Date,
+    excludeUids?: readonly string[],
+  ): Promise<
+    { uid: string; timezone: string; autoSessionEnabled: boolean } | undefined
+  > {
+    let q = db
+      .selectFrom('rooms')
+      .select(['uid', 'timezone', 'auto_session_enabled'])
+      .where((eb) =>
+        eb.or([
+          eb('last_materialized_at', 'is', null),
+          eb('last_materialized_at', '<', cutoff),
+        ]),
+      );
+    if (excludeUids && excludeUids.length > 0) {
+      q = q.where('uid', 'not in', excludeUids);
+    }
+    const row = await q
+      .orderBy(sql`last_materialized_at NULLS FIRST`)
+      .limit(1)
+      .forUpdate()
+      .skipLocked()
+      .executeTakeFirst();
+    if (!row) return undefined;
+    return {
+      uid: row.uid,
+      timezone: row.timezone,
+      autoSessionEnabled: row.auto_session_enabled,
+    };
+  }
+
+  /**
+   * Returns the latest `scheduled_end_time` of any session previously
+   * materialized for the given schedule, or `null` if none exist. Used by
+   * the materialization worker as the lower bound for new occurrences:
+   * because the schedule materializer's overlap predicate rejects an
+   * occurrence whose end is at or before the window start, passing this
+   * value as `windowStart` correctly excludes the latest existing session
+   * without leaving room for duplicates.
+   */
+  async findMaxScheduledEndForSchedule(
+    db: DBOrTrx,
+    scheduleUid: string,
+  ): Promise<Date | null> {
+    const row = await db
+      .selectFrom('sessions')
+      .select((eb) => eb.fn.max('scheduled_end_time').as('max_end'))
+      .where('scheduled_session_uid', '=', scheduleUid)
+      .executeTakeFirst();
+    return row?.max_end ?? null;
+  }
+
+  /**
+   * Toggles `rooms.auto_session_enabled`. Room timezone is immutable, so this
+   * method does not accept timezone updates.
    * @param db Kysely client or transaction.
    * @param roomUid The room to update.
    * @param data Fields to update.
@@ -318,17 +391,12 @@ export class ScheduleManagementRepository {
   async updateRoomScheduleConfig(
     db: DBOrTrx,
     roomUid: string,
-    data: { timezone?: string; autoSessionEnabled?: boolean },
+    data: { autoSessionEnabled?: boolean },
   ): Promise<void> {
-    const updates: { timezone?: string; auto_session_enabled?: boolean } = {};
-    if (data.timezone !== undefined) updates.timezone = data.timezone;
-    if (data.autoSessionEnabled !== undefined) {
-      updates.auto_session_enabled = data.autoSessionEnabled;
-    }
-    if (Object.keys(updates).length === 0) return;
+    if (data.autoSessionEnabled === undefined) return;
     await db
       .updateTable('rooms')
-      .set(updates)
+      .set({ auto_session_enabled: data.autoSessionEnabled })
       .where('uid', '=', roomUid)
       .execute();
   }
@@ -435,6 +503,7 @@ export class ScheduleManagementRepository {
       name: string;
       activeStart: Date;
       activeEnd: Date | null;
+      anchorStart: Date;
       localStartTime: string;
       localEndTime: string;
       frequency: ScheduleFrequency;
@@ -451,6 +520,7 @@ export class ScheduleManagementRepository {
         name: data.name,
         active_start: data.activeStart,
         active_end: data.activeEnd,
+        anchor_start: data.anchorStart,
         local_start_time: data.localStartTime,
         local_end_time: data.localEndTime,
         frequency: data.frequency,
@@ -972,30 +1042,10 @@ export class ScheduleManagementRepository {
   }
 
   /**
-   * Deletes future SCHEDULED sessions in the room (effective_start > now).
-   * Used by `updateRoomScheduleConfig` on a timezone change: future sessions
-   * computed under the old timezone are discarded so they can be re-expanded
-   * under the new one. Past and currently-active SCHEDULED sessions survive.
-   */
-  async deleteUpcomingScheduledSessions(
-    db: DBOrTrx,
-    roomUid: string,
-    now: Date,
-  ): Promise<void> {
-    const effectiveStart = sql<Date>`COALESCE(start_override, scheduled_start_time)`;
-    await db
-      .deleteFrom('sessions')
-      .where('room_uid', '=', roomUid)
-      .where('type', '=', 'SCHEDULED')
-      .where(effectiveStart, '>', now)
-      .execute();
-  }
-
-  /**
    * Returns schedules in the room whose active range still produces
    * occurrences after `now` (`active_end IS NULL OR active_end > now`).
-   * Ordered by `active_start` ascending. Used by `updateRoomScheduleConfig`
-   * to re-expand SCHEDULED sessions under a new timezone.
+   * Ordered by `active_start` ascending. Used by the materialization loop
+   * to extend the materialization horizon for each open schedule.
    */
   async listOpenSchedulesForRoom(
     db: DBOrTrx,

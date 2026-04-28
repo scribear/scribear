@@ -1,8 +1,8 @@
 import { Type } from 'typebox';
 
 import {
-  type BaseRouteDefinition,
   type BaseLongPollRouteSchema,
+  type BaseRouteDefinition,
   STANDARD_ERROR_REPLIES,
 } from '@scribear/base-schema';
 

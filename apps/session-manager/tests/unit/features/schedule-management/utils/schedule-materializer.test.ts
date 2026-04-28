@@ -12,10 +12,16 @@ const TZ_UTC = 'UTC';
 function makeSchedule(
   overrides: Partial<ScheduleForMaterialization>,
 ): ScheduleForMaterialization {
+  const activeStart = overrides.activeStart ?? new Date('2024-01-01T00:00:00Z');
   return {
     uid: 'sched-1',
-    activeStart: new Date('2024-01-01T00:00:00Z'),
+    activeStart,
     activeEnd: null,
+    // Default anchor mirrors the original activeStart, matching how the
+    // service sets anchor_start = activeStart on schedule creation. Tests
+    // can override anchorStart explicitly to exercise update-style cadence
+    // preservation.
+    anchorStart: activeStart,
     localStartTime: '09:00:00',
     localEndTime: '10:00:00',
     frequency: 'WEEKLY',

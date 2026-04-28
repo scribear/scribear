@@ -25,22 +25,26 @@ export const SESSION_SCHEMA = Type.Object(
       Type.String({ format: 'date-time' }),
       Type.Null(),
     ]),
-    startOverride: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
-    endOverride: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+    startOverride: Type.Union([
+      Type.String({ format: 'date-time' }),
+      Type.Null(),
+    ]),
+    endOverride: Type.Union([
+      Type.String({ format: 'date-time' }),
+      Type.Null(),
+    ]),
 
     effectiveStart: Type.String({
       format: 'date-time',
       description: 'COALESCE(startOverride, scheduledStartTime).',
     }),
-    effectiveEnd: Type.Union(
-      [
-        Type.String({
-          format: 'date-time',
-          description: 'COALESCE(endOverride, scheduledEndTime).',
-        }),
-        Type.Null(),
-      ],
-    ),
+    effectiveEnd: Type.Union([
+      Type.String({
+        format: 'date-time',
+        description: 'COALESCE(endOverride, scheduledEndTime).',
+      }),
+      Type.Null(),
+    ]),
 
     joinCodeScopes: Type.Array(SESSION_SCOPE_SCHEMA),
     transcriptionProviderId: Type.String(),

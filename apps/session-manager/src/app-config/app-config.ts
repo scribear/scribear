@@ -5,13 +5,19 @@ import type { Static } from 'typebox';
 import { LogLevel } from '@scribear/base-fastify-server';
 
 import type { DBClientConfig } from '#src/db/db-client.js';
+import {
+  DEFAULT_MATERIALIZATION_WORKER_CONFIG,
+  type MaterializationWorkerConfig,
+} from '#src/server/features/schedule-management/materialization.worker.js';
 import type { AdminAuthConfig } from '#src/server/shared/services/admin-auth.service.js';
+import type { ServiceAuthConfig } from '#src/server/shared/services/service-auth.service.js';
 
 const CONFIG_SCHEMA = Type.Object({
   LOG_LEVEL: Type.Enum(LogLevel),
   PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
   HOST: Type.String(),
   ADMIN_API_KEY: Type.String(),
+  SESSION_MANAGER_SERVICE_API_KEY: Type.String(),
   DB_HOST: Type.String(),
   DB_PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
   DB_NAME: Type.String(),
@@ -45,6 +51,12 @@ export class AppConfig {
     };
   }
 
+  get serviceAuthConfig(): ServiceAuthConfig {
+    return {
+      serviceApiKey: this._env.SESSION_MANAGER_SERVICE_API_KEY,
+    };
+  }
+
   get dbClientConfig(): DBClientConfig {
     return {
       dbHost: this._env.DB_HOST,
@@ -53,6 +65,10 @@ export class AppConfig {
       dbUser: this._env.DB_USER,
       dbPassword: this._env.DB_PASSWORD,
     };
+  }
+
+  get materializationWorkerConfig(): MaterializationWorkerConfig {
+    return DEFAULT_MATERIALIZATION_WORKER_CONFIG;
   }
 
   constructor(path?: string) {

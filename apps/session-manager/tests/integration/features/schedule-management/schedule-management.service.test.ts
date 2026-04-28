@@ -91,13 +91,14 @@ describe('ScheduleManagementService', () => {
         await insertRoom('UTC');
       // Pick `now` as a Sunday so the next Mon/Wed/Fri all fall within 7 days.
       const now = new Date('2024-06-02T12:00:00Z'); // Sun
+      const activeStart = new Date(now.getTime() + 1);
 
       // Act
       const result = await service.createSchedule(
         {
           roomUid,
           name: 'Standup',
-          activeStart: now,
+          activeStart,
           activeEnd: null,
           localStartTime: '14:00:00',
           localEndTime: '15:00:00',
@@ -116,7 +117,7 @@ describe('ScheduleManagementService', () => {
       expect(result).not.toBe('CONFLICT');
       const schedule = result as Exclude<
         typeof result,
-        'ROOM_NOT_FOUND' | 'CONFLICT'
+        'ROOM_NOT_FOUND' | 'CONFLICT' | 'INVALID_ACTIVE_START'
       >;
       const sessions = await listSessionsForRoom(roomUid);
       const scheduled = sessions.filter((s) => s.type === 'SCHEDULED');
@@ -135,6 +136,7 @@ describe('ScheduleManagementService', () => {
       // Arrange - WEEKLY MON/WED/FRI, but activeEnd cuts off after Wed.
       const { uid: roomUid } = await insertRoom('UTC');
       const now = new Date('2024-06-02T12:00:00Z'); // Sun
+      const activeStart = new Date(now.getTime() + 1);
       const activeEnd = new Date('2024-06-06T00:00:00Z'); // Thu 00:00 UTC
 
       // Act
@@ -142,7 +144,7 @@ describe('ScheduleManagementService', () => {
         {
           roomUid,
           name: 'Bounded',
-          activeStart: now,
+          activeStart,
           activeEnd,
           localStartTime: '14:00:00',
           localEndTime: '15:00:00',
@@ -161,7 +163,7 @@ describe('ScheduleManagementService', () => {
       expect(result).not.toBe('CONFLICT');
       const schedule = result as Exclude<
         typeof result,
-        'ROOM_NOT_FOUND' | 'CONFLICT'
+        'ROOM_NOT_FOUND' | 'CONFLICT' | 'INVALID_ACTIVE_START'
       >;
       expect(schedule.activeEnd).toEqual(activeEnd);
       const scheduled = (await listSessionsForRoom(roomUid)).filter(
@@ -177,12 +179,13 @@ describe('ScheduleManagementService', () => {
       // Arrange / Act
       const { uid: roomUid } = await insertRoom('UTC');
       const now = new Date('2024-06-02T12:00:00Z');
+      const activeStart = new Date(now.getTime() + 1);
       const result = await service.createSchedule(
         {
           roomUid,
           name: 'Inverted',
-          activeStart: now,
-          activeEnd: now, // zero-length range — DB CHECK would reject too
+          activeStart,
+          activeEnd: activeStart, // zero-length range — DB CHECK would reject too
           localStartTime: '14:00:00',
           localEndTime: '15:00:00',
           frequency: 'ONCE',
@@ -202,11 +205,12 @@ describe('ScheduleManagementService', () => {
       // Arrange - an existing WEEKLY schedule on Mondays 14:00-15:00 UTC.
       const { uid: roomUid } = await insertRoom('UTC');
       const now = new Date('2024-06-02T12:00:00Z'); // Sun
+      const activeStart = new Date(now.getTime() + 1);
       const existing = await service.createSchedule(
         {
           roomUid,
           name: 'Existing',
-          activeStart: now,
+          activeStart,
           activeEnd: null,
           localStartTime: '14:00:00',
           localEndTime: '15:00:00',
@@ -228,7 +232,7 @@ describe('ScheduleManagementService', () => {
         {
           roomUid,
           name: 'Conflicting',
-          activeStart: now,
+          activeStart,
           activeEnd: null,
           localStartTime: '14:30:00',
           localEndTime: '15:30:00',
@@ -262,6 +266,158 @@ describe('ScheduleManagementService', () => {
     });
   });
 
+  describe('materializeOneStaleRoom', (it) => {
+    async function setLastMaterializedAt(roomUid: string, value: Date | null) {
+      await dbContext.db
+        .updateTable('rooms')
+        .set({ last_materialized_at: value })
+        .where('uid', '=', roomUid)
+        .execute();
+    }
+
+    it('returns null when no rooms are stale', async () => {
+      // Arrange - one fresh room
+      const { uid } = await insertRoom('UTC');
+      await setLastMaterializedAt(uid, new Date());
+
+      // Act
+      const result = await service.materializeOneStaleRoom(
+        new Date(),
+        new Date(Date.now() - 60_000),
+      );
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('returns the processed room UID and stamps last_materialized_at + bumps version', async () => {
+      // Arrange - room with NULL last_materialized_at; needs materialization
+      const { uid: roomUid, room_schedule_version: versionBefore } =
+        await insertRoom('UTC');
+      const now = new Date('2024-06-02T12:00:00Z');
+
+      // Act
+      const result = await service.materializeOneStaleRoom(now, now);
+
+      // Assert
+      expect(result).toBe(roomUid);
+      const room = await getRoom(roomUid);
+      expect(Number(room.room_schedule_version)).toBe(
+        Number(versionBefore) + 1,
+      );
+      expect(room.last_materialized_at).toEqual(now);
+    });
+
+    it('extends SCHEDULED occurrences without duplicating existing ones', async () => {
+      // Arrange - WEEKLY schedule created at T0; materialization horizon is
+      // 7 days, so only the next 7 days get sessions. Then we advance "now"
+      // by 7 days and re-materialize: the worker should add only the new
+      // future occurrences, leaving the original ones intact.
+      const { uid: roomUid } = await insertRoom('UTC');
+      const t0 = new Date('2024-06-02T12:00:00Z'); // Sun
+      // activeStart must be strictly > now per the create precondition.
+      const activeStart = new Date(t0.getTime() + 1);
+      await service.createSchedule(
+        {
+          roomUid,
+          name: 'Daily',
+          activeStart,
+          activeEnd: null,
+          localStartTime: '14:00:00',
+          localEndTime: '15:00:00',
+          frequency: 'WEEKLY',
+          daysOfWeek: ['MON', 'WED', 'FRI'],
+          joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS'],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        t0,
+      );
+      const initialSessions = await listSessionsForRoom(roomUid);
+      expect(initialSessions.filter((s) => s.type === 'SCHEDULED')).toHaveLength(
+        3,
+      );
+      // Capture the original session UIDs so we can confirm none are recreated.
+      const originalUids = new Set(initialSessions.map((s) => s.uid));
+
+      // Force the room to look stale.
+      await setLastMaterializedAt(roomUid, new Date('2020-01-01T00:00:00Z'));
+
+      // Act - advance "now" by 7 days; the next horizon should produce
+      // additional Mon/Wed/Fri occurrences without recreating the originals.
+      const t1 = new Date(t0.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const result = await service.materializeOneStaleRoom(
+        t1,
+        new Date(t1.getTime() - 1000),
+      );
+
+      // Assert
+      expect(result).toBe(roomUid);
+      const after = await listSessionsForRoom(roomUid);
+      const scheduled = after.filter((s) => s.type === 'SCHEDULED');
+      // Three more sessions added in the new 7-day window. Originals retained.
+      expect(scheduled).toHaveLength(6);
+      for (const orig of originalUids) {
+        expect(scheduled.some((s) => s.uid === orig)).toBe(true);
+      }
+    });
+
+    it('reconciles AUTO sessions when autoSessionEnabled and a window is active', async () => {
+      // Arrange - room with auto sessions enabled and an open window covering
+      // weekday afternoons. No prior materialization.
+      const { uid: roomUid } = await insertRoom('UTC', true);
+      const t0 = new Date('2024-06-02T12:00:00Z'); // Sun
+      await service.createAutoSessionWindow(
+        {
+          roomUid,
+          localStartTime: '13:00:00',
+          localEndTime: '17:00:00',
+          daysOfWeek: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+          activeStart: t0,
+          activeEnd: null,
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        t0,
+      );
+      // Wipe any AUTO sessions that the create step materialized so we can
+      // verify the worker re-creates them.
+      await dbContext.db
+        .deleteFrom('sessions')
+        .where('room_uid', '=', roomUid)
+        .where('type', '=', 'AUTO')
+        .execute();
+      await setLastMaterializedAt(roomUid, new Date('2020-01-01T00:00:00Z'));
+
+      // Act
+      const result = await service.materializeOneStaleRoom(t0, t0);
+
+      // Assert - reconciler produced AUTO sessions for the weekday afternoons
+      // within the 7-day window.
+      expect(result).toBe(roomUid);
+      const auto = (await listSessionsForRoom(roomUid)).filter(
+        (s) => s.type === 'AUTO',
+      );
+      expect(auto.length).toBeGreaterThan(0);
+    });
+
+    it('respects excludeUids and picks a different room', async () => {
+      // Arrange - two stale rooms
+      const { uid: excludedUid } = await insertRoom('UTC');
+      const { uid: pickedUid } = await insertRoom('UTC');
+
+      // Act
+      const result = await service.materializeOneStaleRoom(
+        new Date(),
+        new Date(),
+        [excludedUid],
+      );
+
+      // Assert
+      expect(result).toBe(pickedUid);
+    });
+  });
+
   describe('deleteSchedule', (it) => {
     it('hard-deletes a schedule whose activeStart is in the future', async () => {
       // Arrange
@@ -285,7 +441,7 @@ describe('ScheduleManagementService', () => {
         now,
       )) as Exclude<
         Awaited<ReturnType<typeof service.createSchedule>>,
-        'ROOM_NOT_FOUND' | 'CONFLICT'
+        'ROOM_NOT_FOUND' | 'CONFLICT' | 'INVALID_ACTIVE_START'
       >;
 
       // Act
@@ -301,31 +457,27 @@ describe('ScheduleManagementService', () => {
     });
 
     it('soft-deletes a schedule that has already produced sessions; preserves past, removes future', async () => {
-      // Arrange - a WEEKLY MON schedule that started in the past.
+      // Arrange - a WEEKLY MON schedule that started in the past. The
+      // create-schedule precondition rejects `activeStart <= now`, so we seed
+      // the past-active row directly via the repository to set up this scenario.
       const { uid: roomUid } = await insertRoom('UTC');
       const now = new Date('2024-06-05T12:00:00Z'); // Wed
       const pastStart = new Date('2024-05-01T00:00:00Z');
-      const schedule = (await service.createSchedule(
-        {
-          roomUid,
-          name: 'Recurring',
-          activeStart: pastStart,
-          activeEnd: null,
-          localStartTime: '14:00:00',
-          localEndTime: '15:00:00',
-          frequency: 'WEEKLY',
-          daysOfWeek: ['MON'],
-          joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS'],
-          transcriptionProviderId: 'whisper',
-          transcriptionStreamConfig: {},
-        },
-        now,
-      )) as Exclude<
-        Awaited<ReturnType<typeof service.createSchedule>>,
-        'ROOM_NOT_FOUND' | 'CONFLICT'
-      >;
-      // Insert a "past realized" session manually (the create-time
-      // materialization only covered the next 7 days).
+      const schedule = await repository.insertSchedule(repository.db, {
+        roomUid,
+        name: 'Recurring',
+        activeStart: pastStart,
+        activeEnd: null,
+        anchorStart: pastStart,
+        localStartTime: '14:00:00',
+        localEndTime: '15:00:00',
+        frequency: 'WEEKLY',
+        daysOfWeek: ['MON'],
+        joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS'],
+        transcriptionProviderId: 'whisper',
+        transcriptionStreamConfig: {},
+      });
+      // Insert a "past realized" session manually.
       await dbContext.db
         .insertInto('sessions')
         .values({
@@ -375,6 +527,7 @@ describe('ScheduleManagementService', () => {
         name: 'Closed',
         activeStart: new Date('2024-01-01T00:00:00Z'),
         activeEnd: new Date('2024-03-01T00:00:00Z'),
+        anchorStart: new Date('2024-01-01T00:00:00Z'),
         localStartTime: '09:00:00',
         localEndTime: '10:00:00',
         frequency: 'ONCE',
@@ -408,46 +561,51 @@ describe('ScheduleManagementService', () => {
     });
 
     it('produces a new uid; old uid is closed; new uid carries the upcoming sessions', async () => {
-      // Arrange
+      // Arrange - the test verifies the past-active soft-close path. Since
+      // create-schedule now requires activeStart > now, we seed the original
+      // schedule directly via the repository so its activeStart is already
+      // <= now at update time. The update supplies an explicit future
+      // activeStart per the new precondition.
       const { uid: roomUid } = await insertRoom('UTC');
-      const now = new Date('2024-06-02T12:00:00Z'); // Sun
-      const original = (await service.createSchedule(
-        {
-          roomUid,
-          name: 'Original',
-          activeStart: now,
-          activeEnd: null,
-          localStartTime: '14:00:00',
-          localEndTime: '15:00:00',
-          frequency: 'WEEKLY',
-          daysOfWeek: ['MON'],
-          joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS'],
-          transcriptionProviderId: 'whisper',
-          transcriptionStreamConfig: {},
-        },
-        now,
-      )) as Exclude<
-        Awaited<ReturnType<typeof service.createSchedule>>,
-        'ROOM_NOT_FOUND' | 'CONFLICT'
-      >;
+      const now = new Date('2024-06-05T12:00:00Z'); // Wed
+      const pastStart = new Date('2024-05-27T00:00:00Z'); // a past Mon
+      const original = await repository.insertSchedule(repository.db, {
+        roomUid,
+        name: 'Original',
+        activeStart: pastStart,
+        activeEnd: null,
+        anchorStart: pastStart,
+        localStartTime: '14:00:00',
+        localEndTime: '15:00:00',
+        frequency: 'WEEKLY',
+        daysOfWeek: ['MON'],
+        joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS'],
+        transcriptionProviderId: 'whisper',
+        transcriptionStreamConfig: {},
+      });
 
-      // Act - rename the schedule. delete+create produces a fresh uid; the old
-      // row is soft-closed because the schedule's activeStart already <= now.
+      // Act - rename the schedule and supply an explicit future activeStart
+      // (required since the original schedule has already taken effect).
+      const newActiveStart = new Date('2024-06-09T00:00:00Z'); // next Sun
       const result = await service.updateSchedule(
         original.uid,
-        { name: 'Renamed' },
+        { name: 'Renamed', activeStart: newActiveStart },
         now,
       );
 
       // Assert
       expect(result).not.toBe('NOT_FOUND');
       expect(result).not.toBe('CONFLICT');
+      expect(result).not.toBe('INVALID_ACTIVE_START');
       const updated = result as Exclude<
         typeof result,
-        'NOT_FOUND' | 'CONFLICT'
+        'NOT_FOUND' | 'CONFLICT' | 'INVALID_ACTIVE_START'
       >;
       expect(updated.uid).not.toBe(original.uid);
       expect(updated.name).toBe('Renamed');
+      // Anchor preserved verbatim from the original — biweekly cadence is
+      // invariant under updates even when activeStart shifts.
+      expect(updated.anchorStart).toEqual(original.anchorStart);
 
       const oldRow = await repository.findScheduleByUid(
         repository.db,
@@ -455,13 +613,13 @@ describe('ScheduleManagementService', () => {
       );
       expect(oldRow?.activeEnd).not.toBeNull();
 
-      // The remaining future SCHEDULED sessions all reference the new uid,
-      // since deleteUpcomingSessionsForSchedule cleared them and the create
-      // step re-materialized under the new uid.
+      // Future SCHEDULED sessions reference the new uid; the create path
+      // re-materialized them under the merged row.
       const sessionsByUid = await dbContext.db
         .selectFrom('sessions')
         .select(['scheduled_session_uid'])
         .where('room_uid', '=', roomUid)
+        .where('scheduled_start_time', '>', now)
         .execute();
       expect(
         sessionsByUid.every((s) => s.scheduled_session_uid === updated.uid),
@@ -585,7 +743,7 @@ describe('ScheduleManagementService', () => {
         now,
       )) as Exclude<
         Awaited<ReturnType<typeof service.createAutoSessionWindow>>,
-        'ROOM_NOT_FOUND' | 'CONFLICT'
+        'ROOM_NOT_FOUND' | 'CONFLICT' | 'INVALID_ACTIVE_START'
       >;
       // Sanity: there's an upcoming auto session.
       const before = await listSessionsForRoom(roomUid);

@@ -146,6 +146,7 @@ export interface Sessions {
 export interface SessionSchedules {
   active_end: Timestamp | null;
   active_start: Timestamp;
+  anchor_start: Timestamp;
   created_at: Generated<Timestamp>;
   days_of_week: ArrayType<DayOfWeek> | null;
   frequency: ScheduleFrequency;

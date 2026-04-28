@@ -6,6 +6,8 @@ import createServer from '#src/server/create-server.js';
 
 export const TEST_ADMIN_KEY = 'test-admin-key';
 export const ADMIN_HEADER = `Bearer ${TEST_ADMIN_KEY}`;
+export const TEST_SERVICE_KEY = 'test-service-key';
+export const SERVICE_HEADER = `Bearer ${TEST_SERVICE_KEY}`;
 
 type ServerCtx = {
   fastify: Awaited<ReturnType<typeof createServer>>['fastify'];
@@ -26,7 +28,14 @@ export function useServer(): ServerCtx {
         host: '127.0.0.1',
       },
       adminAuthConfig: { adminApiKey: TEST_ADMIN_KEY },
+      serviceAuthConfig: { serviceApiKey: TEST_SERVICE_KEY },
       dbClientConfig: dbConfig,
+      materializationWorkerConfig: {
+        enabled: false,
+        intervalMs: 60_000,
+        staleAfterMs: 24 * 60 * 60 * 1000,
+        maxRoomsPerTick: 1000,
+      },
     } as unknown as AppConfig;
 
     const { fastify } = await createServer(config);

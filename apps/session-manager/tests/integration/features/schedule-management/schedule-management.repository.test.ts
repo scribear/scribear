@@ -34,6 +34,24 @@ describe('ScheduleManagementRepository', () => {
       .executeTakeFirstOrThrow();
   }
 
+  /**
+   * Test-only wrapper around `repository.insertSchedule` that defaults
+   * `anchorStart` to `activeStart` (matching how the service sets it on
+   * brand-new schedules). Tests that exercise update-style cadence preservation
+   * pass an explicit `anchorStart` to override.
+   */
+  type InsertScheduleArgs = Parameters<
+    ScheduleManagementRepository['insertSchedule']
+  >[1];
+  async function insertSchedule(
+    data: Omit<InsertScheduleArgs, 'anchorStart'> & { anchorStart?: Date },
+  ) {
+    return repository.insertSchedule(repository.db, {
+      ...data,
+      anchorStart: data.anchorStart ?? data.activeStart,
+    });
+  }
+
   async function getRoomVersion(roomUid: string): Promise<number> {
     const row = await dbContext.db
       .selectFrom('rooms')
@@ -111,6 +129,237 @@ describe('ScheduleManagementRepository', () => {
     });
   });
 
+  describe('findOneStaleRoomForMaterialization', (it) => {
+    async function setLastMaterializedAt(roomUid: string, value: Date | null) {
+      await dbContext.db
+        .updateTable('rooms')
+        .set({ last_materialized_at: value })
+        .where('uid', '=', roomUid)
+        .execute();
+    }
+
+    it('returns undefined when no rooms are stale', async () => {
+      // Arrange - one room, freshly materialized
+      const { uid } = await insertRoom();
+      const recent = new Date(Date.now() - 1000);
+      await setLastMaterializedAt(uid, recent);
+
+      // Act
+      const result = await dbContext.db
+        .transaction()
+        .execute((trx) =>
+          repository.findOneStaleRoomForMaterialization(
+            trx,
+            new Date(Date.now() - 60_000),
+          ),
+        );
+
+      // Assert
+      expect(result).toBeUndefined();
+    });
+
+    it('prefers rooms with NULL last_materialized_at (NULLS FIRST ordering)', async () => {
+      // Arrange - one stale room with a timestamp, one with NULL
+      const { uid: oldUid } = await insertRoom();
+      await setLastMaterializedAt(oldUid, new Date('2020-01-01T00:00:00Z'));
+      const { uid: nullUid } = await insertRoom();
+
+      // Act
+      const result = await dbContext.db
+        .transaction()
+        .execute((trx) =>
+          repository.findOneStaleRoomForMaterialization(trx, new Date()),
+        );
+
+      // Assert - the NULL one is picked first
+      expect(result?.uid).toBe(nullUid);
+    });
+
+    it('returns the oldest stale room when multiple have non-null timestamps', async () => {
+      // Arrange
+      const { uid: olderUid } = await insertRoom();
+      await setLastMaterializedAt(olderUid, new Date('2020-01-01T00:00:00Z'));
+      const { uid: newerUid } = await insertRoom();
+      await setLastMaterializedAt(newerUid, new Date('2024-01-01T00:00:00Z'));
+
+      // Act
+      const result = await dbContext.db
+        .transaction()
+        .execute((trx) =>
+          repository.findOneStaleRoomForMaterialization(trx, new Date()),
+        );
+
+      // Assert
+      expect(result?.uid).toBe(olderUid);
+    });
+
+    it('excludes rooms whose UIDs are in excludeUids', async () => {
+      // Arrange
+      const { uid: excludedUid } = await insertRoom();
+      const { uid: pickedUid } = await insertRoom();
+
+      // Act
+      const result = await dbContext.db
+        .transaction()
+        .execute((trx) =>
+          repository.findOneStaleRoomForMaterialization(trx, new Date(), [
+            excludedUid,
+          ]),
+        );
+
+      // Assert
+      expect(result?.uid).toBe(pickedUid);
+    });
+
+    it('returns the room identity, timezone, and auto-session master switch', async () => {
+      // Arrange
+      const { uid } = await insertRoom('UTC', false);
+
+      // Act
+      const result = await dbContext.db
+        .transaction()
+        .execute((trx) =>
+          repository.findOneStaleRoomForMaterialization(trx, new Date()),
+        );
+
+      // Assert
+      expect(result).toEqual({
+        uid,
+        timezone: 'UTC',
+        autoSessionEnabled: false,
+      });
+    });
+
+    it('skips rooms locked by another transaction (FOR UPDATE SKIP LOCKED)', async () => {
+      // Arrange - two rooms with NULL last_materialized_at
+      const { uid: firstUid } = await insertRoom();
+      const { uid: secondUid } = await insertRoom();
+
+      // Hold the first room locked inside transaction A.
+      let resolveB: ((row: { uid: string } | undefined) => void) | null = null;
+      let resolveA: (() => void) | null = null;
+      const txnAStarted = new Promise<void>((r) => {
+        resolveA = r;
+      });
+      const aHold = new Promise<void>((r) => {
+        resolveB = r as never;
+      });
+
+      const txnA = dbContext.db.transaction().execute(async (trxA) => {
+        const rowA = await repository.findOneStaleRoomForMaterialization(
+          trxA,
+          new Date(),
+        );
+        // Defensive: A picks one of the two; we don't know which (NULLS FIRST
+        // is stable but DB ordering of equal NULLs isn't guaranteed).
+        expect([firstUid, secondUid]).toContain(rowA?.uid);
+        resolveA!();
+        await aHold;
+        return rowA?.uid;
+      });
+
+      // Wait until A has the lock.
+      await txnAStarted;
+
+      // Act - transaction B asks for a stale room concurrently.
+      const txnB = dbContext.db.transaction().execute(async (trxB) => {
+        return repository.findOneStaleRoomForMaterialization(trxB, new Date());
+      });
+
+      const rowB = await txnB;
+
+      // Assert - B got the other room (didn't block on A's lock).
+      const aPicked = await (async () => {
+        resolveB!(undefined);
+        return await txnA;
+      })();
+      expect(rowB?.uid).not.toBe(aPicked);
+      expect([firstUid, secondUid]).toContain(rowB?.uid);
+    });
+  });
+
+  describe('findMaxScheduledEndForSchedule', (it) => {
+    it('returns null when the schedule has no sessions', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom();
+      const schedule = await insertSchedule({
+        roomUid,
+        name: 'Empty',
+        activeStart: new Date('2024-09-01T00:00:00Z'),
+        activeEnd: null,
+        localStartTime: '09:00:00',
+        localEndTime: '10:00:00',
+        frequency: 'ONCE',
+        daysOfWeek: null,
+        joinCodeScopes: [],
+        transcriptionProviderId: 'whisper',
+        transcriptionStreamConfig: {},
+      });
+
+      // Act
+      const result = await repository.findMaxScheduledEndForSchedule(
+        repository.db,
+        schedule.uid,
+      );
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('returns the max scheduled_end_time across the schedule’s sessions', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom();
+      const schedule = await insertSchedule({
+        roomUid,
+        name: 'S',
+        activeStart: new Date('2024-09-01T00:00:00Z'),
+        activeEnd: null,
+        localStartTime: '09:00:00',
+        localEndTime: '10:00:00',
+        frequency: 'ONCE',
+        daysOfWeek: null,
+        joinCodeScopes: [],
+        transcriptionProviderId: 'whisper',
+        transcriptionStreamConfig: {},
+      });
+      const earlier = new Date('2024-09-10T13:00:00Z');
+      const later = new Date('2024-09-17T13:00:00Z');
+      await repository.insertSessions(repository.db, [
+        {
+          roomUid,
+          name: 'a',
+          type: 'SCHEDULED',
+          scheduledSessionUid: schedule.uid,
+          scheduledStartTime: earlier,
+          scheduledEndTime: new Date(earlier.getTime() + 60 * 60 * 1000),
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        {
+          roomUid,
+          name: 'b',
+          type: 'SCHEDULED',
+          scheduledSessionUid: schedule.uid,
+          scheduledStartTime: later,
+          scheduledEndTime: new Date(later.getTime() + 60 * 60 * 1000),
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+      ]);
+
+      // Act
+      const result = await repository.findMaxScheduledEndForSchedule(
+        repository.db,
+        schedule.uid,
+      );
+
+      // Assert
+      expect(result).toEqual(new Date(later.getTime() + 60 * 60 * 1000));
+    });
+  });
+
   describe('insertSchedule + findScheduleByUid', (it) => {
     it('round-trips fields for a ONCE schedule', async () => {
       // Arrange
@@ -118,7 +367,7 @@ describe('ScheduleManagementRepository', () => {
       const activeStart = new Date('2024-09-01T12:00:00Z');
 
       // Act
-      const created = await repository.insertSchedule(repository.db, {
+      const created = await insertSchedule({
         roomUid,
         name: 'Lecture',
         activeStart,
@@ -148,7 +397,7 @@ describe('ScheduleManagementRepository', () => {
       const { uid: roomUid } = await insertRoom();
 
       // Act
-      const created = await repository.insertSchedule(repository.db, {
+      const created = await insertSchedule({
         roomUid,
         name: 'Standup',
         activeStart: new Date('2024-09-01T00:00:00Z'),
@@ -187,7 +436,7 @@ describe('ScheduleManagementRepository', () => {
     it('includes schedules with active_end IS NULL whose active_start < range.to', async () => {
       // Arrange
       const { uid: roomUid } = await insertRoom();
-      const a = await repository.insertSchedule(repository.db, {
+      const a = await insertSchedule({
         roomUid,
         name: 'A',
         activeStart: new Date('2024-01-01T00:00:00Z'),
@@ -215,7 +464,7 @@ describe('ScheduleManagementRepository', () => {
     it('excludes schedules whose active_end is at or before range.from', async () => {
       // Arrange - closed schedule with active_end = 2024-06-01.
       const { uid: roomUid } = await insertRoom();
-      await repository.insertSchedule(repository.db, {
+      await insertSchedule({
         roomUid,
         name: 'Closed',
         activeStart: new Date('2024-01-01T00:00:00Z'),
@@ -243,7 +492,7 @@ describe('ScheduleManagementRepository', () => {
     it('excludes schedules whose active_start is at or beyond range.to', async () => {
       // Arrange
       const { uid: roomUid } = await insertRoom();
-      await repository.insertSchedule(repository.db, {
+      await insertSchedule({
         roomUid,
         name: 'Future',
         activeStart: new Date('2024-12-01T00:00:00Z'),
@@ -274,7 +523,7 @@ describe('ScheduleManagementRepository', () => {
     it('honors excludeUid', async () => {
       // Arrange
       const { uid: roomUid } = await insertRoom();
-      const a = await repository.insertSchedule(repository.db, {
+      const a = await insertSchedule({
         roomUid,
         name: 'A',
         activeStart: new Date('2024-01-01T00:00:00Z'),
@@ -287,7 +536,7 @@ describe('ScheduleManagementRepository', () => {
         activeEnd: null,
         joinCodeScopes: [],
       });
-      const b = await repository.insertSchedule(repository.db, {
+      const b = await insertSchedule({
         roomUid,
         name: 'B',
         activeStart: new Date('2024-01-01T00:00:00Z'),
@@ -318,7 +567,7 @@ describe('ScheduleManagementRepository', () => {
     it('sets active_end on an open schedule and returns true', async () => {
       // Arrange
       const { uid: roomUid } = await insertRoom();
-      const created = await repository.insertSchedule(repository.db, {
+      const created = await insertSchedule({
         roomUid,
         name: 'Open',
         activeStart: new Date('2024-01-01T00:00:00Z'),
@@ -352,7 +601,7 @@ describe('ScheduleManagementRepository', () => {
     it('returns false when the schedule is already closed', async () => {
       // Arrange
       const { uid: roomUid } = await insertRoom();
-      const created = await repository.insertSchedule(repository.db, {
+      const created = await insertSchedule({
         roomUid,
         name: 'Closed',
         activeStart: new Date('2024-01-01T00:00:00Z'),
@@ -382,7 +631,7 @@ describe('ScheduleManagementRepository', () => {
     it('hard-deletes the row and cascades to sessions', async () => {
       // Arrange
       const { uid: roomUid } = await insertRoom();
-      const schedule = await repository.insertSchedule(repository.db, {
+      const schedule = await insertSchedule({
         roomUid,
         name: 'S',
         activeStart: new Date('2024-01-01T00:00:00Z'),
@@ -559,7 +808,7 @@ describe('ScheduleManagementRepository', () => {
       // Arrange
       const now = new Date('2024-06-01T15:00:00Z');
       const { uid: roomUid } = await insertRoom();
-      const schedule = await repository.insertSchedule(repository.db, {
+      const schedule = await insertSchedule({
         roomUid,
         name: 'S',
         activeStart: new Date('2024-01-01T00:00:00Z'),
@@ -616,7 +865,7 @@ describe('ScheduleManagementRepository', () => {
       // Arrange
       const now = new Date('2024-06-01T08:00:00Z');
       const { uid: roomUid } = await insertRoom();
-      const schedule = await repository.insertSchedule(repository.db, {
+      const schedule = await insertSchedule({
         roomUid,
         name: 'S',
         activeStart: new Date('2024-01-01T00:00:00Z'),
@@ -719,7 +968,7 @@ describe('ScheduleManagementRepository', () => {
             name: 'In-range scheduled',
             type: 'SCHEDULED',
             scheduled_session_uid: (
-              await repository.insertSchedule(repository.db, {
+              await insertSchedule({
                 roomUid,
                 name: 'X',
                 activeStart: new Date('2024-01-01T00:00:00Z'),
@@ -781,7 +1030,7 @@ describe('ScheduleManagementRepository', () => {
     it('returns the next SCHEDULED session start strictly after `after`', async () => {
       // Arrange
       const { uid: roomUid } = await insertRoom();
-      const schedule = await repository.insertSchedule(repository.db, {
+      const schedule = await insertSchedule({
         roomUid,
         name: 'S',
         activeStart: new Date('2024-01-01T00:00:00Z'),
@@ -1022,7 +1271,7 @@ describe('ScheduleManagementRepository', () => {
       // Arrange
       const now = new Date('2024-06-01T12:00:00Z');
       const { uid: roomUid } = await insertRoom();
-      const schedule = await repository.insertSchedule(repository.db, {
+      const schedule = await insertSchedule({
         roomUid,
         name: 'S',
         activeStart: new Date('2024-01-01T00:00:00Z'),

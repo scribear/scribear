@@ -1,19 +1,18 @@
 import { Type } from 'typebox';
 
 import {
-  type BaseRouteDefinition,
   type BaseLongPollRouteSchema,
+  type BaseRouteDefinition,
   STANDARD_ERROR_REPLIES,
 } from '@scribear/base-schema';
 
 import { SESSION_MANAGER_BASE_PATH } from '#src/base-path.js';
+import { SESSION_SCHEMA } from '#src/schedule-management/entities/session.schema.js';
 import {
   DEVICE_TOKEN_SECURITY,
   INVALID_DEVICE_TOKEN_REPLY_SCHEMA,
 } from '#src/shared/security/device-token.js';
 import { ROOM_MANAGEMENT_TAG } from '#src/tags.js';
-
-import { SESSION_SCHEMA } from '#src/schedule-management/entities/session.schema.js';
 
 const MY_SCHEDULE_SCHEMA = {
   description:
@@ -29,7 +28,8 @@ const MY_SCHEDULE_SCHEMA = {
       roomScheduleVersion: Type.Integer(),
       serverTime: Type.String({
         format: 'date-time',
-        description: "Server's current time, for client-side relative-time calculations.",
+        description:
+          "Server's current time, for client-side relative-time calculations.",
       }),
       sessions: Type.Array(SESSION_SCHEMA),
     }),

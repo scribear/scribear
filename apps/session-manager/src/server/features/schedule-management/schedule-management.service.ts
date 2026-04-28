@@ -44,13 +44,30 @@ function newEventCollector(): EventCollector {
   return { sessionBumps: new Map(), roomBump: null };
 }
 
+/**
+ * Thrown by `materializeOneStaleRoom` when the underlying transaction failed
+ * after a room was selected and locked. Carries the locked room's UID so the
+ * worker can add it to its skip set and continue draining.
+ */
+export class MaterializationFailedError extends Error {
+  public readonly roomUid: string;
+  public readonly innerError: unknown;
+
+  constructor(roomUid: string, innerError: unknown) {
+    const innerMsg =
+      innerError instanceof Error ? innerError.message : String(innerError);
+    super(`Materialization failed for room ${roomUid}: ${innerMsg}`);
+    this.name = 'MaterializationFailedError';
+    this.roomUid = roomUid;
+    this.innerError = innerError;
+  }
+}
+
 const MATERIALIZATION_WINDOW_DAYS = 7;
 const MIN_AUTO_SESSION_DURATION_SECONDS = 60;
 const CONFLICT_CHECK_HORIZON_DAYS = 14;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-const VALID_TIMEZONES = new Set(Intl.supportedValuesOf('timeZone'));
 
 function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * MS_PER_DAY);
@@ -106,13 +123,12 @@ interface CreateWindowInput {
 }
 
 /**
- * Fields accepted by `updateRoomScheduleConfig`. Only the fields present are
- * applied; omitted fields leave the existing value alone. If both fields are
- * either omitted or equal to the current row's values, the call is a no-op
- * and no version bump is published.
+ * Fields accepted by `updateRoomScheduleConfig`. Only `autoSessionEnabled` is
+ * mutable post-creation; room timezone is immutable. When `autoSessionEnabled`
+ * is omitted or equals the current value, the call is a no-op (no writes,
+ * no version bump, no event).
  */
 interface UpdateRoomScheduleConfigInput {
-  timezone?: string;
   autoSessionEnabled?: boolean;
 }
 
@@ -149,6 +165,7 @@ function scheduleToMaterializationRecord(
     | 'uid'
     | 'activeStart'
     | 'activeEnd'
+    | 'anchorStart'
     | 'localStartTime'
     | 'localEndTime'
     | 'frequency'
@@ -159,6 +176,7 @@ function scheduleToMaterializationRecord(
     uid: s.uid,
     activeStart: s.activeStart,
     activeEnd: s.activeEnd,
+    anchorStart: s.anchorStart,
     localStartTime: s.localStartTime,
     localEndTime: s.localEndTime,
     frequency: s.frequency,
@@ -233,90 +251,40 @@ export class ScheduleManagementService {
   }
 
   /**
-   * Updates schedule-affecting fields on the room (`timezone`,
-   * `autoSessionEnabled`). Both are owned by schedule-management because
-   * either change requires re-materializing sessions atomically:
-   *  - **Timezone change.** Future SCHEDULED sessions whose UTC times were
-   *    computed under the old zone are deleted and re-expanded from each
-   *    open schedule under the new zone. Past and currently-active SCHEDULED
-   *    sessions are left untouched per [02-session-scheduling.md#room-timezone-changes](../../../../../../out/02-session-scheduling.md).
-   *  - **`autoSessionEnabled` change.** No-op for SCHEDULED rows; the
-   *    reconciler reads the new value and either drops all AUTO sessions
-   *    (false) or re-materializes them from existing windows (true). Windows
-   *    themselves are preserved either way.
-   *
-   * If neither field is provided or both equal the current values, the call
-   * is a no-op: no writes, no version bump, no event.
-   *
+   * Toggles the room's `autoSessionEnabled` master switch and reconciles
+   * AUTO sessions atomically. When the new value matches the existing row,
+   * the call is a no-op (no writes, no version bump, no event). Room
+   * `timezone` is immutable and cannot be updated through this method.
    * @param uid The room to update.
-   * @param data Fields to update; omit either to leave it unchanged.
-   * @param now Reference instant for materialization and reconciliation.
-   * @returns `undefined` on success, `'ROOM_NOT_FOUND'` if the room is missing, or `'INVALID_TIMEZONE'` if the supplied timezone is not a valid IANA identifier.
+   * @param data Fields to update.
+   * @param now Reference instant for reconciliation.
+   * @returns `undefined` on success, or `'ROOM_NOT_FOUND'` if the room is missing.
    */
   async updateRoomScheduleConfig(
     uid: string,
     data: UpdateRoomScheduleConfigInput,
     now: Date,
-  ): Promise<undefined | 'ROOM_NOT_FOUND' | 'INVALID_TIMEZONE'> {
-    if (data.timezone !== undefined && !VALID_TIMEZONES.has(data.timezone)) {
-      return 'INVALID_TIMEZONE';
-    }
-
+  ): Promise<undefined | 'ROOM_NOT_FOUND'> {
     return this._runWithEvents(async (trx, collector) => {
       const room = await this._repo.lockRoom(trx, uid);
       if (!room) return 'ROOM_NOT_FOUND' as const;
 
-      // Skip-if-unchanged: pull the would-be new values, then bail when both
-      // match the existing row.
-      const newTimezone = data.timezone ?? room.timezone;
       const newAutoEnabled = data.autoSessionEnabled ?? room.autoSessionEnabled;
-      const timezoneChanged = newTimezone !== room.timezone;
-      const autoToggled = newAutoEnabled !== room.autoSessionEnabled;
-      if (!timezoneChanged && !autoToggled) {
+      if (newAutoEnabled === room.autoSessionEnabled) {
         return undefined;
       }
 
       await this._repo.updateRoomScheduleConfig(trx, uid, {
-        ...(timezoneChanged && { timezone: newTimezone }),
-        ...(autoToggled && { autoSessionEnabled: newAutoEnabled }),
+        autoSessionEnabled: newAutoEnabled,
       });
 
       const windowEnd = addDays(now, MATERIALIZATION_WINDOW_DAYS);
-
-      if (timezoneChanged) {
-        // Defer no-overlap: we'll delete future SCHEDULED rows and reinsert
-        // freshly-materialized ones, plus shuffle AUTO rows in the reconciler.
-        await this._repo.setSessionsConstraintsDeferred(trx);
-
-        await this._repo.deleteUpcomingScheduledSessions(trx, uid, now);
-
-        const schedules = await this._repo.listOpenSchedulesForRoom(
-          trx,
-          uid,
-          now,
-        );
-        const inserts: ReturnType<typeof buildScheduledSessionRow>[] = [];
-        for (const schedule of schedules) {
-          const occurrences = materializeSchedule(
-            scheduleToMaterializationRecord(schedule),
-            newTimezone,
-            maxDate(now, schedule.activeStart),
-            windowEnd,
-          );
-          for (const occ of occurrences) {
-            inserts.push(buildScheduledSessionRow(schedule, occ));
-          }
-        }
-        if (inserts.length > 0) {
-          await this._repo.insertSessions(trx, inserts);
-        }
-      }
 
       await reconcileAutoSessions(
         trx,
         this._repo,
         uid,
-        newTimezone,
+        room.timezone,
         now,
         windowEnd,
         MIN_AUTO_SESSION_DURATION_SECONDS,
@@ -324,13 +292,127 @@ export class ScheduleManagementService {
         collector.sessionBumps,
       );
 
-      // The next SCHEDULED start may have moved (timezone change) or stayed
-      // put (auto toggle); either way, realign is cheap and idempotent.
       await this._realignActiveOnDemandSession(trx, uid, now, collector);
 
       await this._finalizeRoomWrite(trx, uid, now, collector);
       return undefined;
     });
+  }
+
+  /**
+   * Picks one stale room (`last_materialized_at` null or older than `cutoff`),
+   * locks it via `FOR UPDATE SKIP LOCKED`, and extends its materialization
+   * horizon to `now + MATERIALIZATION_WINDOW_DAYS`. Used by the periodic
+   * materialization worker; safe to invoke from multiple processes in
+   * parallel because each call grabs a distinct unlocked row.
+   *
+   * On per-room materialization failure the underlying error is rethrown
+   * wrapped in `MaterializationFailedError` so the worker can record the
+   * failed UID in its skip set and move on to the next room.
+   * @param now Reference instant for materialization.
+   * @param cutoff Rooms last materialized at or before this instant are eligible.
+   * @param excludeUids Room UIDs to exclude from selection (used by the worker to skip rooms whose materialization failed earlier in the same drain pass).
+   * @returns The processed room's UID, or `null` if no eligible rooms remain.
+   */
+  async materializeOneStaleRoom(
+    now: Date,
+    cutoff: Date,
+    excludeUids?: readonly string[],
+  ): Promise<string | null> {
+    // Use a mutable cell so TS narrowing in the catch block doesn't conclude
+    // the lambda's assignment is unobservable.
+    const lockedRef: { uid: string | null } = { uid: null };
+    try {
+      return await this._runWithEvents(async (trx, collector) => {
+        const room = await this._repo.findOneStaleRoomForMaterialization(
+          trx,
+          cutoff,
+          excludeUids,
+        );
+        if (!room) return null;
+        lockedRef.uid = room.uid;
+        await this._doMaterializeRoom(trx, room, now, collector);
+        return room.uid;
+      });
+    } catch (err) {
+      if (lockedRef.uid !== null) {
+        throw new MaterializationFailedError(lockedRef.uid, err);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Extends the materialization horizon for a single locked room. For each
+   * open schedule, materializes occurrences in the gap between the latest
+   * existing SCHEDULED session and `now + 7 days`, avoiding duplicates by
+   * starting after the existing max. The auto-session reconciler then handles
+   * AUTO sessions over the same window. Finally bumps the room version and
+   * stamps `last_materialized_at`.
+   *
+   * Assumes the caller already holds a `FOR UPDATE` lock on the room row.
+   */
+  private async _doMaterializeRoom(
+    trx: Transaction<DB>,
+    room: { uid: string; timezone: string; autoSessionEnabled: boolean },
+    now: Date,
+    collector: EventCollector,
+  ): Promise<void> {
+    const windowEnd = addDays(now, MATERIALIZATION_WINDOW_DAYS);
+
+    const schedules = await this._repo.listOpenSchedulesForRoom(
+      trx,
+      room.uid,
+      now,
+    );
+
+    const inserts: ReturnType<typeof buildScheduledSessionRow>[] = [];
+    for (const schedule of schedules) {
+      const maxEnd = await this._repo.findMaxScheduledEndForSchedule(
+        trx,
+        schedule.uid,
+      );
+      // Start materialization just past the last existing occurrence's end.
+      // The materializer's range predicate (`occ.endUtc <= windowStart`
+      // excludes the occurrence) means passing `maxEnd` as windowStart
+      // correctly skips the existing latest session without slicing into it.
+      // Fall back to `now` / `schedule.activeStart` when nothing has been
+      // materialized yet.
+      const from = maxEnd
+        ? maxDate(maxEnd, schedule.activeStart)
+        : maxDate(now, schedule.activeStart);
+      if (from.getTime() >= windowEnd.getTime()) continue;
+
+      const occurrences = materializeSchedule(
+        scheduleToMaterializationRecord(schedule),
+        room.timezone,
+        from,
+        windowEnd,
+      );
+      for (const occ of occurrences) {
+        inserts.push(buildScheduledSessionRow(schedule, occ));
+      }
+    }
+
+    if (inserts.length > 0) {
+      await this._repo.setSessionsConstraintsDeferred(trx);
+      await this._repo.insertSessions(trx, inserts);
+    }
+
+    await reconcileAutoSessions(
+      trx,
+      this._repo,
+      room.uid,
+      room.timezone,
+      now,
+      windowEnd,
+      MIN_AUTO_SESSION_DURATION_SECONDS,
+      room.autoSessionEnabled,
+      collector.sessionBumps,
+    );
+
+    await this._realignActiveOnDemandSession(trx, room.uid, now, collector);
+    await this._finalizeRoomWrite(trx, room.uid, now, collector);
   }
 
   /**
@@ -343,19 +425,25 @@ export class ScheduleManagementService {
   async createSchedule(
     data: CreateScheduleInput,
     now: Date,
-  ): Promise<Schedule | 'ROOM_NOT_FOUND' | 'CONFLICT'> {
+  ): Promise<
+    Schedule | 'ROOM_NOT_FOUND' | 'CONFLICT' | 'INVALID_ACTIVE_START'
+  > {
     return this._runWithEvents(async (trx, collector) => {
       const room = await this._repo.lockRoom(trx, data.roomUid);
       if (!room) return 'ROOM_NOT_FOUND' as const;
 
+      // For brand-new schedules the anchor equals the activeStart.
       const result = await this._doCreateSchedule(
         trx,
         data,
+        data.activeStart,
         room,
         now,
         collector,
       );
-      if (result === 'CONFLICT') return 'CONFLICT' as const;
+      if (result === 'CONFLICT' || result === 'INVALID_ACTIVE_START') {
+        return result;
+      }
 
       await this._finalizeRoomWrite(trx, data.roomUid, now, collector);
       return result;
@@ -406,7 +494,7 @@ export class ScheduleManagementService {
     uid: string,
     data: UpdateScheduleInput,
     now: Date,
-  ): Promise<Schedule | 'NOT_FOUND' | 'CONFLICT'> {
+  ): Promise<Schedule | 'NOT_FOUND' | 'CONFLICT' | 'INVALID_ACTIVE_START'> {
     return this._runWithEvents(async (trx, collector) => {
       const existing = await this._repo.findScheduleByUid(trx, uid);
       if (existing?.activeEnd !== null) {
@@ -419,10 +507,14 @@ export class ScheduleManagementService {
       const deleted = await this._doDeleteSchedule(trx, uid, now, collector);
       if (deleted === 'NOT_FOUND') return 'NOT_FOUND' as const;
 
+      // Merged active_start defaults to the existing row's; the caller must
+      // supply an explicit future value to update a schedule that has already
+      // taken effect (existing.activeStart <= now). _doCreateSchedule rejects
+      // any merged.activeStart <= now with INVALID_ACTIVE_START.
       const merged: CreateScheduleInput = {
         roomUid: existing.roomUid,
         name: data.name ?? existing.name,
-        activeStart: data.activeStart ?? maxDate(existing.activeStart, now),
+        activeStart: data.activeStart ?? existing.activeStart,
         activeEnd:
           'activeEnd' in data ? (data.activeEnd ?? null) : existing.activeEnd,
         localStartTime: data.localStartTime ?? existing.localStartTime,
@@ -439,14 +531,19 @@ export class ScheduleManagementService {
           data.transcriptionStreamConfig ?? existing.transcriptionStreamConfig,
       };
 
+      // Anchor is preserved verbatim across updates so BIWEEKLY cadence does
+      // not shift even when activeStart is bumped forward by the merge.
       const created = await this._doCreateSchedule(
         trx,
         merged,
+        existing.anchorStart,
         room,
         now,
         collector,
       );
-      if (created === 'CONFLICT') return 'CONFLICT' as const;
+      if (created === 'CONFLICT' || created === 'INVALID_ACTIVE_START') {
+        return created;
+      }
 
       await this._finalizeRoomWrite(trx, existing.roomUid, now, collector);
       return created;
@@ -856,14 +953,26 @@ export class ScheduleManagementService {
    * Inner schedule-creation logic shared by `createSchedule` and
    * `updateSchedule`. Assumes the caller has already locked the room and
    * runs inside their transaction.
+   *
+   * @param anchorStart The BIWEEKLY parity reference to persist with the new
+   *   schedule. For brand-new schedules this is `data.activeStart`; for
+   *   updates the caller passes the existing schedule's `anchorStart` so
+   *   cadence is preserved.
    */
   private async _doCreateSchedule(
     trx: Transaction<DB>,
     data: CreateScheduleInput,
+    anchorStart: Date,
     room: { uid: string; timezone: string; autoSessionEnabled: boolean },
     now: Date,
     collector: EventCollector,
-  ): Promise<Schedule | 'CONFLICT'> {
+  ): Promise<Schedule | 'CONFLICT' | 'INVALID_ACTIVE_START'> {
+    // Schedules must produce occurrences strictly in the future; past sessions
+    // are immutable history.
+    if (data.activeStart.getTime() <= now.getTime()) {
+      return 'INVALID_ACTIVE_START';
+    }
+
     const activeEnd = data.activeEnd ?? null;
 
     // Reject zero/negative-length active range up front; the DB CHECK would
@@ -889,6 +998,7 @@ export class ScheduleManagementService {
       uid: '__candidate__',
       activeStart: data.activeStart,
       activeEnd,
+      anchorStart,
       localStartTime: data.localStartTime,
       localEndTime: data.localEndTime,
       frequency: data.frequency,
@@ -909,7 +1019,10 @@ export class ScheduleManagementService {
       }
     }
 
-    const schedule = await this._repo.insertSchedule(trx, data);
+    const schedule = await this._repo.insertSchedule(trx, {
+      ...data,
+      anchorStart,
+    });
 
     const windowEnd = addDays(now, MATERIALIZATION_WINDOW_DAYS);
     // The materializer already trims to `min(activeEnd, windowEnd)` when the

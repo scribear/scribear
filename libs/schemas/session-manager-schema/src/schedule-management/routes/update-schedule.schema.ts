@@ -7,21 +7,24 @@ import {
 } from '@scribear/base-schema';
 
 import { SESSION_MANAGER_BASE_PATH } from '#src/base-path.js';
+import { SESSION_SCOPE_SCHEMA } from '#src/shared/entities/session-scope.schema.js';
 import {
   ADMIN_API_KEY_AUTH_HEADER_SCHEMA,
   ADMIN_API_KEY_SECURITY,
   INVALID_ADMIN_KEY_REPLY_SCHEMA,
 } from '#src/shared/security/admin-api-key.js';
-import { SESSION_SCOPE_SCHEMA } from '#src/shared/entities/session-scope.schema.js';
 import { SCHEDULE_MANAGEMENT_TAG } from '#src/tags.js';
 
 import { DAY_OF_WEEK_SCHEMA } from '../entities/day-of-week.schema.js';
 import { SCHEDULE_FREQUENCY_SCHEMA } from '../entities/schedule-frequency.schema.js';
-import { LOCAL_TIME_SCHEMA, SESSION_SCHEDULE_SCHEMA } from '../entities/session-schedule.schema.js';
+import {
+  LOCAL_TIME_SCHEMA,
+  SESSION_SCHEDULE_SCHEMA,
+} from '../entities/session-schedule.schema.js';
 
 const UPDATE_SCHEDULE_SCHEMA = {
   description:
-    'Update an open schedule by closing it at the current instant and re-inserting a new row with the merged fields. Past sessions are preserved; future occurrences are re-materialized. The schedule must be open (activeEnd is null).',
+    "Update an open schedule by closing it at the current instant and re-inserting a new row with the merged fields. Past sessions are preserved; future occurrences are re-materialized. The schedule must be open (activeEnd is null). The merged activeStart must be strictly in the future — when updating a schedule that has already taken effect, the caller must explicitly supply a future activeStart. The schedule's BIWEEKLY anchor is preserved verbatim across updates so cadence does not shift.",
   tags: [SCHEDULE_MANAGEMENT_TAG],
   security: ADMIN_API_KEY_SECURITY,
   headers: Type.Object({
@@ -54,6 +57,10 @@ const UPDATE_SCHEDULE_SCHEMA = {
     }),
     409: Type.Object({
       code: Type.Literal('CONFLICT'),
+      message: Type.String(),
+    }),
+    422: Type.Object({
+      code: Type.Literal('INVALID_ACTIVE_START'),
       message: Type.String(),
     }),
   },

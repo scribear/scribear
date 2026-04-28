@@ -4,6 +4,12 @@ export interface ScheduleForMaterialization {
   uid: string;
   activeStart: Date;
   activeEnd: Date | null;
+  /**
+   * BIWEEKLY parity reference. Set on creation to the original `activeStart`
+   * and preserved verbatim across updates so that updates never shift the
+   * cadence. Unused for ONCE/WEEKLY but still required to keep callers honest.
+   */
+  anchorStart: Date;
   // Wall-clock time in the room's timezone: "HH:MM" or "HH:MM:SS".
   localStartTime: string;
   // Wall-clock time in the room's timezone: "HH:MM" or "HH:MM:SS".
@@ -82,7 +88,9 @@ export function materializeSchedule(
     return [];
   }
 
-  const anchorWeekStart = activeStartDt.startOf('week');
+  const anchorWeekStart = DateTime.fromJSDate(schedule.anchorStart, {
+    zone: timezone,
+  }).startOf('week');
   const qualifyingWeekdays = new Set(
     (schedule.daysOfWeek ?? []).map((d) => DOW_TO_LUXON[d]),
   );

@@ -32,10 +32,7 @@ const CREATE_AUTO_SESSION_WINDOW_SCHEMA = {
     localEndTime: LOCAL_TIME_SCHEMA,
     daysOfWeek: Type.Array(DAY_OF_WEEK_SCHEMA, { minItems: 1 }),
     activeStart: Type.String({ format: 'date-time' }),
-    activeEnd: Type.Union([
-      Type.String({ format: 'date-time' }),
-      Type.Null(),
-    ]),
+    activeEnd: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
     transcriptionProviderId: Type.String(),
     transcriptionStreamConfig: Type.Unknown(),
   }),

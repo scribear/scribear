@@ -15,6 +15,8 @@ import { ReadinessController } from '#src/server/features/probes/readiness.contr
 import { RoomManagementController } from '#src/server/features/room-management/room-management.controller.js';
 import { RoomManagementRepository } from '#src/server/features/room-management/room-management.repository.js';
 import { RoomManagementService } from '#src/server/features/room-management/room-management.service.js';
+import { MaterializationWorker } from '#src/server/features/schedule-management/materialization.worker.js';
+import { ScheduleManagementController } from '#src/server/features/schedule-management/schedule-management.controller.js';
 import { ScheduleManagementRepository } from '#src/server/features/schedule-management/schedule-management.repository.js';
 import { ScheduleManagementService } from '#src/server/features/schedule-management/schedule-management.service.js';
 import { DeviceAuthRepository } from '#src/server/shared/repositories/device-auth.repository.js';
@@ -22,6 +24,7 @@ import { AdminAuthService } from '#src/server/shared/services/admin-auth.service
 import { DeviceAuthService } from '#src/server/shared/services/device-auth.service.js';
 import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
 import { HashService } from '#src/server/shared/services/hash.service.js';
+import { ServiceAuthService } from '#src/server/shared/services/service-auth.service.js';
 
 import type { AppConfig } from './app-dependencies.js';
 import type { AppDependencies } from './app-dependencies.js';
@@ -38,7 +41,9 @@ function registerDependencies(
     // Config values
     baseConfig: asValue(config.baseConfig),
     adminAuthConfig: asValue(config.adminAuthConfig),
+    serviceAuthConfig: asValue(config.serviceAuthConfig),
     dbClientConfig: asValue(config.dbClientConfig),
+    materializationWorkerConfig: asValue(config.materializationWorkerConfig),
 
     // Database
     dbClient: asClass(DBClient, { lifetime: Lifetime.SINGLETON }),
@@ -46,6 +51,9 @@ function registerDependencies(
     // Shared services
     hashService: asClass(HashService, { lifetime: Lifetime.SINGLETON }),
     adminAuthService: asClass(AdminAuthService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    serviceAuthService: asClass(ServiceAuthService, {
       lifetime: Lifetime.SINGLETON,
     }),
     deviceAuthService: asClass(DeviceAuthService, {
@@ -91,11 +99,22 @@ function registerDependencies(
     }),
 
     // Schedule management
+    scheduleManagementController: asClass(ScheduleManagementController, {
+      lifetime: Lifetime.SCOPED,
+    }),
     scheduleManagementService: asClass(ScheduleManagementService, {
       lifetime: Lifetime.SCOPED,
     }),
     scheduleManagementRepository: asClass(ScheduleManagementRepository, {
       lifetime: Lifetime.SINGLETON,
+    }),
+    // SCOPED rather than SINGLETON because the worker depends on
+    // `scheduleManagementService`, which is SCOPED. Awilix forbids a longer
+    // lifetime depending on a shorter one. Resolving the worker at startup
+    // from the root container produces a single instance for the process,
+    // with its scoped dependencies cached on the same root scope.
+    materializationWorker: asClass(MaterializationWorker, {
+      lifetime: Lifetime.SCOPED,
     }),
   } as NameAndRegistrationPair<AppDependencies>);
 }

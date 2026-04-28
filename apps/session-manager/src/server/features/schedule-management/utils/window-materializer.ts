@@ -26,6 +26,8 @@ export function materializeWindow(
       uid: window.uid,
       activeStart: window.activeStart,
       activeEnd: window.activeEnd,
+      // Windows are WEEKLY, so the anchor is unused; pass activeStart for shape.
+      anchorStart: window.activeStart,
       localStartTime: window.localStartTime,
       localEndTime: window.localEndTime,
       frequency: 'WEEKLY',

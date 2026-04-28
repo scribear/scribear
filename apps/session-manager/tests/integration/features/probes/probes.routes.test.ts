@@ -47,6 +47,12 @@ describe('Probes Routes', () => {
           dbHost: '127.0.0.1',
           dbPort: 1,
         },
+        materializationWorkerConfig: {
+          enabled: false,
+          intervalMs: 60_000,
+          staleAfterMs: 24 * 60 * 60 * 1000,
+          maxRoomsPerTick: 1000,
+        },
       } as unknown as AppConfig;
       const { fastify } = await createServer(brokenConfig);
       await fastify.ready();

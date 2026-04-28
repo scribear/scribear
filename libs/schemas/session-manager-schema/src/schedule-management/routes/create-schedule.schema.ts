@@ -7,17 +7,20 @@ import {
 } from '@scribear/base-schema';
 
 import { SESSION_MANAGER_BASE_PATH } from '#src/base-path.js';
+import { SESSION_SCOPE_SCHEMA } from '#src/shared/entities/session-scope.schema.js';
 import {
   ADMIN_API_KEY_AUTH_HEADER_SCHEMA,
   ADMIN_API_KEY_SECURITY,
   INVALID_ADMIN_KEY_REPLY_SCHEMA,
 } from '#src/shared/security/admin-api-key.js';
-import { SESSION_SCOPE_SCHEMA } from '#src/shared/entities/session-scope.schema.js';
 import { SCHEDULE_MANAGEMENT_TAG } from '#src/tags.js';
 
 import { DAY_OF_WEEK_SCHEMA } from '../entities/day-of-week.schema.js';
 import { SCHEDULE_FREQUENCY_SCHEMA } from '../entities/schedule-frequency.schema.js';
-import { LOCAL_TIME_SCHEMA, SESSION_SCHEDULE_SCHEMA } from '../entities/session-schedule.schema.js';
+import {
+  LOCAL_TIME_SCHEMA,
+  SESSION_SCHEDULE_SCHEMA,
+} from '../entities/session-schedule.schema.js';
 
 const CREATE_SCHEDULE_SCHEMA = {
   description:
@@ -32,17 +35,17 @@ const CREATE_SCHEDULE_SCHEMA = {
     name: Type.String({ minLength: 1, maxLength: 256 }),
     activeStart: Type.String({
       format: 'date-time',
-      description: 'UTC instant at which the schedule begins producing occurrences.',
+      description:
+        'UTC instant at which the schedule begins producing occurrences. Must be strictly in the future — schedules never produce occurrences in the past.',
     }),
-    activeEnd: Type.Union(
-      [
-        Type.String({
-          format: 'date-time',
-          description: 'UTC instant after which the schedule produces no more occurrences. Null for indefinite.',
-        }),
-        Type.Null(),
-      ],
-    ),
+    activeEnd: Type.Union([
+      Type.String({
+        format: 'date-time',
+        description:
+          'UTC instant after which the schedule produces no more occurrences. Null for indefinite.',
+      }),
+      Type.Null(),
+    ]),
     localStartTime: LOCAL_TIME_SCHEMA,
     localEndTime: LOCAL_TIME_SCHEMA,
     frequency: SCHEDULE_FREQUENCY_SCHEMA,
@@ -66,6 +69,10 @@ const CREATE_SCHEDULE_SCHEMA = {
     }),
     409: Type.Object({
       code: Type.Literal('CONFLICT'),
+      message: Type.String(),
+    }),
+    422: Type.Object({
+      code: Type.Literal('INVALID_ACTIVE_START'),
       message: Type.String(),
     }),
   },

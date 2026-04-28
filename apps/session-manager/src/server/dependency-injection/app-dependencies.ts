@@ -13,6 +13,11 @@ import type { ReadinessController } from '#src/server/features/probes/readiness.
 import type { RoomManagementController } from '#src/server/features/room-management/room-management.controller.js';
 import type { RoomManagementRepository } from '#src/server/features/room-management/room-management.repository.js';
 import type { RoomManagementService } from '#src/server/features/room-management/room-management.service.js';
+import type {
+  MaterializationWorker,
+  MaterializationWorkerConfig,
+} from '#src/server/features/schedule-management/materialization.worker.js';
+import type { ScheduleManagementController } from '#src/server/features/schedule-management/schedule-management.controller.js';
 import type { ScheduleManagementRepository } from '#src/server/features/schedule-management/schedule-management.repository.js';
 import type { ScheduleManagementService } from '#src/server/features/schedule-management/schedule-management.service.js';
 import type { DeviceAuthRepository } from '#src/server/shared/repositories/device-auth.repository.js';
@@ -21,6 +26,10 @@ import type { AdminAuthService } from '#src/server/shared/services/admin-auth.se
 import type { DeviceAuthService } from '#src/server/shared/services/device-auth.service.js';
 import type { EventBusService } from '#src/server/shared/services/event-bus.service.js';
 import type { HashService } from '#src/server/shared/services/hash.service.js';
+import type {
+  ServiceAuthConfig,
+  ServiceAuthService,
+} from '#src/server/shared/services/service-auth.service.js';
 
 /**
  * All named dependencies available in the Awilix container.
@@ -29,7 +38,9 @@ interface AppDependencies extends BaseDependencies {
   // Config
   baseConfig: BaseConfig;
   adminAuthConfig: AdminAuthConfig;
+  serviceAuthConfig: ServiceAuthConfig;
   dbClientConfig: DBClientConfig;
+  materializationWorkerConfig: MaterializationWorkerConfig;
 
   // Database
   dbClient: DBClient;
@@ -37,6 +48,7 @@ interface AppDependencies extends BaseDependencies {
   // Shared services
   hashService: HashService;
   adminAuthService: AdminAuthService;
+  serviceAuthService: ServiceAuthService;
   deviceAuthService: DeviceAuthService;
   eventBusService: EventBusService;
 
@@ -58,8 +70,10 @@ interface AppDependencies extends BaseDependencies {
   deviceManagementRepository: DeviceManagementRepository;
 
   // Schedule management
+  scheduleManagementController: ScheduleManagementController;
   scheduleManagementService: ScheduleManagementService;
   scheduleManagementRepository: ScheduleManagementRepository;
+  materializationWorker: MaterializationWorker;
 }
 
 /**

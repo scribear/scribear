@@ -21,6 +21,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 
       active_start                 TIMESTAMPTZ NOT NULL,
       active_end                   TIMESTAMPTZ NULL,
+      anchor_start                 TIMESTAMPTZ NOT NULL,
 
       local_start_time             TIME NOT NULL,
       local_end_time               TIME NOT NULL,

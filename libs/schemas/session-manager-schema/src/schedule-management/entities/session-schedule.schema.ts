@@ -26,6 +26,11 @@ export const SESSION_SCHEDULE_SCHEMA = Type.Object(
 
     activeStart: Type.String({ format: 'date-time' }),
     activeEnd: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+    anchorStart: Type.String({
+      format: 'date-time',
+      description:
+        "BIWEEKLY parity reference. Equals the schedule's original activeStart; preserved verbatim across updates so the biweekly cadence does not shift.",
+    }),
 
     localStartTime: LOCAL_TIME_SCHEMA,
     localEndTime: LOCAL_TIME_SCHEMA,

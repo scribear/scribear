@@ -18,6 +18,12 @@ describe('Swagger UI', () => {
         baseConfig: { isDevelopment: true, logLevel: LogLevel.SILENT, port: 0, host: '127.0.0.1' },
         adminAuthConfig: { adminApiKey: TEST_ADMIN_KEY },
         dbClientConfig: dbConfig,
+        materializationWorkerConfig: {
+          enabled: false,
+          intervalMs: 60_000,
+          staleAfterMs: 24 * 60 * 60 * 1000,
+          maxRoomsPerTick: 1000,
+        },
       } as unknown as AppConfig;
       const server = await createServer(config);
       fastify = server.fastify;
@@ -43,6 +49,12 @@ describe('Swagger UI', () => {
         baseConfig: { isDevelopment: false, logLevel: LogLevel.SILENT, port: 0, host: '127.0.0.1' },
         adminAuthConfig: { adminApiKey: TEST_ADMIN_KEY },
         dbClientConfig: dbConfig,
+        materializationWorkerConfig: {
+          enabled: false,
+          intervalMs: 60_000,
+          staleAfterMs: 24 * 60 * 60 * 1000,
+          maxRoomsPerTick: 1000,
+        },
       } as unknown as AppConfig;
       const server = await createServer(config);
       fastify = server.fastify;

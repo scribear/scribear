@@ -9,10 +9,14 @@ const NOW = new Date('2024-06-03T00:00:00Z');
 function makeSchedule(
   overrides: Partial<ScheduleForMaterialization>,
 ): ScheduleForMaterialization {
+  const activeStart = overrides.activeStart ?? new Date('2024-06-03T00:00:00Z');
   return {
     uid: 'sched-1',
-    activeStart: new Date('2024-06-03T00:00:00Z'),
+    activeStart,
     activeEnd: null,
+    // Default anchor mirrors the original activeStart, matching how the
+    // service sets anchor_start = activeStart on schedule creation.
+    anchorStart: activeStart,
     localStartTime: '09:00:00',
     localEndTime: '10:00:00',
     frequency: 'WEEKLY',
