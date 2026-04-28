@@ -26,8 +26,6 @@
     "test:unit": "vitest run --project unit"
   },
   "dependencies": {
-    "@scribear/base-api-client": "*",
-    "@scribear/base-schema": "*",
     "eventemitter3": "5.0.4",
     "typebox": "1.1.5"
   }
