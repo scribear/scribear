@@ -11,6 +11,7 @@ import {
 } from '#src/server/features/schedule-management/materialization.worker.js';
 import type { AdminAuthConfig } from '#src/server/shared/services/admin-auth.service.js';
 import type { ServiceAuthConfig } from '#src/server/shared/services/service-auth.service.js';
+import type { SessionTokenConfig } from '#src/server/shared/services/session-token.service.js';
 
 const CONFIG_SCHEMA = Type.Object({
   LOG_LEVEL: Type.Enum(LogLevel),
@@ -18,6 +19,7 @@ const CONFIG_SCHEMA = Type.Object({
   HOST: Type.String(),
   ADMIN_API_KEY: Type.String(),
   SESSION_MANAGER_SERVICE_API_KEY: Type.String(),
+  SESSION_TOKEN_SIGNING_KEY: Type.String(),
   DB_HOST: Type.String(),
   DB_PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
   DB_NAME: Type.String(),
@@ -54,6 +56,12 @@ export class AppConfig {
   get serviceAuthConfig(): ServiceAuthConfig {
     return {
       serviceApiKey: this._env.SESSION_MANAGER_SERVICE_API_KEY,
+    };
+  }
+
+  get sessionTokenConfig(): SessionTokenConfig {
+    return {
+      signingKey: this._env.SESSION_TOKEN_SIGNING_KEY,
     };
   }
 

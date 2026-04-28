@@ -19,12 +19,16 @@ import { MaterializationWorker } from '#src/server/features/schedule-management/
 import { ScheduleManagementController } from '#src/server/features/schedule-management/schedule-management.controller.js';
 import { ScheduleManagementRepository } from '#src/server/features/schedule-management/schedule-management.repository.js';
 import { ScheduleManagementService } from '#src/server/features/schedule-management/schedule-management.service.js';
+import { SessionAuthController } from '#src/server/features/session-auth/session-auth.controller.js';
+import { SessionAuthRepository } from '#src/server/features/session-auth/session-auth.repository.js';
+import { SessionAuthService } from '#src/server/features/session-auth/session-auth.service.js';
 import { DeviceAuthRepository } from '#src/server/shared/repositories/device-auth.repository.js';
 import { AdminAuthService } from '#src/server/shared/services/admin-auth.service.js';
 import { DeviceAuthService } from '#src/server/shared/services/device-auth.service.js';
 import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
 import { HashService } from '#src/server/shared/services/hash.service.js';
 import { ServiceAuthService } from '#src/server/shared/services/service-auth.service.js';
+import { SessionTokenService } from '#src/server/shared/services/session-token.service.js';
 
 import type { AppConfig } from './app-dependencies.js';
 import type { AppDependencies } from './app-dependencies.js';
@@ -42,6 +46,7 @@ function registerDependencies(
     baseConfig: asValue(config.baseConfig),
     adminAuthConfig: asValue(config.adminAuthConfig),
     serviceAuthConfig: asValue(config.serviceAuthConfig),
+    sessionTokenConfig: asValue(config.sessionTokenConfig),
     dbClientConfig: asValue(config.dbClientConfig),
     materializationWorkerConfig: asValue(config.materializationWorkerConfig),
 
@@ -58,6 +63,9 @@ function registerDependencies(
     }),
     deviceAuthService: asClass(DeviceAuthService, {
       lifetime: Lifetime.SCOPED,
+    }),
+    sessionTokenService: asClass(SessionTokenService, {
+      lifetime: Lifetime.SINGLETON,
     }),
     eventBusService: asClass(EventBusService, {
       lifetime: Lifetime.SINGLETON,
@@ -115,6 +123,17 @@ function registerDependencies(
     // with its scoped dependencies cached on the same root scope.
     materializationWorker: asClass(MaterializationWorker, {
       lifetime: Lifetime.SCOPED,
+    }),
+
+    // Session auth
+    sessionAuthController: asClass(SessionAuthController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    sessionAuthService: asClass(SessionAuthService, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    sessionAuthRepository: asClass(SessionAuthRepository, {
+      lifetime: Lifetime.SINGLETON,
     }),
   } as NameAndRegistrationPair<AppDependencies>);
 }

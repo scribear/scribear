@@ -8,6 +8,7 @@ export const TEST_ADMIN_KEY = 'test-admin-key';
 export const ADMIN_HEADER = `Bearer ${TEST_ADMIN_KEY}`;
 export const TEST_SERVICE_KEY = 'test-service-key';
 export const SERVICE_HEADER = `Bearer ${TEST_SERVICE_KEY}`;
+export const TEST_SESSION_TOKEN_SIGNING_KEY = 'test-session-token-signing-key';
 
 type ServerCtx = {
   fastify: Awaited<ReturnType<typeof createServer>>['fastify'];
@@ -29,6 +30,7 @@ export function useServer(): ServerCtx {
       },
       adminAuthConfig: { adminApiKey: TEST_ADMIN_KEY },
       serviceAuthConfig: { serviceApiKey: TEST_SERVICE_KEY },
+      sessionTokenConfig: { signingKey: TEST_SESSION_TOKEN_SIGNING_KEY },
       dbClientConfig: dbConfig,
       materializationWorkerConfig: {
         enabled: false,

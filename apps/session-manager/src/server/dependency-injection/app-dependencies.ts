@@ -20,6 +20,9 @@ import type {
 import type { ScheduleManagementController } from '#src/server/features/schedule-management/schedule-management.controller.js';
 import type { ScheduleManagementRepository } from '#src/server/features/schedule-management/schedule-management.repository.js';
 import type { ScheduleManagementService } from '#src/server/features/schedule-management/schedule-management.service.js';
+import type { SessionAuthController } from '#src/server/features/session-auth/session-auth.controller.js';
+import type { SessionAuthRepository } from '#src/server/features/session-auth/session-auth.repository.js';
+import type { SessionAuthService } from '#src/server/features/session-auth/session-auth.service.js';
 import type { DeviceAuthRepository } from '#src/server/shared/repositories/device-auth.repository.js';
 import type { AdminAuthConfig } from '#src/server/shared/services/admin-auth.service.js';
 import type { AdminAuthService } from '#src/server/shared/services/admin-auth.service.js';
@@ -30,6 +33,10 @@ import type {
   ServiceAuthConfig,
   ServiceAuthService,
 } from '#src/server/shared/services/service-auth.service.js';
+import type {
+  SessionTokenConfig,
+  SessionTokenService,
+} from '#src/server/shared/services/session-token.service.js';
 
 /**
  * All named dependencies available in the Awilix container.
@@ -39,6 +46,7 @@ interface AppDependencies extends BaseDependencies {
   baseConfig: BaseConfig;
   adminAuthConfig: AdminAuthConfig;
   serviceAuthConfig: ServiceAuthConfig;
+  sessionTokenConfig: SessionTokenConfig;
   dbClientConfig: DBClientConfig;
   materializationWorkerConfig: MaterializationWorkerConfig;
 
@@ -50,6 +58,7 @@ interface AppDependencies extends BaseDependencies {
   adminAuthService: AdminAuthService;
   serviceAuthService: ServiceAuthService;
   deviceAuthService: DeviceAuthService;
+  sessionTokenService: SessionTokenService;
   eventBusService: EventBusService;
 
   // Shared repositories
@@ -74,6 +83,11 @@ interface AppDependencies extends BaseDependencies {
   scheduleManagementService: ScheduleManagementService;
   scheduleManagementRepository: ScheduleManagementRepository;
   materializationWorker: MaterializationWorker;
+
+  // Session auth
+  sessionAuthController: SessionAuthController;
+  sessionAuthService: SessionAuthService;
+  sessionAuthRepository: SessionAuthRepository;
 }
 
 /**

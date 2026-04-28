@@ -10,6 +10,7 @@ import { deviceManagementRouter } from './features/device-management/device-mana
 import { probesRouter } from './features/probes/probes.router.js';
 import { roomManagementRouter } from './features/room-management/room-management.router.js';
 import { scheduleManagementRouter } from './features/schedule-management/schedule-management.router.js';
+import { sessionAuthRouter } from './features/session-auth/session-auth.router.js';
 import swagger from './plugins/swagger.js';
 
 /**
@@ -31,6 +32,7 @@ async function createServer(config: AppConfig) {
   fastify.register(deviceManagementRouter);
   fastify.register(roomManagementRouter);
   fastify.register(scheduleManagementRouter);
+  fastify.register(sessionAuthRouter);
 
   const materializationWorker = dependencyContainer.resolve<
     AppDependencies['materializationWorker']
