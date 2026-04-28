@@ -1,21 +1,16 @@
 import crypto from 'node:crypto';
+import { Value } from 'typebox/value';
 
-import type { SessionScope } from '@scribear/scribear-db';
+import {
+  SESSION_TOKEN_PAYLOAD_SCHEMA,
+  type SessionTokenPayload,
+} from '@scribear/session-manager-schema';
 
 export interface SessionTokenConfig {
   signingKey: string;
 }
 
-/**
- * Decoded contents of a verified session token. `exp` is a Unix timestamp in
- * seconds (matching the JWT convention) so the wire format stays compact.
- */
-export interface SessionTokenPayload {
-  sessionUid: string;
-  clientId: string;
-  scopes: SessionScope[];
-  exp: number;
-}
+export type { SessionTokenPayload };
 
 const TOKEN_SEPARATOR = '.';
 
@@ -82,11 +77,16 @@ export class SessionTokenService {
 
     const json = base64UrlDecode(encodedPayload);
     if (json === null) return null;
+
+    let parsed: unknown;
     try {
-      return JSON.parse(json) as SessionTokenPayload;
+      parsed = JSON.parse(json);
     } catch {
       return null;
     }
+
+    if (!Value.Check(SESSION_TOKEN_PAYLOAD_SCHEMA, parsed)) return null;
+    return parsed;
   }
 
   private _computeSignature(encodedPayload: string): string {

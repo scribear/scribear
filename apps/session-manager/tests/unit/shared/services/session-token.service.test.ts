@@ -5,7 +5,7 @@ import { SessionTokenService } from '#src/server/shared/services/session-token.s
 const SIGNING_KEY = 'unit-test-signing-key';
 
 const PAYLOAD = {
-  sessionUid: 'session-1',
+  sessionUid: '00000000-0000-0000-0000-000000000001',
   clientId: 'client-1',
   scopes: ['RECEIVE_TRANSCRIPTIONS' as const],
   exp: 1_700_000_000,

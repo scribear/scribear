@@ -1,0 +1,39 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "paths": {
+      "#src/*": [
+        "./src/*"
+      ],
+      "#tests/*": [
+        "./tests/*"
+      ]
+    }
+  },
+  "include": [
+    "src",
+    "tests"
+  ],
+  "references": [
+    {
+      "path": "../../libs/base-fastify-server"
+    },
+    {
+      "path": "../../libs/schemas/node-server-schema"
+    },
+    {
+      "path": "../../libs/schemas/session-manager-schema"
+    },
+    {
+      "path": "../../libs/clients/session-manager-client"
+    },
+    {
+      "path": "../../libs/clients/transcription-service-client"
+    },
+    {
+      "path": "../../infra/scribear-db"
+    }
+  ]
+}

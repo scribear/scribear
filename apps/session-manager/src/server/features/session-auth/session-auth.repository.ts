@@ -70,6 +70,26 @@ export class SessionAuthRepository {
   }
 
   /**
+   * Acquires a `FOR UPDATE` lock on the session row, serializing join-code
+   * issuance for the session within the caller's transaction. Returns the
+   * session uid, or undefined if the session does not exist. Callers follow
+   * up with `findSessionForAuth` to read auth-relevant fields under the lock.
+   */
+  async lockSession(
+    db: DBOrTrx,
+    sessionUid: string,
+  ): Promise<{ uid: string } | undefined> {
+    const row = await db
+      .selectFrom('sessions')
+      .select('uid')
+      .where('uid', '=', sessionUid)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!row) return undefined;
+    return { uid: row.uid };
+  }
+
+  /**
    * Fetches the auth-relevant fields for a session. Returns the precomputed
    * `effectiveStart` / `effectiveEnd` so callers can apply the same active
    * predicate used elsewhere in the codebase.

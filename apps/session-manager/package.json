@@ -4,6 +4,20 @@
   "description": "",
   "author": "scribear",
   "main": "dist/src/index.js",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./server": {
+      "development": "./src/server/create-server.ts",
+      "default": "./dist/src/server/create-server.js"
+    },
+    "./app-config": {
+      "development": "./src/app-config/app-config.ts",
+      "default": "./dist/src/app-config/app-config.js"
+    }
+  },
   "type": "module",
   "imports": {
     "#src/*": "./dist/src/*",

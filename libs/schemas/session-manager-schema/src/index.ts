@@ -54,6 +54,7 @@ export * from './schedule-management/routes/start-session-early.schema.js';
 export * from './schedule-management/routes/end-session-early.schema.js';
 export * from './schedule-management/routes/session-config-stream.schema.js';
 
+export * from './session-auth/entities/session-token-payload.schema.js';
 export * from './session-auth/routes/fetch-join-code.schema.js';
 export * from './session-auth/routes/exchange-device-token.schema.js';
 export * from './session-auth/routes/exchange-join-code.schema.js';

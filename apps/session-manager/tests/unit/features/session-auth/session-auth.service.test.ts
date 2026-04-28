@@ -29,6 +29,7 @@ const ENDED_SESSION = {
 describe('SessionAuthService', () => {
   let mockRepo: {
     db: { transaction: Mock };
+    lockSession: Mock;
     findSessionForAuth: Mock;
     isDeviceInRoom: Mock;
     isDeviceSourceForRoom: Mock;
@@ -53,6 +54,7 @@ describe('SessionAuthService', () => {
 
     mockRepo = {
       db: { transaction: vi.fn(() => transactionStub) },
+      lockSession: vi.fn().mockResolvedValue({ uid: SESSION_UID }),
       findSessionForAuth: vi.fn(),
       isDeviceInRoom: vi.fn(),
       isDeviceSourceForRoom: vi.fn(),
@@ -76,6 +78,19 @@ describe('SessionAuthService', () => {
   describe('fetchJoinCodes', (it) => {
     it("returns 'SESSION_NOT_FOUND' when the session does not exist", async () => {
       // Arrange
+      mockRepo.lockSession.mockResolvedValue(undefined);
+
+      // Act
+      const result = await service.fetchJoinCodes(DEVICE_UID, SESSION_UID, NOW);
+
+      // Assert
+      expect(result).toBe('SESSION_NOT_FOUND');
+    });
+
+    it("returns 'SESSION_NOT_FOUND' when the session row vanishes after the lock", async () => {
+      // Arrange - defensive branch: the lock guarantees the row stays put,
+      // but the service still tolerates a missing row from findSessionForAuth.
+      mockRepo.lockSession.mockResolvedValue({ uid: SESSION_UID });
       mockRepo.findSessionForAuth.mockResolvedValue(undefined);
 
       // Act
@@ -139,6 +154,24 @@ describe('SessionAuthService', () => {
       expect(result.current.validStart).toEqual(NOW);
       expect(result.next).toBeNull();
       expect(mockRepo.insertJoinCode).toHaveBeenCalledTimes(1);
+      // The session row must be locked before we read active codes or insert,
+      // otherwise concurrent callers can both pass the find-then-insert check.
+      expect(mockRepo.lockSession).toHaveBeenCalledWith(
+        expect.anything(),
+        SESSION_UID,
+      );
+      const [lockOrder] = mockRepo.lockSession.mock.invocationCallOrder;
+      const [findOrder] = mockRepo.findActiveJoinCodes.mock.invocationCallOrder;
+      const [insertOrder] = mockRepo.insertJoinCode.mock.invocationCallOrder;
+      if (
+        lockOrder === undefined ||
+        findOrder === undefined ||
+        insertOrder === undefined
+      ) {
+        throw new Error('expected each repo method to have been called');
+      }
+      expect(lockOrder).toBeLessThan(findOrder);
+      expect(lockOrder).toBeLessThan(insertOrder);
     });
 
     it('returns the existing current code without rotating when far from expiry', async () => {

@@ -37,10 +37,12 @@ import {
 
 function createScheduleManagementClient(baseUrl: string) {
   return {
-    mySchedule: createEndpointClient(
+    mySchedule: createLongPollClient(
       MY_SCHEDULE_SCHEMA,
       MY_SCHEDULE_ROUTE,
       baseUrl,
+      'sinceVersion',
+      'roomScheduleVersion',
     ),
     listSchedules: createEndpointClient(
       LIST_SCHEDULES_SCHEMA,

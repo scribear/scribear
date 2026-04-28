@@ -3,10 +3,7 @@ import type { Static, TSchema } from 'typebox';
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
 
 /**
- * Defines an event bus channel's message schema and key construction. The
- * shape mirrors `ChannelDefinition` from `@scribear/scribear-redis` so that a
- * Redis-backed implementation can be swapped in for multi-instance
- * deployments without changes at the call sites.
+ * Defines an event bus channel's message schema and key construction.
  *
  * @typeParam T - TypeBox schema for channel messages.
  * @typeParam TArgs - Argument types for the key builder.

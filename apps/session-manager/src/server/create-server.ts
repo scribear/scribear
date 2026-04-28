@@ -44,6 +44,16 @@ async function createServer(config: AppConfig) {
     await materializationWorker.stop();
   });
 
+  // Drain the pg pool on shutdown. Without this, in-flight idle clients
+  // surface a fatal admin-shutdown error (Postgres 57P01) when the database
+  // shuts down before us, and pg-pool re-emits that as an unhandled `error`
+  // event on the BoundPool.
+  const dbClient =
+    dependencyContainer.resolve<AppDependencies['dbClient']>('dbClient');
+  fastify.addHook('onClose', async () => {
+    await dbClient.destroy();
+  });
+
   return { logger, fastify };
 }
 

@@ -72,6 +72,12 @@ export class SessionAuthService {
     | 'JOIN_CODE_SCOPES_EMPTY'
   > {
     return this._repo.db.transaction().execute(async (trx) => {
+      // Serialize join-code mutations per session under a row-level lock so
+      // two concurrent calls can't both pass the find-then-insert check below
+      // and emit duplicate active codes.
+      const locked = await this._repo.lockSession(trx, sessionUid);
+      if (!locked) return 'SESSION_NOT_FOUND' as const;
+
       const session = await this._repo.findSessionForAuth(trx, sessionUid);
       if (!session) return 'SESSION_NOT_FOUND' as const;
 
