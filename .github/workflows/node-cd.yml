@@ -111,19 +111,19 @@ jobs:
         run: |
           eval "$(ssh-agent -s)"
           ssh-add - <<< "${DEPLOY_KEY}"
-          git clone git@github.com:scribear/v.git
+          git clone --depth 1 --single-branch --branch master git@github.com:scribear/v.git
           git config --global user.email "angrave@illinois.edu"
           git config --global user.name "scribear-bot"
           cd v
           ls -la
-          export SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`
+          export SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-8)"
 
-          git rm -rf latest-v2
-          git commit -m "Removing previous latest dir"
+          git checkout --orphan "deploy-${SHORT_SHA}"
+          git rm -rf --ignore-unmatch latest-v2
 
           mkdir -p latest-v2
-          mv ../apps/standalone-webapp/dist/* latest-v2
-          git add latest-v2
+          cp -a ../apps/standalone-webapp/dist/. latest-v2/
+          git add -A
 
           git commit -m "Commit Deploy: ${SHORT_SHA}"
-          git push origin master
+          git push --force-with-lease origin HEAD:master
