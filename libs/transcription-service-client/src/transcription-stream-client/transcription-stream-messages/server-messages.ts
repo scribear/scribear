@@ -11,6 +11,12 @@ const IPTranscriptMessageSchema = Type.Object({
   text: Type.Array(Type.String()),
   starts: Type.Union([Type.Array(Type.Number()), Type.Null()]),
   ends: Type.Union([Type.Array(Type.Number()), Type.Null()]),
+  speakers: Type.Optional(
+    Type.Union([
+      Type.Array(Type.Union([Type.String(), Type.Null()])),
+      Type.Null(),
+    ]),
+  ),
 });
 type IPTranscriptMessage = Type.Static<typeof IPTranscriptMessageSchema>;
 
@@ -19,6 +25,12 @@ const FinalTranscriptMessageSchema = Type.Object({
   text: Type.Array(Type.String()),
   starts: Type.Union([Type.Array(Type.Number()), Type.Null()]),
   ends: Type.Union([Type.Array(Type.Number()), Type.Null()]),
+  speakers: Type.Optional(
+    Type.Union([
+      Type.Array(Type.Union([Type.String(), Type.Null()])),
+      Type.Null(),
+    ]),
+  ),
 });
 type FinalTranscriptMessage = Type.Static<typeof FinalTranscriptMessageSchema>;
 

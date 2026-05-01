@@ -37,6 +37,7 @@ class JobContextDefinitionUID(StrEnum):
 
     FASTER_WHISPER = "faster-whisper"
     SILERO_VAD = "silero-vad"
+    PYANNOTE_DIARIZATION = "pyannote-diarization"
 
 
 class JobContextConfigSchema(BaseModel):

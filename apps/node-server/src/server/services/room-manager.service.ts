@@ -182,23 +182,31 @@ export class RoomManagerService {
         );
 
         // Wire up transcript events to fan out to subscribers
-        transcriptionClient.on('ipTranscription', (text, starts, ends) => {
-            this._broadcastToSubscribers(room, {
-                type: 'ip_transcript',
-                text,
-                starts,
-                ends,
-            });
-        });
+        transcriptionClient.on(
+            'ipTranscription',
+            (text, starts, ends, speakers) => {
+                this._broadcastToSubscribers(room, {
+                    type: 'ip_transcript',
+                    text,
+                    starts,
+                    ends,
+                    speakers,
+                });
+            },
+        );
 
-        transcriptionClient.on('finalTranscription', (text, starts, ends) => {
-            this._broadcastToSubscribers(room, {
-                type: 'final_transcript',
-                text,
-                starts,
-                ends,
-            });
-        });
+        transcriptionClient.on(
+            'finalTranscription',
+            (text, starts, ends, speakers) => {
+                this._broadcastToSubscribers(room, {
+                    type: 'final_transcript',
+                    text,
+                    starts,
+                    ends,
+                    speakers,
+                });
+            },
+        );
 
         transcriptionClient.on('connected', () => {
             this._log.info({ sessionId }, 'Transcription service connected');

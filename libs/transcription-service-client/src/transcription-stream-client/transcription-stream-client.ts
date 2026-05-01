@@ -22,11 +22,13 @@ interface ClientEvents {
     text: string[],
     starts: number[] | null,
     ends: number[] | null,
+    speakers: (string | null)[] | null,
   ) => void;
   finalTranscription: (
     text: string[],
     starts: number[] | null,
     ends: number[] | null,
+    speakers: (string | null)[] | null,
   ) => void;
 }
 
@@ -107,15 +109,17 @@ class TranscriptionStreamClient extends EventEmitter<ClientEvents> {
       this.emit(
         'ipTranscription',
         serverMessage.text,
-        serverMessage.ends ?? null,
         serverMessage.starts ?? null,
+        serverMessage.ends ?? null,
+        serverMessage.speakers ?? null,
       );
     } else {
       this.emit(
         'finalTranscription',
         serverMessage.text,
-        serverMessage.ends ?? null,
         serverMessage.starts ?? null,
+        serverMessage.ends ?? null,
+        serverMessage.speakers ?? null,
       );
     }
   }

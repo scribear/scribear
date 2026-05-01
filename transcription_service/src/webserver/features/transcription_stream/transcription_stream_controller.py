@@ -134,6 +134,7 @@ class TranscriptionStreamController(WebsocketHandler):
                     text=result.final.text,
                     starts=result.final.starts,
                     ends=result.final.ends,
+                    speakers=result.final.speakers,
                 )
             )
         if result.in_progress is not None:
@@ -142,6 +143,7 @@ class TranscriptionStreamController(WebsocketHandler):
                     text=result.in_progress.text,
                     starts=result.in_progress.starts,
                     ends=result.in_progress.ends,
+                    speakers=result.in_progress.speakers,
                 )
             )
 

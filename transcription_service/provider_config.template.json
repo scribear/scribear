@@ -24,6 +24,20 @@
             "negative_affinity": null,
             "creation_cost": 0.05,
             "context_config": {}
+        },
+        {
+            "context_uid": "pyannote-diarization",
+            "max_instances": 1,
+            "tags": [
+                "pyannote_diarization"
+            ],
+            "negative_affinity": null,
+            "creation_cost": 0.3,
+            "context_config": {
+                "model": "pyannote/speaker-diarization-community-1",
+                "device": "cpu",
+                "token_env_var": "HUGGINGFACE_ACCESS_TOKEN"
+            }
         }
     ],
     "providers": [
@@ -42,7 +56,9 @@
                 "context_tag": "whisper_cpu_context",
                 "job_period_ms": 5000,
                 "max_buffer_len_sec": 30,
-                "local_agree_dim": 2
+                "local_agree_dim": 2,
+                "diarization_detector": false,
+                "diarization_context_tag": "pyannote_diarization"
             }
         }
     ]

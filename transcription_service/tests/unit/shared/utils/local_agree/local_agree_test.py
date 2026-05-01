@@ -6,7 +6,9 @@ from src.shared.utils.local_agree import LocalAgree, TranscriptionSegment
 from src.transcription_provider_interface import TranscriptionSequence
 
 
-def gen_segments(text: list[str], offset: float = 0):
+def gen_segments(
+    text: list[str], offset: float = 0, speakers: list[str | None] | None = None
+):
     """
     Converts a list of text into a list of TranscriptionSegments
     with timestamps in 1 second intervals
@@ -22,13 +24,18 @@ def gen_segments(text: list[str], offset: float = 0):
     for start, word in enumerate(text):
         segments.append(
             TranscriptionSegment(
-                text=word, start=offset + start, end=offset + start + 1
+                text=word,
+                start=offset + start,
+                end=offset + start + 1,
+                speaker=speakers[start] if speakers is not None else None,
             )
         )
     return segments
 
 
-def gen_sequence(text: list[str], offset: float = 0):
+def gen_sequence(
+    text: list[str], offset: float = 0, speakers: list[str | None] | None = None
+):
     """
     Converts a list of text into a TranscriptionSegment
     with timestamps in 1 second intervals
@@ -42,7 +49,12 @@ def gen_sequence(text: list[str], offset: float = 0):
     """
     starts = [offset + i for i in range(len(text))]
     ends = [offset + i + 1 for i in range(len(text))]
-    return TranscriptionSequence(text, starts, ends)
+    return TranscriptionSequence(
+        text,
+        starts,
+        ends,
+        speakers if speakers is not None else [None] * len(text),
+    )
 
 
 def test_single_append_in_progress_dim_2():
@@ -198,3 +210,23 @@ def test_empty_forced_finalize():
     assert forced is None
     assert ll.pop_finalized() is None
     assert ll.get_in_progress() == gen_sequence(text1, 5)
+
+
+def test_speakers_are_preserved():
+    """
+    Test that speaker labels are included in finalized and in progress output.
+    """
+    # Arrange
+    ll = LocalAgree(2)
+    text0 = ["Speaker", "labeled."]
+    text1 = ["Speaker", "labeled.", "Next"]
+    speakers0 = ["SPEAKER_00", "SPEAKER_01"]
+    speakers1 = ["SPEAKER_00", "SPEAKER_01", "SPEAKER_01"]
+
+    # Act
+    ll.append_transcription(gen_segments(text0, speakers=speakers0))
+    ll.append_transcription(gen_segments(text1, speakers=speakers1))
+
+    # Assert
+    assert ll.pop_finalized() == gen_sequence(text0, speakers=speakers0)
+    assert ll.get_in_progress() == gen_sequence(["Next"], 2, ["SPEAKER_01"])

@@ -11,6 +11,10 @@ from src.shared.utils.np_circular_buffer import NPCircularBuffer
 from src.shared.utils.silence_filter import RMSSilenceDetection
 from src.shared.utils.worker_pool import JobInterface
 from src.transcription_contexts.faster_whisper_context import WhisperModel
+from src.transcription_contexts.pyannote_diarization_context import (
+    PyannoteDiarizationModelType,
+    SpeakerDiarizationSegment,
+)
 from src.transcription_contexts.silero_vad_context import SileroVadModelType
 from src.transcription_provider_interface import (
     TranscriptionClientError,
@@ -22,12 +26,14 @@ from .whisper_streaming_config import WhisperStreamingProviderConfig
 
 SAMPLE_RATE = 16000
 NUM_CHANNELS = 1
+JobContexts = (
+    tuple[WhisperModel, SileroVadModelType]
+    | tuple[WhisperModel, SileroVadModelType, PyannoteDiarizationModelType]
+)
 
 
 class WhisperStreamingProviderJob(
-    JobInterface[
-        tuple[WhisperModel, SileroVadModelType], bytes, TranscriptionResult
-    ]
+    JobInterface[JobContexts, bytes, TranscriptionResult]
 ):
     """
     WorkerPool job definition for WhisperStreamingProvider
@@ -62,6 +68,10 @@ class WhisperStreamingProviderJob(
         self._vad_neg_threshold = config.vad_neg_threshold
         if self._vad_neg_threshold is not None:
             self._vad_neg_threshold = float(self._vad_neg_threshold)
+
+        self._enable_diarization = config.diarization_detector
+        self._diarization_min_speakers = config.diarization_min_speakers
+        self._diarization_max_speakers = config.diarization_max_speakers
 
     def _decode_audio(self, batch: list[bytes]):
         """
@@ -117,10 +127,66 @@ class WhisperStreamingProviderJob(
 
         return ranges
 
+    def _detect_speaker_ranges(
+        self,
+        buffer_samples: np.ndarray,
+        diarization_context: PyannoteDiarizationModelType | None,
+        log: Logger,
+    ) -> list[SpeakerDiarizationSegment]:
+        """
+        Detect speaker ranges and convert timestamps to session-relative time.
+        """
+        if not self._enable_diarization or diarization_context is None:
+            return []
+
+        try:
+            ranges = diarization_context.diarize(
+                buffer_samples,
+                SAMPLE_RATE,
+                min_speakers=self._diarization_min_speakers,
+                max_speakers=self._diarization_max_speakers,
+            )
+        except Exception as e:
+            log.warning(f"Diarization failed: {e}", exc_info=e)
+            return []
+
+        offset_sec = self._buffer_offset_samples / SAMPLE_RATE
+        return [
+            SpeakerDiarizationSegment(
+                start=offset_sec + segment.start,
+                end=offset_sec + segment.end,
+                speaker=segment.speaker,
+            )
+            for segment in ranges
+        ]
+
+    def _assign_speaker(
+        self,
+        word_start: float,
+        word_end: float,
+        speaker_ranges: list[SpeakerDiarizationSegment],
+    ) -> str | None:
+        """
+        Assign the speaker range with the largest overlap with the word.
+        """
+        best_speaker = None
+        best_overlap = 0.0
+        for speaker_range in speaker_ranges:
+            overlap = max(
+                0.0,
+                min(word_end, speaker_range.end)
+                - max(word_start, speaker_range.start),
+            )
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_speaker = speaker_range.speaker
+        return best_speaker
+
     def _transcribe_audio(
         self,
         whisper: WhisperModel,
         vad_context: SileroVadModelType,
+        diarization_context: PyannoteDiarizationModelType | None,
         log: Logger,
     ):
         """
@@ -139,6 +205,9 @@ class WhisperStreamingProviderJob(
             return []
 
         ranges = self._detect_speech_ranges(buffer_samples, vad_context, log)
+        speaker_ranges = self._detect_speaker_ranges(
+            buffer_samples, diarization_context, log
+        )
         transcription: list = []
 
         for start_sample, end_sample in ranges:
@@ -172,11 +241,16 @@ class WhisperStreamingProviderJob(
                         "Expected whisper transcription to have word timestamps"
                     )
                 for word in part.words:
+                    word_start = offset_sec + word.start
+                    word_end = offset_sec + word.end
                     transcription.append(
                         TranscriptionSegment(
                             word.word,
-                            offset_sec + word.start,
-                            offset_sec + word.end,
+                            word_start,
+                            word_end,
+                            self._assign_speaker(
+                                word_start, word_end, speaker_ranges
+                            ),
                         )
                     )
         return transcription
@@ -196,14 +270,15 @@ class WhisperStreamingProviderJob(
             a.starts.extend(b.starts)
         if a.ends is not None and b.ends is not None:
             a.ends.extend(b.ends)
+        if a.speakers is not None and b.speakers is not None:
+            a.speakers.extend(b.speakers)
 
     def process_batch(
-        self,
-        log: Logger,
-        contexts: tuple[WhisperModel, SileroVadModelType],
-        batch: list[bytes],
+        self, log: Logger, contexts: JobContexts, batch: list[bytes]
     ) -> TranscriptionResult:
-        whisper_model, vad_context = contexts
+        whisper_model = contexts[0]
+        vad_context = contexts[1]
+        diarization_context = contexts[2] if len(contexts) > 2 else None
 
         self._decode_audio(batch)
 
@@ -225,7 +300,9 @@ class WhisperStreamingProviderJob(
 
         # Transcribe the audio currently in the buffer
         log.debug("Last finalized: " + self._last_finalized)
-        segments = self._transcribe_audio(whisper_model, vad_context, log)
+        segments = self._transcribe_audio(
+            whisper_model, vad_context, diarization_context, log
+        )
         if len(segments) == 0:
             log.info("No words transcribed in buffer.")
 

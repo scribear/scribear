@@ -138,6 +138,7 @@ async def test_transcription_stream_accepts_valid_auth_config(
             ],
             "starts": None,
             "ends": None,
+            "speakers": None,
             "type": "final_transcript",
         }
 
@@ -174,6 +175,7 @@ async def test_transcription_stream_accepts_audio(test_client: TestClient):
             # Assert
             assert received["starts"] is None
             assert received["ends"] is None
+            assert received["speakers"] is None
             assert received["type"] == "ip_transcript"
 
             assert len(received["text"]) == 2

@@ -1,18 +1,19 @@
 .DEFAULT_GOAL := start
+PYTHON ?= python3
 
 install_dev:
-	pip install -e .[dev,faster-whisper,silero-vad]
+	$(PYTHON) -m pip install -e '.[dev,faster-whisper,silero-vad,pyannote-diarization]'
 
 install:
-	pip install .
+	$(PYTHON) -m pip install .
 
 # Run application in prod mode
 start:
-	python src/index.py
+	$(PYTHON) src/index.py
 
 # Run application in dev mode (hot reload + pretty print enabled)
 dev:
-	watchfiles "python src/index.py --dev"
+	$(PYTHON) -m watchfiles "$(PYTHON) src/index.py --dev"
 
 # Formatting without editing and run linter
 format:

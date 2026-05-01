@@ -21,6 +21,10 @@ class WhisperStreamingProviderConfig(BaseModel):
     vad_threshold: float = 0.5
     vad_neg_threshold: Optional[float] = None
     silence_threshold: float = 0.01
+    diarization_detector: bool = False
+    diarization_context_tag: str = "pyannote_diarization"
+    diarization_min_speakers: Optional[int] = None
+    diarization_max_speakers: Optional[int] = None
 
 
 whisper_streaming_config_adapter = TypeAdapter[WhisperStreamingProviderConfig](

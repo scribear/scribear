@@ -85,6 +85,18 @@ class TranscriptionService:
                         config.negative_affinity,
                         config.creation_cost,
                     )
+                case JobContextDefinitionUID.PYANNOTE_DIARIZATION:
+                    from src.transcription_contexts.pyannote_diarization_context import (
+                        PyannoteDiarizationContext,
+                    )
+
+                    context = PyannoteDiarizationContext(
+                        config.context_config,
+                        config.max_instances,
+                        config.tags,
+                        config.negative_affinity,
+                        config.creation_cost,
+                    )
 
             context_def[i] = context
         return context_def

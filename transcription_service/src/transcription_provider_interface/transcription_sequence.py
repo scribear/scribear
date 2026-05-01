@@ -16,14 +16,16 @@ class TranscriptionSequence:
                     representing the timestamp of start of the word
         ends    - List of timestamps relative to transcription session initialization
                     representing the timestamp of end of the word
+        speakers - List of speaker labels corresponding to each element of text
 
-    If defined, each element of start and end array should correspond
+    If defined, each element of start, end, and speaker arrays should correspond
         to an element of text array
     """
 
     text: list[str]
     starts: list[float] | None = None
     ends: list[float] | None = None
+    speakers: list[str | None] | None = None
 
     def __str__(self):
         transcription = "".join(self.text)
