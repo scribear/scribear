@@ -52,8 +52,7 @@ def mock_config():
     mock.provider_config.contexts = []
     mock.provider_config.providers = {
         "debug": TranscriptionProviderConfigSchema(
-            provider_uid=TranscriptionProviderUID.DEBUG,
-            provider_config=None,
+            provider_uid=TranscriptionProviderUID.DEBUG, provider_config=None
         )
     }
     return mock
