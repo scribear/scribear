@@ -1,58 +1,52 @@
-import crypto from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, vi } from 'vitest';
 
-import type { SessionTokenPayload } from '@scribear/session-manager-schema';
-
 import { AudioFrameChannel } from '#src/server/features/transcription-stream/events/audio-frame.events.js';
+import { SessionEndedChannel } from '#src/server/features/transcription-stream/events/session-ended.events.js';
 import { SessionStatusChannel } from '#src/server/features/transcription-stream/events/session-status.events.js';
 import { TranscriptChannel } from '#src/server/features/transcription-stream/events/transcript.events.js';
 import { TranscriptionStreamService } from '#src/server/features/transcription-stream/transcription-stream.service.js';
 import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
-import { SessionTokenService } from '#src/server/shared/services/session-token.service.js';
 import { createMockLogger } from '#tests/utils/mock-logger.js';
 
-const SIGNING_KEY = 'svc-test-key';
 const SESSION_UID = '00000000-0000-0000-0000-000000000abc';
-const FAR_FUTURE = Math.floor(Date.now() / 1000) + 3600;
-
-function signToken(payload: SessionTokenPayload, key = SIGNING_KEY): string {
-  const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString(
-    'base64url',
-  );
-  const signature = crypto
-    .createHmac('sha256', key)
-    .update(encoded)
-    .digest('base64url');
-  return `${encoded}.${signature}`;
-}
 
 interface Harness {
   service: TranscriptionStreamService;
   bus: EventBusService;
   registerSource: ReturnType<typeof vi.fn>;
   unregisterSource: ReturnType<typeof vi.fn>;
+  getStatus: ReturnType<typeof vi.fn>;
   sent: unknown[];
   closes: { code: number; reason: string }[];
 }
 
 function makeHarness(
   role: 'source' | 'client',
-  options: { authTimeoutMs?: number; registerThrows?: boolean } = {},
+  options: {
+    registerThrows?: boolean;
+    initialStatus?: {
+      transcriptionServiceConnected: boolean;
+      sourceDeviceConnected: boolean;
+    };
+  } = {},
 ): Harness {
   const logger = createMockLogger();
   const bus = new EventBusService(logger as never);
-  const tokenService = new SessionTokenService({ signingKey: SIGNING_KEY });
   const unregisterSource = vi.fn();
   const registerSource = vi.fn(async () => {
     if (options.registerThrows) throw new Error('orchestrator-down');
     return unregisterSource;
   });
+  const getStatus = vi.fn(
+    () =>
+      options.initialStatus ?? {
+        transcriptionServiceConnected: false,
+        sourceDeviceConnected: false,
+      },
+  );
   const orchestrator = {
     registerSource,
-    getStatus: () => ({
-      transcriptionServiceConnected: false,
-      sourceDeviceConnected: false,
-    }),
+    getStatus,
     activeSessionCount: 0,
   } as unknown as ConstructorParameters<
     typeof TranscriptionStreamService
@@ -60,12 +54,9 @@ function makeHarness(
 
   const service = new TranscriptionStreamService({
     role,
-    urlSessionUid: SESSION_UID,
-    logger: logger as never,
-    sessionTokenService: tokenService,
+    sessionUid: SESSION_UID,
     eventBusService: bus,
     transcriptionOrchestratorService: orchestrator,
-    authTimeoutMs: options.authTimeoutMs ?? 5000,
   });
 
   const sent: unknown[] = [];
@@ -77,7 +68,7 @@ function makeHarness(
     closes.push({ code, reason });
   });
 
-  return { service, bus, registerSource, unregisterSource, sent, closes };
+  return { service, bus, registerSource, unregisterSource, getStatus, sent, closes };
 }
 
 beforeEach(() => {
@@ -89,238 +80,131 @@ afterEach(() => {
 });
 
 describe('TranscriptionStreamService', () => {
-  describe('auth handshake', (it) => {
-    it('emits authOk and registers the source on a valid token with SEND_AUDIO scope', async () => {
+  describe('start', (it) => {
+    it('registers the source with the orchestrator on source-role start', async () => {
       // Arrange
       const h = makeHarness('source');
-      h.service.start();
-      const token = signToken({
-        sessionUid: SESSION_UID,
-        clientId: 'c1',
-        scopes: ['SEND_AUDIO', 'RECEIVE_TRANSCRIPTIONS'],
-        exp: FAR_FUTURE,
-      });
 
       // Act
-      void h.service.handleAuth(token);
-      await vi.waitFor(() => {
-        expect(h.sent[0]).toEqual({ type: 'authOk' });
-      });
+      await h.service.start();
 
       // Assert
       expect(h.registerSource).toHaveBeenCalledWith(SESSION_UID);
-      expect(h.sent[0]).toEqual({ type: 'authOk' });
-      expect(h.closes).toHaveLength(0);
     });
 
-    it('does not call registerSource for the client role', async () => {
+    it('does not register with the orchestrator on client-role start', async () => {
       // Arrange
       const h = makeHarness('client');
-      h.service.start();
-      const token = signToken({
-        sessionUid: SESSION_UID,
-        clientId: 'c1',
-        scopes: ['RECEIVE_TRANSCRIPTIONS'],
-        exp: FAR_FUTURE,
-      });
 
       // Act
-      void h.service.handleAuth(token);
-      await vi.waitFor(() => {
-        expect(h.sent[0]).toEqual({ type: 'authOk' });
-      });
+      await h.service.start();
 
       // Assert
       expect(h.registerSource).not.toHaveBeenCalled();
-      expect(h.sent[0]).toEqual({ type: 'authOk' });
     });
 
-    it('closes 1008 invalid-token when the signature is wrong', async () => {
-      // Arrange
-      const h = makeHarness('source');
-      h.service.start();
-      const token = signToken(
-        {
-          sessionUid: SESSION_UID,
-          clientId: 'c1',
-          scopes: ['SEND_AUDIO'],
-          exp: FAR_FUTURE,
-        },
-        'wrong-key',
-      );
-
-      // Act
-      void h.service.handleAuth(token);
-      await vi.waitFor(() => {
-        expect(h.closes).toHaveLength(1);
-      });
-
-      // Assert
-      expect(h.closes[0]).toEqual({ code: 1008, reason: 'invalid-token' });
-    });
-
-    it('closes 1008 token-expired when exp is in the past', async () => {
-      // Arrange
-      const h = makeHarness('source');
-      h.service.start();
-      const token = signToken({
-        sessionUid: SESSION_UID,
-        clientId: 'c1',
-        scopes: ['SEND_AUDIO'],
-        exp: Math.floor(Date.now() / 1000) - 60,
-      });
-
-      // Act
-      void h.service.handleAuth(token);
-      await vi.waitFor(() => {
-        expect(h.closes).toHaveLength(1);
-      });
-
-      // Assert
-      expect(h.closes[0]).toEqual({ code: 1008, reason: 'token-expired' });
-    });
-
-    it("closes 1008 session-mismatch when the token's sessionUid differs from the URL", async () => {
-      // Arrange
-      const h = makeHarness('source');
-      h.service.start();
-      const token = signToken({
-        sessionUid: '00000000-0000-0000-0000-000000000999',
-        clientId: 'c1',
-        scopes: ['SEND_AUDIO'],
-        exp: FAR_FUTURE,
-      });
-
-      // Act
-      void h.service.handleAuth(token);
-      await vi.waitFor(() => {
-        expect(h.closes).toHaveLength(1);
-      });
-
-      // Assert
-      expect(h.closes[0]).toEqual({ code: 1008, reason: 'session-mismatch' });
-    });
-
-    it('closes 1008 missing-scope when the source role lacks SEND_AUDIO', async () => {
-      // Arrange
-      const h = makeHarness('source');
-      h.service.start();
-      const token = signToken({
-        sessionUid: SESSION_UID,
-        clientId: 'c1',
-        scopes: ['RECEIVE_TRANSCRIPTIONS'],
-        exp: FAR_FUTURE,
-      });
-
-      // Act
-      void h.service.handleAuth(token);
-      await vi.waitFor(() => {
-        expect(h.closes).toHaveLength(1);
-      });
-
-      // Assert
-      expect(h.closes[0]).toEqual({ code: 1008, reason: 'missing-scope' });
-    });
-
-    it('closes 1008 missing-scope when the client role lacks RECEIVE_TRANSCRIPTIONS', async () => {
-      // Arrange
-      const h = makeHarness('client');
-      h.service.start();
-      const token = signToken({
-        sessionUid: SESSION_UID,
-        clientId: 'c1',
-        scopes: ['SEND_AUDIO'],
-        exp: FAR_FUTURE,
-      });
-
-      // Act
-      void h.service.handleAuth(token);
-      await vi.waitFor(() => {
-        expect(h.closes).toHaveLength(1);
-      });
-
-      // Assert
-      expect(h.closes[0]).toEqual({ code: 1008, reason: 'missing-scope' });
-    });
-
-    it('closes 1011 orchestrator-unavailable when registerSource throws', async () => {
+    it('propagates orchestrator errors so the controller can map them to 1011', async () => {
       // Arrange
       const h = makeHarness('source', { registerThrows: true });
-      h.service.start();
-      const token = signToken({
-        sessionUid: SESSION_UID,
-        clientId: 'c1',
-        scopes: ['SEND_AUDIO'],
-        exp: FAR_FUTURE,
-      });
 
-      // Act
-      void h.service.handleAuth(token);
-      await vi.waitFor(() => {
-        expect(h.closes).toHaveLength(1);
-      });
-
-      // Assert
-      expect(h.closes[0]).toEqual({
-        code: 1011,
-        reason: 'orchestrator-unavailable',
-      });
+      // Act / Assert
+      await expect(h.service.start()).rejects.toThrow('orchestrator-down');
     });
 
-    it('closes 1008 auth-timeout when no auth message arrives in time', () => {
+    it('does not emit any messages from start - the controller drives auth-success ordering', async () => {
       // Arrange
-      const h = makeHarness('source', { authTimeoutMs: 100 });
+      const h = makeHarness('client');
 
       // Act
-      h.service.start();
-      vi.advanceTimersByTime(100);
+      await h.service.start();
 
       // Assert
-      expect(h.closes[0]).toEqual({ code: 1008, reason: 'auth-timeout' });
+      expect(h.sent).toHaveLength(0);
     });
 
-    it('does not close on auth-timeout once the client has authed', async () => {
-      // Arrange
-      const h = makeHarness('source', { authTimeoutMs: 100 });
-      h.service.start();
-      const token = signToken({
+    it('releases the orchestrator registration when the connection closed mid-start', async () => {
+      // Arrange - delay the registerSource resolution so we can close before it returns.
+      let resolveRegister: (unregister: () => void) => void = () => undefined;
+      const unregister = vi.fn();
+      const registerSource = vi.fn(
+        () =>
+          new Promise<() => void>((resolve) => {
+            resolveRegister = resolve;
+          }),
+      );
+      const logger = createMockLogger();
+      const bus = new EventBusService(logger as never);
+      const orchestrator = {
+        registerSource,
+        getStatus: () => ({
+          transcriptionServiceConnected: false,
+          sourceDeviceConnected: false,
+        }),
+        activeSessionCount: 0,
+      } as unknown as ConstructorParameters<
+        typeof TranscriptionStreamService
+      >[0]['transcriptionOrchestratorService'];
+      const service = new TranscriptionStreamService({
+        role: 'source',
         sessionUid: SESSION_UID,
-        clientId: 'c1',
-        scopes: ['SEND_AUDIO'],
-        exp: FAR_FUTURE,
+        eventBusService: bus,
+        transcriptionOrchestratorService: orchestrator,
       });
 
-      // Act
-      void h.service.handleAuth(token);
-      await vi.waitFor(() => {
-        expect(h.sent[0]).toEqual({ type: 'authOk' });
-      });
-      vi.advanceTimersByTime(1000);
+      // Act - close before resolving the registration.
+      const pending = service.start();
+      service.close();
+      resolveRegister(unregister);
+      await pending;
 
       // Assert
-      expect(h.closes).toHaveLength(0);
+      expect(unregister).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe('binary frames', (it) => {
-    it('publishes binary audio to the bus when the source has authed', async () => {
+  describe('publishCurrentStatus', (it) => {
+    it('emits the orchestrator snapshot on demand', async () => {
+      // Arrange
+      const h = makeHarness('client', {
+        initialStatus: {
+          transcriptionServiceConnected: true,
+          sourceDeviceConnected: false,
+        },
+      });
+      await h.service.start();
+
+      // Act
+      h.service.publishCurrentStatus();
+
+      // Assert
+      expect(h.sent).toEqual([
+        {
+          type: 'sessionStatus',
+          transcriptionServiceConnected: true,
+          sourceDeviceConnected: false,
+        },
+      ]);
+    });
+
+    it('is a no-op after the service is closed', async () => {
+      // Arrange
+      const h = makeHarness('client');
+      await h.service.start();
+      h.service.close();
+
+      // Act
+      h.service.publishCurrentStatus();
+
+      // Assert
+      expect(h.sent).toHaveLength(0);
+    });
+  });
+
+  describe('handleBinary', (it) => {
+    it('publishes binary audio to the bus', async () => {
       // Arrange
       const h = makeHarness('source');
-      h.service.start();
-      void h.service.handleAuth(
-
-        signToken({
-          sessionUid: SESSION_UID,
-          clientId: 'c1',
-          scopes: ['SEND_AUDIO'],
-          exp: FAR_FUTURE,
-        }),
-
-      );
-      await vi.waitFor(() => {
-        expect(h.sent[0]).toEqual({ type: 'authOk' });
-      });
-
+      await h.service.start();
       const received: Buffer[] = [];
       h.bus.subscribe(
         AudioFrameChannel,
@@ -335,71 +219,38 @@ describe('TranscriptionStreamService', () => {
       h.service.handleBinary(frame);
 
       // Assert
-      expect(received).toHaveLength(1);
-      expect(received[0]).toBe(frame);
+      expect(received).toEqual([frame]);
     });
 
-    it('closes 1008 when binary arrives before auth completes', () => {
+    it('ignores binary frames received after close', async () => {
       // Arrange
       const h = makeHarness('source');
-      h.service.start();
+      await h.service.start();
+      const received: Buffer[] = [];
+      h.bus.subscribe(
+        AudioFrameChannel,
+        (frame) => {
+          received.push(frame);
+        },
+        SESSION_UID,
+      );
 
       // Act
+      h.service.close();
       h.service.handleBinary(Buffer.from([1, 2, 3]));
 
       // Assert
-      expect(h.closes[0]).toEqual({ code: 1008, reason: 'binary-before-auth' });
-    });
-
-    it('closes 1008 when an authed client connection sends binary', async () => {
-      // Arrange
-      const h = makeHarness('client');
-      h.service.start();
-      void h.service.handleAuth(
-
-        signToken({
-          sessionUid: SESSION_UID,
-          clientId: 'c1',
-          scopes: ['RECEIVE_TRANSCRIPTIONS'],
-          exp: FAR_FUTURE,
-        }),
-
-      );
-      await vi.waitFor(() => {
-        expect(h.sent[0]).toEqual({ type: 'authOk' });
-      });
-
-      // Act
-      h.service.handleBinary(Buffer.from([1]));
-
-      // Assert
-      expect(h.closes[0]).toEqual({
-        code: 1008,
-        reason: 'binary-not-allowed-for-role',
-      });
+      expect(received).toHaveLength(0);
     });
   });
 
-  describe('transcript fan-out', (it) => {
-    it('emits transcript send messages when the orchestrator publishes to the bus', async () => {
+  describe('bus subscriptions', (it) => {
+    it('emits transcript send messages when the bus publishes a transcript', async () => {
       // Arrange
       const h = makeHarness('client');
-      h.service.start();
-      void h.service.handleAuth(
+      await h.service.start();
 
-        signToken({
-          sessionUid: SESSION_UID,
-          clientId: 'c1',
-          scopes: ['RECEIVE_TRANSCRIPTIONS'],
-          exp: FAR_FUTURE,
-        }),
-
-      );
-      await vi.waitFor(() => {
-        expect(h.sent[0]).toEqual({ type: 'authOk' });
-      });
-
-      // Act - simulate the orchestrator publishing a transcript.
+      // Act
       h.bus.publish(
         TranscriptChannel,
         {
@@ -410,30 +261,17 @@ describe('TranscriptionStreamService', () => {
       );
 
       // Assert
-      expect(h.sent.find((m) => (m as { type: string }).type === 'transcript')).toEqual({
+      expect(h.sent).toContainEqual({
         type: 'transcript',
         final: { text: ['hello'], starts: null, ends: null },
         inProgress: null,
       });
     });
 
-    it('does not emit transcripts from a different session', async () => {
+    it('does not emit transcripts from other sessions', async () => {
       // Arrange
       const h = makeHarness('client');
-      h.service.start();
-      void h.service.handleAuth(
-
-        signToken({
-          sessionUid: SESSION_UID,
-          clientId: 'c1',
-          scopes: ['RECEIVE_TRANSCRIPTIONS'],
-          exp: FAR_FUTURE,
-        }),
-
-      );
-      await vi.waitFor(() => {
-        expect(h.sent[0]).toEqual({ type: 'authOk' });
-      });
+      await h.service.start();
 
       // Act
       h.bus.publish(
@@ -450,158 +288,11 @@ describe('TranscriptionStreamService', () => {
         h.sent.find((m) => (m as { type: string }).type === 'transcript'),
       ).toBeUndefined();
     });
-  });
 
-  describe('cleanup', (it) => {
-    it('unregisters from the orchestrator on close', async () => {
-      // Arrange
-      const h = makeHarness('source');
-      h.service.start();
-      void h.service.handleAuth(
-
-        signToken({
-          sessionUid: SESSION_UID,
-          clientId: 'c1',
-          scopes: ['SEND_AUDIO'],
-          exp: FAR_FUTURE,
-        }),
-
-      );
-      await vi.waitFor(() => {
-        expect(h.sent[0]).toEqual({ type: 'authOk' });
-      });
-
-      // Act
-      h.service.handleClose();
-
-      // Assert
-      expect(h.unregisterSource).toHaveBeenCalledTimes(1);
-    });
-
-    it('unsubscribes from the transcript bus on close', async () => {
+    it('forwards SessionStatusChannel publishes as sessionStatus messages', async () => {
       // Arrange
       const h = makeHarness('client');
-      h.service.start();
-      void h.service.handleAuth(
-        signToken({
-          sessionUid: SESSION_UID,
-          clientId: 'c1',
-          scopes: ['RECEIVE_TRANSCRIPTIONS'],
-          exp: FAR_FUTURE,
-        }),
-      );
-      await vi.waitFor(() => {
-        expect(h.sent[0]).toEqual({ type: 'authOk' });
-      });
-
-      // Act
-      h.service.handleClose();
-      h.bus.publish(
-        TranscriptChannel,
-        {
-          final: { text: ['after-close'], starts: null, ends: null },
-          inProgress: null,
-        },
-        SESSION_UID,
-      );
-
-      // Assert - no transcript message was emitted after close.
-      expect(
-        h.sent.find((m) => (m as { type: string }).type === 'transcript'),
-      ).toBeUndefined();
-    });
-
-    it('ignores binary frames received after handleClose', async () => {
-      // Arrange
-      const h = makeHarness('source');
-      h.service.start();
-      void h.service.handleAuth(
-        signToken({
-          sessionUid: SESSION_UID,
-          clientId: 'c1',
-          scopes: ['SEND_AUDIO'],
-          exp: FAR_FUTURE,
-        }),
-      );
-      await vi.waitFor(() => {
-        expect(h.sent[0]).toEqual({ type: 'authOk' });
-      });
-
-      const audioReceived: Buffer[] = [];
-      h.bus.subscribe(
-        AudioFrameChannel,
-        (frame) => {
-          audioReceived.push(frame);
-        },
-        SESSION_UID,
-      );
-
-      // Act
-      h.service.handleClose();
-      h.service.handleBinary(Buffer.from([1, 2, 3]));
-
-      // Assert - no audio published, no extra close emitted.
-      expect(audioReceived).toHaveLength(0);
-      expect(h.closes).toHaveLength(0);
-    });
-  });
-
-  describe('initial session-status emit', (it) => {
-    it("emits the orchestrator's current status snapshot right after authOk", async () => {
-      // Arrange - prime the orchestrator stub with a non-default snapshot so
-      // the service has something distinguishable to forward.
-      const h = makeHarness('client');
-      const getStatus = h.service[
-        '_transcriptionOrchestratorService'
-      ] as unknown as { getStatus: () => unknown };
-      vi.spyOn(getStatus, 'getStatus').mockReturnValue({
-        transcriptionServiceConnected: true,
-        sourceDeviceConnected: false,
-      });
-
-      h.service.start();
-      void h.service.handleAuth(
-        signToken({
-          sessionUid: SESSION_UID,
-          clientId: 'c1',
-          scopes: ['RECEIVE_TRANSCRIPTIONS'],
-          exp: FAR_FUTURE,
-        }),
-      );
-
-      // Act
-      await vi.waitFor(() => {
-        expect(
-          h.sent.find(
-            (m) => (m as { type: string }).type === 'sessionStatus',
-          ),
-        ).toBeDefined();
-      });
-
-      // Assert - authOk first, then sessionStatus carrying the snapshot.
-      expect(h.sent[0]).toEqual({ type: 'authOk' });
-      expect(h.sent[1]).toEqual({
-        type: 'sessionStatus',
-        transcriptionServiceConnected: true,
-        sourceDeviceConnected: false,
-      });
-    });
-
-    it('forwards subsequent SessionStatusChannel publishes as sessionStatus messages', async () => {
-      // Arrange
-      const h = makeHarness('client');
-      h.service.start();
-      void h.service.handleAuth(
-        signToken({
-          sessionUid: SESSION_UID,
-          clientId: 'c1',
-          scopes: ['RECEIVE_TRANSCRIPTIONS'],
-          exp: FAR_FUTURE,
-        }),
-      );
-      await vi.waitFor(() => {
-        expect(h.sent[0]).toEqual({ type: 'authOk' });
-      });
+      await h.service.start();
 
       // Act
       h.bus.publish(
@@ -620,33 +311,54 @@ describe('TranscriptionStreamService', () => {
         sourceDeviceConnected: true,
       });
     });
+
+    it('emits sessionEnded and self-closes 1000 when SessionEndedChannel fires', async () => {
+      // Arrange
+      const h = makeHarness('client');
+      await h.service.start();
+
+      // Act
+      h.bus.publish(SessionEndedChannel, {}, SESSION_UID);
+
+      // Assert
+      expect(h.sent).toContainEqual({ type: 'sessionEnded' });
+      expect(h.closes).toEqual([{ code: 1000, reason: 'session-ended' }]);
+    });
   });
 
-  describe('idempotency', (it) => {
-    it('ignores a second handleAuth call once the first succeeded', async () => {
+  describe('close', (it) => {
+    it('unregisters from the orchestrator', async () => {
       // Arrange
       const h = makeHarness('source');
-      h.service.start();
-      const token = signToken({
-        sessionUid: SESSION_UID,
-        clientId: 'c1',
-        scopes: ['SEND_AUDIO'],
-        exp: FAR_FUTURE,
-      });
-      void h.service.handleAuth(token);
-      await vi.waitFor(() => {
-        expect(h.sent[0]).toEqual({ type: 'authOk' });
-      });
-      const sentAfterFirst = h.sent.length;
+      await h.service.start();
 
-      // Act - the second handleAuth resolves on the next microtask once it
-      // hits the `_authed || _authPending` short-circuit, so awaiting it
-      // directly is enough to verify nothing extra was emitted.
-      await h.service.handleAuth(token);
+      // Act
+      h.service.close();
 
-      // Assert - no additional authOk / no extra register call.
-      expect(h.sent.length).toBe(sentAfterFirst);
-      expect(h.registerSource).toHaveBeenCalledTimes(1);
+      // Assert
+      expect(h.unregisterSource).toHaveBeenCalledTimes(1);
+    });
+
+    it('unsubscribes from the transcript bus', async () => {
+      // Arrange
+      const h = makeHarness('client');
+      await h.service.start();
+
+      // Act
+      h.service.close();
+      h.bus.publish(
+        TranscriptChannel,
+        {
+          final: { text: ['after-close'], starts: null, ends: null },
+          inProgress: null,
+        },
+        SESSION_UID,
+      );
+
+      // Assert
+      expect(
+        h.sent.find((m) => (m as { type: string }).type === 'transcript'),
+      ).toBeUndefined();
     });
   });
 });

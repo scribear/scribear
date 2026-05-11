@@ -177,7 +177,7 @@ export async function setup({
     ])
     .withExposedPorts(TRANSCRIPTION_PORT)
     .withWaitStrategy(
-      Wait.forHttp('/healthcheck', TRANSCRIPTION_PORT).withStartupTimeout(
+      Wait.forHttp('/probes/liveness', TRANSCRIPTION_PORT).withStartupTimeout(
         180_000,
       ),
     )

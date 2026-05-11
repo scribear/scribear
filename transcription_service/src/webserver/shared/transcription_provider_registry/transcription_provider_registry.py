@@ -1,5 +1,6 @@
 """
-Defines ProviderManager that initializes and manages transcription providers
+Defines TranscriptionProviderRegistry that initializes and manages
+transcription providers configured for the service.
 """
 
 # pylint: disable=import-outside-toplevel
@@ -22,9 +23,12 @@ from src.transcription_provider_interface import (
 )
 
 
-class TranscriptionService:
+class TranscriptionProviderRegistry:
     """
-    Manages initializing transcription providers and holding created transcription providers
+    Owns the worker pool plus every configured transcription provider and
+    hands out sessions on demand. Process-singleton across the service - the
+    per-connection `TranscriptionStreamService` consults this registry to
+    build a session for the requested provider key.
     """
 
     def __init__(self, config: Config, logger: Logger):
@@ -128,8 +132,8 @@ class TranscriptionService:
         self, provider_key: str, session_config: Any, logger: Logger
     ) -> TranscriptionSessionInterface:
         """
-        Gets the initialized transcription provider instance with the given provider uid and
-            creates a session
+        Gets the initialized transcription provider instance with the given
+        provider key and creates a session
 
         Args:
             provider_key    - Transcription Provider key of provider to get

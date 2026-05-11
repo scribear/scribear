@@ -33,7 +33,9 @@ from src.webserver.features.transcription_stream.transcription_stream_messages i
     TranscriptSequence,
 )
 from src.webserver.shared.auth_service import AuthService
-from src.webserver.shared.transcription_service import TranscriptionService
+from src.webserver.shared.transcription_provider_registry import (
+    TranscriptionProviderRegistry,
+)
 
 AUDIO_DIR = path.normpath(
     path.join(
@@ -107,11 +109,11 @@ def mock_auth_service():
 
 
 @pytest.fixture
-def mock_transcription_service():
+def mock_provider_registry():
     """
-    Create a mocked transcription service instance for tests
+    Create a mocked transcription provider registry instance for tests
     """
-    return MagicMock(spec=TranscriptionService)
+    return MagicMock(spec=TranscriptionProviderRegistry)
 
 
 @pytest.fixture
@@ -146,7 +148,7 @@ async def controller(
     mock_config: MagicMock,
     mock_logger: MagicMock,
     mock_auth_service: MagicMock,
-    mock_transcription_service: MagicMock,
+    mock_provider_registry: MagicMock,
     mock_websocket: MagicMock,
     mock_send_method: MagicMock,
     mock_close_method: MagicMock,
@@ -158,7 +160,7 @@ async def controller(
         mock_config,
         mock_logger,
         mock_auth_service,
-        mock_transcription_service,
+        mock_provider_registry,
         PROVIDER_UID,
         mock_websocket,
     )
@@ -251,7 +253,7 @@ async def test_controller_handles_valid_config_message_after_authentication(
     controller: TranscriptionStreamController,
     mock_auth_service: MagicMock,
     mock_child_logger: MagicMock,
-    mock_transcription_service: MagicMock,
+    mock_provider_registry: MagicMock,
 ):
     """
     Test that controller parses valid config message and calls transcription service
@@ -264,7 +266,7 @@ async def test_controller_handles_valid_config_message_after_authentication(
     await controller._handle_text_message(VALID_CONFIG_MESSAGE)
 
     # Assert
-    mock_transcription_service.create_session.assert_called_once_with(
+    mock_provider_registry.create_session.assert_called_once_with(
         PROVIDER_UID, SESSION_CONFIG, mock_child_logger
     )
 
@@ -272,7 +274,7 @@ async def test_controller_handles_valid_config_message_after_authentication(
 @pytest.mark.asyncio
 async def test_controller_rejects_valid_config_message_before_authentication(
     controller: TranscriptionStreamController,
-    mock_transcription_service: MagicMock,
+    mock_provider_registry: MagicMock,
     mock_close_method: MagicMock,
 ):
     """
@@ -282,7 +284,7 @@ async def test_controller_rejects_valid_config_message_before_authentication(
     await controller._handle_text_message(VALID_CONFIG_MESSAGE)
 
     # Assert
-    mock_transcription_service.create_session.assert_not_called()
+    mock_provider_registry.create_session.assert_not_called()
     mock_close_method.assert_called_once_with(1008, "Unexpected Config Message")
 
 
@@ -290,7 +292,7 @@ async def test_controller_rejects_valid_config_message_before_authentication(
 async def test_controller_rejects_valid_config_message_after_configuration(
     controller: TranscriptionStreamController,
     mock_auth_service: MagicMock,
-    mock_transcription_service: MagicMock,
+    mock_provider_registry: MagicMock,
     mock_close_method: MagicMock,
 ):
     """
@@ -305,7 +307,7 @@ async def test_controller_rejects_valid_config_message_after_configuration(
     await controller._handle_text_message(VALID_CONFIG_MESSAGE)
 
     # Assert
-    mock_transcription_service.create_session.assert_called_once()
+    mock_provider_registry.create_session.assert_called_once()
     mock_close_method.assert_called_once_with(1008, "Unexpected Config Message")
 
 
@@ -344,7 +346,7 @@ async def test_controller_closes_connection_with_no_config_message(
 async def test_controller_starts_sessions(
     controller: TranscriptionStreamController,
     mock_auth_service: MagicMock,
-    mock_transcription_service: MagicMock,
+    mock_provider_registry: MagicMock,
 ):
     """
     Test that controller starts transcription session after authentication and configuration
@@ -353,7 +355,7 @@ async def test_controller_starts_sessions(
     mock_session = MagicMock(spec=TranscriptionSessionInterface)
 
     mock_auth_service.is_authenticated.return_value = True
-    mock_transcription_service.create_session.return_value = mock_session
+    mock_provider_registry.create_session.return_value = mock_session
 
     # Act
     await controller._handle_text_message(VALID_AUTH_MESSAGE)
@@ -367,7 +369,7 @@ async def test_controller_starts_sessions(
 async def test_controller_handles_valid_audio_chunk(
     controller: TranscriptionStreamController,
     mock_auth_service: MagicMock,
-    mock_transcription_service: MagicMock,
+    mock_provider_registry: MagicMock,
 ):
     """
     Test that controller forwards audio chunk to transcription session
@@ -377,7 +379,7 @@ async def test_controller_handles_valid_audio_chunk(
     mock_session.handle_audio_chunk.return_value = TranscriptionResult()
 
     mock_auth_service.is_authenticated.return_value = True
-    mock_transcription_service.create_session.return_value = mock_session
+    mock_provider_registry.create_session.return_value = mock_session
 
     await controller._handle_text_message(VALID_AUTH_MESSAGE)
     await controller._handle_text_message(VALID_CONFIG_MESSAGE)
@@ -392,7 +394,7 @@ async def test_controller_handles_valid_audio_chunk(
 @pytest.mark.asyncio
 async def test_controller_rejects_valid_audio_chunk_message_before_authentication(
     controller: TranscriptionStreamController,
-    mock_transcription_service: MagicMock,
+    mock_provider_registry: MagicMock,
     mock_close_method: MagicMock,
 ):
     """
@@ -402,7 +404,7 @@ async def test_controller_rejects_valid_audio_chunk_message_before_authenticatio
     await controller._handle_binary_message(AUDIO_CHUNK)
 
     # Assert
-    mock_transcription_service.create_session.assert_not_called()
+    mock_provider_registry.create_session.assert_not_called()
     mock_close_method.assert_called_once_with(
         1008, "Audio chunk before authentication"
     )
@@ -412,7 +414,7 @@ async def test_controller_rejects_valid_audio_chunk_message_before_authenticatio
 async def test_controller_rejects_valid_audio_chunk_message_before_configuration(
     controller: TranscriptionStreamController,
     mock_auth_service: MagicMock,
-    mock_transcription_service: MagicMock,
+    mock_provider_registry: MagicMock,
     mock_close_method: MagicMock,
 ):
     """
@@ -426,7 +428,7 @@ async def test_controller_rejects_valid_audio_chunk_message_before_configuration
     await controller._handle_binary_message(AUDIO_CHUNK)
 
     # Assert
-    mock_transcription_service.create_session.assert_not_called()
+    mock_provider_registry.create_session.assert_not_called()
     mock_close_method.assert_called_once_with(
         1008, "Audio chunk before configuration"
     )
@@ -436,7 +438,7 @@ async def test_controller_rejects_valid_audio_chunk_message_before_configuration
 async def test_controller_handles_in_progress_transcription_results(
     controller: TranscriptionStreamController,
     mock_auth_service: MagicMock,
-    mock_transcription_service: MagicMock,
+    mock_provider_registry: MagicMock,
     mock_send_method: MagicMock,
 ):
     """
@@ -449,7 +451,7 @@ async def test_controller_handles_in_progress_transcription_results(
 
     mock_session = MockTranscriptionSession()
     mock_auth_service.is_authenticated.return_value = True
-    mock_transcription_service.create_session.return_value = mock_session
+    mock_provider_registry.create_session.return_value = mock_session
 
     await controller._handle_text_message(VALID_AUTH_MESSAGE)
     await controller._handle_text_message(VALID_CONFIG_MESSAGE)
@@ -474,7 +476,7 @@ async def test_controller_handles_in_progress_transcription_results(
 async def test_controller_handles_final_transcription_results(
     controller: TranscriptionStreamController,
     mock_auth_service: MagicMock,
-    mock_transcription_service: MagicMock,
+    mock_provider_registry: MagicMock,
     mock_send_method: MagicMock,
 ):
     """
@@ -487,7 +489,7 @@ async def test_controller_handles_final_transcription_results(
 
     mock_session = MockTranscriptionSession()
     mock_auth_service.is_authenticated.return_value = True
-    mock_transcription_service.create_session.return_value = mock_session
+    mock_provider_registry.create_session.return_value = mock_session
 
     await controller._handle_text_message(VALID_AUTH_MESSAGE)
     await controller._handle_text_message(VALID_CONFIG_MESSAGE)
@@ -510,7 +512,7 @@ async def test_controller_handles_final_transcription_results(
 async def test_controller_handles_in_progress_and_final_transcription_results(
     controller: TranscriptionStreamController,
     mock_auth_service: MagicMock,
-    mock_transcription_service: MagicMock,
+    mock_provider_registry: MagicMock,
     mock_send_method: MagicMock,
 ):
     """
@@ -527,7 +529,7 @@ async def test_controller_handles_in_progress_and_final_transcription_results(
 
     mock_session = MockTranscriptionSession()
     mock_auth_service.is_authenticated.return_value = True
-    mock_transcription_service.create_session.return_value = mock_session
+    mock_provider_registry.create_session.return_value = mock_session
 
     await controller._handle_text_message(VALID_AUTH_MESSAGE)
     await controller._handle_text_message(VALID_CONFIG_MESSAGE)
@@ -554,7 +556,7 @@ async def test_controller_handles_in_progress_and_final_transcription_results(
 async def test_controller_handles_no_transcription_results(
     controller: TranscriptionStreamController,
     mock_auth_service: MagicMock,
-    mock_transcription_service: MagicMock,
+    mock_provider_registry: MagicMock,
     mock_send_method: MagicMock,
 ):
     """
@@ -565,7 +567,7 @@ async def test_controller_handles_no_transcription_results(
     mock_session.handle_audio_chunk.return_value = TranscriptionResult()
 
     mock_auth_service.is_authenticated.return_value = True
-    mock_transcription_service.create_session.return_value = mock_session
+    mock_provider_registry.create_session.return_value = mock_session
 
     await controller._handle_text_message(VALID_AUTH_MESSAGE)
     await controller._handle_text_message(VALID_CONFIG_MESSAGE)
@@ -582,7 +584,7 @@ async def test_controller_ends_session_on_close(
     mock_config: MagicMock,
     mock_logger: MagicMock,
     mock_auth_service: MagicMock,
-    mock_transcription_service: MagicMock,
+    mock_provider_registry: MagicMock,
     mock_websocket: MagicMock,
     mock_send_method: MagicMock,
     mock_close_method: MagicMock,
@@ -595,7 +597,7 @@ async def test_controller_ends_session_on_close(
         mock_config,
         mock_logger,
         mock_auth_service,
-        mock_transcription_service,
+        mock_provider_registry,
         PROVIDER_UID,
         mock_websocket,
     )
@@ -605,7 +607,7 @@ async def test_controller_ends_session_on_close(
 
     mock_session = MagicMock(spec=TranscriptionSessionInterface)
     mock_auth_service.is_authenticated.return_value = True
-    mock_transcription_service.create_session.return_value = mock_session
+    mock_provider_registry.create_session.return_value = mock_session
     await controller._handle_text_message(VALID_AUTH_MESSAGE)
     await controller._handle_text_message(VALID_CONFIG_MESSAGE)
 

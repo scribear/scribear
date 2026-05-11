@@ -26,6 +26,9 @@ describe('Probes Routes', () => {
     let originalSessionManagerClient:
       | (typeof server.fastify.diContainer.cradle)['sessionManagerClient']
       | null = null;
+    let originalTranscriptionServiceClient:
+      | (typeof server.fastify.diContainer.cradle)['transcriptionServiceClient']
+      | null = null;
 
     afterEach(() => {
       if (originalSessionManagerClient !== null) {
@@ -34,9 +37,17 @@ describe('Probes Routes', () => {
         });
         originalSessionManagerClient = null;
       }
+      if (originalTranscriptionServiceClient !== null) {
+        server.fastify.diContainer.register({
+          transcriptionServiceClient: asValue(
+            originalTranscriptionServiceClient,
+          ),
+        });
+        originalTranscriptionServiceClient = null;
+      }
     });
 
-    it('returns 200 ok when Session Manager is reachable', async () => {
+    it('returns 200 ok when all dependencies are reachable', async () => {
       // Arrange / Act
       const res = await server.fastify.inject({
         method: 'GET',
@@ -48,7 +59,7 @@ describe('Probes Routes', () => {
       expect(res.json<{ status: string }>().status).toBe('ok');
     });
 
-    it('returns 503 with sessionManager: fail when the probe call errors', async () => {
+    it('returns 503 with sessionManager: fail when the Session Manager probe errors', async () => {
       // Arrange - swap in a fake session-manager-client whose probes.liveness
       // resolves to the error slot of the EndpointResult tuple.
       originalSessionManagerClient =
@@ -77,10 +88,47 @@ describe('Probes Routes', () => {
       expect(res.statusCode).toBe(503);
       const body = res.json<{
         status: string;
-        checks: { sessionManager: string };
+        checks: { sessionManager: string; transcriptionService: string };
       }>();
       expect(body.status).toBe('fail');
       expect(body.checks.sessionManager).toBe('fail');
+      expect(body.checks.transcriptionService).toBe('ok');
+    });
+
+    it('returns 503 with transcriptionService: fail when the Transcription Service probe errors', async () => {
+      // Arrange - swap in a fake transcription-service-client whose
+      // probes.liveness resolves to the error slot of the EndpointResult tuple.
+      originalTranscriptionServiceClient =
+        server.fastify.diContainer.resolve('transcriptionServiceClient');
+      const failingClient = {
+        ...originalTranscriptionServiceClient,
+        probes: {
+          liveness: async () => [
+            null,
+            new Error('synthetic transcription readiness failure'),
+          ],
+          readiness: async () => [null, new Error('not used')],
+        },
+      };
+      server.fastify.diContainer.register({
+        transcriptionServiceClient: asValue(failingClient as never),
+      });
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${BASE}/readiness`,
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(503);
+      const body = res.json<{
+        status: string;
+        checks: { sessionManager: string; transcriptionService: string };
+      }>();
+      expect(body.status).toBe('fail');
+      expect(body.checks.sessionManager).toBe('ok');
+      expect(body.checks.transcriptionService).toBe('fail');
     });
   });
 });
