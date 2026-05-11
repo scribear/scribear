@@ -1,5 +1,5 @@
 """
-Integration tests for /healthcheck endpoint
+Integration tests for /probes/* endpoints
 """
 
 import logging
@@ -44,12 +44,26 @@ async def test_client(mock_config: Config, mock_logger: Logger):
 
 
 @pytest.mark.timeout(3)
-def test_healthcheck_integration(test_client: TestClient):
+def test_liveness_returns_ok(test_client: TestClient):
     """
-    Test that healthcheck endpoint works
+    Test that liveness endpoint returns 200 with ok status
     """
     # Arrange / Act
-    response = test_client.get("/healthcheck")
+    response = test_client.get("/probes/liveness")
 
     # Assert
     assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+@pytest.mark.timeout(3)
+def test_readiness_returns_ok(test_client: TestClient):
+    """
+    Test that readiness endpoint returns 200 with ok status when ready
+    """
+    # Arrange / Act
+    response = test_client.get("/probes/readiness")
+
+    # Assert
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}

@@ -1,9 +1,11 @@
 """
-Defines TranscriptionStreamController that manages websocket connection for transcription streams
+Defines TranscriptionStreamController that manages a single transcription
+stream WebSocket connection. Owns framing, auth, and the auth -> config ->
+audio message ordering; delegates session lifecycle to
+TranscriptionStreamService.
 """
 
 import asyncio
-from typing import Any
 
 from pydantic import ValidationError
 from starlette.websockets import WebSocket
@@ -13,10 +15,11 @@ from src.shared.logger import Logger
 from src.transcription_provider_interface import (
     TranscriptionClientError,
     TranscriptionResult,
-    TranscriptionSessionInterface,
 )
 from src.webserver.shared.auth_service import AuthService
-from src.webserver.shared.transcription_service import TranscriptionService
+from src.webserver.shared.transcription_provider_registry import (
+    TranscriptionProviderRegistry,
+)
 from src.webserver.shared.websocket_handler import WebsocketHandler
 
 from .transcription_stream_messages import (
@@ -25,16 +28,24 @@ from .transcription_stream_messages import (
     TranscriptMessage,
     TranscriptSequence,
 )
+from .transcription_stream_service import TranscriptionStreamService
 
 
 class TranscriptionStreamController(WebsocketHandler):
     """
-    Controller for /transcription_stream websocket
-    Handles validating websocket messages schema and ordering
+    Controller for /transcription_stream websocket.
 
-    - Auth message must be first to arrive
-    - Config message must immediately follow Auth message
-    - Socket closes after timeout if Auth and Config messages are not received
+    Handles all protocol concerns:
+      - validates incoming message schemas (auth, config, binary audio)
+      - enforces the auth -> config -> audio ordering
+      - runs the auth + config init timeout watchdog
+      - maps thrown errors to WebSocket close codes
+      - serializes transcripts emitted by the service onto the wire
+
+    Auth verification (matching the configured API key) and session lifecycle
+    management are delegated to {@link AuthService} and
+    {@link TranscriptionStreamService} respectively, keeping this class free
+    of business logic.
     """
 
     def __init__(
@@ -42,26 +53,26 @@ class TranscriptionStreamController(WebsocketHandler):
         config: Config,
         logger: Logger,
         auth_service: AuthService,
-        transcription_service: TranscriptionService,
+        provider_registry: TranscriptionProviderRegistry,
         provider_key: str,
         ws: WebSocket,
     ):
         """
         Args:
-            config                  - Application config
-            logger                  - Application logger
-            auth_service            - Auth service instance
-            transcription_service   - Transcription service instance
-            provider_key            - Provider key requested by websocket
-            ws                      - Websocket to manage
+            config              - Application config
+            logger              - Application logger
+            auth_service        - Service used to verify the presented API key
+            provider_registry   - Process-singleton provider registry
+            provider_key        - Provider key requested by websocket
+            ws                  - Websocket to manage
         """
         super().__init__(logger, ws)
 
         self._auth_service = auth_service
-        self._transcription_service = transcription_service
+        self._provider_registry = provider_registry
         self._provider_key = provider_key
-        self._session: TranscriptionSessionInterface | None = None
 
+        self._service: TranscriptionStreamService | None = None
         self._is_authenticated = False
         self._timeout_task = asyncio.create_task(
             self._init_timeout(config.ws_init_timeout_sec)
@@ -69,24 +80,19 @@ class TranscriptionStreamController(WebsocketHandler):
 
     async def _init_timeout(self, timeout: float):
         """
-        AsyncIO task that closes websocket connection if authentication and
-        configuration is not completed after timeout
-
-        Args:
-            timeout - Timeout length in seconds
+        Closes the websocket if authentication or configuration has not
+        completed within the given timeout.
         """
         await asyncio.sleep(timeout)
         if not self._is_authenticated:
             self.close(1008, "Auth Timeout")
-        elif self._session is None:
+        elif self._service is None:
             self.close(1008, "Config Timeout")
 
     def _auth(self, api_key: str):
         """
-        Handles auth message
-
-        Args:
-            api_key - API key provided in message
+        Handle the auth client message. Idempotent: a second auth message is
+        treated as a protocol violation rather than re-authenticating.
         """
         if self._is_authenticated:
             self.close(1008, "Unexpected Auth Message")
@@ -98,35 +104,33 @@ class TranscriptionStreamController(WebsocketHandler):
 
         self._is_authenticated = True
 
-    def _config(self, config: Any):
+    def _config(self, session_config: object):
         """
-        Handles config message
-
-        Args:
-            config  - config provided in message
+        Handle the config client message. Constructs the per-connection
+        TranscriptionStreamService once auth has completed and a config has
+        not yet been received.
         """
-        if not self._is_authenticated or self._session is not None:
+        if not self._is_authenticated or self._service is not None:
             self.close(1008, "Unexpected Config Message")
             return
 
-        self._session = self._transcription_service.create_session(
-            self._provider_key, config, self._logger
+        service = TranscriptionStreamService(
+            self._logger,
+            self._provider_registry,
+            self._provider_key,
+            session_config,
         )
-        self._session.on(
-            self._session.TranscriptionResultEvent,
-            self._handle_transcription_result,
+        service.on(
+            service.TranscriptionResultEvent, self._handle_transcription_result
         )
-        self._session.on(
-            self._session.TranscriptionErrorEvent, self._handle_error
-        )
-        self._session.start_session()
+        service.on(service.TranscriptionErrorEvent, self._handle_error)
+        service.start()
+        self._service = service
 
     def _handle_transcription_result(self, result: TranscriptionResult):
         """
-        Handles transcription result from transcription session
-
-        Args:
-            result  - Transcription result
+        Serialize a transcription result emitted by the service into a
+        TranscriptMessage and send it over the websocket.
         """
         self.send(
             TranscriptMessage(
@@ -153,27 +157,22 @@ class TranscriptionStreamController(WebsocketHandler):
 
     def _audio_chunk(self, chunk: bytes):
         """
-        Handles audio chunk messages
-
-        Args:
-            chunk       - Audio chunk from client
+        Forward an audio chunk to the underlying service once auth + config
+        have completed.
         """
         if not self._is_authenticated:
             self.close(1008, "Audio chunk before authentication")
             return
 
-        if not self._session:
+        if self._service is None:
             self.close(1008, "Audio chunk before configuration")
             return
 
-        self._session.handle_audio_chunk(chunk)
+        self._service.handle_audio_chunk(chunk)
 
     async def _handle_text_message(self, message: str):
         """
-        Message handler that is called when a websocket receives a text message
-
-        Args:
-            message     - Text message received
+        Decode and route a text client message.
         """
         parsed_message = ClientJsonMessageAdapter.validate_json(message)
 
@@ -185,24 +184,18 @@ class TranscriptionStreamController(WebsocketHandler):
 
     async def _handle_binary_message(self, message: bytes):
         """
-        Message handler that is called when a websocket receives a binary message
-
-        Args:
-            message     - Binary message received
+        Treat any binary client message as a chunk of source audio.
         """
         self._audio_chunk(message)
 
     def _handle_close(self, code: int, reason: str | None):
         """
-        Message handler that is called when a websocket closes
-
-        Args:
-            code        - Websocket close code
-            reason      - Websocket close reason
+        Tear down the watchdog and any per-connection service on socket
+        close.
         """
         self._timeout_task.cancel()
-        if self._session is not None:
-            self._session.end_session()
+        if self._service is not None:
+            self._service.close()
 
         self._logger.info(
             "Websocket closed", context={"code": code, "reason": reason}
@@ -210,14 +203,12 @@ class TranscriptionStreamController(WebsocketHandler):
 
     def _handle_error(self, error: Exception) -> bool:
         """
-        Message handler that is called when an error occurs when receiving or sending messages
-
-        Args:
-            error       - Exception to be handled
+        Map exceptions raised by either the websocket transport or the
+        per-connection service into appropriate close codes.
 
         Returns:
-            True to prevent closing connection after handling error,
-            False to automatically close websocket with code 1011 and reason "Internal Server Error"
+            True to prevent the WebsocketHandler base from defaulting to
+            close(1011, "Internal Server Error").
         """
         self._logger.warning(
             f"Websocket encountered error: {error}", exc_info=error

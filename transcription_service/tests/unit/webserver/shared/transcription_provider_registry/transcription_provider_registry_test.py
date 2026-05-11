@@ -1,5 +1,5 @@
 """
-Unit tests for TranscriptionService
+Unit tests for TranscriptionProviderRegistry
 """
 
 from unittest.mock import MagicMock, call
@@ -25,7 +25,9 @@ from src.transcription_provider_interface import (
     TranscriptionClientError,
     TranscriptionProviderInterface,
 )
-from src.webserver.shared.transcription_service import TranscriptionService
+from src.webserver.shared.transcription_provider_registry import (
+    TranscriptionProviderRegistry,
+)
 
 NUM_WORKERS = 2
 
@@ -129,7 +131,8 @@ def mock_worker_pool_import(
     Mock worker pool
     """
     return mocker.patch(
-        "src.webserver.shared.transcription_service.transcription_service.WorkerPool",
+        "src.webserver.shared.transcription_provider_registry"
+        ".transcription_provider_registry.WorkerPool",
         return_value=mock_worker_pool_instance,
     )
 
@@ -167,7 +170,7 @@ def mock_provider_import(
 
 # pylint: disable=unused-argument
 @pytest.fixture
-def transcription_service(
+def provider_registry(
     mock_config: Config,
     mock_logger: Logger,
     mock_worker_pool_import: MagicMock,
@@ -177,14 +180,14 @@ def transcription_service(
     """
     Create a fresh transcription service for each test
     """
-    return TranscriptionService(mock_config, mock_logger)
+    return TranscriptionProviderRegistry(mock_config, mock_logger)
 
 
 # pylint: disable=unused-argument
 def test_loads_context(
     mock_config: Config,
     mock_context_import: MockType,
-    transcription_service: TranscriptionService,
+    provider_registry: TranscriptionProviderRegistry,
 ):
     """
     Test that transcription service imports job context with correct config and tags
@@ -212,7 +215,7 @@ def test_creates_worker_pool(
     mock_logger: Logger,
     mock_worker_pool_import: MagicMock,
     mock_context_instances: list[MagicMock],
-    transcription_service: TranscriptionService,
+    provider_registry: TranscriptionProviderRegistry,
 ):
     """
     Test that transcription service creates worker pool with ContextAssignments
@@ -242,7 +245,7 @@ def test_loads_provider(
     mock_logger: Logger,
     mock_worker_pool_instance: MagicMock,
     mock_provider_import: MockType,
-    transcription_service: TranscriptionService,
+    provider_registry: TranscriptionProviderRegistry,
 ):
     """
     Test that transcription service imports providers with correct config
@@ -272,7 +275,7 @@ def test_loads_provider(
     "provider_key, mock_provider_idx", [("debug_0", 0), ("debug_1", 1)]
 )
 def test_valid_start_session(
-    transcription_service: TranscriptionService,
+    provider_registry: TranscriptionProviderRegistry,
     provider_key: str,
     mock_provider_idx: int,
     mock_provider_instances: list[MagicMock],
@@ -285,9 +288,7 @@ def test_valid_start_session(
     session_logger = MagicMock(spec=Logger)
 
     # Act
-    _ = transcription_service.create_session(
-        provider_key, config, session_logger
-    )
+    _ = provider_registry.create_session(provider_key, config, session_logger)
 
     # Assert
     mock_provider_instances[
@@ -295,7 +296,9 @@ def test_valid_start_session(
     ].create_session.assert_called_once_with(config, session_logger)
 
 
-def test_invalid_start_session(transcription_service: TranscriptionService):
+def test_invalid_start_session(
+    provider_registry: TranscriptionProviderRegistry,
+):
     """
     Test transcription service throws TranscriptionClientError when
         starting session with invalid provider UID
@@ -306,13 +309,13 @@ def test_invalid_start_session(transcription_service: TranscriptionService):
 
     # Act / Assert
     with pytest.raises(TranscriptionClientError):
-        _ = transcription_service.create_session(
+        _ = provider_registry.create_session(
             "NOT_A_REAL_PROVIDER", config, session_logger
         )
 
 
 def test_shutdown_cleans_up_resources(
-    transcription_service: TranscriptionService,
+    provider_registry: TranscriptionProviderRegistry,
     mock_provider_instances: list[MagicMock],
     mock_worker_pool_instance: MagicMock,
 ):
@@ -320,7 +323,7 @@ def test_shutdown_cleans_up_resources(
     Test transcription service shutdown cleans up providers and shuts down worker pool
     """
     # Arrange / Act
-    transcription_service.shutdown()
+    provider_registry.shutdown()
 
     # Assert
     for instance in mock_provider_instances:

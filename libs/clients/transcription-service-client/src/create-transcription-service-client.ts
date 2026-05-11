@@ -7,7 +7,10 @@ import {
   TRANSCRIPTION_STREAM_SCHEMA,
 } from '@scribear/transcription-service-schema';
 
+import { createProbesClient } from './probes-client.js';
+
 interface TranscriptionServiceClient {
+  probes: ReturnType<typeof createProbesClient>;
   transcriptionStream: WebSocketClientFactory<
     typeof TRANSCRIPTION_STREAM_SCHEMA
   >;
@@ -16,18 +19,20 @@ interface TranscriptionServiceClient {
 /**
  * Creates a typed client bundle for the transcription service.
  *
- * Each property on the returned object is a {@link WebSocketClientFactory}
- * bound to a specific route on the service. Calling a factory produces an
- * independent {@link WebSocketClient} instance, allowing multiple concurrent
+ * HTTP routes (e.g. probes) are exposed as fetch functions from
+ * `createEndpointClient`. WebSocket routes are exposed as
+ * {@link WebSocketClientFactory}s that produce an independent
+ * {@link WebSocketClient} instance per call, allowing multiple concurrent
  * connections to the same route without sharing client state.
  *
  * @param baseUrl Base URL of the transcription service. HTTP schemes are
- *   translated to ws/wss when each connection is established.
+ *   translated to ws/wss when each WebSocket connection is established.
  */
 function createTranscriptionServiceClient(
   baseUrl: string,
 ): TranscriptionServiceClient {
   return {
+    probes: createProbesClient(baseUrl),
     transcriptionStream: createWebSocketClient(
       TRANSCRIPTION_STREAM_SCHEMA,
       TRANSCRIPTION_STREAM_ROUTE,
