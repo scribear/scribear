@@ -14,7 +14,7 @@ from src.shared.config import (
     TranscriptionProviderUID,
 )
 from src.shared.logger import Logger
-from src.shared.utils.worker_pool import JobContextInterface, WorkerPool
+from src.shared.utils.worker_pool import ContextAssignment, WorkerPool
 from src.transcription_provider_interface import (
     TranscriptionClientError,
     TranscriptionProviderInterface,
@@ -33,45 +33,38 @@ class TranscriptionService:
             config      - Application config
             logger      - Application logger
         """
-        context_def = self._load_context_def(config.provider_config.contexts)
+        contexts = self._load_contexts(config.provider_config.contexts)
 
         self._worker_pool = WorkerPool(
-            logger,
-            config.provider_config.num_workers,
-            context_def,
-            config.provider_config.rolling_utilization_window_sec,
+            logger, config.provider_config.num_workers, contexts
         )
 
         self._providers = self._load_providers(
             logger, self._worker_pool, config.provider_config.providers
         )
 
-    def _load_context_def(
+    def _load_contexts(
         self, context_configurations: list[JobContextConfigSchema]
-    ):
+    ) -> list[ContextAssignment]:
         """
-        Imports definitions for all of the configured context definitions
+        Build ContextAssignment list from the configured context entries
 
         Args:
             context_configurations  - List of context configurations to load
 
         Returns
-            Context definition dictionary for WorkerPool to use
+            List of ContextAssignments preserving the order of the config
         """
-        context_def: dict[int, JobContextInterface[Any]] = {}
-        for i, config in enumerate(context_configurations):
+        assignments: list[ContextAssignment] = []
+        for config in context_configurations:
             match config.context_uid:
                 case JobContextDefinitionUID.FASTER_WHISPER:
                     from src.transcription_contexts.faster_whisper_context import (
                         FasterWhisperContext,
                     )
 
-                    context = FasterWhisperContext(
-                        config.context_config,
-                        config.max_instances,
-                        config.tags,
-                        config.negative_affinity,
-                        config.creation_cost,
+                    context: Any = FasterWhisperContext(
+                        config.context_config, config.tags
                     )
                 case JobContextDefinitionUID.SILERO_VAD:
                     from src.transcription_contexts.silero_vad_context import (
@@ -79,21 +72,21 @@ class TranscriptionService:
                     )
 
                     context = SileroVadContext(
-                        config.context_config,
-                        config.max_instances,
-                        config.tags,
-                        config.negative_affinity,
-                        config.creation_cost,
+                        config.context_config, config.tags
                     )
 
-            context_def[i] = context
-        return context_def
+            assignments.append(
+                ContextAssignment(
+                    context_def=context, worker_ids=config.worker_ids
+                )
+            )
+        return assignments
 
     def _load_providers(
         self,
         logger: Logger,
         worker_pool: WorkerPool,
-        configured_providers: list[TranscriptionProviderConfigSchema],
+        configured_providers: dict[str, TranscriptionProviderConfigSchema],
     ):
         """
         Imports transcription providers for all of the configured providers
@@ -101,14 +94,14 @@ class TranscriptionService:
         Args:
             logger                  - Logger to provide to providers
             worker_pool             - Worker pool to provide to providers
-            configured_providers    - List of provider configurations to load
+            configured_providers    - Mapping from provider_key to provider config
 
         Returns
             Provider instance dictionary
         """
         providers: dict[str, TranscriptionProviderInterface] = {}
-        for config in configured_providers:
-            child_logger = logger.child({"provider_key": config.provider_key})
+        for provider_key, config in configured_providers.items():
+            child_logger = logger.child({"provider_key": provider_key})
 
             match config.provider_uid:
                 case TranscriptionProviderUID.DEBUG:
@@ -128,7 +121,7 @@ class TranscriptionService:
                         config.provider_config, child_logger, worker_pool
                     )
 
-            providers[config.provider_key] = provider
+            providers[provider_key] = provider
         return providers
 
     def create_session(

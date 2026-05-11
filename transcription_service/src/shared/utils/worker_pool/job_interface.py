@@ -10,9 +10,10 @@ from src.shared.logger import Logger
 C = TypeVar("C", bound=tuple)
 D = TypeVar("D")
 R = TypeVar("R")
+Conf = TypeVar("Conf")
 
 
-class JobInterface(ABC, Generic[C, D, R]):
+class JobInterface(ABC, Generic[C, D, R, Conf]):
     """
     Interface for defining job
     """
@@ -33,3 +34,17 @@ class JobInterface(ABC, Generic[C, D, R]):
         Returns:
             Any job result
         """
+
+    @abstractmethod
+    def update_config(self, log: Logger, contexts: C, config: Conf) -> None:
+        """
+        Apply a config update mid-stream
+        Called by WorkerPool between process_batch calls when a config update
+        was queued via JobHandle.update_config.
+
+        Args:
+            log         - Application logger
+            contexts    - Context instances created by WorkerPool
+            config      - New config to apply
+        """
+        return

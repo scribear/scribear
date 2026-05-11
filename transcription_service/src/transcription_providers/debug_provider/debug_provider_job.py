@@ -10,7 +10,7 @@ from src.transcription_provider_interface import TranscriptionClientError
 from .debug_session_config import DebugSessionConfig
 
 
-class DebugProviderJob(JobInterface[tuple, bytes, float]):
+class DebugProviderJob(JobInterface[tuple, bytes, float, None]):
     """
     WorkerPool job definition for DebugProvider
     Decodes audio chunks and returns number of seconds of audio received
@@ -37,3 +37,6 @@ class DebugProviderJob(JobInterface[tuple, bytes, float]):
             samples_decoded += len(segments)
 
         return samples_decoded / self._sample_rate
+
+    def update_config(self, log: Logger, contexts: tuple, config: None) -> None:
+        raise TranscriptionClientError("On the fly config update not supported")
