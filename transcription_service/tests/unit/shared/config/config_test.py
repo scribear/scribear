@@ -38,32 +38,25 @@ PROVIDER_CONFIG_PATH={provider_config_path}
 )
 
 NUM_WORKERS = 2
-ROLLING_UTILIZATION_WINDOW_SEC = 600
 CONTEXT_0 = JobContextConfigSchema(
     context_uid=JobContextDefinitionUID.FASTER_WHISPER,
-    max_instances=2,
+    worker_ids=[0, 1],
     tags=["tag0", "tag1"],
-    negative_affinity="tag2",
     context_config={"some_key": "some_value"},
-    creation_cost=0.1,
 )
 CONTEXT_1 = JobContextConfigSchema(
     context_uid=JobContextDefinitionUID.FASTER_WHISPER,
-    max_instances=1,
+    worker_ids=[1],
     tags=["tag2"],
-    negative_affinity=None,
     context_config={"some_key": "other_value"},
-    creation_cost=0,
 )
 
 
 PROVIDER_0 = TranscriptionProviderConfigSchema(
-    provider_key="provider0",
     provider_uid=TranscriptionProviderUID.DEBUG,
     provider_config={"some_key": "some_value"},
 )
 PROVIDER_1 = TranscriptionProviderConfigSchema(
-    provider_key="provider1",
     provider_uid=TranscriptionProviderUID.DEBUG,
     provider_config={"some_key": "other_value"},
 )
@@ -71,15 +64,14 @@ PROVIDER_1 = TranscriptionProviderConfigSchema(
 VALID_PROVIDER_CONFIG_JSON = f"""
 {{
     "num_workers": {str(NUM_WORKERS)},
-    "rolling_utilization_window_sec": {str(ROLLING_UTILIZATION_WINDOW_SEC)},
     "contexts": [
         {CONTEXT_0.model_dump_json()},
         {CONTEXT_1.model_dump_json()}
     ],
-    "providers": [
-        {PROVIDER_0.model_dump_json()},
-        {PROVIDER_1.model_dump_json()}
-    ]
+    "providers": {{
+        "provider0": {PROVIDER_0.model_dump_json()},
+        "provider1": {PROVIDER_1.model_dump_json()}
+    }}
 }}"""
 
 
@@ -121,16 +113,12 @@ def test_config_load_valid_config(clean_os_environ: None, tmp_path: Path):
     assert config.ws_init_timeout_sec == WS_INIT_TIMEOUT_SEC
 
     assert config.provider_config.num_workers == NUM_WORKERS
-    assert (
-        config.provider_config.rolling_utilization_window_sec
-        == ROLLING_UTILIZATION_WINDOW_SEC
-    )
     assert len(config.provider_config.contexts) == 2
     assert config.provider_config.contexts[0] == CONTEXT_0
     assert config.provider_config.contexts[1] == CONTEXT_1
     assert len(config.provider_config.providers) == 2
-    assert config.provider_config.providers[0] == PROVIDER_0
-    assert config.provider_config.providers[1] == PROVIDER_1
+    assert config.provider_config.providers["provider0"] == PROVIDER_0
+    assert config.provider_config.providers["provider1"] == PROVIDER_1
 
 
 def test_config_invalid_transcription_file(

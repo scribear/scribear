@@ -3,12 +3,10 @@ Unit tests for WorkerProcessManager
 """
 
 import asyncio
-import logging
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-import pytest_asyncio
 
 from src.shared.logger import ContextLogger
 from src.shared.utils.worker_pool import (
@@ -18,12 +16,12 @@ from src.shared.utils.worker_pool import (
     WorkerProcessManager,
 )
 
+from .conftest import TEST_ROLLING_UTILIZATION_WINDOW_NS, TEST_WORKER_ID
 from .context_definitions import (
     Context,
     ContextInstance,
     ErrorContext,
     LoggerContext,
-    SlowContext,
 )
 from .jobs import ContextJob, ErrorJob, LoggerJob, SlowJob, SumJob
 
@@ -32,17 +30,9 @@ pytestmark = pytest.mark.timeout(2)
 
 NS_PER_SEC = 10**9
 
-TEST_WORKER_ID = 0
-
 TEST_CONTEXT_ID_0 = 0
 TEST_CONTEXT_ID_1 = 1
 TEST_LOGGER_CONTEXT = 2
-TEST_ERROR_CONTEXT = 3
-TEST_SLOW_CONTEXT = 4
-# Time slow context takes to create
-TEST_SLOW_CONTEXT_TIME_NS = NS_PER_SEC
-
-ROLLING_UTILIZATION_WINDOW_SEC = 3
 
 
 def assert_logger_was_called_with(
@@ -69,7 +59,7 @@ def assert_logger_was_called_with(
     assert logged
 
 
-def assert_rel_error(measured: int, expected: int, rtol: float = 1.5e-2):
+def assert_rel_error(measured: int, expected: int, rtol: float = 1e-3):
     """
     Asserts that relative error is below tolerance
 
@@ -83,42 +73,20 @@ def assert_instant_time(measured_ns: int):
     """
     Asserts that timestamp in nanoseconds is basically 0
     """
-    assert 0 < measured_ns < 1.5e-2 * NS_PER_SEC
+    assert 0 < measured_ns < 1e-3 * NS_PER_SEC
 
 
 @pytest.fixture
-def mock_underlying_logger():
+def context_defs() -> dict[int, JobContextInterface[Any]]:
     """
-    Create a mocked logger instance for tests
+    Pre-initialized contexts the WorkerProcessManager fixture starts with.
+    ErrorContext is intentionally excluded - including it would fail worker init.
     """
-    logger = MagicMock(spec=logging.Logger)
-    logger.level = 10
-    return logger
-
-
-@pytest_asyncio.fixture
-async def wpm(mock_underlying_logger: logging.Logger):
-    """
-    Create a fresh instance of WorkerProcessManager for each test and handle teardown
-    """
-    context_def: dict[int, JobContextInterface[Any]] = {
+    return {
         TEST_CONTEXT_ID_0: Context(TEST_CONTEXT_ID_0),
         TEST_CONTEXT_ID_1: Context(TEST_CONTEXT_ID_1),
         TEST_LOGGER_CONTEXT: LoggerContext(),
-        TEST_ERROR_CONTEXT: ErrorContext(),
-        TEST_SLOW_CONTEXT: SlowContext(TEST_SLOW_CONTEXT_TIME_NS),
     }
-    wpm = WorkerProcessManager(
-        ContextLogger(mock_underlying_logger),
-        TEST_WORKER_ID,
-        context_def,
-        ROLLING_UTILIZATION_WINDOW_SEC,
-    )
-
-    yield wpm
-
-    wpm.send_terminate()
-    wpm.wait_shutdown()
 
 
 @pytest.mark.asyncio
@@ -411,34 +379,12 @@ async def test_deregister_single_job_while_running_multiple_registered(
 
 
 @pytest.mark.asyncio
-async def test_creates_context_instance_on_new_request_single_job(
+async def test_reuses_pre_initialized_context_instance(
     wpm: WorkerProcessManager,
 ):
     """
-    Test that registering a job with new context id creates corresponding context instance
-    """
-    # Arrange
-    results: list[JobSuccess[ContextInstance] | JobException] = []
-
-    job = wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
-    job.on(job.JobResultEvent, results.append)
-
-    # Act
-    await asyncio.sleep(0.2 + 0.1)
-
-    # Assert
-    assert len(results) == 1
-    assert results[0].value == ContextInstance(
-        TEST_CONTEXT_ID_0, create_count=1, destroy_count=0
-    )
-
-
-@pytest.mark.asyncio
-async def test_reuses_context_instance_on_repeat_request_multiple_jobs(
-    wpm: WorkerProcessManager,
-):
-    """
-    Test that registering a job with repeat context id reuses existing context instance
+    Test that all jobs using the same context_id receive the single context
+    instance created at worker startup (no per-job creation)
     """
     # Arrange
     results0: list[JobSuccess[ContextInstance] | JobException] = []
@@ -464,12 +410,12 @@ async def test_reuses_context_instance_on_repeat_request_multiple_jobs(
 
 
 @pytest.mark.asyncio
-async def test_creates_context_instance_on_new_request_multiple_jobs(
+async def test_distinct_context_ids_yield_distinct_instances(
     wpm: WorkerProcessManager,
 ):
     """
-    Test that registering a multiple jobs with new context ids
-    create corresponding context instances
+    Test that jobs requesting different context_ids each receive their own
+    pre-initialized instance
     """
     # Arrange
     results0: list[JobSuccess[ContextInstance] | JobException] = []
@@ -495,169 +441,38 @@ async def test_creates_context_instance_on_new_request_multiple_jobs(
 
 
 @pytest.mark.asyncio
-async def test_does_not_destroy_active_context_instance_on_deregister_single_context(
-    wpm: WorkerProcessManager,
-):
+async def test_reports_pinned_context_ids(wpm: WorkerProcessManager):
     """
-    Test that deregistering a job does not destroy active context instance
+    Test that the manager reports the set of context_ids it has initialized
     """
-    # Arrange
-    results2: list[JobSuccess[ContextInstance] | JobException] = []
-
-    job0 = wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
-    # Second job to keep context active
-    wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
-
-    # Act
-    await asyncio.sleep(0.2 + 0.1)
-    job0.deregister()
-    await asyncio.sleep(0.1)
-
-    # Register job to capture context state
-    job2 = wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
-    job2.on(job2.JobResultEvent, results2.append)
-    await asyncio.sleep(0.2 + 0.1)
-
-    # Assert
-    assert len(results2) == 1
-    assert results2[0].value == ContextInstance(
-        TEST_CONTEXT_ID_0, create_count=1, destroy_count=0
-    )
+    # Arrange / Act / Assert
+    assert wpm.context_ids == {
+        TEST_CONTEXT_ID_0,
+        TEST_CONTEXT_ID_1,
+        TEST_LOGGER_CONTEXT,
+    }
 
 
 @pytest.mark.asyncio
-async def test_destroys_unused_context_instance_on_deregister_single_context(
-    wpm: WorkerProcessManager,
+async def test_worker_init_raises_when_context_creation_fails(
+    mock_underlying_logger: MagicMock,
 ):
     """
-    Test that deregistering a job does destroy unused context instances
+    Test that constructing WorkerProcessManager raises if any assigned context
+    fails to create on the worker. The pool should not silently advance into
+    job acceptance when a context is broken.
     """
     # Arrange
-    results1: list[JobSuccess[ContextInstance] | JobException] = []
+    failing_defs: dict[int, JobContextInterface[Any]] = {0: ErrorContext()}
 
-    job0 = wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
-
-    # Act
-    await asyncio.sleep(0.2 + 0.1)
-    job0.deregister()
-    await asyncio.sleep(0.1)
-
-    # Register job to capture context state
-    job1 = wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
-    job1.on(job1.JobResultEvent, results1.append)
-    await asyncio.sleep(0.2 + 0.1)
-
-    # Assert
-    assert len(results1) == 1
-    assert results1[0].value == ContextInstance(
-        TEST_CONTEXT_ID_0, create_count=2, destroy_count=1
-    )
-
-
-@pytest.mark.asyncio
-async def test_does_not_destroy_active_context_instance_on_deregister_multiple_context(
-    wpm: WorkerProcessManager,
-):
-    """
-    Test that deregistering a job does not destroy active context
-    instances while also destroying unused context instances
-    """
-    # Arrange
-    results2: list[JobSuccess[ContextInstance] | JobException] = []
-    results3: list[JobSuccess[ContextInstance] | JobException] = []
-
-    job0 = wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
-    # Context 1 stays active, context 0 gets deregistered
-    wpm.register_job((TEST_CONTEXT_ID_1,), 200, ContextJob())
-
-    # Act
-    await asyncio.sleep(0.2 + 0.1)
-    job0.deregister()
-    await asyncio.sleep(0.1)
-
-    # Register job to capture context state
-    job2 = wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
-    job2.on(job2.JobResultEvent, results2.append)
-    job3 = wpm.register_job((TEST_CONTEXT_ID_1,), 200, ContextJob())
-    job3.on(job3.JobResultEvent, results3.append)
-    await asyncio.sleep(0.2 + 0.1)
-
-    # Assert
-    assert len(results2) == 1
-    assert results2[0].value == ContextInstance(
-        TEST_CONTEXT_ID_0, create_count=2, destroy_count=1
-    )
-    assert len(results3) == 1
-    assert results3[0].value == ContextInstance(
-        TEST_CONTEXT_ID_1, create_count=1, destroy_count=0
-    )
-
-
-@pytest.mark.asyncio
-async def test_reports_active_context_ids_after_register(
-    wpm: WorkerProcessManager,
-):
-    """
-    Test that WorkerProcessManager reports currently active context ids after registering jobs
-    """
-    # Arrange
-    wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
-    wpm.register_job((TEST_CONTEXT_ID_1,), 200, ContextJob())
-    wpm.register_job((TEST_LOGGER_CONTEXT,), 200, ContextJob())
-
-    # Act
-    await asyncio.sleep(0.2 + 0.1)
-
-    # Assert
-    assert wpm.active_context_ids == set(
-        [TEST_CONTEXT_ID_0, TEST_CONTEXT_ID_1, TEST_LOGGER_CONTEXT]
-    )
-
-
-@pytest.mark.asyncio
-async def test_reports_active_context_ids_after_deregister(
-    wpm: WorkerProcessManager,
-):
-    """
-    Test that WorkerProcessManager reports currently active context ids after deregistering jobs
-    """
-    # Arrange
-    wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
-    wpm.register_job((TEST_CONTEXT_ID_0,), 200, ContextJob())
-    wpm.register_job((TEST_LOGGER_CONTEXT,), 200, ContextJob())
-    job3 = wpm.register_job((TEST_CONTEXT_ID_1,), 200, ContextJob())
-
-    # Act
-    await asyncio.sleep(0.2 + 0.1)
-    job3.deregister()
-    await asyncio.sleep(0.1)
-
-    # Assert
-    assert wpm.active_context_ids == set(
-        [TEST_CONTEXT_ID_0, TEST_LOGGER_CONTEXT]
-    )
-
-
-@pytest.mark.asyncio
-async def test_returns_error_result_on_create_context_error(
-    wpm: WorkerProcessManager,
-):
-    """
-    Test that context creation that raises an exception returns error result
-    """
-    # Arrange
-    results: list[JobSuccess[int] | JobException] = []
-
-    job = wpm.register_job((TEST_ERROR_CONTEXT,), 200, SumJob())
-    job.on(job.JobResultEvent, results.append)
-
-    # Act
-    await asyncio.sleep(0.2 + 0.1)
-
-    # Assert
-    assert len(results) == 1
-    assert results[0].has_exception
-    assert isinstance(results[0].value, RuntimeError)
+    # Act / Assert
+    with pytest.raises(RuntimeError, match="failed to initialize"):
+        WorkerProcessManager(
+            ContextLogger(mock_underlying_logger),
+            TEST_WORKER_ID,
+            failing_defs,
+            rolling_utilization_window_ns=TEST_ROLLING_UTILIZATION_WINDOW_NS,
+        )
 
 
 # Logging
@@ -684,16 +499,16 @@ async def test_job_logger_logs_messages(
 
 @pytest.mark.asyncio
 async def test_context_create_logger_logs_messages(
-    mock_underlying_logger: MagicMock, wpm: WorkerProcessManager
+    mock_underlying_logger: MagicMock,
+    # pylint: disable=unused-argument
+    wpm: WorkerProcessManager,
 ):
     """
-    Test that logger provided to context create correctly logs messages
+    Test that logger provided to context create is invoked at worker startup
+    (the wpm fixture already constructed the worker, which created the context)
     """
-    # Arrange
-    wpm.register_job((TEST_LOGGER_CONTEXT,), 200, SumJob())
-
-    # Act
-    await asyncio.sleep(0.2 + 0.1)
+    # Arrange / Act
+    await asyncio.sleep(0.05)
 
     # Assert
     assert_logger_was_called_with(
@@ -705,18 +520,27 @@ async def test_context_create_logger_logs_messages(
 
 @pytest.mark.asyncio
 async def test_context_destroy_logger_logs_messages(
-    mock_underlying_logger: MagicMock, wpm: WorkerProcessManager
+    mock_underlying_logger: MagicMock,
+    context_defs: dict[int, JobContextInterface[Any]],
 ):
     """
-    Test that logger provided to context destroy correctly logs messages
+    Test that logger provided to context destroy is invoked at worker shutdown.
+    Build and tear down a manager manually so we can assert the destroy log
+    after shutdown completes (wait_shutdown drains any pending log records).
     """
-    # Arrange
-    job = wpm.register_job((TEST_LOGGER_CONTEXT,), 200, SumJob())
+    # Arrange - async context required because WorkerProcessManager spins up
+    # an asyncio task internally
+    # pylint: disable=duplicate-code
+    wpm = WorkerProcessManager(
+        ContextLogger(mock_underlying_logger),
+        TEST_WORKER_ID,
+        context_defs,
+        rolling_utilization_window_ns=TEST_ROLLING_UTILIZATION_WINDOW_NS,
+    )
 
     # Act
-    await asyncio.sleep(0.2 + 0.1)
-    job.deregister()
-    await asyncio.sleep(0.1)
+    wpm.send_terminate()
+    wpm.wait_shutdown()
 
     # Assert
     assert_logger_was_called_with(
@@ -748,36 +572,6 @@ async def test_reports_jobs_stats_single_slow_job(wpm: WorkerProcessManager):
     assert_instant_time(job_stats.context_initialization_time_ns)
     assert_rel_error(job_stats.execution_time_ns, slow_worker_time)
     assert_rel_error(job_stats.total_time_ns, slow_worker_time)
-
-
-@pytest.mark.timeout(3)
-@pytest.mark.asyncio
-async def test_reports_jobs_stats_single_slow_job_slow_context(
-    wpm: WorkerProcessManager,
-):
-    """
-    Test statistics are correctly reported for single slow job with slow context creation
-    """
-    # Arrange
-    slow_worker_time = NS_PER_SEC
-
-    results: list[JobSuccess[None] | JobException] = []
-    job = wpm.register_job((TEST_SLOW_CONTEXT,), 200, SlowJob(NS_PER_SEC))
-    job.on(job.JobResultEvent, results.append)
-
-    # Act
-    await asyncio.sleep(2 + 0.2 + 0.1)
-
-    # Assert
-    job_stats = results[0].stats
-    assert_instant_time(job_stats.scheduling_delay_ns)
-    assert_rel_error(
-        job_stats.context_initialization_time_ns, TEST_SLOW_CONTEXT_TIME_NS
-    )
-    assert_rel_error(job_stats.execution_time_ns, slow_worker_time)
-    assert_rel_error(
-        job_stats.total_time_ns, slow_worker_time + TEST_SLOW_CONTEXT_TIME_NS
-    )
 
 
 @pytest.mark.timeout(4)
@@ -839,20 +633,18 @@ async def test_utilization_report_single_job(wpm: WorkerProcessManager):
     """
     # Arrange
     target_utilization = 0.25
+    window_sec = TEST_ROLLING_UTILIZATION_WINDOW_NS / NS_PER_SEC
     wpm.register_job(
         (),
-        ROLLING_UTILIZATION_WINDOW_SEC * 1000,
-        SlowJob(
-            int(
-                target_utilization * ROLLING_UTILIZATION_WINDOW_SEC * NS_PER_SEC
-            )
-        ),
-    )  # Act
+        int(window_sec * 1000),
+        SlowJob(int(target_utilization * window_sec * NS_PER_SEC)),
+    )
 
-    await asyncio.sleep(ROLLING_UTILIZATION_WINDOW_SEC * 2)
+    # Act
+    await asyncio.sleep(window_sec * 2)
 
     # Assert
-    assert abs(wpm.utilization - target_utilization) < 0.15
+    assert abs(wpm.utilization - target_utilization) < 0.1
 
 
 @pytest.mark.timeout(10)
@@ -864,22 +656,18 @@ async def test_utilization_report_multiple_jobs(wpm: WorkerProcessManager):
     # Arrange
     target_utilization = 0.25
     num_jobs = 2
+    window_sec = TEST_ROLLING_UTILIZATION_WINDOW_NS / NS_PER_SEC
     for _ in range(num_jobs):
         wpm.register_job(
             (),
-            ROLLING_UTILIZATION_WINDOW_SEC * 1000,
+            int(window_sec * 1000),
             SlowJob(
-                int(
-                    target_utilization
-                    * ROLLING_UTILIZATION_WINDOW_SEC
-                    * NS_PER_SEC
-                    / num_jobs
-                )
+                int(target_utilization * window_sec * NS_PER_SEC / num_jobs)
             ),
         )
 
     # Act
-    await asyncio.sleep(ROLLING_UTILIZATION_WINDOW_SEC * 2)
+    await asyncio.sleep(window_sec * 2)
 
     # Assert
-    assert abs(wpm.utilization - target_utilization) < 0.15
+    assert abs(wpm.utilization - target_utilization) < 0.1

@@ -151,15 +151,13 @@ export async function setup({
   // on the CPU image.
   const providerConfigJson = JSON.stringify({
     num_workers: 1,
-    rolling_utilization_window_sec: 600,
     contexts: [],
-    providers: [
-      {
-        provider_key: 'debug',
+    providers: {
+      debug: {
         provider_uid: 'debug',
         provider_config: { sample_rate: 48000, num_channels: 1 },
       },
-    ],
+    },
   });
 
   transcriptionContainer = await txImage

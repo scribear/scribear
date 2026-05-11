@@ -69,7 +69,7 @@ describe('SessionTokenService', () => {
       const token = service.sign(PAYLOAD);
       const [encodedPayload, signature] = token.split('.');
       // Replace the signature with one that has the same length but is a
-      // valid base64url string of zeros — so the only thing that changes is
+      // valid base64url string of zeros - so the only thing that changes is
       // whether the HMAC validates.
       const fakeSig = 'A'.repeat(signature!.length);
       const forged = `${encodedPayload}.${fakeSig}`;
@@ -103,7 +103,7 @@ describe('SessionTokenService', () => {
       // calc we can drive, so reach in via the same algorithm: just sign a
       // valid payload and hand-craft.
       // Instead: feed a known-good token but flip a payload byte to break
-      // JSON parsing. The signature won't match — which is exactly the point;
+      // JSON parsing. The signature won't match - which is exactly the point;
       // verify() should reject before the JSON parse anyway.
       const token = `${garbage}.${'X'.repeat(43)}`;
 

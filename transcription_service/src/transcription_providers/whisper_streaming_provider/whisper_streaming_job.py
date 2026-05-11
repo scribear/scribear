@@ -26,7 +26,10 @@ NUM_CHANNELS = 1
 
 class WhisperStreamingProviderJob(
     JobInterface[
-        tuple[WhisperModel, SileroVadModelType], bytes, TranscriptionResult
+        tuple[WhisperModel, SileroVadModelType],
+        bytes,
+        TranscriptionResult,
+        None,
     ]
 ):
     """
@@ -257,3 +260,6 @@ class WhisperStreamingProviderJob(
             )
 
         return TranscriptionResult(in_progress=in_progress, final=final)
+
+    def update_config(self, log: Logger, contexts: tuple, config: None) -> None:
+        raise TranscriptionClientError("On the fly config update not supported")

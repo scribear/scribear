@@ -38,7 +38,7 @@ jobs:
         env:
           WORKSPACES: ${{ needs.changes.outputs.workspaces }}
         run: |
-          node -e "process.stdout.write(JSON.parse(process.env.WORKSPACES).join('\n'))" > /tmp/workspaces.txt
+          node -e "console.log(JSON.parse(process.env.WORKSPACES).join('\n'))" > /tmp/workspaces.txt
           while IFS= read -r ws; do
             echo "::group::$ws"
             npm run format --workspace "$ws"
@@ -58,7 +58,7 @@ jobs:
         env:
           WORKSPACES: ${{ needs.changes.outputs.workspaces }}
         run: |
-          node -e "process.stdout.write(JSON.parse(process.env.WORKSPACES).join('\n'))" > /tmp/workspaces.txt
+          node -e "console.log(JSON.parse(process.env.WORKSPACES).join('\n'))" > /tmp/workspaces.txt
           while IFS= read -r ws; do
             echo "::group::$ws"
             npm run lint --workspace "$ws"
@@ -78,7 +78,7 @@ jobs:
         env:
           WORKSPACES: ${{ needs.changes.outputs.workspaces }}
         run: |
-          node -e "process.stdout.write(JSON.parse(process.env.WORKSPACES).join('\n'))" > /tmp/workspaces.txt
+          node -e "console.log(JSON.parse(process.env.WORKSPACES).join('\n'))" > /tmp/workspaces.txt
           while IFS= read -r ws; do
             echo "::group::$ws"
             npm run build --workspace "$ws" --if-present
@@ -98,7 +98,7 @@ jobs:
         env:
           WORKSPACES: ${{ needs.changes.outputs.workspaces }}
         run: |
-          node -e "process.stdout.write(JSON.parse(process.env.WORKSPACES).join('\n'))" > /tmp/workspaces.txt
+          node -e "console.log(JSON.parse(process.env.WORKSPACES).join('\n'))" > /tmp/workspaces.txt
           while IFS= read -r ws; do
             echo "::group::$ws"
             npm run test:unit --workspace "$ws" --if-present
