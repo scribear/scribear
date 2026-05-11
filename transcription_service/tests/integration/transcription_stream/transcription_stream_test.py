@@ -49,13 +49,13 @@ def mock_config():
     mock.api_key = API_KEY
     mock.ws_init_timeout_sec = TIMEOUT_SEC
     mock.provider_config.num_workers = 2
-    mock.provider_config.providers = [
-        TranscriptionProviderConfigSchema(
-            provider_key="debug",
+    mock.provider_config.contexts = []
+    mock.provider_config.providers = {
+        "debug": TranscriptionProviderConfigSchema(
             provider_uid=TranscriptionProviderUID.DEBUG,
             provider_config=None,
         )
-    ]
+    }
     return mock
 
 
