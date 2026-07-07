@@ -86,7 +86,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       TRANSCRIPTION_SERVICE_ADDRESS: http://transcription-service:80
       TRANSCRIPTION_SERVICE_API_KEY: ${TRANSCRIPTION_API_KEY}
-      SESSION_TOKEN_SIGNING_KEY: ${NODE_SERVER_KEY}
+      SESSION_TOKEN_SIGNING_KEY: ${JWT_SECRET}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
       SESSION_MANAGER_SERVICE_API_KEY: ${NODE_SERVER_KEY}
       TRANSCRIPTION_SERVICE_BASE_URL: http://transcription-service:80
@@ -191,4 +191,3 @@ networks:
 volumes:
   postgres_data:
   redis_data:
-
