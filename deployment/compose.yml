@@ -122,31 +122,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # One-shot Database Setup Container
-  db-migrator:
-    image: node:24-alpine
-    environment:
-      DB_HOST: scribear-db
-      DB_PORT: "5432"
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-    networks:
-      - backend
-    command: >
-      sh -c "
-        apk add --no-cache git &&
-        git clone https://github.com/scribear/scribear.git /scribear &&
-        cd /scribear &&
-        git checkout staging &&
-        npm ci &&
-        npm run build --workspace=@scribear/scribear-db &&
-        npm run migrate:up --workspace=@scribear/scribear-db
-      "
-    depends_on:
-      scribear-db:
-        condition: service_healthy
-
   redis:
     image: redis:7-alpine
     command: redis-server --requirepass ${REDIS_PASSWORD}
