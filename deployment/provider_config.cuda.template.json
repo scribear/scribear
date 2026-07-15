@@ -6,8 +6,8 @@
       "worker_ids": [0],
       "tags": ["whisper_cpu_context"],
       "context_config": {
-        "model": "small",
-        "device": "cpu"
+        "model": "turbo",
+        "device": "cuda"
       }
     },
     {
@@ -30,9 +30,10 @@
       "provider_config": {
         "whisper_context_tag": "whisper_cpu_context",
         "silero_context_tag": "silero_vad",
-        "job_period_ms": 5000,
+        "job_period_ms": 500,
         "max_buffer_len_sec": 30,
-        "local_agree_dim": 2
+        "local_agree_dim": 2,
+        "vad_detector": true
       }
     }
   }
