@@ -24,6 +24,9 @@ inputs:
   dockerhub_password:
     description: "DockerHub password."
     required: true
+  github_token:
+    description: "GITHUB_TOKEN used to authenticate to ghcr.io."
+    required: true
 runs:
   using: "composite"
   steps:
@@ -60,7 +63,11 @@ runs:
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ${{ inputs.image_name }}
+        # Dual-publish to DockerHub and GHCR during the migration.
+        # Once DockerHub is retired, drop the first (DockerHub) image line.
+        images: |
+          ${{ inputs.image_name }}
+          ghcr.io/${{ inputs.image_name }}
         tags: ${{ steps.resolved-tags.outputs.tags }}
 
     # - name: Set up QEMU
@@ -69,11 +76,37 @@ runs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
+    # Fork PRs run with a read-only GITHUB_TOKEN and no DockerHub secrets, so they
+    # cannot log in, push, or write cache. Detect that case and build-only (which still
+    # validates the image compiles) instead of failing on an unauthenticated push.
+    - name: Determine push eligibility
+      id: eligibility
+      shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        REPO: ${{ github.repository }}
+      run: |
+        if [ "$EVENT_NAME" = "pull_request" ] && [ "$HEAD_REPO" != "$REPO" ]; then
+          echo "can_push=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "can_push=true" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Login to DockerHub
+      if: steps.eligibility.outputs.can_push == 'true'
       uses: docker/login-action@v3
       with:
         username: ${{ inputs.dockerhub_username }}
         password: ${{ inputs.dockerhub_password }}
+
+    - name: Login to GHCR
+      if: steps.eligibility.outputs.can_push == 'true'
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ inputs.github_token }}
 
     # Build different platforms first using independent buildcaches without pushing.
     #   This ensures buildcache isn't overwritten by other architectures, so builds can
@@ -86,11 +119,18 @@ runs:
         context: ${{ inputs.build_context }}
         file: ${{ inputs.dockerfile }}
         platforms: "linux/amd64"
+        # Cache now lives on GHCR (GITHUB_TOKEN auth, no DockerHub pull limits).
+        # DockerHub cache reads remain during the migration so the first post-switch
+        # builds stay warm; drop them once the GHCR cache is populated.
         cache-from: |
+          type=registry,mode=max,ref=ghcr.io/${{ inputs.image_name }}:buildcache-pr-linux-amd64
+          type=registry,mode=max,ref=ghcr.io/${{ inputs.image_name }}:buildcache-staging-linux-amd64
+          type=registry,mode=max,ref=ghcr.io/${{ inputs.image_name }}:buildcache-main-linux-amd64
           type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-pr-linux-amd64
           type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-staging-linux-amd64
           type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-main-linux-amd64
-        cache-to: type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-${{ inputs.cache_variant }}-linux-amd64
+        # No cache write on fork PRs — the read-only token cannot push to GHCR.
+        cache-to: ${{ steps.eligibility.outputs.can_push == 'true' && format('type=registry,mode=max,ref=ghcr.io/{0}:buildcache-{1}-linux-amd64', inputs.image_name, inputs.cache_variant) || '' }}
 
     # Disable arm builds due to extremely slow github actions
     # - name: Build linux/arm64
@@ -110,6 +150,7 @@ runs:
     #   A single multi-arch manifest is created rather than letting each architecture overwrite the tag.
     #   Since the per-arch builds ran independently, this step can pull from all buildcaches.
     - name: Push Images
+      if: steps.eligibility.outputs.can_push == 'true'
       uses: docker/build-push-action@v6
       with:
         push: true
@@ -120,6 +161,9 @@ runs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: |
+          type=registry,mode=max,ref=ghcr.io/${{ inputs.image_name }}:buildcache-pr-linux-amd64
+          type=registry,mode=max,ref=ghcr.io/${{ inputs.image_name }}:buildcache-staging-linux-amd64
+          type=registry,mode=max,ref=ghcr.io/${{ inputs.image_name }}:buildcache-main-linux-amd64
           type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-pr-linux-amd64
           type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-staging-linux-amd64
           type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-main-linux-amd64

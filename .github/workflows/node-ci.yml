@@ -10,6 +10,7 @@ on:
 permissions:
   actions: read
   contents: read
+  packages: write
   pull-requests: write
 
 jobs:
@@ -210,6 +211,7 @@ jobs:
           custom_tags: ${{ steps.tags.outputs.tags }}
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
   integration-test:
     needs: [changes, format, lint, build, test, docker-build]
@@ -227,6 +229,7 @@ jobs:
           image_name: scribear/scribear-db
           build_context: ./infra/scribear-db
           dockerfile: infra/scribear-db/Dockerfile
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prepare Session Manager Container
         uses: ./.github/actions/prepare-test-container
@@ -235,6 +238,7 @@ jobs:
           image_name: scribear/session-manager
           build_context: .
           dockerfile: apps/session-manager/Dockerfile
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prepare Transcription Service CPU Container
         uses: ./.github/actions/prepare-test-container
@@ -243,6 +247,7 @@ jobs:
           image_name: scribear/transcription-service-cpu
           build_context: ./transcription_service
           dockerfile: ./transcription_service/Dockerfile_CPU
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run Session Manager Integration Tests
         if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
@@ -287,6 +292,7 @@ jobs:
           image_name: scribear/scribear-db
           build_context: ./infra/scribear-db
           dockerfile: infra/scribear-db/Dockerfile
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Start ScribeAR DB
         run: |
