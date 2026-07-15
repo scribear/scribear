@@ -45,10 +45,8 @@ class JobContextConfigSchema(BaseModel):
     """
 
     context_uid: JobContextDefinitionUID
-    max_instances: int
+    worker_ids: list[int]
     tags: list[str]
-    negative_affinity: str | None
-    creation_cost: float
     context_config: Any
 
 
@@ -66,7 +64,6 @@ class TranscriptionProviderConfigSchema(BaseModel):
     Base config schema for a transcription provider
     """
 
-    provider_key: str = Field(max_length=32)
     provider_uid: TranscriptionProviderUID
     provider_config: Any
 
@@ -77,9 +74,8 @@ class ProviderConfigFileSchema(BaseModel):
     """
 
     num_workers: int
-    rolling_utilization_window_sec: float
     contexts: list[JobContextConfigSchema]
-    providers: list[TranscriptionProviderConfigSchema]
+    providers: dict[str, TranscriptionProviderConfigSchema]
 
 
 # pylint: disable=invalid-name

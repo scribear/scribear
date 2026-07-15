@@ -13,8 +13,7 @@ export enum TranscriptionStreamClientMessageType {
 }
 
 export enum TranscriptionStreamServerMessageType {
-  IP_TRANSCRIPT = 'ip_transcript',
-  FINAL_TRANSCRIPT = 'final_transcript',
+  TRANSCRIPT = 'transcript',
 }
 
 const TRANSCRIPTION_STREAM_SCHEMA = {
@@ -35,20 +34,25 @@ const TRANSCRIPTION_STREAM_SCHEMA = {
     }),
   ]),
   allowServerBinaryMessage: false,
-  serverMessage: Type.Union([
-    Type.Object({
-      type: Type.Literal(TranscriptionStreamServerMessageType.IP_TRANSCRIPT),
-      text: Type.Array(Type.String()),
-      starts: Type.Union([Type.Array(Type.Number()), Type.Null()]),
-      ends: Type.Union([Type.Array(Type.Number()), Type.Null()]),
-    }),
-    Type.Object({
-      type: Type.Literal(TranscriptionStreamServerMessageType.FINAL_TRANSCRIPT),
-      text: Type.Array(Type.String()),
-      starts: Type.Union([Type.Array(Type.Number()), Type.Null()]),
-      ends: Type.Union([Type.Array(Type.Number()), Type.Null()]),
-    }),
-  ]),
+  serverMessage: Type.Object({
+    type: Type.Literal(TranscriptionStreamServerMessageType.TRANSCRIPT),
+    final: Type.Union([
+      Type.Object({
+        text: Type.Array(Type.String()),
+        starts: Type.Union([Type.Array(Type.Number()), Type.Null()]),
+        ends: Type.Union([Type.Array(Type.Number()), Type.Null()]),
+      }),
+      Type.Null(),
+    ]),
+    in_progress: Type.Union([
+      Type.Object({
+        text: Type.Array(Type.String()),
+        starts: Type.Union([Type.Array(Type.Number()), Type.Null()]),
+        ends: Type.Union([Type.Array(Type.Number()), Type.Null()]),
+      }),
+      Type.Null(),
+    ]),
+  }),
   closeCodes: {
     1000: { description: 'Normal closure' },
     1001: { description: 'Normal closure, going away' },

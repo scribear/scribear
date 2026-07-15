@@ -1,26 +1,26 @@
 /**
- * Enum representing all possible runtime states of the `KioskService`.
+ * Top-level lifecycle phase of the kiosk app, mirroring the four states in
+ * the kiosk specification:
  *
- * - `INACTIVE` - service has not been started.
- * - `NOT_REGISTERED` / `REGISTERING` / `REGISTRATION_ERROR` - device registration flow.
- * - `IDLE` - registered and polling for sessions, but no active session.
- * - `ERROR` - an unrecoverable error has occurred; service is suspended.
- * - `SESSION_CONNECTING` / `SESSION_ERROR` - session connection lifecycle.
- * - `ACTIVE` - in an active session and streaming audio.
- * - `ACTIVE_MUTE` - in an active session but microphone is muted.
+ * - `INITIALIZING` - on entry, fetching device/room info to decide whether
+ *   the device is registered and active.
+ * - `UNREGISTERED` - no valid `DEVICE_TOKEN`. UI shows the activation form.
+ * - `IDLE` - registered, polling the schedule, no active session.
+ * - `ACTIVE` - participating in a live session.
  */
-export enum KioskServiceStatus {
-  INACTIVE = 'INACTIVE',
-
-  NOT_REGISTERED = 'NOT_REGISTERED',
-  REGISTERING = 'REGISTERING',
-  REGISTRATION_ERROR = 'REGISTRATION_ERROR',
-
+export enum KioskLifecycle {
+  INITIALIZING = 'INITIALIZING',
+  UNREGISTERED = 'UNREGISTERED',
   IDLE = 'IDLE',
-  ERROR = 'ERROR',
-
-  SESSION_CONNECTING = 'SESSION_CONNECTING',
-  SESSION_ERROR = 'SESSION_ERROR',
   ACTIVE = 'ACTIVE',
-  ACTIVE_MUTE = 'ACTIVE_MUTE',
+}
+
+/**
+ * Sub-status of a session connection while the kiosk is `ACTIVE`. Drives the
+ * connection indicator in the UI; not used outside `ACTIVE`.
+ */
+export enum SessionConnectionStatus {
+  CONNECTING = 'CONNECTING',
+  CONNECTED = 'CONNECTED',
+  DISCONNECTED = 'DISCONNECTED',
 }

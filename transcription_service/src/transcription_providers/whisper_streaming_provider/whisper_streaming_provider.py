@@ -6,9 +6,6 @@ from dataclasses import asdict
 
 from src.shared.logger import Logger
 from src.shared.utils.worker_pool import JobException, JobSuccess, WorkerPool
-from src.transcription_contexts.faster_whisper_context import (
-    FasterWhisperContext,
-)
 from src.transcription_provider_interface import (
     TranscriptionProviderInterface,
     TranscriptionResult,
@@ -57,8 +54,8 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
 
             self._job = provider.worker_pool.register_job(
                 (
-                    self._provider.config.context_tag,
-                    self._provider.config.vad_context_tag,
+                    self._provider.config.whisper_context_tag,
+                    self._provider.config.silero_context_tag,
                 ),
                 self._provider.config.job_period_ms,
                 WhisperStreamingProviderJob(self._provider.config),
@@ -104,21 +101,6 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
         self.config = whisper_streaming_config_adapter.validate_python(
             provider_config
         )
-
-        # Check that configured worker context provides a Whisper model
-        worker_pool.tagged_context_is_instance(
-            self.config.context_tag, [FasterWhisperContext]
-        )
-        try:
-            assert worker_pool.tagged_context_is_instance(
-                self.config.context_tag, [FasterWhisperContext]
-            ), f"Context tag '{self.config.context_tag}' is not an instance of FasterWhisperContext"
-        except AssertionError as e:
-            self._log.error(
-                f"Context '{self.config.context_tag}' not found or invalid: {e}"
-            )
-            raise
-
         self.worker_pool = worker_pool
 
     def create_session(self, session_config: object, logger: Logger):

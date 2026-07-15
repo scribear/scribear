@@ -22,9 +22,6 @@ describe('Integration Tests - Dependency Injection', (it) => {
     container = server.dependencyContainer as AwilixContainer<TestDependencies>;
   });
 
-  /**
-   * Test that dependency container contains logger
-   */
   it('makes logger available in dependency container', () => {
     // Arrange
     // Act
@@ -34,9 +31,6 @@ describe('Integration Tests - Dependency Injection', (it) => {
     expect(logger).not.toBeUndefined();
   });
 
-  /**
-   * Test that dependency container makes registered dependencies available in request container scope
-   */
   it('makes registered dependencies available in request handlers', async () => {
     // Arrange
     const testValue = 'TEST_VALUE';

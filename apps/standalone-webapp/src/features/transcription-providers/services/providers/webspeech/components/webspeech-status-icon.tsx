@@ -40,6 +40,9 @@ export const WebspeechStatusIcon = () => {
   } else if (webspeechStatus === WebspeechStatus.ERROR) {
     icon = <NotInterestedIcon />;
     tooltip = `${displayName} encountered an unexpected error`;
+  } else if (webspeechStatus === WebspeechStatus.NETWORK_RETRYING) {
+    icon = <HourglassTopIcon />;
+    tooltip = `${displayName} lost network, reconnecting`;
   }
 
   return (

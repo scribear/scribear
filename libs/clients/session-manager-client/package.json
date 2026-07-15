@@ -22,5 +22,6 @@
     "format:fix": "prettier --write ./src",
     "lint": "eslint ./src",
     "lint:fix": "eslint ./src --fix"
-  }
+  },
+  "dependencies": {}
 }

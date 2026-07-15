@@ -5,10 +5,11 @@ Defines WorkerProcessManager that manages main process communication with Worker
 import asyncio
 import logging
 from collections import deque
-from queue import Queue
-from typing import Any, Callable, Generic, TypeVar
+from queue import Empty
+from typing import Any, Callable, Generic, TypeVar, cast
 
 import multiprocess as mp
+from multiprocess.queues import Queue
 
 from src.shared.logger import ContextLogger, Logger
 from src.shared.utils.event_emitter import Event, EventEmitter
@@ -23,6 +24,7 @@ from .task import (
     RegisterJobTask,
     Task,
     TerminateWorkerTask,
+    UpdateJobConfigTask,
 )
 from .worker_log_handler import WorkerLogHandler
 from .worker_process import WorkerProcess
@@ -30,12 +32,16 @@ from .worker_state import WorkerState
 
 NS_PER_SEC = 1000000000
 
+# Rolling window over which a worker's busy/idle ratio is averaged.
+ROLLING_UTILIZATION_WINDOW_NS = 10 * 60 * NS_PER_SEC
+
 C = TypeVar("C", bound=tuple)
 D = TypeVar("D")
 R = TypeVar("R")
+Conf = TypeVar("Conf")
 
 
-class JobHandle(Generic[D, R], EventEmitter):
+class JobHandle(Generic[D, R, Conf], EventEmitter):
     """
     Handle to a job registered to WorkerProcessManager
     """
@@ -61,14 +67,16 @@ class JobHandle(Generic[D, R], EventEmitter):
         worker_id: int,
         job_id: int,
         queue_data: Callable[[list[D]], None],
+        update_config: Callable[[Conf], None],
         deregister: Callable[..., None],
     ):
         """
         Args:
-            worker_id   - Worker id of worker that job is registered to
-            job_id      - Registered job id
-            queue_data  - Callback function to queue data to be processed
-            deregister  - Callback function to deregister job
+            worker_id     - Worker id of worker that job is registered to
+            job_id        - Registered job id
+            queue_data    - Callback function to queue data to be processed
+            update_config - Callback function to queue a config update
+            deregister    - Callback function to deregister job
         """
         super().__init__()
 
@@ -76,6 +84,7 @@ class JobHandle(Generic[D, R], EventEmitter):
         self._job_id = job_id
 
         self._queue_data = queue_data
+        self._update_config = update_config
         self._deregister = deregister
 
     def queue_data(self, data: list[D]) -> None:
@@ -90,6 +99,21 @@ class JobHandle(Generic[D, R], EventEmitter):
             return
         self._queue_data(data)
 
+    def update_config(self, config: Conf) -> None:
+        """
+        Queue a config update to be applied between data batches by the job
+        Splits the current data buffer at the time of this call so that data
+        queued before this update is processed under the old config and data
+        queued after is processed under the new one.
+        Does nothing if job has been deregistered
+
+        Args:
+            config  - New config to apply
+        """
+        if not self._update_config:
+            return
+        self._update_config(config)
+
     def deregister(self) -> None:
         """
         Deregisters job from worker
@@ -100,6 +124,7 @@ class JobHandle(Generic[D, R], EventEmitter):
         self._deregister()
 
         self._queue_data = None
+        self._update_config = None
         self._deregister = None
 
 
@@ -123,7 +148,6 @@ class _RollingUtilization:
         Args:
             rolling_window_ns   - Length of rolling window in nanoseconds
         """
-        self._admin_time_ns = 0
         self._idle_time_ns = 0
         self._busy_time_ns = 0
 
@@ -167,9 +191,7 @@ class _RollingUtilization:
             increment_ns    - Time in nanoseconds to change counter by
         """
         self._total_time_ns += increment_ns
-        if state == WorkerState.ADMIN:
-            self._admin_time_ns += increment_ns
-        elif state == WorkerState.IDLE:
+        if state == WorkerState.IDLE:
             self._idle_time_ns += increment_ns
         elif state == WorkerState.BUSY:
             self._busy_time_ns += increment_ns
@@ -234,7 +256,7 @@ class WorkerProcessManager:
     def _worker_function(
         task_queue: Queue[Task],
         result_queue: Queue[Result],
-        context_def: dict[int, JobContextInterface[Any]],
+        context_defs: dict[int, JobContextInterface[Any]],
         log_level: int,
         logger_context: dict[str, Any],
     ):
@@ -245,7 +267,8 @@ class WorkerProcessManager:
         Args:
             task_queue      - Read only queue for fetching admin tasks from main process
             result_queue    - Write only queue for pushing results to main process
-            context_def     - Mapping from context id to context definitions
+            context_defs    - Mapping from context id to context definitions assigned
+                                to this worker. Eagerly created at startup.
             log_level       - Application log level
             logger_context  - Context to initialize worker's application logger with
         """
@@ -259,9 +282,19 @@ class WorkerProcessManager:
 
         log = ContextLogger(logger, logger_context)
 
-        return WorkerProcess(
-            log, task_queue, result_queue, context_def
-        ).execution_loop()
+        try:
+            return WorkerProcess(
+                log, task_queue, result_queue, context_defs
+            ).execution_loop()
+        finally:
+            # Flush pending result writes before releasing the queue, then
+            # cancel the task queue feeder (worker only reads from it) so
+            # process exit doesn't leave the resource_tracker holding stale
+            # semaphore references.
+            result_queue.close()
+            result_queue.join_thread()
+            task_queue.cancel_join_thread()
+            task_queue.close()
 
     @property
     def utilization(self):
@@ -271,65 +304,79 @@ class WorkerProcessManager:
         return self._rolling_utilization.utilization
 
     @property
-    def active_context_ids(self) -> set[int]:
+    def context_ids(self) -> set[int]:
         """
-        Gets set of context_ids that are actively used by jobs
+        Gets set of context_ids this worker has initialized
         """
-        active_ids = set[int]()
-        for context_ids in self._job_context_ids.values():
-            active_ids.update(context_ids)
-        return active_ids
+        return set(self._context_defs.keys())
 
     def __init__(
         self,
         logger: Logger,
         worker_id: int,
-        context_def: dict[int, JobContextInterface[Any]],
-        rolling_utilization_window_sec: float,
+        context_defs: dict[int, JobContextInterface[Any]],
+        rolling_utilization_window_ns: int = ROLLING_UTILIZATION_WINDOW_NS,
     ):
         """
+        Constructor blocks until the worker process has finished creating all
+        assigned contexts. Raises RuntimeError if context initialization fails
+        so the pool startup can abort before any job is accepted.
+
         Args:
-            logger                          - Application logger
-            worker_id                       - Unique identifier for worker
-            context_def                     - Mapping from context id to context definitions
-            rolling_utilization_window_sec  - Length of rolling utilization window in seconds
+            logger          - Application logger
+            worker_id       - Unique identifier for worker
+            context_defs    - Mapping from context id to context definitions to
+                                initialize on this worker
+            rolling_utilization_window_ns - Override for utilization smoothing window
+                                              (production should use the default)
         """
         self._log = logger.child({"worker_id": worker_id})
         self._worker_id = worker_id
 
         self._rolling_utilization = _RollingUtilization(
-            int(rolling_utilization_window_sec * NS_PER_SEC)
+            rolling_utilization_window_ns
         )
 
         self._next_job_id = 0
-        self._context_def = context_def
-        self._registered_job_handles: dict[int, JobHandle[Any, Any]] = {}
-        self._job_context_ids: dict[int, tuple[int, ...]] = {}
+        self._context_defs = context_defs
+        self._registered_job_handles: dict[int, JobHandle[Any, Any, Any]] = {}
 
         # False positive
         # pylint: disable=no-member
         ctx = mp.get_context("spawn")
 
-        self._manager = ctx.Manager()
-        self._task_queue: Queue[Task] = self._manager.Queue()
-        self._result_queue: Queue[Result] = self._manager.Queue()
+        self._task_queue = cast(Queue[Task], ctx.Queue())
+        self._result_queue = cast(Queue[Result], ctx.Queue())
 
         self._process = ctx.Process(
             target=WorkerProcessManager._worker_function,
             args=(
                 self._task_queue,
                 self._result_queue,
-                context_def,
+                context_defs,
                 self._log.logger.level,
                 self._log.context,
             ),
         )
         self._process.start()
 
-        # Wait for initialization result that indicates worker is ready to accept jobs
-        result = self._result_queue.get(block=True)
-        if result.type != ResultType.INITIALIZE_WORKER:
-            raise RuntimeError("Failed to start worker process")
+        # Block until worker confirms it has created every assigned context.
+        # Drain log records that may arrive before the init result.
+        while True:
+            result = self._result_queue.get(block=True)
+            if result.type == ResultType.LOGGING:
+                self._log.logger.handle(result.record)
+                continue
+            if result.type != ResultType.INITIALIZE_WORKER:
+                raise RuntimeError(
+                    f"Unexpected result during worker init: {result.type}"
+                )
+            if result.error is not None:
+                self._process.join()
+                raise RuntimeError(
+                    f"Worker {worker_id} failed to initialize: {result.error}"
+                )
+            break
 
         # Start the asyncio task that polls for results from the workers
         self._result_poller_task = asyncio.create_task(self._poll_results())
@@ -362,8 +409,8 @@ class WorkerProcessManager:
         self,
         context_ids: tuple[int, ...],
         period_ms: int,
-        job: JobInterface[C, D, R],
-    ) -> JobHandle[D, R]:
+        job: JobInterface[C, D, R, Conf],
+    ) -> JobHandle[D, R, Conf]:
         """
         Registers a new job with WorkerProcess
 
@@ -379,13 +426,12 @@ class WorkerProcessManager:
             KeyError if invalid context id is provided
         """
         for context_id in context_ids:
-            if context_id not in self._context_def:
+            if context_id not in self._context_defs:
                 raise KeyError("Invalid Context Id")
 
         job_id = self._next_job_id
         self._next_job_id += 1
 
-        self._job_context_ids[job_id] = context_ids
         self._task_queue.put(
             RegisterJobTask(job_id, context_ids, period_ms, job)
         )
@@ -393,14 +439,15 @@ class WorkerProcessManager:
         def _queue_data(data: list[D]):
             self._task_queue.put(QueueDataTask(job_id, data))
 
+        def _update_config(config: Conf):
+            self._task_queue.put(UpdateJobConfigTask(job_id, config))
+
         def _deregister():
             self._task_queue.put(DeregisterJobTask(job_id))
-
             del self._registered_job_handles[job_id]
-            del self._job_context_ids[job_id]
 
-        job_handle = JobHandle[D, R](
-            self._worker_id, job_id, _queue_data, _deregister
+        job_handle = JobHandle[D, R, Conf](
+            self._worker_id, job_id, _queue_data, _update_config, _deregister
         )
         self._registered_job_handles[job_id] = job_handle
         return job_handle
@@ -412,9 +459,6 @@ class WorkerProcessManager:
         Does not wait for process to exit
         Call wait_shutdown() after send_terminate() to wait for process to exit
         """
-        # Stop the result polling task
-        self._result_poller_task.cancel()
-
         self._task_queue.put(TerminateWorkerTask())
 
     def wait_shutdown(self):
@@ -423,4 +467,19 @@ class WorkerProcessManager:
         Should call send_terminate() before wait_shutdown()
         """
         self._process.join()
-        self._manager.shutdown()
+
+        # Cancel the async poller and drain any results the worker emitted
+        # during shutdown (e.g. destroy logs) so callers see them.
+        self._result_poller_task.cancel()
+        while True:
+            try:
+                result = self._result_queue.get_nowait()
+            except Empty:
+                break
+            if result.type == ResultType.LOGGING:
+                self._log.logger.handle(result.record)
+
+        self._task_queue.close()
+        self._result_queue.close()
+        self._task_queue.join_thread()
+        self._result_queue.join_thread()

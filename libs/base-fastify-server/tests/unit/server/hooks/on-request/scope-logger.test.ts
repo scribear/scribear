@@ -37,9 +37,6 @@ describe('Log Request Hook', (it) => {
     fastify.register(scopeLogger);
   });
 
-  /**
-   * Test that scopeLogger hook registers logger with request scoped dependency container
-   */
   it('registers logger with dependency container', async () => {
     // Arrange / Act
     await fastify.inject({
@@ -50,6 +47,19 @@ describe('Log Request Hook', (it) => {
     // Assert
     expect(mockDiScope.register).toHaveBeenCalledExactlyOnceWith({
       logger: mockLogger,
+    });
+  });
+
+  it('creates child logger with request id', async () => {
+    // Arrange / Act
+    await fastify.inject({
+      method: 'GET',
+      url: '/test/hello/world',
+    });
+
+    // Assert
+    expect(mockLogger.child).toHaveBeenCalledExactlyOnceWith({
+      reqId: testRequestId,
     });
   });
 });

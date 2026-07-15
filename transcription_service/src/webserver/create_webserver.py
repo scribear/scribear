@@ -9,10 +9,12 @@ from fastapi import FastAPI
 from src.shared.config import Config
 from src.shared.logger import Logger
 
-from .features.healthcheck import healthcheck_router
+from .features.probes import probes_router
 from .features.transcription_stream import transcription_stream_router
 from .shared.auth_service import AuthService
-from .shared.transcription_service import TranscriptionService
+from .shared.transcription_provider_registry import (
+    TranscriptionProviderRegistry,
+)
 
 
 def create_webserver(config: Config, logger: Logger):
@@ -28,7 +30,7 @@ def create_webserver(config: Config, logger: Logger):
     """
 
     auth_service = AuthService(config)
-    transcription_service = TranscriptionService(config, logger)
+    provider_registry = TranscriptionProviderRegistry(config, logger)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -43,15 +45,15 @@ def create_webserver(config: Config, logger: Logger):
 
         yield
 
-        # Cleanup services on app exit
-        transcription_service.shutdown()
+        # Cleanup the provider registry (worker pool, providers) on app exit
+        provider_registry.shutdown()
 
     app = FastAPI(lifespan=lifespan)
 
-    app.include_router(healthcheck_router())
+    app.include_router(probes_router())
     app.include_router(
         transcription_stream_router(
-            config, logger, auth_service, transcription_service
+            config, logger, auth_service, provider_registry
         )
     )
 

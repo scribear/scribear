@@ -3,7 +3,7 @@ import pg from 'pg';
 
 import type { DB } from '@scribear/scribear-db';
 
-import type { AppDependencies } from '#src/server/dependency-injection/register-dependencies.js';
+import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
 
 export interface DBClientConfig {
   dbHost: string;
@@ -52,8 +52,7 @@ export class DBClient {
   }
 
   /**
-   * Destroy the database connection pool
-   * Should be called when shutting down the application
+   * Destroy the database connection pool. Call on shutdown.
    */
   async destroy() {
     await this._db.destroy();

@@ -1,6 +1,9 @@
 import { useCallback } from 'react';
 
+import ClearAllIcon from '@mui/icons-material/ClearAll';
+import IconButton from '@mui/material/IconButton';
 import Stack from '@mui/material/Stack';
+import Tooltip from '@mui/material/Tooltip';
 
 import {
   selectIsHeaderHideEnabled,
@@ -28,6 +31,7 @@ import {
 } from '@scribear/theme-customization-store';
 import { ThemeCustomizationMenu } from '@scribear/theme-customization-ui';
 import {
+  clearTranscription,
   selectActiveSection,
   selectCommitedSections,
   selectInProgressTranscriptionText,
@@ -57,6 +61,8 @@ import { TranscriptionProviderConfigMenu } from '#src/features/transcription-pro
 import { TranscriptionProviderSelector } from '#src/features/transcription-providers/components/transcription-provider-selector';
 import { TranscriptionProviderStatusDisplay } from '#src/features/transcription-providers/components/transcription-provider-status-display';
 import { TranscriptionProviderStatusModal } from '#src/features/transcription-providers/components/transcription-provider-status-modal';
+import { VisualizerContainer } from '#src/features/visualizer/components/visualizer-container';
+import { VisualizerSettingsMenu } from '#src/features/visualizer/components/visualizer-settings-menu';
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
 /**
@@ -128,6 +134,7 @@ export const Root = () => {
         setTranscriptionColor={(v) => dispatch(setTranscriptionColor(v))}
         applyPresetTheme={(theme) => dispatch(setTheme(theme))}
       />
+      <VisualizerSettingsMenu />
       <TranscriptionDisplayPreferencesMenu
         fontSizePx={fontSizePx}
         lineHeightMultipler={lineHeightMultipler}
@@ -150,6 +157,14 @@ export const Root = () => {
   );
 
   const HeaderButtons = [
+    <Tooltip key="clear" title="Clear Transcription">
+      <IconButton
+        color="inherit"
+        onClick={() => dispatch(clearTranscription())}
+      >
+        <ClearAllIcon />
+      </IconButton>
+    </Tooltip>,
     <ToggleMicrophoneButton
       key="mic"
       isMicrophoneActive={isMicrophoneActive}
@@ -174,6 +189,7 @@ export const Root = () => {
       providerSelector={ProviderSelector}
       headerBreakpoint="md"
     >
+      <VisualizerContainer />
       <MicrophoneModal
         microphoneServiceStatus={microphoneServiceStatus}
         activate={() => void dispatch(activateMicrophone())}

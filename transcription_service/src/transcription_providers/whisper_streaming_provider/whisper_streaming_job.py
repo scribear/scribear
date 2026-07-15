@@ -26,7 +26,10 @@ NUM_CHANNELS = 1
 
 class WhisperStreamingProviderJob(
     JobInterface[
-        tuple[WhisperModel, SileroVadModelType], bytes, TranscriptionResult
+        tuple[WhisperModel, SileroVadModelType],
+        bytes,
+        TranscriptionResult,
+        None,
     ]
 ):
     """
@@ -80,18 +83,10 @@ class WhisperStreamingProviderJob(
             except ValueError as e:
                 raise TranscriptionClientError(str(e)) from e
 
-            # Pure_silence detection:
-            is_silent = self._silence_detector.detect(
-                samples, self._silence_threshold
-            )
-
-            if not is_silent:
-                extra = self._buffer.append(samples)
-                # More than expected number of samples received, client sending audio to fast
-                if len(extra) > 0:
-                    raise TranscriptionClientError(
-                        "Client sent audio too quickly."
-                    )
+            extra = self._buffer.append(samples)
+            # More than expected number of samples received, client sending audio to fast
+            if len(extra) > 0:
+                raise TranscriptionClientError("Client sent audio too quickly.")
 
     def _detect_speech_ranges(
         self,
@@ -265,3 +260,6 @@ class WhisperStreamingProviderJob(
             )
 
         return TranscriptionResult(in_progress=in_progress, final=final)
+
+    def update_config(self, log: Logger, contexts: tuple, config: None) -> None:
+        raise TranscriptionClientError("On the fly config update not supported")

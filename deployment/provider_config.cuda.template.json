@@ -1,0 +1,40 @@
+{
+  "num_workers": 1,
+  "contexts": [
+    {
+      "context_uid": "faster-whisper",
+      "worker_ids": [0],
+      "tags": ["whisper_cpu_context"],
+      "context_config": {
+        "model": "turbo",
+        "device": "cuda"
+      }
+    },
+    {
+      "context_uid": "silero-vad",
+      "worker_ids": [0],
+      "tags": ["silero_vad"],
+      "context_config": {}
+    }
+  ],
+  "providers": {
+    "debug": {
+      "provider_uid": "debug",
+      "provider_config": {
+        "sample_rate": 16000,
+        "num_channels": 1
+      }
+    },
+    "whisper": {
+      "provider_uid": "whisper-streaming",
+      "provider_config": {
+        "whisper_context_tag": "whisper_cpu_context",
+        "silero_context_tag": "silero_vad",
+        "job_period_ms": 500,
+        "max_buffer_len_sec": 30,
+        "local_agree_dim": 2,
+        "vad_detector": true
+      }
+    }
+  }
+}

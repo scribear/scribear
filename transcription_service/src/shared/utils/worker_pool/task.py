@@ -18,6 +18,7 @@ class TaskType(IntEnum):
     REGISTER_JOB = 1
     DEREGISTER_JOB = 2
     QUEUE_DATA = 3
+    UPDATE_JOB_CONFIG = 4
 
 
 @dataclass
@@ -38,7 +39,7 @@ class RegisterJobTask:
     job_id: int
     context_ids: tuple[int, ...]
     period_ms: int
-    job: JobInterface[Any, Any, Any]
+    job: JobInterface[Any, Any, Any, Any]
     type: Literal[TaskType.REGISTER_JOB] = TaskType.REGISTER_JOB
 
 
@@ -63,4 +64,21 @@ class QueueDataTask:
     type: Literal[TaskType.QUEUE_DATA] = TaskType.QUEUE_DATA
 
 
-type Task = TerminateWorkerTask | RegisterJobTask | DeregisterJobTask | QueueDataTask
+@dataclass
+class UpdateJobConfigTask:
+    """
+    Task to apply a config update between data batches for a job
+    """
+
+    job_id: int
+    config: Any
+    type: Literal[TaskType.UPDATE_JOB_CONFIG] = TaskType.UPDATE_JOB_CONFIG
+
+
+type Task = (
+    TerminateWorkerTask
+    | RegisterJobTask
+    | DeregisterJobTask
+    | QueueDataTask
+    | UpdateJobConfigTask
+)

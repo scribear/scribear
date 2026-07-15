@@ -25,12 +25,13 @@ class Context(JobContextInterface[ContextInstance]):
     Definition for context that reports the number of times it is created/destroyed for testing
     """
 
-    def __init__(self, context_id: int):
+    def __init__(self, context_id: int, tags: list[str] | None = None):
         """
         Args:
             context_id  - Identifier for created context instance
+            tags        - Optional tags override; defaults to a generic "context" tag
         """
-        super().__init__(None, 2, ["context", "no_error"], None, 0)
+        super().__init__(tags or ["context"])
         self._context_id = context_id
         self._create_count = 0
         self._destroy_count = 0
@@ -55,7 +56,7 @@ class ErrorContext(JobContextInterface[None]):
     """
 
     def __init__(self):
-        super().__init__(None, -1, ["error"], None, 0)
+        super().__init__(["error"])
 
     def create(self, log: Logger) -> None:
         raise RuntimeError("Failed Create Context")
@@ -70,9 +71,7 @@ class LoggerContext(JobContextInterface[None]):
     """
 
     def __init__(self):
-        super().__init__(
-            None, -1, ["no_error", "none_context", "log_context"], None, 0.1
-        )
+        super().__init__(["log_context"])
 
     def create(self, log: Logger) -> None:
         log.info("Create Context")
@@ -91,13 +90,7 @@ class SlowContext(JobContextInterface[int]):
         Args:
             work_time_ns    - Nanoseconds slow context should take to create
         """
-        super().__init__(
-            None,
-            2,
-            ["slow_context", "no_error", "none_context"],
-            "log_context",
-            0.1,
-        )
+        super().__init__(["slow_context"])
         self._work_time_ns = work_time_ns
 
     def create(self, log: Logger) -> int:

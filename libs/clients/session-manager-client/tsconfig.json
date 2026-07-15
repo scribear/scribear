@@ -21,6 +21,9 @@
       "path": "../base-api-client"
     },
     {
+      "path": "../base-long-poll-client"
+    },
+    {
       "path": "../../schemas/session-manager-schema"
     }
   ]

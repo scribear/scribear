@@ -13,61 +13,26 @@ JobContextInstance = TypeVar("JobContextInstance")
 class JobContextInterface(ABC, Generic[JobContextInstance]):
     """
     Interface for defining job context
-    Used by WorkerPool to create and destroy context instances
+    Used by WorkerPool to create context instances at worker startup. Contexts
+    are pinned to specific workers via the pool's configuration and are created
+    eagerly when the worker process starts.
     """
-
-    @property
-    def max_instances(self) -> int:
-        """
-        Maximum number of worker processes that can instantiate this context
-        """
-        return self._max_instances
 
     @property
     def tags(self) -> set[str]:
         """
-        Set of tags that context is assigned
-        Used by WorkerPool to select context to be used for a job
+        Set of tags assigned to this context
+        Used by WorkerPool to route jobs requesting matching tags to workers
+        that own a context with at least one of those tags
         """
         return self._tags
 
-    @property
-    def negative_affinity(self) -> str | None:
-        """
-        Tag that context is has negative affinity with
-        Used by WorkerPool to select context to be used for a job
-        """
-        return self._negative_affinity
-
-    @property
-    def creation_cost(self) -> float:
-        """
-        Cost weight of creating a job, higher means slower creation
-        Used by WorkerPool to select context to be used for a job
-        """
-        return self._creation_cost
-
-    # pylint: disable=unused-argument
-    def __init__(
-        self,
-        context_config: object,
-        max_instances: int,
-        tags: list[str],
-        negative_affinity: str | None,
-        creation_cost: float,
-    ):
+    def __init__(self, tags: list[str]):
         """
         Args:
-            context_config      - JobContext implementation dependent config
-            max_instances       - Maximum instances configured for job context
-            tags                - List of tags configured for job context
-            negative_affinity   - Negative affinity tag configured for job context
-            creation_cost       - Cost weight of creating this context
+            tags    - Tags configured for job context
         """
-        self._max_instances = max_instances
         self._tags = set(tags)
-        self._negative_affinity = negative_affinity
-        self._creation_cost = creation_cost
 
     @abstractmethod
     def create(self, log: Logger) -> JobContextInstance:
