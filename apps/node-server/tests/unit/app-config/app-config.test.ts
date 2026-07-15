@@ -120,7 +120,7 @@ describe('AppConfig', () => {
   describe('schema validation', (it) => {
     it('throws when a required variable is missing', () => {
       // Arrange
-      delete process.env.SESSION_TOKEN_SIGNING_KEY;
+      delete process.env['SESSION_TOKEN_SIGNING_KEY'];
 
       // Act / Assert
       expect(() => new AppConfig(NO_DOTENV_FILE)).toThrow();
@@ -128,7 +128,7 @@ describe('AppConfig', () => {
 
     it('throws when PORT is outside the valid range', () => {
       // Arrange
-      process.env.PORT = '99999';
+      process.env['PORT'] = '99999';
 
       // Act / Assert
       expect(() => new AppConfig(NO_DOTENV_FILE)).toThrow();
