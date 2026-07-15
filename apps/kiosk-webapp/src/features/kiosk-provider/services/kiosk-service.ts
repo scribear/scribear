@@ -1,5 +1,6 @@
 import EventEmitter from 'eventemitter3';
 
+import { ClockSync, encodeAudioFrame } from '@scribear/audio-frame-protocol';
 import {
   NetworkError,
   UnexpectedResponseError,
@@ -131,6 +132,14 @@ const AUDIO_CHUNK_MS = 100;
 const INIT_RETRY_DELAY_MS = 5_000;
 
 /**
+ * How often the source re-probes the node server's clock (Cristian's
+ * algorithm) to keep the latency `sentAt` correction fresh against drift. The
+ * first probe is sent immediately on connect so an estimate is available
+ * within one round trip.
+ */
+const TIME_SYNC_INTERVAL_MS = 15_000;
+
+/**
  * Cadence for re-fetching `getMyDevice`. Long because device-level changes
  * (rename, room reassignment, source flag flip) are infrequent operator
  * actions. The schedule long-poll already covers per-session changes; this
@@ -232,6 +241,8 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
   private _sessionToken: string | null = null;
   private _tokenRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private _joinCodeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private _clockSync = new ClockSync();
+  private _timeSyncTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(microphoneService: MicrophoneService) {
     super();
@@ -682,7 +693,10 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
       });
       this._scheduleTokenRefresh(sessionToken, session.uid);
 
-      if (isSource) void this._beginAudioCapture(socket);
+      if (isSource) {
+        this._startTimeSync(socket);
+        void this._beginAudioCapture(socket);
+      }
     });
 
     socket.on('message', (msg) => {
@@ -706,6 +720,14 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
         case TranscriptionStreamServerMessageType.SESSION_ENDED:
           // The server will close the socket immediately after; the close
           // handler below will drive the transition to IDLE.
+          break;
+        case TranscriptionStreamServerMessageType.TIME_SYNC_PONG:
+          // Complete a clock-sync probe: t0 echoed from our ping, t1 the
+          // server's clock, and now our receive time.
+          this._clockSync.record(msg.t0, msg.t1, Date.now());
+          break;
+        case TranscriptionStreamServerMessageType.LATENCY_UPDATE:
+          // The source device does not display latency; ignore.
           break;
       }
     });
@@ -732,6 +754,25 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     socket.start();
   }
 
+  /**
+   * Periodically probe the node server's clock so `sentAt` on audio frames can
+   * be corrected into the server's clock domain (see {@link _clockSync}). The
+   * first probe fires immediately; subsequent ones on an interval.
+   */
+  private _startTimeSync(
+    socket: WebSocketClient<typeof TRANSCRIPTION_STREAM_SCHEMA>,
+  ): void {
+    const sendPing = () => {
+      if (this._socket !== socket) return;
+      socket.send({
+        type: TranscriptionStreamClientMessageType.TIME_SYNC_PING,
+        t0: Date.now(),
+      });
+    };
+    sendPing();
+    this._timeSyncTimer = setInterval(sendPing, TIME_SYNC_INTERVAL_MS);
+  }
+
   private async _beginAudioCapture(
     socket: WebSocketClient<typeof TRANSCRIPTION_STREAM_SCHEMA>,
   ): Promise<void> {
@@ -742,7 +783,15 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
       (buffer) => {
         if (this._socket !== socket) return;
         if (this._muted) return;
-        socket.sendBinary(buffer);
+        // Frame each chunk with a correlation id and, once the clock offset is
+        // known, a server-domain send time so the node server can measure
+        // end-to-end latency. Until the first clock-sync probe completes we
+        // omit `sentAt` (the node still reports skew-free pipeline latency).
+        const chunkId = crypto.randomUUID();
+        const sentAt = this._clockSync.toRemote(Date.now());
+        const fields = sentAt !== null ? { chunkId, sentAt } : { chunkId };
+        const frame = encodeAudioFrame(fields, new Uint8Array(buffer));
+        socket.sendBinary(frame.buffer as ArrayBuffer);
       },
     );
     if (this._socket !== socket) {
@@ -850,6 +899,11 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
       clearTimeout(this._joinCodeRefreshTimer);
       this._joinCodeRefreshTimer = null;
     }
+    if (this._timeSyncTimer !== null) {
+      clearInterval(this._timeSyncTimer);
+      this._timeSyncTimer = null;
+    }
+    this._clockSync.reset();
     if (this._audioStream !== null) {
       this._microphoneService.closeAudioStream(this._audioStream);
       this._audioStream = null;

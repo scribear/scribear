@@ -52,6 +52,16 @@ const TRANSCRIPTION_STREAM_SCHEMA = {
       }),
       Type.Null(),
     ]),
+    // Ids of the source audio chunks that contributed to each transcript,
+    // echoed back so the node server can correlate a transcript to the audio
+    // frame it came from and measure latency. Optional so a transcription
+    // service that predates this field still validates.
+    final_chunk_ids: Type.Optional(
+      Type.Union([Type.Array(Type.String()), Type.Null()]),
+    ),
+    in_progress_chunk_ids: Type.Optional(
+      Type.Union([Type.Array(Type.String()), Type.Null()]),
+    ),
   }),
   closeCodes: {
     1000: { description: 'Normal closure' },

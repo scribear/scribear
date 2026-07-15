@@ -4,6 +4,7 @@ import type WebSocket from 'ws';
 
 import {
   TRANSCRIPTION_STREAM_SCHEMA,
+  TranscriptionStreamClientMessageType,
   TranscriptionStreamServerMessageType,
 } from '@scribear/node-server-schema';
 
@@ -213,10 +214,22 @@ export class TranscriptionStreamController {
         return;
       }
 
-      // The schema currently has a single `auth` client-message variant, so
-      // we dispatch directly. When new variants are added, switch on
-      // `parsed.type` and route accordingly.
-      void handleAuth(parsed.sessionToken);
+      switch (parsed.type) {
+        case TranscriptionStreamClientMessageType.AUTH:
+          void handleAuth(parsed.sessionToken);
+          break;
+        case TranscriptionStreamClientMessageType.TIME_SYNC_PING:
+          // Reply immediately with our clock so the source can estimate the
+          // offset (Cristian's algorithm). Deliberately not gated on auth: it
+          // exposes only the server's wall clock and lets the source begin
+          // syncing as early as possible. `t1` is read as late as possible.
+          safeSend({
+            type: TranscriptionStreamServerMessageType.TIME_SYNC_PONG,
+            t0: parsed.t0,
+            t1: Date.now(),
+          });
+          break;
+      }
     });
   }
 }

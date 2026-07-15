@@ -41,6 +41,7 @@ import {
 } from '@scribear/transcription-display-ui';
 
 import { JoinSessionModal } from '#src/features/session-provider/components/join-session-modal';
+import { LatencyBadge } from '#src/features/session-provider/components/latency-badge';
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
 /**
@@ -138,6 +139,7 @@ export const Root = () => {
       headerBreakpoint="md"
     >
       <JoinSessionModal />
+      <LatencyBadge />
       <TranscriptionDisplayContainer
         commitedSections={commitedSections}
         activeSection={activeSection}

@@ -1,6 +1,65 @@
 import { type PayloadAction, createSlice } from '@reduxjs/toolkit';
 import { v4 as uuidv4 } from 'uuid';
 
+/** Sliding-window size for the latency moving averages. */
+const LATENCY_WINDOW_SIZE = 60;
+
+/** Which transcript a latency sample describes. */
+export type LatencyKind = 'final' | 'inProgress';
+
+/**
+ * A latency sample dispatched from the session transport: `pipelineMs` is the
+ * skew-free node-side pipeline latency; `e2eMs` additionally includes capture
+ * and uplink (via clock-synced source timestamps) and is null when no reliable
+ * offset is available.
+ */
+export interface LatencySample {
+  kind: LatencyKind;
+  pipelineMs: number;
+  e2eMs: number | null;
+}
+
+interface LatencyWindow {
+  samples: number[];
+  average: number;
+}
+
+interface LatencyMetric {
+  final: LatencyWindow;
+  inProgress: LatencyWindow;
+}
+
+/**
+ * Rolling latency measurements. `pipeline` (node ingress -> transcript) is
+ * always populated; `e2e` (capture -> display) is only populated once the
+ * source's clock has been synced to the server.
+ */
+export interface LatencyState {
+  pipeline: LatencyMetric;
+  e2e: LatencyMetric;
+}
+
+function emptyWindow(): LatencyWindow {
+  return { samples: [], average: 0 };
+}
+
+function emptyMetric(): LatencyMetric {
+  return { final: emptyWindow(), inProgress: emptyWindow() };
+}
+
+function emptyLatency(): LatencyState {
+  return { pipeline: emptyMetric(), e2e: emptyMetric() };
+}
+
+function pushSample(window: LatencyWindow, value: number): void {
+  window.samples.push(value);
+  if (window.samples.length > LATENCY_WINDOW_SIZE) {
+    window.samples.shift();
+  }
+  window.average =
+    window.samples.reduce((sum, s) => sum + s, 0) / window.samples.length;
+}
+
 /**
  * A sequence of transcribed text tokens with optional word-level timing data.
  * Each committed sequence has a stable `id` so it can be rendered as a keyed
@@ -51,6 +110,7 @@ export interface TranscriptionContentSlice {
   activeSection: ActiveSection;
   finalizedTranscription: TranscriptionSequence[];
   inProgressTranscription: TranscriptionSequenceInput | null;
+  latency: LatencyState;
 }
 
 /**
@@ -65,6 +125,7 @@ const initialState: TranscriptionContentSlice = {
   activeSection: { id: uuidv4(), sequences: [] },
   finalizedTranscription: [],
   inProgressTranscription: null,
+  latency: emptyLatency(),
 };
 
 /**
@@ -88,6 +149,23 @@ export const selectInProgressTranscriptionText = (
   if (state.transcriptionContent.inProgressTranscription === null) return '';
   return state.transcriptionContent.inProgressTranscription.text.join('');
 };
+
+/** Skew-free pipeline latency (ms) for finalized transcripts; 0 if no samples. */
+export const selectFinalPipelineLatencyMs = (state: WithTranscriptionContent) =>
+  state.transcriptionContent.latency.pipeline.final.average;
+
+/** Skew-free pipeline latency (ms) for interim transcripts; 0 if no samples. */
+export const selectInProgressPipelineLatencyMs = (
+  state: WithTranscriptionContent,
+) => state.transcriptionContent.latency.pipeline.inProgress.average;
+
+/** End-to-end latency (ms) for finalized transcripts; 0 until clock-synced. */
+export const selectFinalE2eLatencyMs = (state: WithTranscriptionContent) =>
+  state.transcriptionContent.latency.e2e.final.average;
+
+/** End-to-end latency (ms) for interim transcripts; 0 until clock-synced. */
+export const selectInProgressE2eLatencyMs = (state: WithTranscriptionContent) =>
+  state.transcriptionContent.latency.e2e.inProgress.average;
 
 /**
  * Redux slice managing all transcription content, including committed paragraph
@@ -178,6 +256,18 @@ export const transcriptionContentSlice = createSlice({
       }
     },
     /**
+     * Records a latency sample into the rolling windows. `pipelineMs` always
+     * counts; `e2eMs` counts only when present and non-negative (a negative
+     * value signals residual clock skew and is discarded).
+     */
+    recordLatency: (state, action: PayloadAction<LatencySample>) => {
+      const { kind, pipelineMs, e2eMs } = action.payload;
+      pushSample(state.latency.pipeline[kind], pipelineMs);
+      if (e2eMs !== null && e2eMs >= 0) {
+        pushSample(state.latency.e2e[kind], e2eMs);
+      }
+    },
+    /**
      * Resets all transcription content back to the initial empty state.
      */
     clearTranscription: (state) => {
@@ -185,6 +275,7 @@ export const transcriptionContentSlice = createSlice({
       state.activeSection = { id: uuidv4(), sequences: [] };
       state.finalizedTranscription = [];
       state.inProgressTranscription = null;
+      state.latency = emptyLatency();
     },
   },
 });
@@ -198,5 +289,6 @@ export const {
   commitInProgressTranscription,
   replaceInProgressTranscription,
   handleTranscript,
+  recordLatency,
   clearTranscription,
 } = transcriptionContentSlice.actions;

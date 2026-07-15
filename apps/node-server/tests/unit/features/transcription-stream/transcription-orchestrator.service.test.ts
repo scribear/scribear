@@ -1,9 +1,15 @@
 import { EventEmitter } from 'eventemitter3';
 import { afterEach, beforeEach, describe, expect, vi } from 'vitest';
 
+import { encodeAudioFrame } from '@scribear/audio-frame-protocol';
+import { LatencyKind } from '@scribear/node-server-schema';
 import type { Session } from '@scribear/session-manager-schema';
 
 import { AudioFrameChannel } from '#src/server/features/transcription-stream/events/audio-frame.events.js';
+import {
+  LatencyChannel,
+  type LatencyMessage,
+} from '#src/server/features/transcription-stream/events/latency.events.js';
 import { SessionStatusChannel } from '#src/server/features/transcription-stream/events/session-status.events.js';
 import { TranscriptChannel } from '#src/server/features/transcription-stream/events/transcript.events.js';
 import {
@@ -257,13 +263,15 @@ describe('TranscriptionOrchestratorService', () => {
   });
 
   describe('audio bus → upstream', (it) => {
-    it('forwards binary frames published to AudioFrameChannel into the upstream', async () => {
+    it('forwards SAFP frames published to AudioFrameChannel into the upstream', async () => {
       // Arrange
       const promise = h.orchestrator.registerSource(SESSION_UID);
       h.longPoll.emit('data', fakeSession());
       await promise;
 
-      const frame = Buffer.from([1, 2, 3]);
+      const frame = Buffer.from(
+        encodeAudioFrame({ chunkId: 'c1' }, new Uint8Array([1, 2, 3])),
+      );
 
       // Act
       h.bus.publish(AudioFrameChannel, frame, SESSION_UID);
@@ -271,6 +279,69 @@ describe('TranscriptionOrchestratorService', () => {
       // Assert
       expect(h.upstream.sendBinary).toHaveBeenCalledTimes(1);
       expect(h.upstream.sendBinary).toHaveBeenCalledWith(frame);
+    });
+
+    it('drops a malformed (non-SAFP) frame instead of forwarding it', async () => {
+      // Arrange
+      const promise = h.orchestrator.registerSource(SESSION_UID);
+      h.longPoll.emit('data', fakeSession());
+      await promise;
+
+      // Act - raw bytes with no SAFP envelope
+      h.bus.publish(AudioFrameChannel, Buffer.from([1, 2, 3]), SESSION_UID);
+
+      // Assert
+      expect(h.upstream.sendBinary).not.toHaveBeenCalled();
+    });
+
+    it('correlates an echoed chunk id into a latency sample', async () => {
+      // Arrange
+      const promise = h.orchestrator.registerSource(SESSION_UID);
+      h.longPoll.emit('data', fakeSession());
+      await promise;
+
+      const samples: LatencyMessage[] = [];
+      h.bus.subscribe(LatencyChannel, (m) => samples.push(m), SESSION_UID);
+
+      const chunkId = 'chunk-xyz';
+      const sentAt = Date.now() - 5;
+      const frame = Buffer.from(
+        encodeAudioFrame({ chunkId, sentAt }, new Uint8Array([1, 2, 3])),
+      );
+
+      // Act - audio in, then a transcript that references the same chunk
+      h.bus.publish(AudioFrameChannel, frame, SESSION_UID);
+      h.upstream.emit('message', {
+        final: { text: ['hi'], starts: null, ends: null },
+        in_progress: null,
+        final_chunk_ids: [chunkId],
+      });
+
+      // Assert
+      expect(samples).toHaveLength(1);
+      expect(samples[0]?.kind).toBe(LatencyKind.FINAL);
+      expect(typeof samples[0]?.pipelineMs).toBe('number');
+      expect(samples[0]?.e2eMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('emits no latency sample for a transcript with no matching chunk id', async () => {
+      // Arrange
+      const promise = h.orchestrator.registerSource(SESSION_UID);
+      h.longPoll.emit('data', fakeSession());
+      await promise;
+
+      const samples: LatencyMessage[] = [];
+      h.bus.subscribe(LatencyChannel, (m) => samples.push(m), SESSION_UID);
+
+      // Act - a transcript referencing a chunk the orchestrator never saw
+      h.upstream.emit('message', {
+        final: { text: ['hi'], starts: null, ends: null },
+        in_progress: null,
+        final_chunk_ids: ['never-seen'],
+      });
+
+      // Assert
+      expect(samples).toHaveLength(0);
     });
 
     it('does not forward audio frames published for a different session', async () => {

@@ -34,13 +34,16 @@ class TranscriptionSessionInterface(ABC, EventEmitter):
         """
 
     @abstractmethod
-    def handle_audio_chunk(self, chunk: bytes):
+    def handle_audio_chunk(self, chunk_id: str, chunk: bytes):
         """
         Called when when an audio chunk arrives from audio stream
         Note: chunk can be any length and format
 
         Args:
-            chunk   - Chunk of audio to handle
+            chunk_id    - Correlation id for this chunk, echoed back with the
+                            transcript it contributes to so the caller can
+                            measure latency. Empty string if unknown.
+            chunk       - Chunk of audio to handle
 
         Raises:
             TranscriptionClientError if error is caused by client

@@ -12,6 +12,10 @@ from starlette.websockets import WebSocket
 
 from src.shared.config import Config
 from src.shared.logger import Logger
+from src.shared.utils.audio_frame_protocol import (
+    AudioFrameError,
+    decode_audio_frame,
+)
 from src.transcription_provider_interface import (
     TranscriptionClientError,
     TranscriptionResult,
@@ -152,23 +156,10 @@ class TranscriptionStreamController(WebsocketHandler):
                     if result.in_progress is not None
                     else None
                 ),
+                final_chunk_ids=result.final_chunk_ids or None,
+                in_progress_chunk_ids=result.in_progress_chunk_ids or None,
             )
         )
-
-    def _audio_chunk(self, chunk: bytes):
-        """
-        Forward an audio chunk to the underlying service once auth + config
-        have completed.
-        """
-        if not self._is_authenticated:
-            self.close(1008, "Audio chunk before authentication")
-            return
-
-        if self._service is None:
-            self.close(1008, "Audio chunk before configuration")
-            return
-
-        self._service.handle_audio_chunk(chunk)
 
     async def _handle_text_message(self, message: str):
         """
@@ -184,9 +175,27 @@ class TranscriptionStreamController(WebsocketHandler):
 
     async def _handle_binary_message(self, message: bytes):
         """
-        Treat any binary client message as a chunk of source audio.
+        Treat any binary client message as a SAFP-framed chunk of source
+        audio. Auth and config are enforced before the frame is decoded so an
+        unauthenticated peer is rejected regardless of framing; a malformed
+        frame from an authenticated peer is dropped (the node server already
+        validated the CRC, so this is defense in depth).
         """
-        self._audio_chunk(message)
+        if not self._is_authenticated:
+            self.close(1008, "Audio chunk before authentication")
+            return
+
+        if self._service is None:
+            self.close(1008, "Audio chunk before configuration")
+            return
+
+        try:
+            frame = decode_audio_frame(message)
+        except AudioFrameError:
+            self._logger.warning("Dropping malformed audio frame")
+            return
+
+        self._service.handle_audio_chunk(frame.chunk_id or "", frame.audio)
 
     def _handle_close(self, code: int, reason: str | None):
         """

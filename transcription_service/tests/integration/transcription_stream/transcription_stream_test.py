@@ -19,6 +19,7 @@ from src.shared.config import (
     TranscriptionProviderUID,
 )
 from src.shared.logger import ContextLogger, Logger
+from src.shared.utils.audio_frame_protocol import encode_audio_frame
 from src.webserver.create_webserver import create_webserver
 
 API_KEY = "TEST_KEY"
@@ -141,6 +142,8 @@ async def test_transcription_stream_accepts_valid_auth_config(
                 "ends": None,
             },
             "in_progress": None,
+            "final_chunk_ids": None,
+            "in_progress_chunk_ids": None,
         }
 
 
@@ -165,7 +168,7 @@ async def test_transcription_stream_accepts_audio(test_client: TestClient):
                     "config": {"sample_rate": 48000, "num_channels": 1},
                 }
             )
-            websocket.send_bytes(chunk)
+            websocket.send_bytes(encode_audio_frame("chunk-1", chunk))
             websocket.receive_json()
 
             # Allow async loop to run

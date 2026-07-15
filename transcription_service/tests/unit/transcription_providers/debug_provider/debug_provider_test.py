@@ -70,7 +70,7 @@ async def test_debug_provider_returns_audio_debug_info(
 
     # Act
     debug_provider_session.start_session()
-    debug_provider_session.handle_audio_chunk(chunk)
+    debug_provider_session.handle_audio_chunk("chunk-1", chunk)
     await asyncio.sleep(1.2)
 
     # Assert
@@ -112,7 +112,7 @@ async def test_debug_provider_throws_exception_on_bad_chunk(
 
     # Act
     debug_provider_session.start_session()
-    debug_provider_session.handle_audio_chunk(chunk)
+    debug_provider_session.handle_audio_chunk("chunk-1", chunk)
     await asyncio.sleep(1.2)
 
     # Assert

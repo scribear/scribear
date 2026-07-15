@@ -7,12 +7,16 @@ import {
 } from '@scribear/base-websocket-client';
 import { createNodeServerClient } from '@scribear/node-server-client';
 import {
+  LatencyKind,
   type TRANSCRIPTION_STREAM_SCHEMA,
   TranscriptionStreamClientMessageType,
   TranscriptionStreamServerMessageType,
 } from '@scribear/node-server-schema';
 import { createSessionManagerClient } from '@scribear/session-manager-client';
-import type { TranscriptionSequenceInput } from '@scribear/transcription-content-store';
+import type {
+  LatencySample,
+  TranscriptionSequenceInput,
+} from '@scribear/transcription-content-store';
 
 import {
   ClientLifecycle,
@@ -60,6 +64,7 @@ interface ClientSessionServiceEvents {
   connectionStatus: (status: SessionConnectionStatus) => void;
   sessionStatus: (status: SessionStatusSnapshot) => void;
   transcript: (event: TranscriptEvent) => void;
+  latency: (sample: LatencySample) => void;
   joinError: (error: JoinError | null) => void;
   error: (message: string | null) => void;
 }
@@ -288,6 +293,16 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
         case TranscriptionStreamServerMessageType.SESSION_ENDED:
           // The server will close the socket immediately after; the close
           // handler drives the transition to IDLE.
+          break;
+        case TranscriptionStreamServerMessageType.LATENCY_UPDATE:
+          this.emit('latency', {
+            kind: msg.kind === LatencyKind.FINAL ? 'final' : 'inProgress',
+            pipelineMs: msg.pipelineMs,
+            e2eMs: msg.e2eMs,
+          });
+          break;
+        case TranscriptionStreamServerMessageType.TIME_SYNC_PONG:
+          // The client does not run clock sync (it never sends audio); ignore.
           break;
       }
     });

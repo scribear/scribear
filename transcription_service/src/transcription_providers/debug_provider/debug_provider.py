@@ -80,7 +80,10 @@ class DebugProvider(TranscriptionProviderInterface):
                 ),
             )
 
-        def handle_audio_chunk(self, chunk: bytes):
+        def handle_audio_chunk(self, chunk_id: str, chunk: bytes):
+            # Debug provider does not track chunk ids; the correlation id is
+            # accepted for interface parity and ignored.
+            del chunk_id
             self._job.queue_data([chunk])
 
         def end_session(self):

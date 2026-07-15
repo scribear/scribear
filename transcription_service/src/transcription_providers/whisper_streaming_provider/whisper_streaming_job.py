@@ -13,6 +13,7 @@ from src.shared.utils.worker_pool import JobInterface
 from src.transcription_contexts.faster_whisper_context import WhisperModel
 from src.transcription_contexts.silero_vad_context import SileroVadModelType
 from src.transcription_provider_interface import (
+    AudioChunkPayload,
     TranscriptionClientError,
     TranscriptionResult,
     TranscriptionSequence,
@@ -27,7 +28,7 @@ NUM_CHANNELS = 1
 class WhisperStreamingProviderJob(
     JobInterface[
         tuple[WhisperModel, SileroVadModelType],
-        bytes,
+        AudioChunkPayload,
         TranscriptionResult,
         None,
     ]
@@ -48,6 +49,13 @@ class WhisperStreamingProviderJob(
         )
         self._buffer_offset_samples = 0
 
+        # Latency correlation: total samples ever appended (absolute stream
+        # position) and a ledger mapping each source chunk to the sample span
+        # it occupies, so a transcript's end time can be resolved back to the
+        # chunk ids that produced it.
+        self._total_decoded_samples = 0
+        self._chunk_ledger: list[dict] = []
+
         self._local_agree = LocalAgree(config.local_agree_dim)
         self._last_finalized = ""
 
@@ -66,10 +74,10 @@ class WhisperStreamingProviderJob(
         if self._vad_neg_threshold is not None:
             self._vad_neg_threshold = float(self._vad_neg_threshold)
 
-    def _decode_audio(self, batch: list[bytes]):
+    def _decode_audio(self, batch: list[AudioChunkPayload]):
         """
-        Decodes audio chunks and appends to buffer
-        Pure_silence detection before appends audio to buffer
+        Decodes audio chunks and appends to buffer, recording each chunk's
+        sample span in the ledger for later latency correlation.
 
         Args:
             batch   - Batch of audio chunks to decode and append
@@ -79,11 +87,20 @@ class WhisperStreamingProviderJob(
         """
         for chunk in batch:
             try:
-                samples = self._decoder.decode(chunk)
+                samples = self._decoder.decode(chunk.audio_bytes)
             except ValueError as e:
                 raise TranscriptionClientError(str(e)) from e
 
+            num_samples = len(samples)
+            self._chunk_ledger.append(
+                {
+                    "chunk_id": chunk.chunk_id,
+                    "start_sample": self._total_decoded_samples,
+                    "end_sample": self._total_decoded_samples + num_samples,
+                }
+            )
             extra = self._buffer.append(samples)
+            self._total_decoded_samples += num_samples
             # More than expected number of samples received, client sending audio to fast
             if len(extra) > 0:
                 raise TranscriptionClientError("Client sent audio too quickly.")
@@ -176,6 +193,61 @@ class WhisperStreamingProviderJob(
                     )
         return transcription
 
+    def _extract_chunk_ids_for_time(self, end_time_sec: float) -> list[str]:
+        """
+        Resolve a transcript end time (seconds from stream start) to the ids of
+        the source chunks that contributed to it - every ledger record that
+        starts before that point. Also prunes ledger records whose audio has
+        already been purged from the buffer so the ledger stays bounded.
+
+        Args:
+            end_time_sec    - Transcript end time in seconds, or 0 if unknown
+
+        Returns:
+            Chunk ids in the order the chunks were received (earliest first).
+        """
+        if not end_time_sec or end_time_sec <= 0:
+            return []
+
+        current_sample_idx = int(end_time_sec * SAMPLE_RATE)
+        chunk_ids = [
+            record["chunk_id"]
+            for record in self._chunk_ledger
+            if record["start_sample"] < current_sample_idx
+        ]
+
+        self._chunk_ledger = [
+            record
+            for record in self._chunk_ledger
+            if record["end_sample"] >= self._buffer_offset_samples
+        ]
+
+        return chunk_ids
+
+    def _build_result(
+        self,
+        final: TranscriptionSequence | None,
+        in_progress: TranscriptionSequence | None,
+    ) -> TranscriptionResult:
+        """
+        Assemble a TranscriptionResult, tagging each transcript with the ids of
+        the source chunks that produced it.
+        """
+        final_end_time = final.ends[-1] if final and final.ends else 0
+        in_progress_end_time = (
+            in_progress.ends[-1]
+            if in_progress and in_progress.ends
+            else final_end_time
+        )
+        return TranscriptionResult(
+            in_progress=in_progress,
+            final=final,
+            final_chunk_ids=self._extract_chunk_ids_for_time(final_end_time),
+            in_progress_chunk_ids=self._extract_chunk_ids_for_time(
+                in_progress_end_time
+            ),
+        )
+
     def _append_sequence(
         self, a: TranscriptionSequence, b: TranscriptionSequence
     ):
@@ -196,7 +268,7 @@ class WhisperStreamingProviderJob(
         self,
         log: Logger,
         contexts: tuple[WhisperModel, SileroVadModelType],
-        batch: list[bytes],
+        batch: list[AudioChunkPayload],
     ) -> TranscriptionResult:
         whisper_model, vad_context = contexts
 
@@ -226,7 +298,7 @@ class WhisperStreamingProviderJob(
 
             if forced_final is not None:
                 self._last_finalized = "".join(forced_final.text)
-            return TranscriptionResult(final=forced_final)
+            return self._build_result(forced_final, None)
 
         self._local_agree.append_transcription(segments)
 
@@ -235,9 +307,7 @@ class WhisperStreamingProviderJob(
 
         if final is None:
             # If nothing finalized currently, use forced_final transcription (if any)
-            return TranscriptionResult(
-                in_progress=in_progress, final=forced_final
-            )
+            return self._build_result(forced_final, in_progress)
 
         if final is not None and final.ends:
             # Purge finalized audio from buffer
@@ -255,11 +325,9 @@ class WhisperStreamingProviderJob(
             self._append_sequence(forced_final, final)
 
             self._last_finalized = "".join(forced_final.text)
-            return TranscriptionResult(
-                in_progress=in_progress, final=forced_final
-            )
+            return self._build_result(forced_final, in_progress)
 
-        return TranscriptionResult(in_progress=in_progress, final=final)
+        return self._build_result(final, in_progress)
 
     def update_config(self, log: Logger, contexts: tuple, config: None) -> None:
         raise TranscriptionClientError("On the fly config update not supported")
