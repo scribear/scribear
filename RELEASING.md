@@ -9,7 +9,16 @@ This repository follows the staging and versioning workflow proposed in issue `#
 - Feature and fix branches should be created from `staging`.
 - Release branches should be created from `staging` and merged into `main`.
 
+## Container registry
+
+- Images are published to the **GitHub Container Registry (GHCR)** at `ghcr.io/scribear/<service>`.
+- During the migration off Docker Hub, CI also mirrors every image to `scribear/<service>` on Docker Hub (`docker.io`). Docker Hub is deprecated and will be turned off once all consumers pull from GHCR.
+- GHCR pushes authenticate with the built-in `GITHUB_TOKEN` (`packages: write`); no separate registry credentials are required for GHCR.
+- The deployment stack selects the registry via `IMAGE_REGISTRY` in `deployment/.env` (default `ghcr.io/scribear`; set to `scribear` to fall back to Docker Hub).
+
 ## Container tags
+
+Tags below are published identically to both registries during the transition.
 
 - Pull requests to `staging` or `main` build changed containers with the `PR-<number>` tag.
 - Pushes to `staging` build changed containers with the `staging` and `staging-<commit-sha>` tags.

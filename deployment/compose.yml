@@ -1,7 +1,7 @@
 services:
   # Reverse Proxy
   nginx:
-    image: scribear/scribear-nginx:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/scribear-nginx:${IMAGE_TAG:-latest}
     ports:
       - "${NGINX_PORT:-80}:80"
       - "${NGINX_HTTPS_PORT:-443}:443"
@@ -26,7 +26,7 @@ services:
 
   # Frontend Webapps
   client-webapp:
-    image: scribear/client-webapp:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/client-webapp:${IMAGE_TAG:-latest}
     expose:
       - "80"
     networks:
@@ -34,7 +34,7 @@ services:
     restart: unless-stopped
 
   standalone-webapp:
-    image: scribear/standalone-webapp:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/standalone-webapp:${IMAGE_TAG:-latest}
     expose:
       - "80"
     networks:
@@ -42,7 +42,7 @@ services:
     restart: unless-stopped
 
   kiosk-webapp:
-    image: scribear/kiosk-webapp:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/kiosk-webapp:${IMAGE_TAG:-latest}
     expose:
       - "80"
     networks:
@@ -51,7 +51,7 @@ services:
 
   # Backend APIs
   session-manager:
-    image: scribear/session-manager:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/session-manager:${IMAGE_TAG:-latest}
     expose:
       - "80"
     environment:
@@ -72,7 +72,7 @@ services:
     restart: unless-stopped
 
   node-server:
-    image: scribear/node-server:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/node-server:${IMAGE_TAG:-latest}
     expose:
       - "80"
     environment:
@@ -91,7 +91,7 @@ services:
 
   # Infrastructure
   scribear-db:
-    image: scribear/scribear-db:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/scribear-db:${IMAGE_TAG:-latest}
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
@@ -110,7 +110,7 @@ services:
       retries: 5
 
   transcription-service:
-    image: scribear/transcription-service-${TRANSCRIPTION_DEVICE:-cpu}:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/transcription-service-${TRANSCRIPTION_DEVICE:-cpu}:${IMAGE_TAG:-latest}
     deploy:
       resources:
         reservations:
