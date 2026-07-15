@@ -10,6 +10,7 @@ on:
 permissions:
   actions: read
   contents: read
+  packages: write
 
 jobs:
   changes:
@@ -61,3 +62,4 @@ jobs:
           custom_tags: ${{ steps.tags.outputs.tags }}
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}

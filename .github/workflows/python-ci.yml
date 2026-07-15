@@ -10,6 +10,7 @@ on:
 permissions:
   actions: read
   contents: read
+  packages: write
   pull-requests: write
 
 jobs:
@@ -108,6 +109,7 @@ jobs:
           custom_tags: ${{ steps.tags.outputs.tags }}
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
   integration-test:
     needs: [changes, format, lint, test, docker-build]

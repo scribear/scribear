@@ -6,6 +6,12 @@ export default mergeConfig(
   sharedConfig,
   defineConfig({
     test: {
+      coverage: {
+        // Process entrypoint: bootstraps and starts the server. It has no unit-
+        // testable logic and is exercised by the integration suite, so exclude
+        // it rather than report it as uncovered.
+        exclude: ['src/index.ts'],
+      },
       projects: [
         {
           extends: true,
