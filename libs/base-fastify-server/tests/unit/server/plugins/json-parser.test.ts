@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { type Mock, beforeEach, describe, expect, vi } from 'vitest';
 
-import { HttpError } from '#src/server/errors/http-errors.js';
+import { BaseHttpError } from '#src/server/errors/http-errors.js';
 import jsonParser from '#src/server/plugins/json-parser.js';
 
 describe('JSON Parser Plugin', (it) => {
@@ -21,9 +21,6 @@ describe('JSON Parser Plugin', (it) => {
     });
   });
 
-  /**
-   * Test that jsonParser is able to parse valid json
-   */
   it('parses a valid JSON body successfully', async () => {
     // Arrange
     const validPayload = { hello: 'world', count: 123 };
@@ -43,9 +40,6 @@ describe('JSON Parser Plugin', (it) => {
     expect(JSON.parse(response.payload)).toEqual(validPayload);
   });
 
-  /**
-   * Test that jsonParser throws BadRequest error if malformed JSON is received
-   */
   it('throws BadRequest error for a malformed JSON body', async () => {
     // Arrange
     const invalidPayload = '{"key": "value",}';
@@ -62,9 +56,12 @@ describe('JSON Parser Plugin', (it) => {
 
     // Assert
     expect(mockErrorHandler).toHaveBeenCalledExactlyOnceWith(
-      expect.any(HttpError.BadRequest),
+      expect.any(BaseHttpError),
       expect.anything(),
       expect.anything(),
     );
+    const [err] = mockErrorHandler.mock.calls[0] as [BaseHttpError];
+    expect(err.statusCode).toBe(400);
+    expect(err.code).toBe('VALIDATION_ERROR');
   });
 });

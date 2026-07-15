@@ -11,7 +11,7 @@ import {
 } from '@scribear/session-manager-schema';
 
 /**
- * Registers Swagger and Swagger UI to generate API documentation
+ * Registers Swagger and Swagger UI to generate API documentation.
  */
 export default fastifyPlugin(async (fastify: BaseFastifyInstance) => {
   await fastify.register(Swagger, {

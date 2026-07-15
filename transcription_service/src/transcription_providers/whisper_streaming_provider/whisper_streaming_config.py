@@ -12,8 +12,8 @@ class WhisperStreamingProviderConfig(BaseModel):
     Provider configuration format for WhisperStreamingProvider
     """
 
-    context_tag: str
-    vad_context_tag: str = "silero_vad"
+    whisper_context_tag: str
+    silero_context_tag: str
     job_period_ms: int
     max_buffer_len_sec: float
     local_agree_dim: int

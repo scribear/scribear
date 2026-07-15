@@ -7,13 +7,13 @@ import type {
 } from '@scribear/base-schema';
 
 import { buildUrl } from './build-url.js';
-import { NetworkError, SchemaValidationError } from './errors.js';
+import { NetworkError, UnexpectedResponseError } from './errors.js';
 
 type InputKey = 'body' | 'querystring' | 'params' | 'headers';
 
 /**
- * Extracts a typed params object from a route schema, including only the keys
- * (body, querystring, params, headers) that are defined in the schema.
+ * Typed bag of request inputs required by the route. Keys are present only
+ * when the corresponding schema field is declared.
  */
 type EndpointParams<S extends BaseRouteSchema> = {
   [K in InputKey as undefined extends S[K] ? never : K]: S[K] extends TSchema
@@ -22,7 +22,7 @@ type EndpointParams<S extends BaseRouteSchema> = {
 };
 
 /**
- * A discriminated union of all response types defined in the schema, keyed by HTTP status code.
+ * Discriminated union of all declared responses, keyed by HTTP status code.
  */
 type EndpointResponse<S extends BaseRouteSchema> = {
   [K in keyof S['response'] & number]: {
@@ -31,25 +31,35 @@ type EndpointResponse<S extends BaseRouteSchema> = {
   };
 }[keyof S['response'] & number];
 
+type EndpointError = NetworkError | UnexpectedResponseError;
+
 /**
- * Result tuple returned by an endpoint client function.
- * Either a typed response or an error
+ * Two-slot result tuple. A declared status with a valid body returns as a
+ * typed response regardless of whether the status is 2xx or 4xx. Any other
+ * outcome (network failure, undeclared status, body schema mismatch)
+ * populates the error slot.
  */
 type EndpointResult<S extends BaseRouteSchema> =
   | [response: EndpointResponse<S>, error: null]
-  | [response: null, error: NetworkError | SchemaValidationError];
+  | [response: null, error: EndpointError];
 
 /**
  * Creates a typed fetch function for a specific API endpoint.
  *
- * The returned function validates all responses (any status code) against the TypeBox
- * schema defined for that status in the route schema. Both success and error HTTP
- * responses are returned in the result slot of the tuple if they match their schema.
+ * Contract:
  *
- * @param schema - The BaseRouteSchema for this endpoint (use `satisfies BaseRouteSchema`).
- * @param route - The BaseRouteDefinition specifying the HTTP method and URL pattern.
- * @param baseUrl - Base URL of the API server (e.g. 'http://localhost:3000').
- * @returns A typed async function that fetches the endpoint and validates the response.
+ * - Declared statuses with matching bodies -> typed response.
+ * - Fetch rejects -> {@link NetworkError}.
+ * - Any other status, or a body failing the declared schema -> {@link UnexpectedResponseError}.
+ *
+ * Infrastructure statuses (429, 502, 503, 504) fall into
+ * `UnexpectedResponseError` because routes don't declare them; callers
+ * branch on `error.status` when they need to.
+ *
+ * @param schema BaseRouteSchema for this endpoint.
+ * @param route HTTP method + URL pattern.
+ * @param baseUrl Base URL of the API server.
+ * @returns A typed async function that fetches and validates the endpoint.
  */
 function createEndpointClient<S extends BaseRouteSchema>(
   schema: S,
@@ -103,7 +113,7 @@ function createEndpointClient<S extends BaseRouteSchema>(
     )[status];
 
     if (responseSchema === undefined) {
-      return [null, new SchemaValidationError(status)];
+      return [null, new UnexpectedResponseError(status)];
     }
 
     // 204 No Content has no body to parse.
@@ -113,7 +123,7 @@ function createEndpointClient<S extends BaseRouteSchema>(
 
     const body: unknown = await response.json();
     if (!Value.Check(responseSchema, body)) {
-      return [null, new SchemaValidationError(status)];
+      return [null, new UnexpectedResponseError(status)];
     }
 
     return [{ status, data: body } as EndpointResponse<S>, null];
@@ -121,4 +131,4 @@ function createEndpointClient<S extends BaseRouteSchema>(
 }
 
 export { createEndpointClient };
-export type { EndpointParams, EndpointResponse, EndpointResult };
+export type { EndpointParams, EndpointResponse, EndpointResult, EndpointError };

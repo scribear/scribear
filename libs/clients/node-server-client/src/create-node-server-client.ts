@@ -1,38 +1,55 @@
-import { createEndpointClient } from '@scribear/base-api-client';
-import { createWebSocketClient } from '@scribear/base-websocket-client';
 import {
-  AUDIO_SOURCE_ROUTE,
-  AUDIO_SOURCE_SCHEMA,
-  HEALTHCHECK_ROUTE,
-  HEALTHCHECK_SCHEMA,
-  SESSION_CLIENT_ROUTE,
-  SESSION_CLIENT_SCHEMA,
+  type WebSocketClientFactory,
+  createWebSocketClient,
+} from '@scribear/base-websocket-client';
+import {
+  TRANSCRIPTION_STREAM_CLIENT_ROUTE,
+  TRANSCRIPTION_STREAM_SCHEMA,
+  TRANSCRIPTION_STREAM_SOURCE_ROUTE,
 } from '@scribear/node-server-schema';
 
+interface NodeServerClient {
+  /**
+   * Source-scoped transcription stream. The connecting client must hold a
+   * session token granting `SEND_AUDIO`; binary frames are forwarded to the
+   * upstream provider and `transcript` messages are received in return.
+   */
+  transcriptionStreamSource: WebSocketClientFactory<
+    typeof TRANSCRIPTION_STREAM_SCHEMA
+  >;
+  /**
+   * Receive-only transcription stream. The connecting client must hold a
+   * session token granting `RECEIVE_TRANSCRIPTIONS`; the server emits
+   * `transcript` messages but ignores any binary frames the client sends.
+   */
+  transcriptionStreamClient: WebSocketClientFactory<
+    typeof TRANSCRIPTION_STREAM_SCHEMA
+  >;
+}
+
 /**
- * Creates a typed WebSocket client for node server.
+ * Creates a typed client bundle for the node server (the session stream
+ * server). Each property is a {@link WebSocketClientFactory} bound to one of
+ * the two transcription-stream endpoints; calling a factory produces an
+ * independent connection so multiple sessions can run in parallel.
  *
- * @param baseUrl - Base URL of the node server (e.g. "http://localhost:8002").
- * @returns An object containing a typed connect function for the transcription stream.
+ * @param baseUrl Base URL of the node server. HTTP schemes are translated to
+ *   ws/wss when each connection is established.
  */
-function createNodeServerClient(baseUrl: string) {
+function createNodeServerClient(baseUrl: string): NodeServerClient {
   return {
-    healthcheck: createEndpointClient(
-      HEALTHCHECK_SCHEMA,
-      HEALTHCHECK_ROUTE,
+    transcriptionStreamSource: createWebSocketClient(
+      TRANSCRIPTION_STREAM_SCHEMA,
+      TRANSCRIPTION_STREAM_SOURCE_ROUTE,
       baseUrl,
     ),
-    audioSource: createWebSocketClient(
-      AUDIO_SOURCE_SCHEMA,
-      AUDIO_SOURCE_ROUTE,
-      baseUrl,
-    ),
-    sessionClient: createWebSocketClient(
-      SESSION_CLIENT_SCHEMA,
-      SESSION_CLIENT_ROUTE,
+    transcriptionStreamClient: createWebSocketClient(
+      TRANSCRIPTION_STREAM_SCHEMA,
+      TRANSCRIPTION_STREAM_CLIENT_ROUTE,
       baseUrl,
     ),
   };
 }
 
 export { createNodeServerClient };
+export type { NodeServerClient };

@@ -25,22 +25,24 @@ type BaseFastifyInstance = FastifyInstance<
   TypeBoxTypeProvider
 >;
 
-type BaseFastifyReply<TSchema extends FastifySchema> = FastifyReply<
-  RouteGenericInterface,
-  RawServerDefault,
-  RawRequestDefaultExpression,
-  RawReplyDefaultExpression,
-  ContextConfigDefault,
-  TSchema,
-  TypeBoxTypeProvider
->;
+type BaseFastifyReply<TSchema extends FastifySchema = FastifySchema> =
+  FastifyReply<
+    RouteGenericInterface,
+    RawServerDefault,
+    RawRequestDefaultExpression,
+    RawReplyDefaultExpression,
+    ContextConfigDefault,
+    TSchema,
+    TypeBoxTypeProvider
+  >;
 
-type BaseFastifyRequest<TSchema extends FastifySchema> = FastifyRequest<
-  RouteGenericInterface,
-  RawServerDefault,
-  RawRequestDefaultExpression,
-  TSchema,
-  TypeBoxTypeProvider
->;
+type BaseFastifyRequest<TSchema extends FastifySchema = FastifySchema> =
+  FastifyRequest<
+    RouteGenericInterface,
+    RawServerDefault,
+    RawRequestDefaultExpression,
+    TSchema,
+    TypeBoxTypeProvider
+  >;
 
 export type { BaseFastifyInstance, BaseFastifyRequest, BaseFastifyReply };

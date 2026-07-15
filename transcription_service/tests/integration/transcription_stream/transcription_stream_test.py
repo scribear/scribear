@@ -49,13 +49,12 @@ def mock_config():
     mock.api_key = API_KEY
     mock.ws_init_timeout_sec = TIMEOUT_SEC
     mock.provider_config.num_workers = 2
-    mock.provider_config.providers = [
-        TranscriptionProviderConfigSchema(
-            provider_key="debug",
-            provider_uid=TranscriptionProviderUID.DEBUG,
-            provider_config=None,
+    mock.provider_config.contexts = []
+    mock.provider_config.providers = {
+        "debug": TranscriptionProviderConfigSchema(
+            provider_uid=TranscriptionProviderUID.DEBUG, provider_config=None
         )
-    ]
+    }
     return mock
 
 
@@ -132,13 +131,16 @@ async def test_transcription_stream_accepts_valid_auth_config(
 
         received = websocket.receive_json()
         assert received == {
-            "text": [
-                "Session sample rate: 16000. ",
-                "Session channel count: 1. ",
-            ],
-            "starts": None,
-            "ends": None,
-            "type": "final_transcript",
+            "type": "transcript",
+            "final": {
+                "text": [
+                    "Session sample rate: 16000. ",
+                    "Session channel count: 1. ",
+                ],
+                "starts": None,
+                "ends": None,
+            },
+            "in_progress": None,
         }
 
 
@@ -172,13 +174,15 @@ async def test_transcription_stream_accepts_audio(test_client: TestClient):
             received = websocket.receive_json()
 
             # Assert
-            assert received["starts"] is None
-            assert received["ends"] is None
-            assert received["type"] == "ip_transcript"
+            assert received["type"] == "transcript"
+            assert received["final"] is None
+            ip = received["in_progress"]
+            assert ip["starts"] is None
+            assert ip["ends"] is None
 
-            assert len(received["text"]) == 2
-            assert received["text"][0] == "Processed 4.0000 seconds of audio. "
+            assert len(ip["text"]) == 2
+            assert ip["text"][0] == "Processed 4.0000 seconds of audio. "
             decode_time = re.match(
-                r"^Decode job took (\d+) nanoseconds. $", received["text"][1]
+                r"^Decode job took (\d+) nanoseconds. $", ip["text"][1]
             )
             assert decode_time is not None

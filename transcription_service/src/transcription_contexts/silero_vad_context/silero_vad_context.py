@@ -67,22 +67,8 @@ class SileroVadContext(JobContextInterface[SileroVadModelType]):
     Job context definition for managing Silero VAD model lifecycle
     """
 
-    # pylint: disable=duplicate-code
-    def __init__(
-        self,
-        context_config: Any,
-        max_instances: int,
-        tags: list[str],
-        negative_affinity: str | None,
-        creation_cost: float,
-    ):
-        super().__init__(
-            context_config,
-            max_instances,
-            tags,
-            negative_affinity,
-            creation_cost,
-        )
+    def __init__(self, context_config: Any, tags: list[str]):
+        super().__init__(tags)
         self._config = silero_vad_context_config_adapter.validate_python(
             context_config
         )

@@ -9,11 +9,9 @@ class WorkerState(IntEnum):
     """
     Represents the current state of the worker process
 
-    ADMIN - Working on admin tasks (registering/deregistering jobs, queueing data, scheduling, etc.)
-    IDLE  - No ready jobs and no admin tasks
-    BUSY  - Actively executing job (could include initializing context)
+    IDLE  - No ready jobs and no pending admin tasks
+    BUSY  - Actively executing job, draining admin tasks, or scheduling
     """
 
-    ADMIN = 0
     IDLE = 1
     BUSY = 2

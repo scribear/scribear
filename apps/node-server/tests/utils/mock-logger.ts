@@ -10,11 +10,6 @@ export interface MockLogger {
   child: Mock;
 }
 
-/**
- * Creates a mock logger for use in unit tests.
- *
- * @returns A mock logger with all methods stubbed via vi.fn().
- */
 export function createMockLogger(): MockLogger {
   const logger: MockLogger = {
     trace: vi.fn(),

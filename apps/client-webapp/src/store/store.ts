@@ -9,18 +9,31 @@ import {
 import { themePreferencesReducer } from '@scribear/theme-customization-store';
 import { transcriptionContentReducer } from '@scribear/transcription-content-store';
 import { transcriptionDisplayPreferencesReducer } from '@scribear/transcription-display-store';
+import {
+  createUrlConfigMiddleware,
+  urlConfigReducer,
+} from '@scribear/url-config-store';
+
+import { clientSessionConfigReducer } from '#src/features/session-provider/stores/client-session-config-slice';
+import { createClientSessionServiceMiddleware } from '#src/features/session-provider/stores/client-session-service-middleware';
+import { clientSessionServiceReducer } from '#src/features/session-provider/stores/client-session-service-slice';
+import { urlConfigSchemas } from '#src/features/url-config/schemas/url-config-schemas';
 
 /**
  * Redux reducers map for the client webapp store. Includes slices for app layout,
  * theme preferences, transcription content, transcription display preferences,
- * and redux-remember rehydration bookkeeping.
+ * client session configuration and service state, and redux-remember rehydration
+ * bookkeeping.
  */
 const reducers = {
   reduxRemember: reduxRememberReducer,
+  urlConfig: urlConfigReducer,
   appLayoutPreferences: appLayoutPreferencesReducer,
   themePreferences: themePreferencesReducer,
   transcriptionContent: transcriptionContentReducer,
   transcriptionDisplayPreferences: transcriptionDisplayPreferencesReducer,
+  clientSessionConfig: clientSessionConfigReducer,
+  clientSessionService: clientSessionServiceReducer,
 };
 
 // Slice keys that are persisted to `localStorage` via redux-remember.
@@ -28,6 +41,7 @@ export const rememberedKeys: (keyof typeof reducers)[] = [
   'appLayoutPreferences',
   'themePreferences',
   'transcriptionDisplayPreferences',
+  'clientSessionConfig',
 ];
 
 // Combined root reducer with redux-remember support.
@@ -37,6 +51,10 @@ export const rootReducer = rememberReducer(reducers);
 export const createAppStore = () => {
   const store = configureStore({
     reducer: rootReducer,
+    middleware: (getDefaultMiddleware) =>
+      getDefaultMiddleware()
+        .concat(createUrlConfigMiddleware(urlConfigSchemas))
+        .concat(createClientSessionServiceMiddleware()),
     enhancers: (getDefaultEnhancers) =>
       getDefaultEnhancers().prepend(
         rememberEnhancer(window.localStorage, rememberedKeys, {

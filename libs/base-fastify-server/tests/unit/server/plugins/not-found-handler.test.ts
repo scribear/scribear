@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { type Mock, beforeEach, describe, expect, vi } from 'vitest';
 
-import { HttpError } from '#src/server/errors/http-errors.js';
+import { BaseHttpError } from '#src/server/errors/http-errors.js';
 import notFoundHandler from '#src/server/plugins/not-found-handler.js';
 
 describe('Not Found Handler Plugin', (it) => {
@@ -17,9 +17,6 @@ describe('Not Found Handler Plugin', (it) => {
     fastify.register(notFoundHandler);
   });
 
-  /**
-   * Test that Not Found handler plugin throws Not Found error when called
-   */
   it('throws NotFound error', async () => {
     // Arrange / Act
     await fastify.inject({
@@ -29,9 +26,12 @@ describe('Not Found Handler Plugin', (it) => {
 
     // Assert
     expect(mockErrorHandler).toHaveBeenCalledExactlyOnceWith(
-      expect.any(HttpError.NotFound),
+      expect.any(BaseHttpError),
       expect.anything(),
       expect.anything(),
     );
+    const [err] = mockErrorHandler.mock.calls[0] as [BaseHttpError];
+    expect(err.statusCode).toBe(404);
+    expect(err.code).toBe('ROUTE_NOT_FOUND');
   });
 });

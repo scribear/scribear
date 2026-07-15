@@ -1,83 +1,48 @@
-import WebSocket from 'isomorphic-ws';
-import { type Static, type TSchema } from 'typebox';
-
 import type {
   BaseRouteDefinition,
   BaseWebSocketRouteSchema,
 } from '@scribear/base-schema';
 
-import { buildWsUrl } from './build-ws-url.js';
-import { ConnectionError } from './errors.js';
+import type {
+  ConnectParams,
+  WebSocketClientOptions,
+} from './websocket-client.js';
 import { WebSocketClient } from './websocket-client.js';
 
 /**
- * Extracts a typed params object from a WebSocket route schema, including only the
- * keys (querystring, params, headers) that are defined in the schema.
+ * Typed factory produced by {@link createWebSocketClient}. Each call creates
+ * an independent {@link WebSocketClient} instance, so multiple simultaneous
+ * connections to the same route are each started by a separate call.
  */
-type InputKey = 'querystring' | 'params';
-type WebSocketConnectParams<S extends BaseWebSocketRouteSchema> = {
-  [K in InputKey as undefined extends S[K] ? never : K]: S[K] extends TSchema
-    ? Static<S[K]>
-    : never;
-};
+type WebSocketClientFactory<S extends BaseWebSocketRouteSchema> = (
+  params: ConnectParams<S>,
+) => WebSocketClient<S>;
 
 /**
- * Result tuple returned by the connect function.
- * Either a connected client or a connection error
- */
-type WebSocketConnectResult<S extends BaseWebSocketRouteSchema> =
-  | [client: WebSocketClient<S>, error: null]
-  | [client: null, error: ConnectionError];
-
-/**
- * Creates a typed WebSocket connect function for a specific route.
+ * Creates a typed factory for a specific WebSocket endpoint.
  *
- * The returned function establishes a connection, validates server messages
- * against the TypeBox schema, and provides fully typed send/event APIs.
+ * Each call to the returned factory constructs an independent
+ * {@link WebSocketClient}, allowing multiple simultaneous connections to the
+ * same route without creating separate API client instances.
  *
- * @param schema - The BaseWebSocketRouteSchema for this endpoint.
- * @param route - The BaseRouteDefinition specifying the URL pattern.
- * @param baseUrl - Base URL of the server (e.g. 'http://localhost:3000').
- * @returns A typed async function that connects and returns a WebSocketClient.
+ * @param schema Route schema describing client/server messages and close codes.
+ * @param route URL pattern for the WebSocket endpoint.
+ * @param baseUrl Base URL of the server. HTTP schemes are translated to ws/wss.
+ * @param options Shared connection settings applied to every instance produced
+ *   by this factory (backoff, queue policy, handshake, etc.).
  */
 function createWebSocketClient<S extends BaseWebSocketRouteSchema>(
   schema: S,
   route: BaseRouteDefinition,
   baseUrl: string,
-): (params: WebSocketConnectParams<S>) => Promise<WebSocketConnectResult<S>> {
-  return function (
-    params: WebSocketConnectParams<S>,
-  ): Promise<WebSocketConnectResult<S>> {
-    const typedParams = params as {
-      querystring?: Record<string, string>;
-      params?: Record<string, string>;
-    };
-
-    const url = buildWsUrl(
-      baseUrl,
-      route.url,
-      typedParams.params,
-      typedParams.querystring,
-    );
-
-    return new Promise((resolve) => {
-      const ws = new WebSocket(url);
-
-      ws.onopen = () => {
-        ws.onopen = null;
-        ws.onerror = null;
-        const client = new WebSocketClient(ws, schema);
-        resolve([client, null]);
-      };
-
-      ws.onerror = (event) => {
-        ws.onopen = null;
-        ws.onerror = null;
-        resolve([null, new ConnectionError(event.error)]);
-      };
-    });
-  };
+  options?: Omit<
+    WebSocketClientOptions<S>,
+    'schema' | 'route' | 'baseUrl' | 'params'
+  >,
+): WebSocketClientFactory<S> {
+  return (params: ConnectParams<S>): WebSocketClient<S> =>
+    new WebSocketClient({ schema, route, baseUrl, params, ...options });
 }
 
 export { createWebSocketClient };
-export type { WebSocketConnectParams, WebSocketConnectResult };
+export type { WebSocketClientFactory };

@@ -3,7 +3,8 @@ Defines WorkerLogHandler for pushing logs to result queue
 """
 
 import logging
-from queue import Queue
+
+from multiprocess.queues import Queue
 
 from .result import LoggingResult, Result
 

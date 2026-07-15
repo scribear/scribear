@@ -15,7 +15,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'vendor': [
+          vendor: [
             'react',
             'react-dom',
             '@mui/material',
@@ -32,7 +32,11 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3002,
+    port: 3001,
+    proxy: {
+      '/api/session-manager': 'http://localhost:8001',
+      '/api/node-server': { target: 'http://localhost:8002', ws: true },
+    },
   },
   preview: {
     port: 3002,

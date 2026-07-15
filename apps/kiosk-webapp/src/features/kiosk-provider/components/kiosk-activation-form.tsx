@@ -7,28 +7,23 @@ import Typography from '@mui/material/Typography';
 
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
-import { KioskServiceStatus } from '../services/kiosk-service-status';
-import {
-  registerDevice,
-  selectKioskServiceStatus,
-} from '../stores/kiosk-service-slice';
+import { activateDevice, selectRegistrationError } from '../stores/kiosk-slice';
 
 /**
  * Form component that allows a kiosk device to register with ScribeAR using an
- * activation code. Shows a loading state while registration is in progress and
- * an error message if the provided code is invalid.
+ * activation code. Surfaces the latest registration error message from the
+ * service, if any.
  */
 export const KioskActivationForm = () => {
   const dispatch = useAppDispatch();
-  const kioskServiceStatus = useAppSelector(selectKioskServiceStatus);
+  const registrationError = useAppSelector(selectRegistrationError);
 
   const [activationCode, setActivationCode] = useState('');
-
-  const isLoading = kioskServiceStatus === KioskServiceStatus.REGISTERING;
-  const isError = kioskServiceStatus === KioskServiceStatus.REGISTRATION_ERROR;
+  const [submitting, setSubmitting] = useState(false);
 
   const handleActivate = () => {
-    dispatch(registerDevice(activationCode));
+    setSubmitting(true);
+    dispatch(activateDevice(activationCode));
   };
 
   return (
@@ -39,14 +34,12 @@ export const KioskActivationForm = () => {
         value={activationCode}
         onChange={(e) => {
           setActivationCode(e.target.value);
+          setSubmitting(false);
         }}
-        error={isError}
-        helperText={
-          isError &&
-          'Failed to register device. Is the registration code correct?'
-        }
+        error={registrationError !== null}
+        helperText={registrationError ?? ''}
       />
-      <Button onClick={handleActivate} loading={isLoading}>
+      <Button onClick={handleActivate} loading={submitting}>
         Activate
       </Button>
     </Stack>

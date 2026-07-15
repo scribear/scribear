@@ -15,17 +15,23 @@ import {
 import { themePreferencesReducer } from '@scribear/theme-customization-store';
 import { transcriptionContentReducer } from '@scribear/transcription-content-store';
 import { transcriptionDisplayPreferencesReducer } from '@scribear/transcription-display-store';
+import {
+  createUrlConfigMiddleware,
+  urlConfigReducer,
+} from '@scribear/url-config-store';
+import { visualizerPreferencesReducer } from '@scribear/visualizer-store';
 
 import { providerConfigReducer } from '#src/features/transcription-providers/stores/provider-config-slice';
 import { providerPreferencesReducer } from '#src/features/transcription-providers/stores/provider-preferences-slice';
 import { createProviderServiceMiddleware } from '#src/features/transcription-providers/stores/provider-service-middleware';
 import { providerStatusReducer } from '#src/features/transcription-providers/stores/provider-status-slice';
 import { providerUIReducer } from '#src/features/transcription-providers/stores/provider-ui-slice';
-import { createUrlFragmentDriver } from '#src/features/url-config/url-fragment-driver';
+import { urlConfigSchemas } from '#src/features/url-config/schemas/url-config-schemas';
 
 // All Redux slice reducers combined into the root reducer map.
 const reducers = {
   reduxRemember: reduxRememberReducer,
+  urlConfig: urlConfigReducer,
   appLayoutPreferences: appLayoutPreferencesReducer,
   themePreferences: themePreferencesReducer,
   transcriptionContent: transcriptionContentReducer,
@@ -36,6 +42,7 @@ const reducers = {
   providerPreferences: providerPreferencesReducer,
   providerStatus: providerStatusReducer,
   providerUI: providerUIReducer,
+  visualizerPreferences: visualizerPreferencesReducer,
 };
 
 // Slice keys that are persisted to localStorage via redux-remember.
@@ -46,22 +53,8 @@ export const rememberedKeys: (keyof typeof reducers)[] = [
   'transcriptionDisplayPreferences',
   'providerConfig',
   'providerPreferences',
+  'visualizerPreferences',
 ];
-
-// Slice keys whose state can be overridden via a URL fragment config.
-export const urlConfigurableKeys: (keyof typeof reducers)[] = [
-  'appLayoutPreferences',
-  'microphonePreferences',
-  'themePreferences',
-  'transcriptionDisplayPreferences',
-  'providerConfig',
-  'providerPreferences',
-];
-
-const urlFragmentDriver = createUrlFragmentDriver(
-  reducers,
-  urlConfigurableKeys,
-);
 
 // Root reducer wrapping all slices with redux-remember persistence support.
 export const rootReducer = rememberReducer(reducers);
@@ -72,11 +65,12 @@ export const createAppStore = (microphoneService: MicrophoneService) => {
     reducer: rootReducer,
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware()
+        .concat(createUrlConfigMiddleware(urlConfigSchemas))
         .concat(createMicrophoneServiceMiddleware(microphoneService))
         .concat(createProviderServiceMiddleware(microphoneService)),
     enhancers: (getDefaultEnhancers) =>
       getDefaultEnhancers().prepend(
-        rememberEnhancer(urlFragmentDriver, rememberedKeys, {
+        rememberEnhancer(window.localStorage, rememberedKeys, {
           initActionType: appInitialization.type,
         }),
       ),

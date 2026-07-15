@@ -27,27 +27,6 @@
   ],
   "references": [
     {
-      "path": "../../libs/clients/transcription-service-client"
-    },
-    {
-      "path": "../../libs/clients/base-api-client"
-    },
-    {
-      "path": "../../libs/schemas/session-manager-schema"
-    },
-    {
-      "path": "../../libs/clients/session-manager-client"
-    },
-    {
-      "path": "../../libs/schemas/node-server-schema"
-    },
-    {
-      "path": "../../libs/clients/node-server-client"
-    },
-    {
-      "path": "../../libs/schemas/transcription-service-schema"
-    },
-    {
       "path": "../../libs/store/redux-remember-store"
     },
     {
@@ -66,6 +45,9 @@
       "path": "../../libs/store/microphone-store"
     },
     {
+      "path": "../../libs/store/url-config-store"
+    },
+    {
       "path": "../../libs/ui/core-ui"
     },
     {
@@ -76,6 +58,12 @@
     },
     {
       "path": "../../libs/ui/microphone-ui"
+    },
+    {
+      "path": "../../libs/store/visualizer-store"
+    },
+    {
+      "path": "../../libs/ui/visualizer-ui"
     }
   ]
 }

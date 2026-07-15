@@ -13,6 +13,8 @@ export enum WebspeechStatus {
   ACTIVE = 'ACTIVE',
   // Provider is initialized but microphone is muted; recognition is paused.
   ACTIVE_MUTE = 'ACTIVE_MUTE',
+  // When there exist network error, we will reconnect the webspeech
+  NETWORK_RETRYING = 'NETWORK_RETRYING',
   // Provider encountered an unrecoverable error.
   ERROR = 'ERROR',
 }

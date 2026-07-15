@@ -5,8 +5,10 @@ Defines WorkerProcess which handles worker process execution
 import time
 from dataclasses import dataclass
 from enum import IntEnum
-from queue import Empty, Queue
+from queue import Empty
 from typing import Any
+
+from multiprocess.queues import Queue
 
 from src.shared.logger import Logger
 
@@ -45,6 +47,21 @@ class _JobState(IntEnum):
 
 
 @dataclass
+class _BufferSegment:
+    """
+    A contiguous batch of data optionally followed by a config update
+
+    The job's process_batch is called with `data`, then if `trailing_config`
+    is not None, job.update_config is called with it before the next segment
+    is processed.
+    """
+
+    data: list[Any]
+    trailing_config: Any = None
+    has_trailing_config: bool = False
+
+
+@dataclass
 class _JobEntry:
     """
     Holds relevant information about a job when assigned to worker process
@@ -56,70 +73,10 @@ class _JobEntry:
     # Beginning of next period based on time.perf_counter_ns()
     period_start_ns: int
     context_ids: tuple[int, ...]
-    buffer: list[Any]
-    job: JobInterface[Any, Any, Any]
-
-
-class _JobContextTable:
-    """
-    Helper class for managing context instances
-    Automatically creates context instances when fetched if instance isn't already created
-    """
-
-    def __init__(
-        self, logger: Logger, context_def: dict[int, JobContextInterface[Any]]
-    ):
-        """
-        Args:
-            context_def - Mapping from context_id (int) to context definitions
-                            implementing JobContextInterface
-        """
-        self._log = logger
-        self._context_def = context_def
-        self._instance_table: dict[int, Any] = {}
-
-    def get(self, context_id: int | None):
-        """
-        Fetches the corresponding context_id, creating context instance if not already created
-
-        Args:
-            context_id  - context_id to fetch, None if no context is needed
-
-        Returns:
-            ContextInstance of corresponding context_id
-
-        Raises:
-            KeyError if context_id is not found in context_def map
-        """
-        if context_id is None:
-            return None
-        if context_id not in self._context_def:
-            raise KeyError("Invalid Context Id")
-
-        log = self._log.child({"context_id": context_id})
-        if context_id in self._instance_table:
-            return self._instance_table[context_id]
-
-        instance = self._context_def[context_id].create(log)
-        self._instance_table[context_id] = instance
-        return instance
-
-    def destroy_unused(self, active_context_ids: set[int]):
-        """
-        Destroys context instances that are not in use.
-
-        Args:
-            active_context_ids  - Set of in use context_ids that should be kept
-        """
-        for context_id in list(self._instance_table.keys()):
-            if context_id in active_context_ids:
-                continue
-
-            log = self._log.child({"context_id": context_id})
-
-            instance = self._instance_table[context_id]
-            self._context_def[context_id].destroy(log, instance)
-            del self._instance_table[context_id]
+    buffer: list[_BufferSegment]
+    job: JobInterface[Any, Any, Any, Any]
+    # Cached child logger to avoid rebuilding every batch
+    log: Logger
 
 
 class WorkerProcess:
@@ -132,27 +89,57 @@ class WorkerProcess:
         logger: Logger,
         task_queue: Queue[Task],
         result_queue: Queue[Result],
-        context_def: dict[int, JobContextInterface[Any]],
+        context_defs: dict[int, JobContextInterface[Any]],
     ):
         """
         Args:
             logger          - Application logger
             task_queue      - Read only queue for fetching admin tasks from main process
             result_queue    - Write only queue for pushing results to main process
-            context_def     - Mapping from context id to context definitions
+            context_defs    - Mapping from context id to context definitions assigned
+                                to this worker. All contexts are created at startup.
         """
         self._log = logger
 
         self._last_state_change = time.perf_counter_ns()
-        self._state = WorkerState.ADMIN
+        self._state = WorkerState.BUSY
 
         self._task_queue = task_queue
         self._result_queue = result_queue
 
-        self._context_table = _JobContextTable(logger, context_def)
+        self._context_defs = context_defs
+        self._contexts: dict[int, Any] = {}
         self._job_entries: dict[int, _JobEntry] = {}
 
         self._should_exit = False
+
+    def _initialize_contexts(self):
+        """
+        Eagerly create every context assigned to this worker before the
+        execution loop accepts any jobs. Errors are returned to the caller
+        so it can report them to the main process and abort startup.
+
+        Returns:
+            None on success, error string describing the failed context on failure
+        """
+        for context_id, context_def in self._context_defs.items():
+            log = self._log.child({"context_id": context_id})
+            try:
+                self._contexts[context_id] = context_def.create(log)
+            # pylint: disable=broad-exception-caught
+            except Exception as error:
+                return f"context_id={context_id}: {error}"
+        return None
+
+    def _destroy_contexts(self):
+        """
+        Destroy every context instance owned by this worker
+        Called once during shutdown - context lifetime matches worker lifetime
+        """
+        for context_id, instance in self._contexts.items():
+            log = self._log.child({"context_id": context_id})
+            self._context_defs[context_id].destroy(log, instance)
+        self._contexts.clear()
 
     def _set_state(self, state: WorkerState):
         """
@@ -192,6 +179,41 @@ class WorkerProcess:
         except Empty:
             return None
 
+    def _append_data(self, job_id: int, data: list[Any]):
+        """
+        Append data to the job's buffer, extending the open segment or
+        starting a new one if the last segment has been closed by a config update
+
+        Args:
+            job_id  - Job id of job to append data to
+            data    - Data to append
+        """
+        buffer = self._job_entries[job_id].buffer
+        if not buffer or buffer[-1].has_trailing_config:
+            buffer.append(_BufferSegment(data=list(data)))
+        else:
+            buffer[-1].data.extend(data)
+
+    def _append_config_update(self, job_id: int, config: Any):
+        """
+        Mark the job's open segment as closed by a config update, or start
+        a new segment with that trailing config if the last is already closed
+
+        Args:
+            job_id  - Job id of job to append config update to
+            config  - New config to apply after the open segment
+        """
+        buffer = self._job_entries[job_id].buffer
+        if not buffer or buffer[-1].has_trailing_config:
+            buffer.append(
+                _BufferSegment(
+                    data=[], trailing_config=config, has_trailing_config=True
+                )
+            )
+        else:
+            buffer[-1].trailing_config = config
+            buffer[-1].has_trailing_config = True
+
     def _execute_admin_task(self, task: Task):
         """
         Determines the type of task provided and executes it
@@ -201,10 +223,12 @@ class WorkerProcess:
         """
         if task.type == TaskType.TERMINATE_WORKER:
             self._log.info("Terminating worker")
-            self._context_table.destroy_unused(set())
+            self._destroy_contexts()
             self._should_exit = True
         elif task.type == TaskType.QUEUE_DATA:
-            self._job_entries[task.job_id].buffer.extend(task.data)
+            self._append_data(task.job_id, task.data)
+        elif task.type == TaskType.UPDATE_JOB_CONFIG:
+            self._append_config_update(task.job_id, task.config)
         elif task.type == TaskType.DEREGISTER_JOB:
             self._log.info(f"Deregistering job: {task.job_id}")
             del self._job_entries[task.job_id]
@@ -220,22 +244,17 @@ class WorkerProcess:
                 context_ids=task.context_ids,
                 buffer=[],
                 job=task.job,
+                log=self._log.child({"job_id": task.job_id}),
             )
-
-    def _cleanup_unused_context(self):
-        """
-        Destroys all context instances that aren't in use by a job
-        """
-        self._log.debug("Cleaning up unused context")
-        active_context_ids = set[int]()
-        for entry in self._job_entries.values():
-            active_context_ids.update(entry.context_ids)
-
-        self._context_table.destroy_unused(active_context_ids)
 
     def _execute_job(self, job_id: int):
         """
         Executes the given job
+
+        Walks the job's buffer segment-by-segment, calling process_batch on each
+        segment's data and update_config between segments where a trailing config
+        update was queued. Each process_batch call emits its own JobExecutionResult;
+        update_config emits only on error.
 
         Args:
             job_id  - Job id of job to execture
@@ -243,33 +262,34 @@ class WorkerProcess:
         job_scheduled_time_ns = time.perf_counter_ns()
 
         entry = self._job_entries[job_id]
-        logger = self._log.child({"job_id": job_id})
+        log = entry.log
 
-        # Initialize job contexts
-        try:
-            contexts = tuple(map(self._context_table.get, entry.context_ids))
-        # Worker should catch all exceptions and push to main process to be handled
-        # pylint: disable=broad-exception-caught
-        except Exception as error:
-            stats = JobStatistics(
-                period_start_ns=entry.period_start_ns,
-                job_scheduled_time_ns=job_scheduled_time_ns,
-                start_execute_time_ns=time.perf_counter_ns(),
-                complete_time_ns=time.perf_counter_ns(),
-            )
-            self._result_queue.put(
-                JobExecutionResult(job_id, JobException(error, stats))
-            )
-            entry.state = _JobState.ERRORED
-            return
+        # Contexts are pre-initialized at worker startup so this is just a lookup
+        contexts = tuple(self._contexts[cid] for cid in entry.context_ids)
 
-        # Execute job
-        start_execute_time_ns = time.perf_counter_ns()
-        try:
-            batch = entry.buffer
-            entry.buffer = []
+        # Snapshot and clear the buffer. If empty, run a single empty batch to
+        # preserve existing semantics: process_batch is called every period even
+        # when no data has been queued.
+        segments = entry.buffer if entry.buffer else [_BufferSegment(data=[])]
+        entry.buffer = []
 
-            result = entry.job.process_batch(logger, contexts, batch)
+        for seg in segments:
+            start_execute_time_ns = time.perf_counter_ns()
+            try:
+                result = entry.job.process_batch(log, contexts, seg.data)
+            # pylint: disable=broad-exception-caught
+            except Exception as error:
+                stats = JobStatistics(
+                    period_start_ns=entry.period_start_ns,
+                    job_scheduled_time_ns=job_scheduled_time_ns,
+                    start_execute_time_ns=start_execute_time_ns,
+                    complete_time_ns=time.perf_counter_ns(),
+                )
+                self._result_queue.put(
+                    JobExecutionResult(job_id, JobException(error, stats))
+                )
+                entry.state = _JobState.ERRORED
+                return
 
             stats = JobStatistics(
                 period_start_ns=entry.period_start_ns,
@@ -280,20 +300,27 @@ class WorkerProcess:
             self._result_queue.put(
                 JobExecutionResult(job_id, JobSuccess(result, stats))
             )
-        # Worker should catch all exceptions and push to main process to be handled
-        # pylint: disable=broad-exception-caught
-        except Exception as error:
-            stats = JobStatistics(
-                period_start_ns=entry.period_start_ns,
-                job_scheduled_time_ns=job_scheduled_time_ns,
-                start_execute_time_ns=start_execute_time_ns,
-                complete_time_ns=time.perf_counter_ns(),
-            )
-            self._result_queue.put(
-                JobExecutionResult(job_id, JobException(error, stats))
-            )
-            entry.state = _JobState.ERRORED
-            return
+
+            if not seg.has_trailing_config:
+                continue
+
+            # Apply trailing config update between segments
+            start_config_time_ns = time.perf_counter_ns()
+            try:
+                entry.job.update_config(log, contexts, seg.trailing_config)
+            # pylint: disable=broad-exception-caught
+            except Exception as error:
+                stats = JobStatistics(
+                    period_start_ns=entry.period_start_ns,
+                    job_scheduled_time_ns=job_scheduled_time_ns,
+                    start_execute_time_ns=start_config_time_ns,
+                    complete_time_ns=time.perf_counter_ns(),
+                )
+                self._result_queue.put(
+                    JobExecutionResult(job_id, JobException(error, stats))
+                )
+                entry.state = _JobState.ERRORED
+                return
 
         # Update job state
         entry.state = _JobState.SLEEPING
@@ -362,38 +389,39 @@ class WorkerProcess:
     def execution_loop(self):
         """
         Main execution loop for worker process
-        Continuously fetches admin tasks, schedules jobs, and executes jobs
-        Returns when TerminateWorker task is received and currently executing job finishes
+        Eagerly creates every assigned context, then enters the scheduling loop.
+        Returns when TerminateWorker task is received and currently executing job finishes.
+        Returns early without entering the loop if context initialization fails.
         """
+        init_error = self._initialize_contexts()
+        if init_error is not None:
+            self._log.error(
+                f"Worker context initialization failed: {init_error}"
+            )
+            self._result_queue.put(InitializeWorkerResult(error=init_error))
+            return
+
         self._result_queue.put(InitializeWorkerResult())
 
         while True:
-            self._set_state(WorkerState.ADMIN)
-            # Perform all queued admin tasks
-            self._log.debug("Performing admin tasks")
-            while True:
-                if self._should_exit:
-                    return
+            if self._should_exit:
+                return
 
+            while True:
                 task = self._get_admin_task(block=False, timeout=None)
                 if task is None:
                     break
-
                 self._execute_admin_task(task)
+                if self._should_exit:
+                    return
 
-            # Cleaning up unused context is also an admin task
-            self._cleanup_unused_context()
-
-            # Determine next job to run or how long to idle for
             job_id, idle_time = self._scheduler()
 
             if job_id is not None:
-                self._log.info(f"Executing job_id: {job_id}")
                 self._set_state(WorkerState.BUSY)
                 self._execute_job(job_id)
             else:
                 self._set_state(WorkerState.IDLE)
-                self._log.debug(f"Idling for {idle_time} seconds")
 
                 # Idle by blocking on task queue since only new admin
                 # tasks would wake worker from idle
@@ -401,5 +429,5 @@ class WorkerProcess:
 
                 # Execute this admin task here so it isn't lost
                 if task is not None:
-                    self._set_state(WorkerState.ADMIN)
+                    self._set_state(WorkerState.BUSY)
                     self._execute_admin_task(task)

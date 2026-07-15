@@ -25,9 +25,12 @@ class ResultType(IntEnum):
 @dataclass
 class InitializeWorkerResult:
     """
-    Result for when WorkerProcess is fully initialized
+    Result emitted by WorkerProcess once it has finished startup
+    error is set when context creation fails - main process should
+    raise to abort pool startup in that case
     """
 
+    error: str | None = None
     type: Literal[ResultType.INITIALIZE_WORKER] = ResultType.INITIALIZE_WORKER
 
 

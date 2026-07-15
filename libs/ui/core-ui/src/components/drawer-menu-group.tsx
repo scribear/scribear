@@ -1,13 +1,13 @@
 import type React from 'react';
-import { useId, useState } from 'react';
+import { useState } from 'react';
 
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import Box from '@mui/material/Box';
-import ButtonBase from '@mui/material/ButtonBase';
 import Collapse from '@mui/material/Collapse';
 import Divider from '@mui/material/Divider';
 import Icon from '@mui/material/Icon';
+import IconButton from '@mui/material/IconButton';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 
@@ -35,43 +35,32 @@ export const DrawerMenuGroup = ({
   summary,
   children,
 }: DrawerMenuGroupProps) => {
-  const contentId = useId();
   const [isOpen, setIsOpen] = useState(false);
 
   return (
     <Box>
-      <ButtonBase
-        component="button"
-        type="button"
-        onClick={() => {
-          setIsOpen((currentIsOpen) => !currentIsOpen);
-        }}
-        aria-expanded={isOpen}
-        aria-controls={contentId}
-        sx={{
-          width: '100%',
-          p: 2,
-          color: 'inherit',
-          justifyContent: 'space-between',
-          textAlign: 'left',
-        }}
+      <Stack
+        direction="row"
+        alignItems="center"
+        justifyContent="space-between"
+        sx={{ p: 2 }}
       >
-        <Stack component="span" direction="row" alignItems="center">
-          <Stack component="span" sx={{ p: 1 }}>
+        <Stack direction="row" alignItems="center">
+          <Stack sx={{ p: 1 }}>
             <Icon color="inherit">{icon}</Icon>
           </Stack>
-          <Typography component="span">{summary}</Typography>
+          <Typography>{summary}</Typography>
         </Stack>
 
-        <Box
-          component="span"
-          aria-hidden="true"
-          sx={{ display: 'inline-flex', p: 1 }}
+        <IconButton
+          onClick={() => {
+            setIsOpen(!isOpen);
+          }}
         >
           {isOpen ? <ExpandLess /> : <ExpandMore />}
-        </Box>
-      </ButtonBase>
-      <Collapse id={contentId} in={isOpen}>
+        </IconButton>
+      </Stack>
+      <Collapse in={isOpen}>
         <Stack sx={{ p: 2 }} direction="column" spacing={1}>
           {children}
         </Stack>

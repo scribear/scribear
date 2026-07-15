@@ -1,33 +1,31 @@
-import fastifyWebsocket from '@fastify/websocket';
-
 import { createBaseServer } from '@scribear/base-fastify-server';
 
-import type AppConfig from '../app-config/app-config.js';
+import type { AppConfig } from '#src/app-config/app-config.js';
+
 import registerDependencies from './dependency-injection/register-dependencies.js';
-import { healthcheckRouter } from './features/healthcheck/healthcheck.router.js';
-import { sessionStreamingRouter } from './features/session-streaming/session-streaming.router.js';
+import { probesRouter } from './features/probes/probes.router.js';
+import { transcriptionStreamRouter } from './features/transcription-stream/transcription-stream.router.js';
 import swagger from './plugins/swagger.js';
+import websocket from './plugins/websocket.js';
 
 /**
- * Initializes fastify server and registers dependencies
- * @param config Application config
- * @returns Initialized fastify server
+ * Initializes the Fastify server, registers plugins, dependencies, and routes.
  */
 async function createServer(config: AppConfig) {
   const { logger, dependencyContainer, fastify } = createBaseServer(
     config.baseConfig.logLevel,
   );
 
-  // Only include swagger docs if in development mode
+  await fastify.register(websocket);
+
   if (config.baseConfig.isDevelopment) {
     await fastify.register(swagger);
   }
-  await fastify.register(fastifyWebsocket);
 
   registerDependencies(dependencyContainer, config);
 
-  fastify.register(healthcheckRouter);
-  fastify.register(sessionStreamingRouter);
+  fastify.register(probesRouter);
+  fastify.register(transcriptionStreamRouter);
 
   return { logger, fastify };
 }
