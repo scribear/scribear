@@ -1,0 +1,402 @@
+import { useEffect, useState } from 'react';
+
+import AddIcon from '@mui/icons-material/Add';
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import CircularProgress from '@mui/material/CircularProgress';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogTitle from '@mui/material/DialogTitle';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import MenuItem from '@mui/material/MenuItem';
+import Paper from '@mui/material/Paper';
+import Select from '@mui/material/Select';
+import type { SelectChangeEvent } from '@mui/material/Select';
+import Table from '@mui/material/Table';
+import TableBody from '@mui/material/TableBody';
+import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
+import TableHead from '@mui/material/TableHead';
+import TableRow from '@mui/material/TableRow';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
+
+import { useNavigate } from 'react-router-dom';
+
+import type { Device } from '@scribear/session-manager-schema';
+
+import { ActivationCodeDisplay } from '#src/components/activation-code-display';
+import type { RegisterDeviceResult } from '#src/lib/admin-api';
+import { adminApi } from '#src/lib/admin-api';
+import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { useToast } from '#src/lib/toast-context';
+
+const PAGE_LIMIT = 25;
+
+type StatusFilter = 'all' | 'active' | 'pending';
+type RoomFilter = 'all' | 'unassigned';
+
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof ApiError ? err.message : fallback;
+}
+
+interface RegisterDeviceDialogProps {
+  open: boolean;
+  onClose: () => void;
+  onRegistered: () => void;
+}
+
+/**
+ * "Register device" dialog. Step 1 collects a name; on success it stays open
+ * showing the activation code until the operator dismisses it, so they have
+ * time to type the code on the kiosk.
+ */
+const RegisterDeviceDialog = ({
+  open,
+  onClose,
+  onRegistered,
+}: RegisterDeviceDialogProps) => {
+  const { showSuccess, showError } = useToast();
+  const [name, setName] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [misconfigured, setMisconfigured] = useState(false);
+  const [result, setResult] = useState<RegisterDeviceResult | null>(null);
+
+  const handleRegister = () => {
+    setSubmitting(true);
+    setMisconfigured(false);
+    adminApi
+      .registerDevice(name)
+      .then((r) => {
+        setResult(r);
+        showSuccess('Device registered.');
+        onRegistered();
+      })
+      .catch((err: unknown) => {
+        if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
+          setMisconfigured(true);
+        } else {
+          showError(errorMessage(err, 'Failed to register device.'));
+        }
+      })
+      .finally(() => {
+        setSubmitting(false);
+      });
+  };
+
+  const handleClose = () => {
+    setResult(null);
+    onClose();
+  };
+
+  return (
+    <Dialog open={open} onClose={handleClose} maxWidth="xs" fullWidth>
+      <DialogTitle>Register device</DialogTitle>
+      <DialogContent>
+        {misconfigured && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            Admin backend misconfiguration — an operator must check the
+            server&apos;s ADMIN_API_KEY.
+          </Alert>
+        )}
+        {result ? (
+          <Box sx={{ mt: 1 }}>
+            <ActivationCodeDisplay
+              code={result.activationCode}
+              expiry={result.expiry}
+            />
+            <DialogContentText sx={{ mt: 2 }}>
+              On the kiosk browser, open /kiosk and enter this code.
+            </DialogContentText>
+          </Box>
+        ) : (
+          <TextField
+            label="Device name"
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+            }}
+            fullWidth
+            margin="normal"
+            autoFocus
+          />
+        )}
+      </DialogContent>
+      <DialogActions>
+        {result ? (
+          <Button onClick={handleClose} variant="contained">
+            Done
+          </Button>
+        ) : (
+          <>
+            <Button onClick={handleClose} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRegister}
+              variant="contained"
+              disabled={submitting || name.trim() === ''}
+            >
+              {submitting ? 'Registering…' : 'Register device'}
+            </Button>
+          </>
+        )}
+      </DialogActions>
+    </Dialog>
+  );
+};
+
+export const DevicesListPage = () => {
+  const navigate = useNavigate();
+  const { showError } = useToast();
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [roomFilter, setRoomFilter] = useState<RoomFilter>('all');
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [registerOpen, setRegisterOpen] = useState(false);
+  const [registerDialogKey, setRegisterDialogKey] = useState(0);
+  const [misconfigured, setMisconfigured] = useState(false);
+
+  const buildQuery = (cursor?: string) => {
+    const query: {
+      search?: string;
+      active?: boolean;
+      roomUid?: string;
+      cursor?: string;
+      limit: number;
+    } = { limit: PAGE_LIMIT };
+    if (search !== '') query.search = search;
+    if (statusFilter !== 'all') query.active = statusFilter === 'active';
+    if (roomFilter === 'unassigned') query.roomUid = '';
+    if (cursor !== undefined) query.cursor = cursor;
+    return query;
+  };
+
+  const load = (opts: { cursor?: string; append: boolean }) => {
+    if (opts.append) setLoadingMore(true);
+    else setLoading(true);
+    adminApi
+      .listDevices(buildQuery(opts.cursor))
+      .then((res) => {
+        setMisconfigured(false);
+        setDevices((prev) =>
+          opts.append ? [...prev, ...res.items] : res.items,
+        );
+        setNextCursor(res.nextCursor);
+      })
+      .catch((err: unknown) => {
+        if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
+          setMisconfigured(true);
+        } else {
+          showError(errorMessage(err, 'Failed to load devices.'));
+        }
+      })
+      .finally(() => {
+        setLoading(false);
+        setLoadingMore(false);
+      });
+  };
+
+  useEffect(() => {
+    const alive = { current: true };
+    setLoading(true);
+    adminApi
+      .listDevices(buildQuery())
+      .then((res) => {
+        if (!alive.current) return;
+        setMisconfigured(false);
+        setDevices(res.items);
+        setNextCursor(res.nextCursor);
+      })
+      .catch((err: unknown) => {
+        if (!alive.current) return;
+        if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
+          setMisconfigured(true);
+        } else {
+          showError(errorMessage(err, 'Failed to load devices.'));
+        }
+      })
+      .finally(() => {
+        if (alive.current) setLoading(false);
+      });
+    return () => {
+      alive.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, statusFilter, roomFilter]);
+
+  const handleLoadMore = () => {
+    if (nextCursor === null) return;
+    load({ cursor: nextCursor, append: true });
+  };
+
+  const handleRegistered = () => {
+    load({ append: false });
+  };
+
+  return (
+    <Box>
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          mb: 2,
+        }}
+      >
+        <Typography variant="h5" component="h1">
+          Devices
+        </Typography>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => {
+            setRegisterDialogKey((k) => k + 1);
+            setRegisterOpen(true);
+          }}
+        >
+          Register device
+        </Button>
+      </Box>
+
+      {misconfigured && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          Admin backend misconfiguration — an operator must check the
+          server&apos;s ADMIN_API_KEY.
+        </Alert>
+      )}
+
+      <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+        <TextField
+          label="Search devices"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+          }}
+          fullWidth
+          size="small"
+        />
+        <FormControl size="small" sx={{ minWidth: 160 }}>
+          <InputLabel id="devices-status-filter-label">Status</InputLabel>
+          <Select
+            labelId="devices-status-filter-label"
+            label="Status"
+            value={statusFilter}
+            onChange={(e: SelectChangeEvent) => {
+              setStatusFilter(e.target.value as StatusFilter);
+            }}
+          >
+            <MenuItem value="all">All</MenuItem>
+            <MenuItem value="active">Activated</MenuItem>
+            <MenuItem value="pending">Pending</MenuItem>
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 160 }}>
+          <InputLabel id="devices-room-filter-label">Room</InputLabel>
+          <Select
+            labelId="devices-room-filter-label"
+            label="Room"
+            value={roomFilter}
+            onChange={(e: SelectChangeEvent) => {
+              setRoomFilter(e.target.value as RoomFilter);
+            }}
+          >
+            <MenuItem value="all">All</MenuItem>
+            <MenuItem value="unassigned">Unassigned</MenuItem>
+          </Select>
+        </FormControl>
+      </Box>
+
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell>Name</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Room</TableCell>
+              <TableCell>Created</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
+                  <CircularProgress size={28} />
+                </TableCell>
+              </TableRow>
+            ) : devices.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
+                  <Typography color="text.secondary">
+                    No devices found.
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : (
+              devices.map((device) => (
+                <TableRow
+                  key={device.uid}
+                  hover
+                  onClick={() => {
+                    void navigate(`/devices/${device.uid}`);
+                  }}
+                  sx={{ cursor: 'pointer' }}
+                >
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      {device.name}
+                      {device.isSource === true && (
+                        <Chip
+                          size="small"
+                          label="Source"
+                          color="info"
+                          variant="outlined"
+                        />
+                      )}
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      size="small"
+                      label={device.active ? 'Activated' : 'Pending'}
+                      color={device.active ? 'success' : 'warning'}
+                    />
+                  </TableCell>
+                  <TableCell>{device.roomUid ?? 'Unassigned'}</TableCell>
+                  <TableCell>
+                    {new Date(device.createdAt).toLocaleString()}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
+
+      {nextCursor !== null && !loading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+          <Button onClick={handleLoadMore} disabled={loadingMore}>
+            {loadingMore ? 'Loading…' : 'Load more'}
+          </Button>
+        </Box>
+      )}
+
+      <RegisterDeviceDialog
+        key={registerDialogKey}
+        open={registerOpen}
+        onClose={() => {
+          setRegisterOpen(false);
+        }}
+        onRegistered={handleRegistered}
+      />
+    </Box>
+  );
+};

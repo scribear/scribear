@@ -29,16 +29,19 @@ export function sessionAuthRouter(fastify: BaseFastifyInstance) {
   });
 
   // The next two routes are intentionally unauthenticated: the join code and
-  // the refresh token themselves serve as the credential.
+  // the refresh token themselves serve as the credential. They are the
+  // credential-guessing surface, so they are rate-limited per client IP.
   fastify.route({
     ...EXCHANGE_JOIN_CODE_ROUTE,
     schema: EXCHANGE_JOIN_CODE_SCHEMA,
+    config: { rateLimit: { max: 100, timeWindow: 60_000 } },
     handler: resolveHandler('sessionAuthController', 'exchangeJoinCode'),
   });
 
   fastify.route({
     ...REFRESH_SESSION_TOKEN_ROUTE,
     schema: REFRESH_SESSION_TOKEN_SCHEMA,
+    config: { rateLimit: { max: 100, timeWindow: 60_000 } },
     handler: resolveHandler('sessionAuthController', 'refreshSessionToken'),
   });
 }

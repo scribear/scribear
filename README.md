@@ -13,6 +13,8 @@ apps/
   standalone-webapp/    # all-in-one viewer+source app, no kiosk/client split
   node-server/           # proxies kiosk/client websockets to transcription-service
   session-manager/       # devices, rooms, sessions, auth — issues session tokens
+  admin-webapp/         # IT admin console SPA (rooms, devices, kiosks) — talks only to admin-server
+  admin-server/          # admin BFF — holds the Session Manager admin key, authenticates staff, proxies + audits
 infra/
   scribear-db/           # Postgres schema + migrations
   scribear-nginx/        # reverse proxy used in the deployment stack
@@ -46,5 +48,7 @@ deployment/               # Docker Compose stack for running the full system
 * [Developing Node Server](https://github.com/scribear/scribear/wiki/Developing-Node-Server)
 * [Developing Session Manager](https://github.com/scribear/scribear/wiki/Developing-Session-Manager)
 * [Developing Transcription Service](https://github.com/scribear/scribear/wiki/Developing-Transcription-Service)
+* [Admin Website](https://github.com/scribear/scribear/wiki/Admin-Website) — operator guide for the IT admin console
+* [Developing Admin](https://github.com/scribear/scribear/wiki/Developing-Admin)
 * [Documentation](https://github.com/scribear/scribear/wiki/Documentation) — full API/protocol/config reference
 * [ScribeAR Multi Tenancy HLD](https://github.com/scribear/scribear/wiki/ScribeAR-Multi-Tenency-HLD) — historical design notes, background only
