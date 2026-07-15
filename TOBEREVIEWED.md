@@ -18,9 +18,9 @@ wholesale:
 
 None of PR #67's ~42 files applied cleanly, and the new pipeline carried **no
 chunk-id or timestamp** to hang latency off of. The feature was therefore
-rebuilt on the new architecture rather than conflict-merged. **Action:** decide
-how to reconcile this work with the existing `latency-metrics` branch (force-update
-it to this state, or open a fresh PR from it).
+rebuilt on the new architecture rather than conflict-merged. This rebuild ships
+as **PR #124** (branch `latency-metrics-v2` → `staging`); the original **PR #67
+has been closed as superseded**.
 
 ## What the feature does now
 
