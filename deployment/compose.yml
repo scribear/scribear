@@ -56,12 +56,9 @@ services:
       - "80"
     environment:
       LOG_LEVEL: ${SESSION_MANAGER_LOG_LEVEL:-info}
-      API_KEY: ${SESSION_MANAGER_API_KEY}
-      ADMIN_API_KEY: ${NODE_SERVER_KEY}
-      SESSION_MANAGER_SERVICE_API_KEY: ${SESSION_MANAGER_API_KEY}
-      NODE_SERVER_KEY: ${NODE_SERVER_KEY}
-      JWT_SECRET: ${JWT_SECRET}
-      SESSION_TOKEN_SIGNING_KEY: ${JWT_SECRET}  
+      ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
+      SESSION_MANAGER_SERVICE_API_KEY: ${NODE_SERVER_KEY}
+      SESSION_TOKEN_SIGNING_KEY: ${JWT_SECRET}
       DB_HOST: scribear-db
       DB_PORT: "5432"
       DB_NAME: ${DB_NAME}
@@ -80,15 +77,11 @@ services:
       - "80"
     environment:
       LOG_LEVEL: ${NODE_SERVER_LOG_LEVEL:-info}
-      JWT_SECRET: ${JWT_SECRET}
-      TRANSCRIPTION_SERVICE_ADDRESS: http://transcription-service:80
-      TRANSCRIPTION_SERVICE_API_KEY: ${TRANSCRIPTION_API_KEY}
       SESSION_TOKEN_SIGNING_KEY: ${JWT_SECRET}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
       SESSION_MANAGER_SERVICE_API_KEY: ${NODE_SERVER_KEY}
       TRANSCRIPTION_SERVICE_BASE_URL: http://transcription-service:80
-      SESSION_MANAGER_ADDRESS: http://session-manager:80
-      NODE_SERVER_KEY: ${NODE_SERVER_KEY}
+      TRANSCRIPTION_SERVICE_API_KEY: ${TRANSCRIPTION_API_KEY}
     depends_on:
       transcription-service:
         condition: service_healthy
