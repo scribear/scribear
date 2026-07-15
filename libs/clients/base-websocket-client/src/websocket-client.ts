@@ -150,6 +150,18 @@ interface WebSocketClientOptions<S extends BaseWebSocketRouteSchema> {
    * disable backpressure checking.
    */
   backpressureHighWaterMark?: number;
+  /**
+   * How long (ms) a connection must stay continuously `OPEN` before it is
+   * treated as a genuine success and the reconnect backoff counter is reset
+   * to zero. Reaching `OPEN` only proves the transport handshake succeeded;
+   * a server that accepts the socket and then immediately closes it (e.g. an
+   * upstream that rejects the session right after auth/config) would, if the
+   * counter reset on the bare `OPEN` transition, reconnect forever at
+   * `initialMs` with no escalation. Deferring the reset until the connection
+   * survives this window makes such "open-then-immediately-closed" flapping
+   * back off exponentially instead. Defaults to the backoff's `initialMs`.
+   */
+  stableConnectionThresholdMs?: number;
 }
 
 /**
@@ -215,9 +227,11 @@ export class WebSocketClient<
   private readonly _sendQueueLimit: number;
   private readonly _sendQueueOverflow: SendQueueOverflow;
   private readonly _backpressureHighWaterMark: number;
+  private readonly _stableConnectionThresholdMs: number;
 
   private _ws: WebSocket | null = null;
   private _retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private _stableTimer: ReturnType<typeof setTimeout> | null = null;
   private _sendQueue: QueuedSend[] = [];
   private _handshakeRouter: EventEmitter<{
     message: (msg: ServerMessage<S>) => void;
@@ -242,6 +256,8 @@ export class WebSocketClient<
     this._sendQueueOverflow = options.sendQueueOverflow ?? 'drop-oldest';
     this._backpressureHighWaterMark =
       options.backpressureHighWaterMark ?? 65536;
+    this._stableConnectionThresholdMs =
+      options.stableConnectionThresholdMs ?? this._backoff.initialMs;
   }
 
   get state(): ConnectionState {
@@ -249,8 +265,10 @@ export class WebSocketClient<
   }
 
   /**
-   * Number of completed retry cycles since the last successful `OPEN`. Resets
-   * to 0 on each successful connection.
+   * Number of completed retry cycles since the last confirmed-stable
+   * connection. Resets to 0 only once a connection has stayed `OPEN` for
+   * `stableConnectionThresholdMs`; connections that close before then leave
+   * the counter intact so repeated flapping escalates the backoff delay.
    */
   get attempt(): number {
     return this._attempt;
@@ -272,6 +290,7 @@ export class WebSocketClient<
    */
   terminate(code: WsCloseCodeOf<S>, reason = ''): void {
     this._clearRetry();
+    this._clearStableTimer();
     if (this._ws !== null) {
       const sock = this._ws;
       sock.onopen = null;
@@ -458,10 +477,44 @@ export class WebSocketClient<
     // could have replaced this ws during the handshake.
     if (this._ws !== ws) return;
 
-    this._attempt = 0;
+    // Do NOT reset the backoff counter on the bare OPEN transition. Reaching
+    // OPEN only proves the transport handshake succeeded; an upstream that
+    // accepts the socket and then drops it right after receiving auth/config
+    // would otherwise reset backoff on every brief open and reconnect forever
+    // at `initialMs`. Instead arm a timer that clears the counter only once
+    // the connection has survived `_stableConnectionThresholdMs`.
+    this._armStableTimer(ws);
     this._setState('OPEN');
     this.emit('open');
     this._flushQueue();
+  }
+
+  /**
+   * Arm the stability timer for a freshly-opened socket. When it fires - and
+   * only if `ws` is still the live socket and the client is still `OPEN` -
+   * the backoff attempt counter is reset, marking the connection as a
+   * confirmed success. Re-arming cancels any previous timer first.
+   *
+   * @param ws The socket that just reached `OPEN`.
+   */
+  private _armStableTimer(ws: WebSocket): void {
+    this._clearStableTimer();
+    this._stableTimer = setTimeout(() => {
+      this._stableTimer = null;
+      if (this._ws === ws && this._state === 'OPEN') {
+        this._attempt = 0;
+      }
+    }, this._stableConnectionThresholdMs);
+  }
+
+  /**
+   * Cancel any pending stability timer. Safe to call when none is active.
+   */
+  private _clearStableTimer(): void {
+    if (this._stableTimer !== null) {
+      clearTimeout(this._stableTimer);
+      this._stableTimer = null;
+    }
   }
 
   /**
@@ -530,6 +583,10 @@ export class WebSocketClient<
     if (this._ws !== ws) return;
     this._ws = null;
     this._handshakeRouter = null;
+    // The socket is gone before the stability window elapsed (or after it
+    // already reset the counter); either way cancel the pending timer so a
+    // stale fire can't reset backoff mid-reconnect.
+    this._clearStableTimer();
 
     const code = rawCode;
     if (!(code in this._schema.closeCodes)) {
@@ -565,6 +622,7 @@ export class WebSocketClient<
    */
   private _handleFailure(err: Error): void {
     this.emit('error', err);
+    this._clearStableTimer();
     if (this._ws !== null) {
       const sock = this._ws;
       sock.onopen = null;
