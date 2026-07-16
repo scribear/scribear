@@ -51,7 +51,7 @@ async def debug_provider_session():
     worker_pool.shutdown()
 
 
-@pytest.mark.timeout(2)
+@pytest.mark.timeout(5)
 @pytest.mark.asyncio
 async def test_debug_provider_returns_audio_debug_info(
     debug_provider_session: TranscriptionSessionInterface,
@@ -93,7 +93,7 @@ async def test_debug_provider_returns_audio_debug_info(
     assert decode_time is not None
 
 
-@pytest.mark.timeout(2)
+@pytest.mark.timeout(5)
 @pytest.mark.asyncio
 async def test_debug_provider_throws_exception_on_bad_chunk(
     debug_provider_session: TranscriptionSessionInterface,

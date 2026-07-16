@@ -6,7 +6,6 @@ import logging
 
 import numpy as np
 import numpy.typing as npt
-import torch
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +65,10 @@ class SilenceFiltering:
         if neg_th is None:
             neg_th = max(0.01, self.threshold - 0.15)
         neg_th = min(neg_th, self.threshold - 0.001)
+        # Imported lazily so merely importing this module does not pull in the
+        # heavy torch dependency (keeps unit-test collection/spawn fast).
+        import torch  # pylint: disable=import-outside-toplevel
+
         try:
             with torch.inference_mode():
                 wave = torch.from_numpy(array).float()

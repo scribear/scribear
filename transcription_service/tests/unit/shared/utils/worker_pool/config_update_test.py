@@ -14,7 +14,9 @@ from src.shared.utils.worker_pool import (
 
 from .jobs import ConfigBatchResult, ConfigErrorJob, ConfigJob
 
-pytestmark = pytest.mark.timeout(2)
+# Spawns real worker processes; give generous headroom for spawn latency on CI
+# (the per-test budget includes fixture setup). See worker_process_manager_test.
+pytestmark = pytest.mark.timeout(5)
 
 
 @pytest.mark.asyncio
