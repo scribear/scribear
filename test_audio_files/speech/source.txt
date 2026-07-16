@@ -1,0 +1,43 @@
+Sources and attribution for test_audio_files/speech/
+====================================================
+
+These are third-party speech recordings used only as transcription test
+fixtures. Each entry gives the upstream source, its licensing/rights status,
+and the exact commands used to derive the file committed here (16 kHz mono
+16-bit PCM WAV — Granite Speech's native rate).
+
+
+harvard_16k_mono.wav
+--------------------
+Content : A single speaker reading the "Harvard sentences", IEEE list 1
+          ("The birch canoe slid on the smooth planks...", ~34 s).
+Upstream: Open Speech Repository (developed by Telchemy).
+          https://www.voiptroubleshooter.com/open_speech/american.html
+          file: OSR_us_000_0010_8k.wav
+Rights  : Freely usable. Per the Open Speech Repository site, the material is
+          "freely available for use in VoIP testing, research, development,
+          marketing and any other reasonable application" and may be copied,
+          downloaded and modified provided the source is identified as the
+          "Open Speech Repository". Attribution: Open Speech Repository.
+          (The Harvard Sentences text itself is the IEEE 1969 standard list.)
+Derived :
+    curl -sL -o osr.wav https://www.voiptroubleshooter.com/open_speech/american/OSR_us_000_0010_8k.wav
+    ffmpeg -y -i osr.wav -ac 1 -ar 16000 -acodec pcm_s16le harvard_16k_mono.wav
+
+
+apollo11_dialogue_16k_mono.wav
+------------------------------
+Content : Multi-speaker Apollo 11 mission dialogue — crew (Armstrong, Aldrin,
+          Collins) and Houston CAPCOM, conversational turn-taking (~50 s).
+          Chosen for a multi-person / multi-speaker transcription test.
+Upstream: https://archive.org/details/Apollo11AudioHighlights
+          file: Apollo11Highlights.mp3  (clip starting at 08:00 / 480 s, 50 s long)
+          Digitized, cataloged and archived by the Houston Audio Control Room
+          at the NASA Johnson Space Center; hosted on the Internet Archive.
+Rights  : PUBLIC DOMAIN. A work of the U.S. Federal Government (NASA); such
+          works are not eligible for copyright protection in the United States
+          (17 U.S.C. Sec. 105).
+Derived :
+    ffmpeg -y -ss 480 -t 50 \
+        -i "https://archive.org/download/Apollo11AudioHighlights/Apollo11Highlights.mp3" \
+        -ac 1 -ar 16000 -acodec pcm_s16le apollo11_dialogue_16k_mono.wav

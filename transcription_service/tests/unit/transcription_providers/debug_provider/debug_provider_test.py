@@ -25,7 +25,7 @@ from src.transcription_providers.debug_provider import (
 
 AUDIO_DIR = path.normpath(
     path.join(
-        __file__, "..", "..", "..", "..", "..", "..", "test_audio_files/chords"
+        __file__, "..", "..", "..", "..", "..", "..", "test_audio_files/musical_chords"
     )
 )
 

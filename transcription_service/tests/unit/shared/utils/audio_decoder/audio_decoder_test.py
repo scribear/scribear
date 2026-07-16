@@ -31,7 +31,7 @@ AUDIO_DIR = path.normpath(
         "..",
         "..",
         "..",
-        "test_audio_files/chords",
+        "test_audio_files/musical_chords",
     )
 )
 

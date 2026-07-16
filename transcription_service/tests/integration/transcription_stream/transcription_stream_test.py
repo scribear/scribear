@@ -26,7 +26,7 @@ API_KEY = "TEST_KEY"
 TIMEOUT_SEC = 1
 
 AUDIO_DIR = path.normpath(
-    path.join(__file__, "..", "..", "..", "..", "..", "test_audio_files/chords")
+    path.join(__file__, "..", "..", "..", "..", "..", "test_audio_files/musical_chords")
 )
 
 

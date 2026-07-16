@@ -48,7 +48,7 @@ AUDIO_DIR = path.normpath(
         "..",
         "..",
         "..",
-        "test_audio_files/chords",
+        "test_audio_files/musical_chords",
     )
 )
 with open(path.join(AUDIO_DIR, "mono_f64le.pcm"), "rb") as f:
