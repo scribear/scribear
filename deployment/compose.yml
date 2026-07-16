@@ -161,6 +161,10 @@ services:
       LOG_LEVEL: ${TRANSCRIPTION_LOG_LEVEL:-info}
       API_KEY: ${TRANSCRIPTION_API_KEY}
       WS_INIT_TIMEOUT_SEC: ${TRANSCRIPTION_WS_INIT_TIMEOUT_SEC:-2.5}
+      # Optional upstream secret for remote/OpenAI-like providers that read their
+      # key from an env var named by provider_config.json's "api_key_env". Empty
+      # by default and ignored by local-model providers, so it is safe to leave unset.
+      TRANSCRIPTION_PROVIDER_API_KEY: ${TRANSCRIPTION_PROVIDER_API_KEY:-}
     volumes:
       - ${PROVIDER_CONFIG_PATH:-./provider_config.json}:/app/provider_config.json:ro
     networks:
