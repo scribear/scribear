@@ -461,23 +461,51 @@ class WorkerProcessManager:
         """
         self._task_queue.put(TerminateWorkerTask())
 
+    def _drain_logging_results(self, block_timeout: float | None):
+        """
+        Fetch a single result from the result queue, if available, and log it
+        if it is a logging result. Used during shutdown once the async
+        poller has been stopped.
+
+        Args:
+            block_timeout   - None to poll without blocking, a float to block
+                                up to that many seconds waiting for a result
+
+        Returns:
+            True if a result was fetched, False if the queue was empty
+        """
+        try:
+            if block_timeout is None:
+                result = self._result_queue.get_nowait()
+            else:
+                result = self._result_queue.get(timeout=block_timeout)
+        except Empty:
+            return False
+        if result.type == ResultType.LOGGING:
+            self._log.logger.handle(result.record)
+        return True
+
     def wait_shutdown(self):
         """
         Blocks while waiting for worker process to exit before returning
         Should call send_terminate() before wait_shutdown()
         """
+        # Stop the async poller and drain the result queue here instead.
+        # The worker's shutdown path flushes any buffered results through
+        # the queue's feeder thread before it exits (result_queue.join_thread
+        # in _worker_function), so if nothing is reading from this side while
+        # we block on self._process.join(), a large enough backlog can fill
+        # the pipe and deadlock the worker against this process. Draining
+        # while we wait keeps that from ever happening.
+        self._result_poller_task.cancel()
+        while self._process.is_alive():
+            self._drain_logging_results(block_timeout=0.05)
+
         self._process.join()
 
-        # Cancel the async poller and drain any results the worker emitted
-        # during shutdown (e.g. destroy logs) so callers see them.
-        self._result_poller_task.cancel()
-        while True:
-            try:
-                result = self._result_queue.get_nowait()
-            except Empty:
-                break
-            if result.type == ResultType.LOGGING:
-                self._log.logger.handle(result.record)
+        # Drain any results buffered between the last drain and process exit
+        while self._drain_logging_results(block_timeout=None):
+            pass
 
         self._task_queue.close()
         self._result_queue.close()
