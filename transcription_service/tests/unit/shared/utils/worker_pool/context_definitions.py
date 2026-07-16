@@ -2,6 +2,7 @@
 Test context definitions
 """
 
+import os
 import time
 from dataclasses import dataclass
 
@@ -60,6 +61,26 @@ class ErrorContext(JobContextInterface[None]):
 
     def create(self, log: Logger) -> None:
         raise RuntimeError("Failed Create Context")
+
+    def destroy(self, log: Logger, context: None) -> None:
+        raise NotImplementedError("Should Not Be Called")
+
+
+class CrashContext(JobContextInterface[None]):
+    """
+    Definition for a context whose worker process dies hard during create,
+    without the worker getting a chance to report an init error. Simulates a
+    native crash (segfault / OOM / abort in a model library) so that
+    WorkerProcessManager's bounded init handling can be exercised.
+    """
+
+    def __init__(self):
+        super().__init__(["crash"])
+
+    def create(self, log: Logger) -> None:
+        # Kill the process outright, bypassing the worker's try/except init
+        # error reporting, so no InitializeWorkerResult is ever sent.
+        os._exit(70)  # pylint: disable=protected-access
 
     def destroy(self, log: Logger, context: None) -> None:
         raise NotImplementedError("Should Not Be Called")
