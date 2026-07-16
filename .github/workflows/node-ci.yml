@@ -190,6 +190,16 @@ jobs:
             dockerfile: apps/node-server/Dockerfile
             workspace: apps/node-server
             version_file: apps/node-server/package.json
+          - image_name: scribear/admin-server
+            build_context: .
+            dockerfile: apps/admin-server/Dockerfile
+            workspace: apps/admin-server
+            version_file: apps/admin-server/package.json
+          - image_name: scribear/admin-webapp
+            build_context: .
+            dockerfile: apps/admin-webapp/Dockerfile
+            workspace: apps/admin-webapp
+            version_file: apps/admin-webapp/package.json
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

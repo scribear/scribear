@@ -1,6 +1,7 @@
 import fastifyCookie from '@fastify/cookie';
+import fastifyRateLimit from '@fastify/rate-limit';
 
-import { createBaseServer } from '@scribear/base-fastify-server';
+import { HttpError, createBaseServer } from '@scribear/base-fastify-server';
 
 import type { AppConfig } from '#src/app-config/app-config.js';
 
@@ -18,13 +19,27 @@ import swagger from './plugins/swagger.js';
  */
 async function createServer(config: AppConfig) {
   const { logger, dependencyContainer, fastify } = createBaseServer(
+    // Trust exactly ONE proxy hop (nginx) so `req.ip` is the client IP nginx
+    // appended to `X-Forwarded-For` (not spoofable by the client) — correct
+    // keying for the per-client rate limits below.
     config.baseConfig.logLevel,
+    { trustProxy: 1 },
   );
 
   if (config.baseConfig.isDevelopment) {
     await fastify.register(swagger);
   }
   fastify.register(fastifyCookie);
+
+  // Rate limiting is opt-in per route (`global: false`); only the
+  // unauthenticated credential-exchange routes enable it (see session-auth
+  // router). Long-poll and admin/service routes are intentionally unlimited.
+  // Throw a BaseHttpError so the base error handler serializes it as 429.
+  await fastify.register(fastifyRateLimit, {
+    global: false,
+    errorResponseBuilder: () =>
+      HttpError.rateLimited('Too many requests. Please retry shortly.'),
+  });
 
   registerDependencies(dependencyContainer, config);
 

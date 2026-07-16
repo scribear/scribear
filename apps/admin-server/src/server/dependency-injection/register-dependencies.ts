@@ -1,0 +1,102 @@
+import {
+  type AwilixContainer,
+  Lifetime,
+  type NameAndRegistrationPair,
+  asClass,
+  asValue,
+} from 'awilix';
+
+import { AdminDbClient } from '#src/db/admin-db-client.js';
+import { AuditController } from '#src/server/features/audit/audit.controller.js';
+import { AuthController } from '#src/server/features/auth/auth.controller.js';
+import { DevicesController } from '#src/server/features/devices/devices.controller.js';
+import { HealthController } from '#src/server/features/health/health.controller.js';
+import { LivenessController } from '#src/server/features/probes/liveness.controller.js';
+import { ReadinessController } from '#src/server/features/probes/readiness.controller.js';
+import { RoomsController } from '#src/server/features/rooms/rooms.controller.js';
+import { SchedulingController } from '#src/server/features/scheduling/scheduling.controller.js';
+import { AuditRepository } from '#src/server/shared/repositories/audit.repository.js';
+import { AuditService } from '#src/server/shared/services/audit.service.js';
+import { AzureOidcAuthService } from '#src/server/shared/services/azure-oidc-auth.service.js';
+import { LocalAuthService } from '#src/server/shared/services/local-auth.service.js';
+import { SessionManagerGatewayService } from '#src/server/shared/services/session-manager-gateway.service.js';
+import { SessionService } from '#src/server/shared/services/session.service.js';
+
+import type { AppConfig } from './app-dependencies.js';
+import type { AppDependencies } from './app-dependencies.js';
+
+/**
+ * Register all controller, service, and repository classes into the Awilix
+ * dependency container.
+ */
+function registerDependencies(
+  dependencyContainer: AwilixContainer,
+  config: AppConfig,
+) {
+  dependencyContainer.register({
+    // Config values
+    baseConfig: asValue(config.baseConfig),
+    sessionManagerGatewayConfig: asValue(config.sessionManagerGatewayConfig),
+    sessionConfig: asValue(config.sessionConfig),
+    localAuthConfig: asValue(config.localAuthConfig),
+    azureAuthConfig: asValue(config.azureAuthConfig),
+    rateLimitConfig: asValue(config.rateLimitConfig),
+    dbClientConfig: asValue(config.dbClientConfig),
+
+    // Database
+    dbClient: asClass(AdminDbClient, { lifetime: Lifetime.SINGLETON }),
+
+    // Shared services. Stateful/expensive-to-build services are SINGLETON:
+    // the session store must persist across requests; the auth providers hold
+    // parsed credentials; the gateway holds the upstream client + admin key.
+    localAuthService: asClass(LocalAuthService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    azureOidcAuthService: asClass(AzureOidcAuthService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    sessionService: asClass(SessionService, { lifetime: Lifetime.SINGLETON }),
+    sessionManagerGatewayService: asClass(SessionManagerGatewayService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    // SCOPED so it resolves the request-scoped logger (with reqId) for audit.
+    auditService: asClass(AuditService, { lifetime: Lifetime.SCOPED }),
+
+    // Shared repositories
+    auditRepository: asClass(AuditRepository, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+
+    // Probes
+    livenessController: asClass(LivenessController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    readinessController: asClass(ReadinessController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+
+    // Auth
+    authController: asClass(AuthController, { lifetime: Lifetime.SCOPED }),
+
+    // Health
+    healthController: asClass(HealthController, { lifetime: Lifetime.SCOPED }),
+
+    // Rooms
+    roomsController: asClass(RoomsController, { lifetime: Lifetime.SCOPED }),
+
+    // Devices
+    devicesController: asClass(DevicesController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+
+    // Scheduling
+    schedulingController: asClass(SchedulingController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+
+    // Audit
+    auditController: asClass(AuditController, { lifetime: Lifetime.SCOPED }),
+  } as NameAndRegistrationPair<AppDependencies>);
+}
+
+export default registerDependencies;
