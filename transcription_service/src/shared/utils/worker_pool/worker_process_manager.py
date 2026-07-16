@@ -35,6 +35,10 @@ NS_PER_SEC = 1000000000
 # Rolling window over which a worker's busy/idle ratio is averaged.
 ROLLING_UTILIZATION_WINDOW_NS = 10 * 60 * NS_PER_SEC
 
+# How long a single background get() waits before rechecking for
+# cancellation. Keeps _poll_results's thread from blocking indefinitely.
+RESULT_POLL_TIMEOUT_SEC = 0.1
+
 C = TypeVar("C", bound=tuple)
 D = TypeVar("D")
 R = TypeVar("R")
@@ -387,8 +391,21 @@ class WorkerProcessManager:
         """
         while True:
             # Run the blocking `get()` call in a separate thread to avoid
-            # blocking the asyncio event loop.
-            result = await asyncio.to_thread(self._result_queue.get)
+            # blocking the asyncio event loop. Use a short timeout rather
+            # than blocking indefinitely: asyncio.to_thread's underlying
+            # thread can't be interrupted once it's inside the blocking
+            # get(), so if this task is cancelled (e.g. from wait_shutdown)
+            # while parked there, the thread stays blocked on the queue
+            # forever and can silently steal a result meant for whoever
+            # reads the queue next. Polling with a timeout bounds how long
+            # any single background thread can be stuck, so cancellation
+            # actually takes effect.
+            try:
+                result = await asyncio.to_thread(
+                    self._result_queue.get, True, RESULT_POLL_TIMEOUT_SEC
+                )
+            except Empty:
+                continue
 
             if result.type == ResultType.LOGGING:
                 self._log.logger.handle(result.record)
