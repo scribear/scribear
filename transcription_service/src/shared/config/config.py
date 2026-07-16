@@ -57,6 +57,7 @@ class TranscriptionProviderUID(StrEnum):
 
     DEBUG = "debug"
     WHISPER_STREAMING = "whisper-streaming"
+    LUMEN_GRANITE = "lumen-granite"
 
 
 class TranscriptionProviderConfigSchema(BaseModel):
