@@ -41,7 +41,9 @@ class FakeSession(TranscriptionSessionInterface):
 
     # The abstract method is patched in __init__ above; this satisfies the
     # ABC check at class-construction time.
-    def handle_audio_chunk(self, chunk: bytes):  # type: ignore[override]
+    def handle_audio_chunk(  # type: ignore[override]
+        self, chunk_id: str, chunk: bytes
+    ):
         return None
 
 
@@ -132,10 +134,10 @@ def test_handle_audio_chunk_forwards_to_session(
     chunk = b"\x01\x02\x03"
 
     # Act
-    service.handle_audio_chunk(chunk)
+    service.handle_audio_chunk("chunk-1", chunk)
 
     # Assert
-    fake_session.handle_audio_chunk.assert_called_once_with(chunk)
+    fake_session.handle_audio_chunk.assert_called_once_with("chunk-1", chunk)
 
 
 def test_handle_audio_chunk_is_no_op_before_start(
@@ -146,7 +148,7 @@ def test_handle_audio_chunk_is_no_op_before_start(
     service can't crash from out-of-order controller calls.
     """
     # Arrange / Act
-    service.handle_audio_chunk(b"\x01")
+    service.handle_audio_chunk("chunk-1", b"\x01")
 
     # Assert - no exception raised, no session call attempted (no session yet).
 

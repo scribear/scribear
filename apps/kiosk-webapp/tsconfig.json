@@ -26,6 +26,9 @@
   ],
   "references": [
     {
+      "path": "../../libs/audio-frame-protocol"
+    },
+    {
       "path": "../../libs/clients/transcription-service-client"
     },
     {

@@ -2,9 +2,22 @@
 Defines TranscriptionResult data class
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .transcription_sequence import TranscriptionSequence
+
+
+@dataclass
+class AudioChunkPayload:
+    """
+    A single source audio chunk paired with its correlation id. Providers that
+    support latency tracking carry this (instead of raw bytes) through their
+    worker-pool job so the chunk id can be echoed back with the transcript it
+    contributes to.
+    """
+
+    chunk_id: str
+    audio_bytes: bytes
 
 
 @dataclass
@@ -20,3 +33,10 @@ class TranscriptionResult:
 
     in_progress: TranscriptionSequence | None = None
     final: TranscriptionSequence | None = None
+
+    # Ids of the source audio chunks that contributed to each transcript, so
+    # the node server can correlate a transcript back to the audio frame it
+    # came from and measure latency. Empty when the provider does not track
+    # chunk ids.
+    final_chunk_ids: list[str] = field(default_factory=list)
+    in_progress_chunk_ids: list[str] = field(default_factory=list)

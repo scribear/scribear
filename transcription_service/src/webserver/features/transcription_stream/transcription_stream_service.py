@@ -81,14 +81,14 @@ class TranscriptionStreamService(EventEmitter):
         )
         self._session.start_session()
 
-    def handle_audio_chunk(self, chunk: bytes):
+    def handle_audio_chunk(self, chunk_id: str, chunk: bytes):
         """
         Forward an audio chunk to the underlying session. No-op if the
         service has been closed.
         """
         if self._closed or self._session is None:
             return
-        self._session.handle_audio_chunk(chunk)
+        self._session.handle_audio_chunk(chunk_id, chunk)
 
     def close(self):
         """

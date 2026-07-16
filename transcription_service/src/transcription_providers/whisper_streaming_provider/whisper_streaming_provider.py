@@ -7,6 +7,7 @@ from dataclasses import asdict
 from src.shared.logger import Logger
 from src.shared.utils.worker_pool import JobException, JobSuccess, WorkerPool
 from src.transcription_provider_interface import (
+    AudioChunkPayload,
     TranscriptionProviderInterface,
     TranscriptionResult,
     TranscriptionSessionInterface,
@@ -87,8 +88,10 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
             )
             self.emit(self.TranscriptionResultEvent, result.value)
 
-        def handle_audio_chunk(self, chunk: bytes):
-            self._job.queue_data([chunk])
+        def handle_audio_chunk(self, chunk_id: str, chunk: bytes):
+            self._job.queue_data(
+                [AudioChunkPayload(chunk_id=chunk_id, audio_bytes=chunk)]
+            )
 
         def end_session(self):
             super().end_session()

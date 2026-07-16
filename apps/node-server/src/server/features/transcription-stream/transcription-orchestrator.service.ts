@@ -1,5 +1,10 @@
+import {
+  AudioFrameError,
+  decodeAudioFrame,
+} from '@scribear/audio-frame-protocol';
 import type { LongPollClient } from '@scribear/base-long-poll-client';
 import type { WebSocketClient } from '@scribear/base-websocket-client';
+import { LatencyKind } from '@scribear/node-server-schema';
 import {
   type SESSION_CONFIG_STREAM_SCHEMA,
   type Session,
@@ -12,12 +17,32 @@ import {
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
 
 import { AudioFrameChannel } from './events/audio-frame.events.js';
+import { LatencyChannel } from './events/latency.events.js';
 import { SessionEndedChannel } from './events/session-ended.events.js';
 import {
   SessionStatusChannel,
   type SessionStatusMessage,
 } from './events/session-status.events.js';
 import { TranscriptChannel } from './events/transcript.events.js';
+
+/**
+ * Upper bound on the per-session map of audio frames still awaiting a matching
+ * transcript. Chunks that never yield a transcript (e.g. pure silence) would
+ * otherwise accumulate forever; when the cap is hit the oldest entry is
+ * dropped. Sized generously - at ~10 frames/sec this is minutes of backlog.
+ */
+const MAX_PENDING_CHUNKS = 2000;
+
+/**
+ * A source audio frame awaiting correlation with a transcript.
+ * `recvMono` is a monotonic-clock reading (skew-free) used for the pipeline
+ * latency; `sentAt` is the source's clock-corrected send time (or null) used
+ * for the end-to-end latency.
+ */
+interface PendingChunk {
+  recvMono: number;
+  sentAt: number | null;
+}
 
 type UpstreamClient = WebSocketClient<typeof TRANSCRIPTION_STREAM_SCHEMA>;
 type SessionConfigPoll = LongPollClient<typeof SESSION_CONFIG_STREAM_SCHEMA>;
@@ -45,6 +70,13 @@ interface SessionState {
    * connections without recomputing from sub-objects.
    */
   status: SessionStatusMessage;
+  /**
+   * Audio frames sent upstream but not yet correlated to a transcript, keyed
+   * by chunkId in insertion order. Populated as source frames pass through,
+   * consumed when the upstream echoes matching `chunk_ids` back, and bounded
+   * by {@link MAX_PENDING_CHUNKS}.
+   */
+  pendingChunks: Map<string, PendingChunk>;
   /**
    * Scheduled timer that publishes `SessionEndedChannel` at the session's
    * `effectiveEnd`. Re-armed on every config update so extensions/contractions
@@ -170,6 +202,71 @@ export class TranscriptionOrchestratorService {
     this._eventBus.publish(SessionStatusChannel, next, sessionUid);
   }
 
+  /**
+   * Record an audio frame awaiting correlation, evicting the oldest entry
+   * first if the per-session cap is reached.
+   */
+  private _recordPending(
+    state: SessionState,
+    chunkId: string,
+    sentAt: number | null,
+    recvMono: number,
+  ): void {
+    if (state.pendingChunks.size >= MAX_PENDING_CHUNKS) {
+      const oldest = state.pendingChunks.keys().next().value;
+      if (oldest !== undefined) state.pendingChunks.delete(oldest);
+    }
+    state.pendingChunks.set(chunkId, { recvMono, sentAt });
+  }
+
+  /**
+   * Correlate a transcript back to the earliest audio frame that produced it
+   * and publish a latency sample. `pipelineMs` uses the monotonic clock and is
+   * always emitted; `e2eMs` uses the source's clock-corrected `sentAt` and is
+   * null when unavailable or implausible (negative, i.e. clock still skewed).
+   *
+   * On a `final` transcript the matched frame and everything older are
+   * finalized, so they are pruned; interim (`inProgress`) samples leave the
+   * map intact because those frames are still in the provider's buffer.
+   */
+  private _emitLatency(
+    sessionUid: string,
+    state: SessionState,
+    kind: LatencyKind,
+    chunkIds: string[] | null | undefined,
+  ): void {
+    if (chunkIds === null || chunkIds === undefined || chunkIds.length === 0) {
+      return;
+    }
+    const id = chunkIds[0];
+    if (id === undefined) return;
+    const entry = state.pendingChunks.get(id);
+    if (entry === undefined) return;
+
+    const pipelineMs = performance.now() - entry.recvMono;
+    let e2eMs: number | null = null;
+    if (entry.sentAt !== null) {
+      const candidate = Date.now() - entry.sentAt;
+      // A negative end-to-end time means the source clock is still ahead of
+      // ours despite sync; report null rather than a nonsensical number.
+      e2eMs = candidate >= 0 ? candidate : null;
+    }
+
+    this._eventBus.publish(
+      LatencyChannel,
+      { kind, pipelineMs, e2eMs },
+      sessionUid,
+    );
+
+    if (kind === LatencyKind.FINAL) {
+      for (const [chunkId, pending] of state.pendingChunks) {
+        if (pending.recvMono <= entry.recvMono) {
+          state.pendingChunks.delete(chunkId);
+        }
+      }
+    }
+  }
+
   private async _openSession(sessionUid: string): Promise<SessionState> {
     const longPoll = this._sessionConfigPollFactory(sessionUid);
     const initial = await this._awaitFirstConfig(longPoll, sessionUid);
@@ -189,6 +286,7 @@ export class TranscriptionOrchestratorService {
         transcriptionServiceConnected: false,
         sourceDeviceConnected: false,
       },
+      pendingChunks: new Map<string, PendingChunk>(),
       endTimer: null,
       endTimerArmedFor: null,
       ended: false,
@@ -199,6 +297,18 @@ export class TranscriptionOrchestratorService {
         TranscriptChannel,
         { final: msg.final, inProgress: msg.in_progress },
         sessionUid,
+      );
+      this._emitLatency(
+        sessionUid,
+        state,
+        LatencyKind.FINAL,
+        msg.final_chunk_ids,
+      );
+      this._emitLatency(
+        sessionUid,
+        state,
+        LatencyKind.IN_PROGRESS,
+        msg.in_progress_chunk_ids,
       );
     });
     upstream.on('error', (err) => {
@@ -227,6 +337,31 @@ export class TranscriptionOrchestratorService {
     state.audioUnsubscribe = this._eventBus.subscribe(
       AudioFrameChannel,
       (frame) => {
+        // Stamp ingress on the monotonic clock before any work, so the
+        // pipeline latency excludes our own decode cost.
+        const recvMono = performance.now();
+        try {
+          const decoded = decodeAudioFrame(frame);
+          if (decoded.chunkId !== null) {
+            this._recordPending(
+              state,
+              decoded.chunkId,
+              decoded.sentAt,
+              recvMono,
+            );
+          }
+        } catch (err) {
+          if (err instanceof AudioFrameError) {
+            this._logger.warn(
+              { err: err.message, sessionUid },
+              'dropping malformed audio frame',
+            );
+            return;
+          }
+          throw err;
+        }
+        // Forward the original SAFP frame unchanged; the transcription service
+        // decodes the same envelope to recover the chunkId it echoes back.
         upstream.sendBinary(frame);
       },
       sessionUid,

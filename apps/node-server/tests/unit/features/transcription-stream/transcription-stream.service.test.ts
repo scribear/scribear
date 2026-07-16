@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, vi } from 'vitest';
 
+import { LatencyKind } from '@scribear/node-server-schema';
+
 import { AudioFrameChannel } from '#src/server/features/transcription-stream/events/audio-frame.events.js';
+import { LatencyChannel } from '#src/server/features/transcription-stream/events/latency.events.js';
 import { SessionEndedChannel } from '#src/server/features/transcription-stream/events/session-ended.events.js';
 import { SessionStatusChannel } from '#src/server/features/transcription-stream/events/session-status.events.js';
 import { TranscriptChannel } from '#src/server/features/transcription-stream/events/transcript.events.js';
@@ -68,7 +71,15 @@ function makeHarness(
     closes.push({ code, reason });
   });
 
-  return { service, bus, registerSource, unregisterSource, getStatus, sent, closes };
+  return {
+    service,
+    bus,
+    registerSource,
+    unregisterSource,
+    getStatus,
+    sent,
+    closes,
+  };
 }
 
 beforeEach(() => {
@@ -265,6 +276,27 @@ describe('TranscriptionStreamService', () => {
         type: 'transcript',
         final: { text: ['hello'], starts: null, ends: null },
         inProgress: null,
+      });
+    });
+
+    it('emits a latencyUpdate send message when the bus publishes latency', async () => {
+      // Arrange
+      const h = makeHarness('client');
+      await h.service.start();
+
+      // Act
+      h.bus.publish(
+        LatencyChannel,
+        { kind: LatencyKind.FINAL, pipelineMs: 42, e2eMs: 100 },
+        SESSION_UID,
+      );
+
+      // Assert
+      expect(h.sent).toContainEqual({
+        type: 'latencyUpdate',
+        kind: LatencyKind.FINAL,
+        pipelineMs: 42,
+        e2eMs: 100,
       });
     });
 

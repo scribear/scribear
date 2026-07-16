@@ -18,6 +18,9 @@
   ],
   "references": [
     {
+      "path": "../../libs/audio-frame-protocol"
+    },
+    {
       "path": "../../libs/base-fastify-server"
     },
     {

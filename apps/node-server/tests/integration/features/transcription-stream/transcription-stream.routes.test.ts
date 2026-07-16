@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, inject, vi } from 'vitest';
 import type WebSocket from 'ws';
 
+import { encodeAudioFrame } from '@scribear/audio-frame-protocol';
 import {
   TranscriptionStreamClientMessageType,
   TranscriptionStreamServerMessageType,
@@ -247,8 +248,7 @@ describe('Transcription Stream Routes', () => {
           type: TranscriptionStreamServerMessageType.AUTH_OK,
         });
         const status = messages.find(
-          (m) =>
-            m.type === TranscriptionStreamServerMessageType.SESSION_STATUS,
+          (m) => m.type === TranscriptionStreamServerMessageType.SESSION_STATUS,
         );
         expect(status).toBeDefined();
         expect(status).toMatchObject({
@@ -256,6 +256,44 @@ describe('Transcription Stream Routes', () => {
           sourceDeviceConnected: expect.any(Boolean),
           transcriptionServiceConnected: expect.any(Boolean),
         });
+
+        stop();
+        ws.terminate();
+      },
+    );
+
+    it(
+      'answers a timeSyncPing with a timeSyncPong echoing t0',
+      { timeout: 30_000 },
+      async () => {
+        // Arrange
+        const ws = await server.fastify.injectWS(sourcePath(realSessionUid));
+        const { messages, stop } = collectMessages(ws);
+
+        // Act - a clock-sync probe does not require auth
+        const t0 = 1_234_567;
+        ws.send(
+          JSON.stringify({
+            type: TranscriptionStreamClientMessageType.TIME_SYNC_PING,
+            t0,
+          }),
+        );
+
+        // Assert
+        await vi.waitFor(
+          () => {
+            const pong = messages.find(
+              (m) =>
+                m.type === TranscriptionStreamServerMessageType.TIME_SYNC_PONG,
+            );
+            expect(pong).toMatchObject({
+              type: TranscriptionStreamServerMessageType.TIME_SYNC_PONG,
+              t0,
+              t1: expect.any(Number),
+            });
+          },
+          { timeout: 10_000 },
+        );
 
         stop();
         ws.terminate();
@@ -309,8 +347,13 @@ describe('Transcription Stream Routes', () => {
           { timeout: 30_000 },
         );
 
-        // Act - send a real WAV file the AudioDecoder can parse.
-        ws.send(TEST_AUDIO);
+        // Act - send a real WAV file the AudioDecoder can parse, wrapped in a
+        // SAFP frame exactly as the kiosk (via the node server) would.
+        ws.send(
+          Buffer.from(
+            encodeAudioFrame({ chunkId: crypto.randomUUID() }, TEST_AUDIO),
+          ),
+        );
 
         // Wait specifically for the debug provider's audio-decode result
         // ("Processed N seconds") rather than just the start_session echo, so
@@ -332,7 +375,15 @@ describe('Transcription Stream Routes', () => {
                 return [...(final?.text ?? []), ...(inProgress?.text ?? [])];
               })
               .join(' ');
-            expect(allText).toMatch(/Processed [\d.]+ seconds of audio/);
+            // Require a *non-zero* processed duration: the debug provider emits
+            // "Processed 0.0000 seconds" on its periodic tick even with no
+            // audio, so only a positive value proves the SAFP-framed audio
+            // actually round-tripped through the upstream.
+            const processed = allText.match(
+              /Processed ([\d.]+) seconds of audio/,
+            );
+            expect(processed).not.toBeNull();
+            expect(Number(processed?.[1] ?? 0)).toBeGreaterThan(0);
             expect(allText).toContain(
               `sample rate: ${String(DEBUG_SAMPLE_RATE)}`,
             );
@@ -427,8 +478,7 @@ describe('Transcription Stream Routes', () => {
         await vi.waitFor(
           () => {
             const transcripts = client.messages.filter(
-              (m) =>
-                m.type === TranscriptionStreamServerMessageType.TRANSCRIPT,
+              (m) => m.type === TranscriptionStreamServerMessageType.TRANSCRIPT,
             );
             expect(transcripts.length).toBeGreaterThan(0);
           },

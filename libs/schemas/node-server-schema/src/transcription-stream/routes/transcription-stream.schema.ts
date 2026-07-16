@@ -11,6 +11,7 @@ import { TRANSCRIPT_FRAGMENT_SCHEMA } from '#src/transcription-stream/entities/t
 
 export enum TranscriptionStreamClientMessageType {
   AUTH = 'auth',
+  TIME_SYNC_PING = 'timeSyncPing',
 }
 
 export enum TranscriptionStreamServerMessageType {
@@ -18,6 +19,17 @@ export enum TranscriptionStreamServerMessageType {
   TRANSCRIPT = 'transcript',
   SESSION_STATUS = 'sessionStatus',
   SESSION_ENDED = 'sessionEnded',
+  TIME_SYNC_PONG = 'timeSyncPong',
+  LATENCY_UPDATE = 'latencyUpdate',
+}
+
+/**
+ * Which transcript a latency sample describes. `final` samples measure a
+ * finalized transcript; `inProgress` samples measure an interim one.
+ */
+export enum LatencyKind {
+  FINAL = 'final',
+  IN_PROGRESS = 'inProgress',
 }
 
 const TRANSCRIPTION_STREAM_SCHEMA = {
@@ -32,6 +44,14 @@ const TRANSCRIPTION_STREAM_SCHEMA = {
     Type.Object({
       type: Type.Literal(TranscriptionStreamClientMessageType.AUTH),
       sessionToken: Type.String({ maxLength: 4096 }),
+    }),
+    // Clock-sync probe (Cristian's algorithm). The source sends its send
+    // time `t0`; the server echoes it with its own receive time `t1` so the
+    // source can estimate the server-vs-client clock offset and correct the
+    // `sentAt` it stamps on audio frames. See `timeSyncPong`.
+    Type.Object({
+      type: Type.Literal(TranscriptionStreamClientMessageType.TIME_SYNC_PING),
+      t0: Type.Number(),
     }),
   ]),
   allowServerBinaryMessage: false,
@@ -57,6 +77,24 @@ const TRANSCRIPTION_STREAM_SCHEMA = {
     }),
     Type.Object({
       type: Type.Literal(TranscriptionStreamServerMessageType.SESSION_ENDED),
+    }),
+    // Reply to a `timeSyncPing`: `t0` echoed from the ping, `t1` the server's
+    // clock when it handled the ping.
+    Type.Object({
+      type: Type.Literal(TranscriptionStreamServerMessageType.TIME_SYNC_PONG),
+      t0: Type.Number(),
+      t1: Type.Number(),
+    }),
+    // End-to-end latency sample for one transcript. `pipelineMs` is measured
+    // entirely on the node's monotonic clock (audio ingress -> transcript)
+    // and is therefore skew-free. `e2eMs` additionally includes the capture
+    // and uplink legs using the source's clock corrected via time-sync; it is
+    // null when no reliable clock offset is available.
+    Type.Object({
+      type: Type.Literal(TranscriptionStreamServerMessageType.LATENCY_UPDATE),
+      kind: Type.Enum(LatencyKind),
+      pipelineMs: Type.Number(),
+      e2eMs: Type.Union([Type.Number(), Type.Null()]),
     }),
   ]),
   closeCodes: {

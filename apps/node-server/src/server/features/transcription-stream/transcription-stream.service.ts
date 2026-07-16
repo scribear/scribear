@@ -9,6 +9,7 @@ import {
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
 
 import { AudioFrameChannel } from './events/audio-frame.events.js';
+import { LatencyChannel } from './events/latency.events.js';
 import { SessionEndedChannel } from './events/session-ended.events.js';
 import { SessionStatusChannel } from './events/session-status.events.js';
 import { TranscriptChannel } from './events/transcript.events.js';
@@ -49,6 +50,7 @@ export class TranscriptionStreamService extends EventEmitter<TranscriptionStream
   private _transcriptionOrchestratorService: AppDependencies['transcriptionOrchestratorService'];
 
   private _unsubscribeTranscripts: (() => void) | null = null;
+  private _unsubscribeLatency: (() => void) | null = null;
   private _unsubscribeSessionStatus: (() => void) | null = null;
   private _unsubscribeSessionEnded: (() => void) | null = null;
   private _orchestratorUnregister: (() => void) | null = null;
@@ -97,6 +99,20 @@ export class TranscriptionStreamService extends EventEmitter<TranscriptionStream
           type: TranscriptionStreamServerMessageType.TRANSCRIPT,
           final: transcript.final,
           inProgress: transcript.inProgress,
+        });
+      },
+      this._sessionUid,
+    );
+
+    this._unsubscribeLatency = this._eventBusService.subscribe(
+      LatencyChannel,
+      (latency) => {
+        if (this._closed) return;
+        this.emit('send', {
+          type: TranscriptionStreamServerMessageType.LATENCY_UPDATE,
+          kind: latency.kind,
+          pipelineMs: latency.pipelineMs,
+          e2eMs: latency.e2eMs,
         });
       },
       this._sessionUid,
@@ -172,6 +188,8 @@ export class TranscriptionStreamService extends EventEmitter<TranscriptionStream
     this._closed = true;
     this._unsubscribeTranscripts?.();
     this._unsubscribeTranscripts = null;
+    this._unsubscribeLatency?.();
+    this._unsubscribeLatency = null;
     this._unsubscribeSessionStatus?.();
     this._unsubscribeSessionStatus = null;
     this._unsubscribeSessionEnded?.();

@@ -19,6 +19,7 @@ from starlette.websockets import WebSocket, WebSocketState
 
 from src.shared.config import Config
 from src.shared.logger import Logger
+from src.shared.utils.audio_frame_protocol import encode_audio_frame
 from src.transcription_provider_interface import (
     TranscriptionClientError,
     TranscriptionResult,
@@ -53,6 +54,11 @@ AUDIO_DIR = path.normpath(
 with open(path.join(AUDIO_DIR, "mono_f64le.pcm"), "rb") as f:
     AUDIO_CHUNK = f.read()
 
+# The controller receives SAFP-framed binary; wrap the raw audio the way the
+# node server would before forwarding.
+AUDIO_CHUNK_ID = "test-chunk"
+AUDIO_FRAME = encode_audio_frame(AUDIO_CHUNK_ID, AUDIO_CHUNK)
+
 INIT_TIMEOUT_SEC = 0.1
 
 PROVIDER_UID = "TEST_PROVIDER_UID"
@@ -68,7 +74,7 @@ class MockTranscriptionSession(TranscriptionSessionInterface):
     Dummy transcription session interface implementation for testing
     """
 
-    def handle_audio_chunk(self, chunk: bytes):
+    def handle_audio_chunk(self, chunk_id: str, chunk: bytes):
         return
 
 
@@ -385,10 +391,12 @@ async def test_controller_handles_valid_audio_chunk(
     await controller._handle_text_message(VALID_CONFIG_MESSAGE)
 
     # Act
-    await controller._handle_binary_message(AUDIO_CHUNK)
+    await controller._handle_binary_message(AUDIO_FRAME)
 
     # Assert
-    mock_session.handle_audio_chunk.assert_called_once_with(AUDIO_CHUNK)
+    mock_session.handle_audio_chunk.assert_called_once_with(
+        AUDIO_CHUNK_ID, AUDIO_CHUNK
+    )
 
 
 @pytest.mark.asyncio
@@ -573,7 +581,7 @@ async def test_controller_handles_no_transcription_results(
     await controller._handle_text_message(VALID_CONFIG_MESSAGE)
 
     # Act
-    await controller._handle_binary_message(AUDIO_CHUNK)
+    await controller._handle_binary_message(AUDIO_FRAME)
 
     # Assert
     mock_send_method.assert_not_called()

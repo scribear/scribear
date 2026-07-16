@@ -4,6 +4,7 @@ import { rememberRehydrated } from '@scribear/redux-remember-store';
 import {
   clearTranscription,
   handleTranscript,
+  recordLatency,
 } from '@scribear/transcription-content-store';
 
 import type { RootState } from '#src/store/store';
@@ -75,6 +76,9 @@ export const createClientSessionServiceMiddleware =
     });
     service.on('transcript', (event) => {
       store.dispatch(handleTranscript(event));
+    });
+    service.on('latency', (sample) => {
+      store.dispatch(recordLatency(sample));
     });
     service.on('joinError', (joinError) => {
       store.dispatch(setJoinError(joinError));
