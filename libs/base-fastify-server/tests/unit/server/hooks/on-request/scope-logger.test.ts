@@ -25,9 +25,11 @@ describe('Log Request Hook', (it) => {
 
     fastify = Fastify({ genReqId: () => testRequestId });
 
-    fastify.decorateRequest('log', {
-      getter: () => mockLogger as unknown as BaseLogger,
-      setter: () => mockLogger,
+    // fastify already decorates `log`; assign the mock per-request instead of
+    // re-decorating (fastify throws FST_ERR_DEC_ALREADY_PRESENT since 5.8+)
+    fastify.addHook('onRequest', (req, reply, done) => {
+      req.log = mockLogger as unknown as BaseLogger;
+      done();
     });
     fastify.decorateRequest('diScope', {
       getter: () =>
