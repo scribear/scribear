@@ -4,6 +4,7 @@ Defines WorkerProcessManager that manages main process communication with Worker
 
 import asyncio
 import logging
+import threading
 from collections import deque
 from queue import Empty
 from typing import Any, Callable, Generic, TypeVar, cast
@@ -35,9 +36,16 @@ NS_PER_SEC = 1000000000
 # Rolling window over which a worker's busy/idle ratio is averaged.
 ROLLING_UTILIZATION_WINDOW_NS = 10 * 60 * NS_PER_SEC
 
-# How long a single background get() waits before rechecking for
-# cancellation. Keeps _poll_results's thread from blocking indefinitely.
+# How long a single background get() blocks before the poll loop rechecks its
+# stop flag. Bounds how long the (daemon) result-poller thread can be parked in
+# a blocking queue read on an idle queue.
 RESULT_POLL_TIMEOUT_SEC = 0.1
+
+# How long wait_shutdown() waits for the worker process (and then the poller
+# thread) to exit on its own before forcing it. Generous enough for a graceful
+# exit that finishes the in-flight batch and destroys contexts, but bounded so
+# a wedged worker or reader can never hang shutdown indefinitely.
+WORKER_EXIT_TIMEOUT_SEC = 10.0
 
 C = TypeVar("C", bound=tuple)
 D = TypeVar("D")
@@ -345,6 +353,9 @@ class WorkerProcessManager:
         self._context_defs = context_defs
         self._registered_job_handles: dict[int, JobHandle[Any, Any, Any]] = {}
 
+        # Signals the result-poller thread to stop. Set during wait_shutdown.
+        self._stopping = threading.Event()
+
         # False positive
         # pylint: disable=no-member
         ctx = mp.get_context("spawn")
@@ -365,9 +376,24 @@ class WorkerProcessManager:
         self._process.start()
 
         # Block until worker confirms it has created every assigned context.
-        # Drain log records that may arrive before the init result.
+        # Drain log records that may arrive before the init result. Poll with a
+        # timeout and watch process liveness so a worker that dies during
+        # initialization (e.g. a native model-load crash that never reports an
+        # error) raises here instead of blocking the constructor forever - the
+        # parent holds the result queue's write fd, so a blocking read would
+        # never see EOF on worker exit.
         while True:
-            result = self._result_queue.get(block=True)
+            try:
+                result = self._result_queue.get(
+                    block=True, timeout=RESULT_POLL_TIMEOUT_SEC
+                )
+            except Empty:
+                if not self._process.is_alive():
+                    raise RuntimeError(
+                        f"Worker {worker_id} exited during initialization "
+                        f"(exit code {self._process.exitcode})"
+                    ) from None
+                continue
             if result.type == ResultType.LOGGING:
                 self._log.logger.handle(result.record)
                 continue
@@ -382,45 +408,75 @@ class WorkerProcessManager:
                 )
             break
 
-        # Start the asyncio task that polls for results from the workers
-        self._result_poller_task = asyncio.create_task(self._poll_results())
+        # Poll for worker results on a dedicated daemon thread rather than via
+        # asyncio.to_thread. A to_thread call runs on the event loop's default
+        # executor, which loop.close() joins on teardown; if the blocking queue
+        # read is wedged (the parent holds the write fd, so it never sees EOF),
+        # that join - and shutdown - hangs forever. A daemon thread we own is
+        # never joined at loop close and never blocks interpreter exit, so a
+        # wedged read can no longer hang teardown. Results are marshalled back
+        # onto the event loop so job handlers keep running there.
+        self._loop = asyncio.get_running_loop()
+        self._poll_thread = threading.Thread(
+            target=self._poll_loop,
+            name=f"wpm-result-poller-{worker_id}",
+            daemon=True,
+        )
+        self._poll_thread.start()
 
-    async def _poll_results(self):
+    def _poll_loop(self):
         """
-        Loop that continuously pulls from results queue and emits events when a result is received
+        Daemon-thread loop that pulls results from the worker's result queue.
+
+        Log records are handled inline (logging is thread-safe) so that shutdown
+        log records are flushed even while the event loop is blocked in
+        wait_shutdown. Job and state-change results are marshalled onto the event
+        loop so job handlers and utilization bookkeeping keep running on the loop
+        thread, exactly as before. Runs until wait_shutdown sets the stop flag or
+        the queue is closed.
         """
-        while True:
-            # Run the blocking `get()` call in a separate thread to avoid
-            # blocking the asyncio event loop. Use a short timeout rather
-            # than blocking indefinitely: asyncio.to_thread's underlying
-            # thread can't be interrupted once it's inside the blocking
-            # get(), so if this task is cancelled (e.g. from wait_shutdown)
-            # while parked there, the thread stays blocked on the queue
-            # forever and can silently steal a result meant for whoever
-            # reads the queue next. Polling with a timeout bounds how long
-            # any single background thread can be stuck, so cancellation
-            # actually takes effect.
+        while not self._stopping.is_set():
             try:
-                result = await asyncio.to_thread(
-                    self._result_queue.get, True, RESULT_POLL_TIMEOUT_SEC
+                result = self._result_queue.get(
+                    block=True, timeout=RESULT_POLL_TIMEOUT_SEC
                 )
             except Empty:
                 continue
+            except (OSError, ValueError, EOFError):
+                # Queue closed / connection torn down during shutdown.
+                break
 
             if result.type == ResultType.LOGGING:
                 self._log.logger.handle(result.record)
-            elif result.type == ResultType.STATE_CHANGE:
-                self._rolling_utilization.increment(
-                    result.state, result.time_elapsed_ns
-                )
-            elif result.type == ResultType.JOB_EXECUTION:
-                if result.job_id not in self._registered_job_handles:
-                    continue
-                job_handle = self._registered_job_handles[result.job_id]
-                job_handle.emit(job_handle.JobResultEvent, result.result)
+                continue
 
-                if result.result.has_exception:
-                    job_handle.deregister()
+            try:
+                self._loop.call_soon_threadsafe(
+                    self._handle_loop_result, result
+                )
+            except RuntimeError:
+                # Event loop already closed; nothing left to dispatch to.
+                break
+
+    def _handle_loop_result(self, result: Result):
+        """
+        Handle a non-logging worker result on the event loop thread. Emits job
+        results to their handles and folds state changes into the utilization
+        window - both of which touch loop-thread state, so they must not run on
+        the poller thread.
+        """
+        if result.type == ResultType.STATE_CHANGE:
+            self._rolling_utilization.increment(
+                result.state, result.time_elapsed_ns
+            )
+        elif result.type == ResultType.JOB_EXECUTION:
+            if result.job_id not in self._registered_job_handles:
+                return
+            job_handle = self._registered_job_handles[result.job_id]
+            job_handle.emit(job_handle.JobResultEvent, result.result)
+
+            if result.result.has_exception:
+                job_handle.deregister()
 
     def register_job(
         self,
@@ -506,23 +562,36 @@ class WorkerProcessManager:
         """
         Blocks while waiting for worker process to exit before returning
         Should call send_terminate() before wait_shutdown()
+
+        Bounded so it can never hang indefinitely: the worker is force-terminated
+        if it does not exit gracefully within WORKER_EXIT_TIMEOUT_SEC (e.g. a job
+        stuck in an infinite loop, or a wedged result reader backing up the
+        pipe). The daemon poller keeps draining the result queue in the
+        background - independently of the event loop, which this synchronous call
+        blocks - so the worker's result feeder never blocks on a full pipe while
+        we wait for it to exit.
         """
-        # Stop the async poller and drain the result queue here instead.
-        # The worker's shutdown path flushes any buffered results through
-        # the queue's feeder thread before it exits (result_queue.join_thread
-        # in _worker_function), so if nothing is reading from this side while
-        # we block on self._process.join(), a large enough backlog can fill
-        # the pipe and deadlock the worker against this process. Draining
-        # while we wait keeps that from ever happening.
-        self._result_poller_task.cancel()
-        while self._process.is_alive():
-            self._drain_logging_results(block_timeout=0.05)
+        self._process.join(timeout=WORKER_EXIT_TIMEOUT_SEC)
+        if self._process.is_alive():
+            self._log.warning("Worker did not exit gracefully; terminating")
+            self._process.terminate()
+            self._process.join(timeout=WORKER_EXIT_TIMEOUT_SEC)
+            if self._process.is_alive():
+                self._process.kill()
+                self._process.join()
 
-        self._process.join()
+        # Stop the poller now that the worker is gone. It is a daemon thread, so
+        # even if it is wedged inside a partial multiprocess read (never
+        # unblocked because the parent still holds the write fd) it can never
+        # block interpreter exit or the event loop's executor shutdown.
+        self._stopping.set()
+        self._poll_thread.join(timeout=WORKER_EXIT_TIMEOUT_SEC)
 
-        # Drain any results buffered between the last drain and process exit
-        while self._drain_logging_results(block_timeout=None):
-            pass
+        # If the poller stopped cleanly we are the sole reader, so flush any
+        # results it left behind (e.g. context-destroy logs) before returning.
+        if not self._poll_thread.is_alive():
+            while self._drain_logging_results(block_timeout=None):
+                pass
 
         self._task_queue.close()
         self._result_queue.close()

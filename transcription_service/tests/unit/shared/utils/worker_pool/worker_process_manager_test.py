@@ -20,6 +20,7 @@ from .conftest import TEST_ROLLING_UTILIZATION_WINDOW_NS, TEST_WORKER_ID
 from .context_definitions import (
     Context,
     ContextInstance,
+    CrashContext,
     ErrorContext,
     LoggerContext,
 )
@@ -471,6 +472,30 @@ async def test_worker_init_raises_when_context_creation_fails(
             ContextLogger(mock_underlying_logger),
             TEST_WORKER_ID,
             failing_defs,
+            rolling_utilization_window_ns=TEST_ROLLING_UTILIZATION_WINDOW_NS,
+        )
+
+
+@pytest.mark.asyncio
+async def test_worker_init_raises_when_worker_dies_without_reporting(
+    mock_underlying_logger: MagicMock,
+):
+    """
+    Test that constructing WorkerProcessManager raises (rather than blocking the
+    constructor forever) if the worker process dies during initialization
+    without reporting an init error - e.g. a native crash. The parent holds the
+    result queue's write fd, so a naive blocking read would never see EOF; the
+    module-level 2s timeout guards against a regression to that hang.
+    """
+    # Arrange
+    crashing_defs: dict[int, JobContextInterface[Any]] = {0: CrashContext()}
+
+    # Act / Assert
+    with pytest.raises(RuntimeError, match="exited during initialization"):
+        WorkerProcessManager(
+            ContextLogger(mock_underlying_logger),
+            TEST_WORKER_ID,
+            crashing_defs,
             rolling_utilization_window_ns=TEST_ROLLING_UTILIZATION_WINDOW_NS,
         )
 
