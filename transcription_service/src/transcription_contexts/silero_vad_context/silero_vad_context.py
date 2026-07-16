@@ -4,7 +4,6 @@ Defines SileroVadContext for caching Silero VAD model in WorkerProcess
 
 from typing import Any, Callable, List, Tuple
 
-import torch
 from pydantic import BaseModel, TypeAdapter
 
 from src.shared.logger import Logger
@@ -76,6 +75,10 @@ class SileroVadContext(JobContextInterface[SileroVadModelType]):
     def create(self, log: Logger) -> SileroVadModelType:
         log.info(f"Loading Silero VAD model from {self._config.repo_or_dir}")
 
+        # Imported lazily so importing this module does not pull in torch;
+        # only a worker actually creating the context pays that cost.
+        import torch  # pylint: disable=import-outside-toplevel
+
         torch.set_num_threads(1)
 
         try:
@@ -99,6 +102,9 @@ class SileroVadContext(JobContextInterface[SileroVadModelType]):
 
     def destroy(self, log: Logger, context: SileroVadModelType) -> None:
         log.info("Destroying Silero VAD context")
+
+        import torch  # pylint: disable=import-outside-toplevel
+
         if hasattr(context, "_model"):
             del context._model
         if hasattr(context, "_get_speech_timestamps"):

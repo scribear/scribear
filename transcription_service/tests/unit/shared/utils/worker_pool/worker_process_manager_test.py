@@ -26,8 +26,12 @@ from .context_definitions import (
 )
 from .jobs import ContextJob, ErrorJob, LoggerJob, SlowJob, SumJob
 
-# Increase default timeout for this slow test suite
-pytestmark = pytest.mark.timeout(2)
+# These tests spawn real worker processes; process spawn alone can take ~1-2s
+# on a loaded CI runner, and pytest-timeout's budget includes fixture setup.
+# Give them generous headroom so spawn latency does not flake them (whole-suite
+# hangs are still caught by the job-level timeout and the init-hang regression
+# test below).
+pytestmark = pytest.mark.timeout(5)
 
 NS_PER_SEC = 10**9
 
@@ -485,7 +489,7 @@ async def test_worker_init_raises_when_worker_dies_without_reporting(
     constructor forever) if the worker process dies during initialization
     without reporting an init error - e.g. a native crash. The parent holds the
     result queue's write fd, so a naive blocking read would never see EOF; the
-    module-level 2s timeout guards against a regression to that hang.
+    module-level timeout guards against a regression to that hang.
     """
     # Arrange
     crashing_defs: dict[int, JobContextInterface[Any]] = {0: CrashContext()}
@@ -599,7 +603,7 @@ async def test_reports_jobs_stats_single_slow_job(wpm: WorkerProcessManager):
     assert_rel_error(job_stats.total_time_ns, slow_worker_time)
 
 
-@pytest.mark.timeout(4)
+@pytest.mark.timeout(6)
 @pytest.mark.asyncio
 async def test_reports_job_stats_multiple_slow_job(wpm: WorkerProcessManager):
     """

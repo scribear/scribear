@@ -2,6 +2,8 @@
 Defines WorkerPool job for DebugProvider that returns number of seconds of audio received
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 
 from src.shared.logger import Logger
@@ -10,7 +12,6 @@ from src.shared.utils.local_agree import LocalAgree, TranscriptionSegment
 from src.shared.utils.np_circular_buffer import NPCircularBuffer
 from src.shared.utils.silence_filter import RMSSilenceDetection
 from src.shared.utils.worker_pool import JobInterface
-from src.transcription_contexts.faster_whisper_context import WhisperModel
 from src.transcription_contexts.silero_vad_context import SileroVadModelType
 from src.transcription_provider_interface import (
     AudioChunkPayload,
@@ -21,13 +22,18 @@ from src.transcription_provider_interface import (
 
 from .whisper_streaming_config import WhisperStreamingProviderConfig
 
+if TYPE_CHECKING:
+    # Typing only; the heavy faster_whisper import is deferred so importing this
+    # module (as unit-test collection does) does not pull in faster_whisper.
+    from src.transcription_contexts.faster_whisper_context import WhisperModel
+
 SAMPLE_RATE = 16000
 NUM_CHANNELS = 1
 
 
 class WhisperStreamingProviderJob(
     JobInterface[
-        tuple[WhisperModel, SileroVadModelType],
+        tuple["WhisperModel", SileroVadModelType],
         AudioChunkPayload,
         TranscriptionResult,
         None,
@@ -131,7 +137,7 @@ class WhisperStreamingProviderJob(
 
     def _transcribe_audio(
         self,
-        whisper: WhisperModel,
+        whisper: "WhisperModel",
         vad_context: SileroVadModelType,
         log: Logger,
     ):
@@ -267,7 +273,7 @@ class WhisperStreamingProviderJob(
     def process_batch(
         self,
         log: Logger,
-        contexts: tuple[WhisperModel, SileroVadModelType],
+        contexts: tuple["WhisperModel", SileroVadModelType],
         batch: list[AudioChunkPayload],
     ) -> TranscriptionResult:
         whisper_model, vad_context = contexts
