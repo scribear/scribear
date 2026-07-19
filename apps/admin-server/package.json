@@ -1,6 +1,6 @@
 {
   "name": "@scribear/admin-server",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Admin BFF for ScribeAR: authenticates IT staff, holds the Session Manager admin key server-side, and proxies admin operations.",
   "author": "scribear",
   "main": "dist/src/index.js",
