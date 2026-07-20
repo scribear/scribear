@@ -173,6 +173,44 @@ def test_route_is_absent_when_no_metrics_key_configured(
     assert response.status_code == 404
 
 
+def test_reports_the_same_process_identity_as_metrics_status(
+    test_client: TestClient,
+):
+    """
+    Test both telemetry endpoints report one identity for the process
+
+    `invalidProviderKeyRejects` here and the counters on /metrics/status are
+    all monotonic since process start, so a consumer differencing either reads
+    a restart as a large negative rate unless it can see the process changed.
+    That only works across the two endpoints if the uid is genuinely the same
+    one - a per-endpoint uid would look right and correlate wrong.
+    """
+    # Act
+    providers = _health(test_client)
+    metrics = test_client.get(
+        "/metrics/status",
+        headers={"authorization": f"Bearer {METRICS_API_KEY}"},
+    ).json()
+
+    # Assert
+    assert providers["processUid"] == metrics["processUid"]
+    assert providers["processStartedAt"] == metrics["processStartedAt"]
+
+
+def test_process_identity_is_stable_across_polls(test_client: TestClient):
+    """
+    Test the identity does not change between reads of a single process
+
+    A uid minted per request would silently defeat the restart detection it
+    exists to enable, while still looking present in the body.
+    """
+    # Act
+    uids = {_health(test_client)["processUid"] for _ in range(3)}
+
+    # Assert
+    assert len(uids) == 1
+
+
 def test_reports_pool_wide_context(test_client: TestClient):
     """
     Test the body carries the worker layout alongside the providers

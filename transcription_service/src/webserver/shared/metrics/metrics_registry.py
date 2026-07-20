@@ -2,11 +2,12 @@
 Defines MetricsRegistry, the in-memory store of transcription-service telemetry
 """
 
-import uuid
-from datetime import datetime, timezone
-
 from src.shared.utils.worker_pool import JobExecutionObservation
 from src.transcription_provider_interface import TranscriptionJobCounter
+from src.webserver.shared.process_identity import (
+    ProcessIdentity,
+    create_process_identity,
+)
 
 from .metric_types import DEFAULT_MAX_SAMPLES, Counter, Histogram
 
@@ -51,13 +52,23 @@ class MetricsRegistry:
         """
         return self._process_started_at
 
-    def __init__(self, max_histogram_samples: int = DEFAULT_MAX_SAMPLES):
+    def __init__(
+        self,
+        max_histogram_samples: int = DEFAULT_MAX_SAMPLES,
+        process_identity: ProcessIdentity | None = None,
+    ):
         """
         Args:
             max_histogram_samples - Retained observations per histogram series
+            process_identity      - Identity to report; one is created when
+                                      omitted. Pass the process-wide instance so
+                                      every telemetry endpoint reports the same
+                                      uid, which is what lets a consumer
+                                      correlate counters across them.
         """
-        self._process_uid = str(uuid.uuid4())
-        self._process_started_at = datetime.now(timezone.utc).isoformat()
+        identity = process_identity or create_process_identity()
+        self._process_uid = identity.process_uid
+        self._process_started_at = identity.process_started_at
 
         self.jobs_completed_total = Counter(
             "jobs_completed_total",

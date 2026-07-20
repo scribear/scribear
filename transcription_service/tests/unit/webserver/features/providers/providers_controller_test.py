@@ -13,10 +13,16 @@ from src.transcription_provider_interface import (
     ProviderStatus,
 )
 from src.webserver.features.providers import ProvidersController
+from src.webserver.shared.process_identity import ProcessIdentity
 from src.webserver.shared.transcription_provider_registry import (
     ProviderHealthEntry,
     ProvidersHealthReport,
     TranscriptionProviderRegistry,
+)
+
+IDENTITY = ProcessIdentity(
+    process_uid="11111111-2222-3333-4444-555555555555",
+    process_started_at="2026-07-20T12:00:00+00:00",
 )
 
 WORKER = WorkerSnapshot(
@@ -38,7 +44,7 @@ def _controller(report: ProvidersHealthReport) -> ProvidersController:
     """
     registry = MagicMock(spec=TranscriptionProviderRegistry)
     registry.providers_health = AsyncMock(return_value=report)
-    return ProvidersController(registry)
+    return ProvidersController(registry, IDENTITY)
 
 
 def _report(*entries: ProviderHealthEntry) -> ProvidersHealthReport:
@@ -71,6 +77,8 @@ async def test_serializes_envelope_as_camel_case():
     body = await controller.health()
 
     # Assert
+    assert body["processUid"] == IDENTITY.process_uid
+    assert body["processStartedAt"] == IDENTITY.process_started_at
     assert body["numWorkers"] == 1
     assert body["invalidProviderKeyRejects"] == 4
     assert body["workers"] == [
@@ -221,3 +229,24 @@ async def test_serializes_enums_as_their_string_values():
     assert provider["kind"] == "local"
     assert provider["status"] == "degraded"
     assert isinstance(provider["kind"], str)
+
+
+@pytest.mark.asyncio
+async def test_reports_process_identity_alongside_the_reject_counter():
+    """
+    Test the monotonic counter is reported with the identity that scopes it
+
+    `invalidProviderKeyRejects` never resets except by restart, so a consumer
+    differencing it across polls reads a restart as a large negative rate
+    unless it can see the process changed. That is what `processUid` is for,
+    and it is the same uid /metrics/status reports.
+    """
+    # Arrange
+    controller = _controller(_report())
+
+    # Act
+    body = await controller.health()
+
+    # Assert
+    assert body["processUid"] == IDENTITY.process_uid
+    assert body["invalidProviderKeyRejects"] == 4

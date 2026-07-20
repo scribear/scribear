@@ -15,6 +15,7 @@ from .features.providers import providers_router
 from .features.transcription_stream import transcription_stream_router
 from .shared.auth_service import AuthService, MetricsAuthService
 from .shared.metrics import MetricsRegistry
+from .shared.process_identity import create_process_identity
 from .shared.transcription_provider_registry import (
     TranscriptionProviderRegistry,
 )
@@ -34,7 +35,11 @@ def create_webserver(config: Config, logger: Logger):
 
     auth_service = AuthService(config)
     metrics_auth_service = MetricsAuthService(config)
-    metrics_registry = MetricsRegistry()
+    # One identity for the whole process, shared by every telemetry surface:
+    # /metrics/status and /providers/health both report counters that reset on
+    # restart, and a consumer can only correlate them if the uid matches.
+    process_identity = create_process_identity()
+    metrics_registry = MetricsRegistry(process_identity=process_identity)
     provider_registry = TranscriptionProviderRegistry(
         config, logger, metrics_registry.record_job_execution
     )
@@ -64,7 +69,9 @@ def create_webserver(config: Config, logger: Logger):
         )
     )
     app.include_router(
-        providers_router(logger, metrics_auth_service, provider_registry)
+        providers_router(
+            logger, metrics_auth_service, provider_registry, process_identity
+        )
     )
     app.include_router(
         transcription_stream_router(

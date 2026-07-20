@@ -5,6 +5,7 @@ Defines ProvidersController that shapes provider health into a JSON body
 from typing import Any
 
 from src.transcription_provider_interface import ProviderHealth
+from src.webserver.shared.process_identity import ProcessIdentity
 from src.webserver.shared.transcription_provider_registry import (
     ProviderHealthEntry,
     TranscriptionProviderRegistry,
@@ -66,12 +67,20 @@ class ProvidersController:
     transcription.
     """
 
-    def __init__(self, provider_registry: TranscriptionProviderRegistry):
+    def __init__(
+        self,
+        provider_registry: TranscriptionProviderRegistry,
+        process_identity: ProcessIdentity,
+    ):
         """
         Args:
             provider_registry   - Owner of the worker pool and providers
+            process_identity    - Identity of this process run, reported so
+                                    consumers can tell a restart from a
+                                    counter decrease
         """
         self._providers = provider_registry
+        self._process_identity = process_identity
 
     async def health(self) -> dict[str, Any]:
         """
@@ -79,11 +88,16 @@ class ProvidersController:
 
         `invalidProviderKeyRejects` is monotonic since process start like the
         counters on /metrics/status, so a consumer differences successive reads
-        to get a rate - and a restart returns it to zero.
+        to get a rate - and must compare `processUid` first, because a restart
+        returns it to zero and would otherwise read as a large negative rate.
+        The uid is the same one /metrics/status reports, so a consumer reading
+        both can correlate them.
         """
         report = await self._providers.providers_health()
 
         return {
+            "processUid": self._process_identity.process_uid,
+            "processStartedAt": self._process_identity.process_started_at,
             "numWorkers": report.num_workers,
             "invalidProviderKeyRejects": report.invalid_provider_key_rejects,
             "workers": [
