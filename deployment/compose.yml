@@ -162,6 +162,9 @@ services:
       LOG_LEVEL: ${TRANSCRIPTION_LOG_LEVEL:-info}
       API_KEY: ${TRANSCRIPTION_API_KEY}
       WS_INIT_TIMEOUT_SEC: ${TRANSCRIPTION_WS_INIT_TIMEOUT_SEC:-2.5}
+      # Read-only key for /metrics/status. Empty leaves the route unregistered.
+      # In-cluster only; it is not exposed through nginx.
+      METRICS_API_KEY: ${TRANSCRIPTION_METRICS_KEY:-}
       # Optional upstream secret for remote/OpenAI-like providers that read their
       # key from an env var named by provider_config.json's "api_key_env". Empty
       # by default and ignored by local-model providers, so it is safe to leave unset.
@@ -204,6 +207,9 @@ services:
       # the connection, upstream and auth metrics empty.
       NODE_SERVER_SERVICE_API_KEY: ${NODE_SERVER_SERVICE_KEY}
       NODE_STATUS_INTERVAL_SEC: ${MONITORING_NODE_STATUS_INTERVAL_SEC:-10}
+      # Reads transcription-service's authed metrics endpoint (B1.2). Must
+      # match the key that service is given above; empty disables the poll.
+      TRANSCRIPTION_SERVICE_METRICS_KEY: ${TRANSCRIPTION_METRICS_KEY:-}
       PROBE_INTERVAL_SEC: ${MONITORING_PROBE_INTERVAL_SEC:-10}
       ALERT_RATE_WINDOW_SEC: ${MONITORING_ALERT_WINDOW_SEC:-120}
       ALERT_UPSTREAM_CHURN_COUNT: ${MONITORING_ALERT_CHURN_COUNT:-3}

@@ -27,6 +27,12 @@ class EnvSchema(BaseModel):
     API_KEY: str
     WS_INIT_TIMEOUT_SEC: float
 
+    # Defaulted, unlike every other key here: EnvSchema has no defaults except
+    # LOG_LEVEL, so a required addition would break every existing deployment
+    # and every test that builds a real Config. Empty means "metrics endpoint
+    # disabled", which keeps this change additive.
+    METRICS_API_KEY: str = ""
+
     PROVIDER_CONFIG_PATH: str
 
 
@@ -126,6 +132,16 @@ class Config:
         return self._api_key
 
     @property
+    def metrics_api_key(self) -> str:
+        """
+        Secret API key for reading the metrics endpoint
+
+        Separate from api_key on purpose - that one opens transcription
+        sessions, this one only reads counters. Empty disables the endpoint.
+        """
+        return self._metrics_api_key
+
+    @property
     def ws_init_timeout_sec(self) -> float:
         """
         Seconds to wait for websocket to send initialization messages before closing if not sent
@@ -154,6 +170,7 @@ class Config:
         self._port = env.PORT
         self._host = str(env.HOST)
         self._api_key = env.API_KEY
+        self._metrics_api_key = env.METRICS_API_KEY
         self._ws_init_timeout_sec = env.WS_INIT_TIMEOUT_SEC
 
         with open(env.PROVIDER_CONFIG_PATH, "r", encoding="utf-8") as file:

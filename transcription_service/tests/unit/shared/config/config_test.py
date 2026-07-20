@@ -24,6 +24,7 @@ LOG_LEVEL = LogLevel.DEBUG
 PORT = 12345
 HOST = "1.2.3.4"
 API_KEY = "SOME_KEY"
+METRICS_API_KEY = "SOME_METRICS_KEY"
 WS_INIT_TIMEOUT_SEC = 0.5
 
 valid_env: Callable[[str], str] = (
@@ -111,6 +112,9 @@ def test_config_load_valid_config(clean_os_environ: None, tmp_path: Path):
     assert config.host == HOST
     assert config.api_key == API_KEY
     assert config.ws_init_timeout_sec == WS_INIT_TIMEOUT_SEC
+    # Absent from the .env above on purpose: the metrics key must stay
+    # optional, or adding it would break every existing deployment.
+    assert config.metrics_api_key == ""
 
     assert config.provider_config.num_workers == NUM_WORKERS
     assert len(config.provider_config.contexts) == 2
@@ -119,6 +123,35 @@ def test_config_load_valid_config(clean_os_environ: None, tmp_path: Path):
     assert len(config.provider_config.providers) == 2
     assert config.provider_config.providers["provider0"] == PROVIDER_0
     assert config.provider_config.providers["provider1"] == PROVIDER_1
+
+
+def test_config_loads_metrics_api_key_when_set(
+    clean_os_environ: None, tmp_path: Path
+):
+    # pylint: disable=unused-argument
+    # Need to include clean_os_environ so that fixture is created
+    """
+    Test that a configured metrics key is read
+
+    It is a separate secret from API_KEY: that one opens transcription
+    sessions, this one only reads counters.
+    """
+    # Arrange
+    transcription_config_path = tmp_path / "transcription_config.json"
+    transcription_config_path.write_text(VALID_PROVIDER_CONFIG_JSON)
+
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text(
+        valid_env(str(transcription_config_path))
+        + f"METRICS_API_KEY={METRICS_API_KEY}\n"
+    )
+
+    # Act
+    config = Config(dotenv_path=str(dotenv_path))
+
+    # Assert
+    assert config.metrics_api_key == METRICS_API_KEY
+    assert config.api_key == API_KEY
 
 
 def test_config_invalid_transcription_file(
