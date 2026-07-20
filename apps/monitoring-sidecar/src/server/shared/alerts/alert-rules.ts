@@ -236,6 +236,38 @@ export const transcriptionSaturationRule: AlertRule = (ctx) => {
   return alerts;
 };
 
+/**
+ * §3 T9 — a transcription worker process has died.
+ *
+ * The quietest failure in the stack. Nothing inside the worker pool notices a
+ * worker exiting after startup: the result-queue poll loop times out forever,
+ * and every job already registered to that worker never returns and never
+ * raises. Sessions pinned to its context simply stop producing captions while
+ * the service keeps answering liveness. B1.3 gave readiness teeth for this;
+ * this rule names the worker.
+ */
+export const workerDeadRule: AlertRule = (ctx) => {
+  const dead = ctx.metrics.asrWorkerAlive
+    .entries()
+    .filter(({ value }) => value === 0)
+    .map(({ labels }) => labels['workerId'] ?? 'unknown');
+  if (dead.length === 0) return [];
+
+  return [
+    {
+      id: 'asr-worker-dead',
+      failureModes: ['T9'],
+      severity: AlertSeverity.CRITICAL,
+      stage: PipelineStage.TRANSCRIPTION,
+      summary: `${String(dead.length)} transcription worker process(es) have exited (worker ${dead.join(', ')}).`,
+      likelyCause:
+        'A worker died after startup — most often a model-load crash, a GPU fault or an OOM kill. Jobs already registered to it will never complete, so any room pinned to its context has silently stopped transcribing. Restart transcription-service; check dmesg/GPU logs for the cause.',
+      value: dead.length,
+      threshold: 0,
+    },
+  ];
+};
+
 /** §3 T2 — per-job backlog overflow producing choppy captions. */
 export const bufferOverflowRule: AlertRule = (ctx) => {
   const window = ctx.thresholds.rateWindowMs;
@@ -704,6 +736,7 @@ export const canaryQualityRule: AlertRule = (ctx) => {
 export const DEFAULT_RULES: readonly AlertRule[] = [
   upstreamChurnRule,
   transcriptionSaturationRule,
+  workerDeadRule,
   bufferOverflowRule,
   decodeDropRule,
   authFailureRule,

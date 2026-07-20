@@ -295,6 +295,19 @@ export class MetricsRegistry {
     'Jobs currently registered on a transcription worker.',
   );
 
+  /**
+   * 1 when a worker process is still running, 0 when it has exited (§3 T9).
+   *
+   * A worker that dies after startup is silent: the pool's result-queue poll
+   * loop simply times out forever, and jobs already registered to that worker
+   * never return and never raise. Nothing else distinguishes a wedged worker
+   * from an idle one.
+   */
+  readonly asrWorkerAlive = new Gauge(
+    'scribear_asr_worker_alive',
+    'Whether a transcription worker process is still running.',
+  );
+
   /** Transcription contexts held open on a worker (§3 T9). */
   readonly asrWorkerContexts = new Gauge(
     'scribear_asr_worker_contexts',
@@ -521,6 +534,7 @@ export class MetricsRegistry {
       this.asrPeriodUtilization,
       this.asrWorkers,
       this.asrWorkerUtilization,
+      this.asrWorkerAlive,
       this.asrWorkerLiveJobs,
       this.asrWorkerContexts,
       this.nodeActiveSessions,

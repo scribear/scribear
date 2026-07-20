@@ -53,6 +53,7 @@ export const TRANSCRIPTION_METRICS_BODY_SCHEMA = Type.Object({
       liveJobCount: Type.Number(),
       totalJobsRegistered: Type.Number(),
       contextIds: Type.Array(Type.Number()),
+      alive: Type.Boolean(),
     }),
   ),
   counters: Type.Object({

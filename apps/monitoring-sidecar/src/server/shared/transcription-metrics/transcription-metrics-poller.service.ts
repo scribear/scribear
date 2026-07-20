@@ -184,6 +184,7 @@ export class TranscriptionMetricsPollerService extends AbsoluteStatusPoller<Tran
       this._metrics.asrWorkerUtilization.set(labels, worker.utilization);
       this._metrics.asrWorkerLiveJobs.set(labels, worker.liveJobCount);
       this._metrics.asrWorkerContexts.set(labels, worker.contextIds.length);
+      this._metrics.asrWorkerAlive.set(labels, worker.alive ? 1 : 0);
       this._advance(
         this._metrics.asrWorkerJobsRegisteredTotal,
         labels,
@@ -197,6 +198,7 @@ export class TranscriptionMetricsPollerService extends AbsoluteStatusPoller<Tran
       this._metrics.asrWorkerUtilization.delete(labels);
       this._metrics.asrWorkerLiveJobs.delete(labels);
       this._metrics.asrWorkerContexts.delete(labels);
+      this._metrics.asrWorkerAlive.delete(labels);
     }
     this._knownWorkers = seen;
   }

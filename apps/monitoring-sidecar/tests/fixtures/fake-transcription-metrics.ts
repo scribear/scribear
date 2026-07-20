@@ -32,6 +32,7 @@ export interface FakeMetricsBody {
     liveJobCount: number;
     totalJobsRegistered: number;
     contextIds: number[];
+    alive: boolean;
   }[];
   counters: Record<string, FakeCounterSeries[]>;
   histograms: Record<string, FakeHistogramSeries[]>;

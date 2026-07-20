@@ -229,6 +229,7 @@ class WorkerSnapshot:
     live_job_count: int
     total_jobs_registered: int
     context_ids: set[int]
+    alive: bool
 
 
 class WorkerProcessManager:
@@ -368,6 +369,19 @@ class WorkerProcessManager:
         """
         return self._next_job_id
 
+    @property
+    def alive(self) -> bool:
+        """
+        Whether the worker process is still running
+
+        A worker that dies after initialization is otherwise invisible: the
+        result-queue poll loop simply times out forever, and any job already
+        registered to that worker never completes and never errors. Nothing
+        else in the pool notices, so this is the only signal that distinguishes
+        a wedged worker from an idle one.
+        """
+        return self._process.is_alive()
+
     def snapshot(self) -> WorkerSnapshot:
         """
         Gets a point-in-time view of this worker's load
@@ -380,6 +394,7 @@ class WorkerProcessManager:
             live_job_count=self.live_job_count,
             total_jobs_registered=self.total_jobs_registered,
             context_ids=self.context_ids,
+            alive=self.alive,
         )
 
     def __init__(

@@ -79,6 +79,9 @@ def _worker(snapshot: WorkerSnapshot) -> dict[str, Any]:
         "liveJobCount": snapshot.live_job_count,
         "totalJobsRegistered": snapshot.total_jobs_registered,
         "contextIds": sorted(snapshot.context_ids),
+        # A worker that dies after startup is otherwise invisible: jobs already
+        # registered to it never return and never raise. See B1.3.
+        "alive": snapshot.alive,
     }
 
 

@@ -56,7 +56,7 @@ def create_webserver(config: Config, logger: Logger):
 
     app = FastAPI(lifespan=lifespan)
 
-    app.include_router(probes_router())
+    app.include_router(probes_router(provider_registry))
     app.include_router(
         metrics_router(
             logger, metrics_auth_service, metrics_registry, provider_registry

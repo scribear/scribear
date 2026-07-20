@@ -287,6 +287,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
               liveJobCount: 3,
               totalJobsRegistered: 40,
               contextIds: [1, 2],
+              alive: true,
             },
           ],
         }),
@@ -302,6 +303,36 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
       expect(metrics.asrWorkerLiveJobs.get(worker)).toBe(3);
       expect(metrics.asrWorkerContexts.get(worker)).toBe(2);
       expect(metrics.asrWorkerJobsRegisteredTotal.get(worker)).toBe(40);
+      expect(metrics.asrWorkerAlive.get(worker)).toBe(1);
+    });
+
+    it('reports a worker that exited as not alive', async () => {
+      // Arrange — the quietest failure in the stack: nothing in the pool
+      // notices, so this gauge is the only signal.
+      const { metrics, poller } = createPoller();
+      service.setBody(
+        metricsBody({
+          numWorkers: 1,
+          workers: [
+            {
+              workerId: 0,
+              utilization: 1.0,
+              liveJobCount: 2,
+              totalJobsRegistered: 9,
+              contextIds: [1],
+              alive: false,
+            },
+          ],
+        }),
+      );
+
+      // Act
+      await poller.pollOnce();
+
+      // Assert
+      expect(
+        metrics.asrWorkerAlive.get({ service: SERVICE, workerId: '0' }),
+      ).toBe(0);
     });
 
     it('drops gauges for a worker that disappeared', async () => {
@@ -313,6 +344,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
         liveJobCount: 1,
         totalJobsRegistered: 10,
         contextIds: [1],
+        alive: true,
       };
       service.setBody(metricsBody({ workers: [worker] }));
       await poller.pollOnce();

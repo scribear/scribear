@@ -16,6 +16,7 @@ import {
   statusPollUnavailableRule,
   transcriptionSaturationRule,
   upstreamChurnRule,
+  workerDeadRule,
 } from '#src/server/shared/alerts/alert-rules.js';
 import {
   CanaryOutcome,
@@ -246,6 +247,44 @@ describe('alert rules', () => {
 
       // Act
       const alerts = transcriptionSaturationRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+  });
+
+  describe('dead transcription worker (T9)', (it) => {
+    it('names the workers that exited', () => {
+      // Arrange
+      const metrics = new MetricsRegistry();
+      metrics.asrWorkerAlive.set(
+        { service: 'transcription-service', workerId: '0' },
+        1,
+      );
+      metrics.asrWorkerAlive.set(
+        { service: 'transcription-service', workerId: '1' },
+        0,
+      );
+
+      // Act
+      const alerts = workerDeadRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]?.severity).toBe(AlertSeverity.CRITICAL);
+      expect(alerts[0]?.summary).toContain('worker 1');
+    });
+
+    it('stays silent when every worker is alive', () => {
+      // Arrange
+      const metrics = new MetricsRegistry();
+      metrics.asrWorkerAlive.set(
+        { service: 'transcription-service', workerId: '0' },
+        1,
+      );
+
+      // Act
+      const alerts = workerDeadRule(context(metrics));
 
       // Assert
       expect(alerts).toHaveLength(0);
