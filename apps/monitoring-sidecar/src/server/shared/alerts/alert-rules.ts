@@ -80,8 +80,14 @@ export interface AlertThresholds {
   probeFailureThreshold: number;
   /** Fraction of WS closes that are auth rejections before S2 fires. */
   authFailureRatio: number;
-  /** Minimum WS closes needed before the auth ratio is meaningful. */
+  /** Minimum auth attempts (or WS closes) before the auth ratio is meaningful. */
   authFailureMinSamples: number;
+  /** Share of latency samples with a negative e2e time before S5 fires. */
+  clockSkewRatio: number;
+  /** Minimum latency samples before the skew ratio is meaningful. */
+  clockSkewMinSamples: number;
+  /** Pending-chunk evictions within the window before N3 fires. */
+  pendingChunkEvictionCount: number;
   /** Canary time-to-first-transcript above which the latency alert fires. */
   canaryFirstTranscriptMs: number;
   /** Canary word recall below which the accuracy alert fires. */
@@ -100,6 +106,14 @@ export const DEFAULT_THRESHOLDS: AlertThresholds = {
   probeFailureThreshold: 2,
   authFailureRatio: 0.5,
   authFailureMinSamples: 5,
+  // A fifth of samples arriving "before they were sent" is well past anything
+  // jitter explains, and well below the ~1.0 a fully unsynced clock produces -
+  // so it catches partial skew without firing on a single odd device.
+  clockSkewRatio: 0.2,
+  clockSkewMinSamples: 20,
+  // Eviction is not routine: the map holds 2000 frames, minutes of audio at a
+  // normal frame rate. A handful means correlation is already degrading.
+  pendingChunkEvictionCount: 10,
   // 15 s. Generous on purpose: the whisper-streaming provider only emits after
   // it has accumulated a buffer, so a healthy first caption is seconds out.
   // Tune against a known-good baseline before tightening.
@@ -311,24 +325,37 @@ export const decodeDropRule: AlertRule = (ctx) => {
 /**
  * §3 S2 — session token signing key mismatch.
  *
- * Detected as a high *ratio* of auth-rejection closes rather than a raw count,
+ * Detected as a high *ratio* of rejected auth attempts rather than a raw count,
  * because a handful of expired tokens is normal background noise while
  * "essentially every connection is rejected" is a config failure.
+ *
+ * The denominator is auth *attempts* (failures + successes) when node-server's
+ * status endpoint is supplying them, which is what the plan specifies. Before
+ * B1.1 that number did not exist anywhere and the rule had to divide by all
+ * WebSocket closes — a denominator inflated by every normal end-of-session
+ * close, which pushes the ratio down and makes real drift look milder than it
+ * is. The close-based form is kept as a fallback for a deployment with status
+ * polling disabled, where it is the only thing available.
  */
 export const authFailureRule: AlertRule = (ctx) => {
   const window = ctx.thresholds.rateWindowMs;
-  const total = ctx.metrics.wsCloseTotal.windowCount({}, window, ctx.nowMs);
-  if (total < ctx.thresholds.authFailureMinSamples) return [];
+  const attempts =
+    ctx.metrics.nodeAuthFailuresTotal.windowCount({}, window, ctx.nowMs) +
+    ctx.metrics.nodeAuthSuccessTotal.windowCount({}, window, ctx.nowMs);
 
-  const authReasons = ['invalid-token', 'token-expired', 'session-mismatch'];
-  let authFailures = 0;
-  for (const reason of authReasons) {
-    authFailures += ctx.metrics.wsCloseTotal.windowCount(
-      { reason },
-      window,
-      ctx.nowMs,
-    );
-  }
+  const { authFailures, total } =
+    attempts > 0
+      ? {
+          authFailures: ctx.metrics.nodeAuthFailuresTotal.windowCount(
+            {},
+            window,
+            ctx.nowMs,
+          ),
+          total: attempts,
+        }
+      : closeDerivedAuthCounts(ctx, window);
+
+  if (total < ctx.thresholds.authFailureMinSamples) return [];
 
   const ratio = authFailures / total;
   if (ratio < ctx.thresholds.authFailureRatio) return [];
@@ -339,7 +366,7 @@ export const authFailureRule: AlertRule = (ctx) => {
       failureModes: ['S2', 'U3'],
       severity: AlertSeverity.CRITICAL,
       stage: PipelineStage.CONTROL_PLANE,
-      summary: `${String(Math.round(ratio * 100))}% of WebSocket closes are auth rejections (${String(authFailures)}/${String(total)}).`,
+      summary: `${String(Math.round(ratio * 100))}% of authentication attempts are being rejected (${String(authFailures)}/${String(total)}).`,
       likelyCause:
         'Nearly every token is being rejected — SESSION_TOKEN_SIGNING_KEY almost certainly differs between session-manager and node-server. Compare the signing key env on both.',
       value: ratio,
@@ -386,6 +413,109 @@ export const nodeStatusUnavailableRule: AlertRule = (ctx) => {
     });
   }
   return alerts;
+};
+
+/**
+ * Auth rejections and their denominator inferred from close codes.
+ *
+ * Only used when node-server's status endpoint is not being polled. `total`
+ * counts every close, not every auth attempt, so the resulting ratio is
+ * systematically low — good enough as a tripwire, which is why it survives as a
+ * fallback rather than as the primary.
+ */
+function closeDerivedAuthCounts(
+  ctx: AlertContext,
+  window: number,
+): { authFailures: number; total: number } {
+  const authReasons = ['invalid-token', 'token-expired', 'session-mismatch'];
+  let authFailures = 0;
+  for (const reason of authReasons) {
+    authFailures += ctx.metrics.wsCloseTotal.windowCount(
+      { reason },
+      window,
+      ctx.nowMs,
+    );
+  }
+  return {
+    authFailures,
+    total: ctx.metrics.wsCloseTotal.windowCount({}, window, ctx.nowMs),
+  };
+}
+
+/**
+ * §3 S5 — the source's clock is ahead of node-server's despite sync.
+ *
+ * A ratio, not a count: on a busy node a handful of negative end-to-end times
+ * is noise, while a large share means every end-to-end latency figure on the
+ * dashboard is wrong. Pipeline latency is unaffected — it uses the monotonic
+ * clock — so captions are fine and only the measurement is broken, which is
+ * exactly why this needs saying out loud rather than being inferred from a
+ * suspiciously empty latency panel.
+ */
+export const clockSkewRule: AlertRule = (ctx) => {
+  const window = ctx.thresholds.rateWindowMs;
+  const samples = ctx.metrics.nodeLatencySamplesTotal.windowCount(
+    {},
+    window,
+    ctx.nowMs,
+  );
+  if (samples < ctx.thresholds.clockSkewMinSamples) return [];
+
+  const negative = ctx.metrics.nodeLatencyE2eNegativeTotal.windowCount(
+    {},
+    window,
+    ctx.nowMs,
+  );
+  const ratio = negative / samples;
+  if (ratio < ctx.thresholds.clockSkewRatio) return [];
+
+  return [
+    {
+      id: 'clock-skew',
+      failureModes: ['S5'],
+      severity: AlertSeverity.WARNING,
+      stage: PipelineStage.CAPTURE,
+      summary: `${String(Math.round(ratio * 100))}% of latency samples had a negative end-to-end time (${String(negative)}/${String(samples)}).`,
+      likelyCause:
+        'Source clocks are ahead of node-server’s, so end-to-end latency is being discarded as implausible. Captions are unaffected and pipeline latency still reports; check NTP on the source devices and on the node-server host. Uplink delay (U4) is invisible until this is fixed.',
+      value: ratio,
+      threshold: ctx.thresholds.clockSkewRatio,
+    },
+  ];
+};
+
+/**
+ * §3 N3 — the per-session pending-chunk map is overflowing.
+ *
+ * Eviction means an audio frame left the correlation map before its transcript
+ * came back, so latency for that frame can never be computed. The captions
+ * themselves are unaffected, which is what makes this worth alerting on: it
+ * degrades the measurements the rest of the dashboard depends on, silently, and
+ * the numbers that remain look healthy because the slow frames are the ones
+ * being dropped.
+ */
+export const pendingChunkEvictionRule: AlertRule = (ctx) => {
+  const window = ctx.thresholds.rateWindowMs;
+  const count = ctx.metrics.nodePendingChunkEvictionsTotal.windowCount(
+    {},
+    window,
+    ctx.nowMs,
+  );
+  if (count < ctx.thresholds.pendingChunkEvictionCount) return [];
+
+  return [
+    {
+      id: 'pending-chunk-evictions',
+      failureModes: ['N3'],
+      severity: AlertSeverity.WARNING,
+      stage: PipelineStage.NODE,
+      summary: `${String(count)} audio frames evicted from latency correlation in ${String(Math.round(window / 1000))}s.`,
+      likelyCause:
+        'Frames are being sent upstream and never matched to a transcript, so the correlation map is overflowing — usually transcription falling far behind (T1) or a provider that stopped returning chunk ids. Latency figures are under-reporting the worst cases while this fires.',
+      value: count,
+      threshold: ctx.thresholds.pendingChunkEvictionCount,
+    },
+  ];
 };
 
 /** §3 N5 / S1 / T9 — a service probe is down. */
@@ -581,6 +711,8 @@ export const DEFAULT_RULES: readonly AlertRule[] = [
   bufferOverflowRule,
   decodeDropRule,
   authFailureRule,
+  clockSkewRule,
+  pendingChunkEvictionRule,
   nodeStatusUnavailableRule,
   probeDownRule,
   canaryFailureRule,

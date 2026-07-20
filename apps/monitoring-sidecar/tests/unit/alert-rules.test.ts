@@ -9,9 +9,11 @@ import {
   authFailureRule,
   canaryFailureRule,
   canaryQualityRule,
+  clockSkewRule,
   configPollErrorRule,
   decodeDropRule,
   nodeStatusUnavailableRule,
+  pendingChunkEvictionRule,
   probeDownRule,
   transcriptionSaturationRule,
   upstreamChurnRule,
@@ -263,6 +265,134 @@ describe('alert rules', () => {
 
       // Act
       const alerts = authFailureRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('prefers auth attempts over closes as the denominator', () => {
+      // Arrange - the same 10 rejections against 10 successful logins is
+      // healthy-ish traffic, but 30 unrelated end-of-session closes would drag
+      // the close-based ratio under the threshold and hide it. Attempts are the
+      // denominator the plan specifies, and they are available since B1.1.
+      const metrics = new MetricsRegistry();
+      for (let i = 0; i < 10; i++) {
+        metrics.nodeAuthFailuresTotal.inc({ reason: 'invalid-token' }, 1, NOW);
+        metrics.nodeAuthSuccessTotal.inc({}, 1, NOW);
+        metrics.wsCloseTotal.inc({ reason: 'invalid-token' }, 1, NOW);
+      }
+      for (let i = 0; i < 30; i++) {
+        metrics.wsCloseTotal.inc({ reason: 'session-ended' }, 1, NOW);
+      }
+
+      // Act
+      const alerts = authFailureRule(context(metrics));
+
+      // Assert - 10/20 attempts crosses the 0.5 default; 10/40 closes would not
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]?.value).toBe(0.5);
+      expect(alerts[0]?.summary).toContain('authentication attempts');
+    });
+
+    it('falls back to close codes when status polling is disabled', () => {
+      // Arrange - no auth-attempt data at all, which is what a deployment
+      // without NODE_SERVER_SERVICE_API_KEY looks like.
+      const metrics = new MetricsRegistry();
+      for (let i = 0; i < 20; i++) {
+        metrics.wsCloseTotal.inc({ reason: 'invalid-token' }, 1, NOW);
+      }
+
+      // Act
+      const alerts = authFailureRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(1);
+    });
+  });
+
+  describe('clock skew (S5)', (it) => {
+    it('stays silent when a handful of samples are negative', () => {
+      // Arrange - a single odd device is noise, not a deployment fault
+      const metrics = new MetricsRegistry();
+      for (let i = 0; i < 100; i++) {
+        metrics.nodeLatencySamplesTotal.inc({}, 1, NOW);
+      }
+      metrics.nodeLatencyE2eNegativeTotal.inc({}, 1, NOW);
+
+      // Act
+      const alerts = clockSkewRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('fires once a large share of samples arrive before they were sent', () => {
+      // Arrange
+      const metrics = new MetricsRegistry();
+      for (let i = 0; i < 100; i++) {
+        metrics.nodeLatencySamplesTotal.inc({}, 1, NOW);
+        if (i < 40) metrics.nodeLatencyE2eNegativeTotal.inc({}, 1, NOW);
+      }
+
+      // Act
+      const alerts = clockSkewRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]?.failureModes).toContain('S5');
+      expect(alerts[0]?.severity).toBe(AlertSeverity.WARNING);
+      // Captions are fine; only the measurement is broken. Say so.
+      expect(alerts[0]?.likelyCause).toContain('Captions are unaffected');
+    });
+
+    it('ignores a ratio computed from too few samples', () => {
+      // Arrange - 2 of 2 is 100% and means nothing
+      const metrics = new MetricsRegistry();
+      metrics.nodeLatencySamplesTotal.inc({}, 2, NOW);
+      metrics.nodeLatencyE2eNegativeTotal.inc({}, 2, NOW);
+
+      // Act
+      const alerts = clockSkewRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+  });
+
+  describe('pending-chunk evictions (N3)', (it) => {
+    it('stays silent below the threshold', () => {
+      // Arrange
+      const metrics = new MetricsRegistry();
+      metrics.nodePendingChunkEvictionsTotal.inc({}, 2, NOW);
+
+      // Act
+      const alerts = pendingChunkEvictionRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('warns when frames are being dropped from latency correlation', () => {
+      // Arrange
+      const metrics = new MetricsRegistry();
+      metrics.nodePendingChunkEvictionsTotal.inc({}, 25, NOW);
+
+      // Act
+      const alerts = pendingChunkEvictionRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]?.failureModes).toContain('N3');
+      expect(alerts[0]?.stage).toBe(PipelineStage.NODE);
+    });
+
+    it('ignores evictions that have aged out of the window', () => {
+      // Arrange
+      const metrics = new MetricsRegistry();
+      metrics.nodePendingChunkEvictionsTotal.inc({}, 25, NOW - 10 * 60_000);
+
+      // Act
+      const alerts = pendingChunkEvictionRule(context(metrics));
 
       // Assert
       expect(alerts).toHaveLength(0);
