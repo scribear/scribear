@@ -15,6 +15,7 @@ import {
 } from '@scribear/transcription-service-schema';
 
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
+import type { E2eOutcome } from '#src/server/shared/services/node-server-metrics.service.js';
 
 import { AudioFrameChannel } from './events/audio-frame.events.js';
 import { LatencyChannel } from './events/latency.events.js';
@@ -117,6 +118,7 @@ export class TranscriptionOrchestratorService {
   private _transcriptionServiceClient: AppDependencies['transcriptionServiceClient'];
   private _sessionConfigPollFactory: SessionConfigPollFactory;
   private _transcriptionApiKey: string;
+  private _metrics: AppDependencies['nodeServerMetricsService'];
 
   constructor(
     logger: AppDependencies['logger'],
@@ -124,12 +126,14 @@ export class TranscriptionOrchestratorService {
     transcriptionServiceClient: AppDependencies['transcriptionServiceClient'],
     sessionConfigPollFactory: SessionConfigPollFactory,
     transcriptionServiceClientConfig: AppDependencies['transcriptionServiceClientConfig'],
+    nodeServerMetricsService: AppDependencies['nodeServerMetricsService'],
   ) {
     this._logger = logger;
     this._eventBus = eventBusService;
     this._transcriptionServiceClient = transcriptionServiceClient;
     this._sessionConfigPollFactory = sessionConfigPollFactory;
     this._transcriptionApiKey = transcriptionServiceClientConfig.apiKey;
+    this._metrics = nodeServerMetricsService;
   }
 
   /**
@@ -207,6 +211,7 @@ export class TranscriptionOrchestratorService {
    * first if the per-session cap is reached.
    */
   private _recordPending(
+    sessionUid: string,
     state: SessionState,
     chunkId: string,
     sentAt: number | null,
@@ -215,6 +220,14 @@ export class TranscriptionOrchestratorService {
     if (state.pendingChunks.size >= MAX_PENDING_CHUNKS) {
       const oldest = state.pendingChunks.keys().next().value;
       if (oldest !== undefined) state.pendingChunks.delete(oldest);
+      // Sustained eviction means latency correlation is silently degrading:
+      // any transcript for an evicted frame can no longer be matched. Warn
+      // rather than debug - hitting a 2000-frame cap is not routine.
+      this._metrics.recordPendingChunkEviction();
+      this._logger.warn(
+        { sessionUid, cap: MAX_PENDING_CHUNKS },
+        'pending-chunk map at cap; evicting oldest',
+      );
     }
     state.pendingChunks.set(chunkId, { recvMono, sentAt });
   }
@@ -241,16 +254,32 @@ export class TranscriptionOrchestratorService {
     const id = chunkIds[0];
     if (id === undefined) return;
     const entry = state.pendingChunks.get(id);
-    if (entry === undefined) return;
+    if (entry === undefined) {
+      // The frame was evicted at the cap or already pruned by an earlier
+      // final. Counted because it is the downstream symptom of N3.
+      this._metrics.recordLatencyUnmatchedChunk();
+      return;
+    }
 
     const pipelineMs = performance.now() - entry.recvMono;
     let e2eMs: number | null = null;
+    let e2eOutcome: E2eOutcome = 'unavailable';
     if (entry.sentAt !== null) {
       const candidate = Date.now() - entry.sentAt;
       // A negative end-to-end time means the source clock is still ahead of
       // ours despite sync; report null rather than a nonsensical number.
       e2eMs = candidate >= 0 ? candidate : null;
+      e2eOutcome = candidate >= 0 ? 'ok' : 'negative';
+      if (candidate < 0) {
+        // Debug, not warn: under real skew this fires on every chunk (S5).
+        // The counter carries the rate; this line is for diagnosing one case.
+        this._logger.debug(
+          { sessionUid, skewMs: candidate },
+          'discarding negative end-to-end latency; source clock ahead',
+        );
+      }
     }
+    this._metrics.recordLatencySample(e2eOutcome);
 
     this._eventBus.publish(
       LatencyChannel,
@@ -317,8 +346,18 @@ export class TranscriptionOrchestratorService {
     // Republish status on every upstream transition. The session is removed
     // from the map before teardown, so terminate-driven state changes don't
     // accidentally re-publish stale state.
-    upstream.on('stateChange', () => {
+    upstream.on('stateChange', (to, from) => {
       if (this._sessions.get(sessionUid) !== state) return;
+      this._metrics.recordUpstreamStateChange(from, to);
+      // Observability: this is the only externally-visible trace of upstream
+      // churn. A healthy session logs this a handful of times (IDLE ->
+      // CONNECTING -> HANDSHAKING -> OPEN); a flapping upstream cycles through
+      // WAITING_RETRY repeatedly, which is the BUG.txt signature the monitoring
+      // sidecar alerts on. Info level so it survives the default LOG_LEVEL.
+      this._logger.info(
+        { sessionUid, from, to },
+        'upstream transcription state change',
+      );
       this._setStatus(sessionUid, state);
     });
 
@@ -344,6 +383,7 @@ export class TranscriptionOrchestratorService {
           const decoded = decodeAudioFrame(frame);
           if (decoded.chunkId !== null) {
             this._recordPending(
+              sessionUid,
               state,
               decoded.chunkId,
               decoded.sentAt,
@@ -352,6 +392,7 @@ export class TranscriptionOrchestratorService {
           }
         } catch (err) {
           if (err instanceof AudioFrameError) {
+            this._metrics.recordDecodeDrop();
             this._logger.warn(
               { err: err.message, sessionUid },
               'dropping malformed audio frame',

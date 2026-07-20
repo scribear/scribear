@@ -23,6 +23,7 @@ import {
 } from '#src/server/features/transcription-stream/transcription-orchestrator.service.js';
 import { TranscriptionStreamController } from '#src/server/features/transcription-stream/transcription-stream.controller.js';
 import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
+import { NodeServerMetricsService } from '#src/server/shared/services/node-server-metrics.service.js';
 import { SessionTokenService } from '#src/server/shared/services/session-token.service.js';
 
 import type { AppConfig, AppDependencies } from './app-dependencies.js';
@@ -49,6 +50,11 @@ function registerDependencies(
       lifetime: Lifetime.SINGLETON,
     }),
     eventBusService: asClass(EventBusService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    // Singleton so counters survive individual connections; the signals it
+    // collects originate in both request-scoped and singleton objects.
+    nodeServerMetricsService: asClass(NodeServerMetricsService, {
       lifetime: Lifetime.SINGLETON,
     }),
 

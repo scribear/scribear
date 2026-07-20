@@ -19,6 +19,7 @@ import type {
 } from '#src/server/features/transcription-stream/transcription-orchestrator.service.js';
 import type { TranscriptionStreamController } from '#src/server/features/transcription-stream/transcription-stream.controller.js';
 import type { EventBusService } from '#src/server/shared/services/event-bus.service.js';
+import type { NodeServerMetricsService } from '#src/server/shared/services/node-server-metrics.service.js';
 import type {
   SessionTokenConfig,
   SessionTokenService,
@@ -37,6 +38,7 @@ interface AppDependencies extends BaseDependencies {
   // Shared services
   sessionTokenService: SessionTokenService;
   eventBusService: EventBusService;
+  nodeServerMetricsService: NodeServerMetricsService;
 
   // Outbound clients
   sessionManagerClient: SessionManagerClient;
