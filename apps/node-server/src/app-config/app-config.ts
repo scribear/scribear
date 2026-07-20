@@ -4,12 +4,14 @@ import type { Static } from 'typebox';
 
 import { LogLevel } from '@scribear/base-fastify-server';
 
+import type { ServiceAuthConfig } from '#src/server/shared/services/service-auth.service.js';
 import type { SessionTokenConfig } from '#src/server/shared/services/session-token.service.js';
 
 const CONFIG_SCHEMA = Type.Object({
   LOG_LEVEL: Type.Enum(LogLevel),
   PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
   HOST: Type.String(),
+  NODE_SERVER_SERVICE_API_KEY: Type.String(),
   SESSION_TOKEN_SIGNING_KEY: Type.String(),
   SESSION_MANAGER_BASE_URL: Type.String(),
   SESSION_MANAGER_SERVICE_API_KEY: Type.String(),
@@ -44,6 +46,18 @@ export class AppConfig {
       logLevel: this._env.LOG_LEVEL,
       port: this._env.PORT,
       host: this._env.HOST,
+    };
+  }
+
+  /**
+   * Inbound service-to-service auth. Deliberately a different secret from
+   * `sessionManagerClientConfig.serviceApiKey`, which is presented outbound:
+   * sharing one string would mean a compromise of an observability consumer
+   * also grants Session Manager access.
+   */
+  get serviceAuthConfig(): ServiceAuthConfig {
+    return {
+      serviceApiKey: this._env.NODE_SERVER_SERVICE_API_KEY,
     };
   }
 

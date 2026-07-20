@@ -11,6 +11,7 @@ const VALID_ENV: Record<string, string> = {
   LOG_LEVEL: 'warn',
   PORT: '8080',
   HOST: '127.0.0.1',
+  NODE_SERVER_SERVICE_API_KEY: 'node-server-service-key',
   SESSION_TOKEN_SIGNING_KEY: 'signing-key',
   SESSION_MANAGER_BASE_URL: 'http://session-manager:3000',
   SESSION_MANAGER_SERVICE_API_KEY: 'session-manager-key',
@@ -60,6 +61,16 @@ describe('AppConfig', () => {
         logLevel: LogLevel.WARN,
         port: 8080,
         host: '127.0.0.1',
+      });
+    });
+
+    it('maps the inbound service-auth configuration', () => {
+      // Act
+      const config = new AppConfig();
+
+      // Assert - the inbound key, not the outbound session-manager one
+      expect(config.serviceAuthConfig).toStrictEqual({
+        serviceApiKey: 'node-server-service-key',
       });
     });
 

@@ -21,6 +21,10 @@ import type { TranscriptionStreamController } from '#src/server/features/transcr
 import type { EventBusService } from '#src/server/shared/services/event-bus.service.js';
 import type { NodeServerMetricsService } from '#src/server/shared/services/node-server-metrics.service.js';
 import type {
+  ServiceAuthConfig,
+  ServiceAuthService,
+} from '#src/server/shared/services/service-auth.service.js';
+import type {
   SessionTokenConfig,
   SessionTokenService,
 } from '#src/server/shared/services/session-token.service.js';
@@ -31,11 +35,13 @@ import type {
 interface AppDependencies extends BaseDependencies {
   // Config
   baseConfig: BaseConfig;
+  serviceAuthConfig: ServiceAuthConfig;
   sessionTokenConfig: SessionTokenConfig;
   sessionManagerClientConfig: SessionManagerClientConfig;
   transcriptionServiceClientConfig: TranscriptionServiceClientConfig;
 
   // Shared services
+  serviceAuthService: ServiceAuthService;
   sessionTokenService: SessionTokenService;
   eventBusService: EventBusService;
   nodeServerMetricsService: NodeServerMetricsService;

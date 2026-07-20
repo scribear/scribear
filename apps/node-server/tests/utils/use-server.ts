@@ -9,7 +9,14 @@ import type {
   TranscriptionServiceClientConfig,
 } from '#src/app-config/app-config.js';
 import createServer from '#src/server/create-server.js';
+import type { ServiceAuthConfig } from '#src/server/shared/services/service-auth.service.js';
 import type { SessionTokenConfig } from '#src/server/shared/services/session-token.service.js';
+
+/**
+ * Inbound service API key the test server accepts on internal service routes.
+ * Exported so auth tests can present it (and mutate nothing else).
+ */
+export const TEST_SERVICE_API_KEY = 'test-node-server-service-key';
 
 interface ServerCtx {
   fastify: Awaited<ReturnType<typeof createServer>>['fastify'];
@@ -22,6 +29,7 @@ interface ServerCtx {
  */
 export interface TestAppConfigOverrides {
   baseConfig?: Partial<BaseConfig>;
+  serviceAuthConfig?: Partial<ServiceAuthConfig>;
   sessionTokenConfig?: Partial<SessionTokenConfig>;
   sessionManagerClientConfig?: Partial<SessionManagerClientConfig>;
   transcriptionServiceClientConfig?: Partial<TranscriptionServiceClientConfig>;
@@ -53,6 +61,10 @@ export function buildTestAppConfig(
       port: 0,
       host: '127.0.0.1',
       ...overrides.baseConfig,
+    },
+    serviceAuthConfig: {
+      serviceApiKey: TEST_SERVICE_API_KEY,
+      ...overrides.serviceAuthConfig,
     },
     sessionTokenConfig: {
       signingKey: sessionTokenSigningKey,

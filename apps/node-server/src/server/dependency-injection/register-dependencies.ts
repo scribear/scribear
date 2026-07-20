@@ -24,6 +24,7 @@ import {
 import { TranscriptionStreamController } from '#src/server/features/transcription-stream/transcription-stream.controller.js';
 import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
 import { NodeServerMetricsService } from '#src/server/shared/services/node-server-metrics.service.js';
+import { ServiceAuthService } from '#src/server/shared/services/service-auth.service.js';
 import { SessionTokenService } from '#src/server/shared/services/session-token.service.js';
 
 import type { AppConfig, AppDependencies } from './app-dependencies.js';
@@ -39,6 +40,7 @@ function registerDependencies(
   dependencyContainer.register({
     // Config values
     baseConfig: asValue(config.baseConfig),
+    serviceAuthConfig: asValue(config.serviceAuthConfig),
     sessionTokenConfig: asValue(config.sessionTokenConfig),
     sessionManagerClientConfig: asValue(config.sessionManagerClientConfig),
     transcriptionServiceClientConfig: asValue(
@@ -46,6 +48,9 @@ function registerDependencies(
     ),
 
     // Shared services
+    serviceAuthService: asClass(ServiceAuthService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
     sessionTokenService: asClass(SessionTokenService, {
       lifetime: Lifetime.SINGLETON,
     }),
