@@ -60,6 +60,7 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
                 ),
                 self._provider.config.job_period_ms,
                 WhisperStreamingProviderJob(self._provider.config),
+                self._provider.provider_key,
             )
             self._job.on(self._job.JobResultEvent, self._handle_job_result)
 
@@ -98,13 +99,18 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
             self._job.deregister()
 
     def __init__(
-        self, provider_config: object, logger: Logger, worker_pool: WorkerPool
+        self,
+        provider_config: object,
+        logger: Logger,
+        worker_pool: WorkerPool,
+        provider_key: str,
     ):
         self._log = logger
         self.config = whisper_streaming_config_adapter.validate_python(
             provider_config
         )
         self.worker_pool = worker_pool
+        self.provider_key = provider_key
 
     def create_session(self, session_config: object, logger: Logger):
         return self._WhisperStreamingSession(self, logger)

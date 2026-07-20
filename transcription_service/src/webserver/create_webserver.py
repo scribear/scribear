@@ -12,6 +12,7 @@ from src.shared.logger import Logger
 from .features.probes import probes_router
 from .features.transcription_stream import transcription_stream_router
 from .shared.auth_service import AuthService
+from .shared.metrics import MetricsRegistry
 from .shared.transcription_provider_registry import (
     TranscriptionProviderRegistry,
 )
@@ -30,7 +31,10 @@ def create_webserver(config: Config, logger: Logger):
     """
 
     auth_service = AuthService(config)
-    provider_registry = TranscriptionProviderRegistry(config, logger)
+    metrics_registry = MetricsRegistry()
+    provider_registry = TranscriptionProviderRegistry(
+        config, logger, metrics_registry.record_job_execution
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):

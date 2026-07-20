@@ -6,6 +6,7 @@ import asyncio
 import logging
 import threading
 from collections import deque
+from dataclasses import dataclass
 from queue import Empty
 from typing import Any, Callable, Generic, TypeVar, cast
 
@@ -17,8 +18,13 @@ from src.shared.utils.event_emitter import Event, EventEmitter
 
 from .job_context_interface import JobContextInterface
 from .job_interface import JobInterface
-from .job_result import JobException, JobSuccess
-from .result import Result, ResultType
+from .job_result import (
+    JobException,
+    JobExecutionObservation,
+    JobObserver,
+    JobSuccess,
+)
+from .result import JobExecutionResult, Result, ResultType
 from .task import (
     DeregisterJobTask,
     QueueDataTask,
@@ -209,6 +215,22 @@ class _RollingUtilization:
             self._busy_time_ns += increment_ns
 
 
+@dataclass(frozen=True)
+class WorkerSnapshot:
+    """
+    Point-in-time view of one worker, safe to read from a request handler
+
+    Exists so callers outside the pool can observe worker load without
+    reaching through private attributes.
+    """
+
+    worker_id: int
+    utilization: float
+    live_job_count: int
+    total_jobs_registered: int
+    context_ids: set[int]
+
+
 class WorkerProcessManager:
     """
     Main process interface for managing WorkerProcess
@@ -322,12 +344,51 @@ class WorkerProcessManager:
         """
         return set(self._context_defs.keys())
 
+    @property
+    def worker_id(self) -> int:
+        """
+        Gets unique identifier of the worker this manages
+        """
+        return self._worker_id
+
+    @property
+    def live_job_count(self) -> int:
+        """
+        Gets number of jobs currently registered to this worker
+        """
+        return len(self._registered_job_handles)
+
+    @property
+    def total_jobs_registered(self) -> int:
+        """
+        Gets number of jobs ever registered to this worker
+
+        Monotonic for the lifetime of the worker process, so consumers can
+        difference successive reads to get a registration rate.
+        """
+        return self._next_job_id
+
+    def snapshot(self) -> WorkerSnapshot:
+        """
+        Gets a point-in-time view of this worker's load
+
+        Side effect free, so it is safe to call from a request handler.
+        """
+        return WorkerSnapshot(
+            worker_id=self._worker_id,
+            utilization=self.utilization,
+            live_job_count=self.live_job_count,
+            total_jobs_registered=self.total_jobs_registered,
+            context_ids=self.context_ids,
+        )
+
     def __init__(
         self,
         logger: Logger,
         worker_id: int,
         context_defs: dict[int, JobContextInterface[Any]],
         rolling_utilization_window_ns: int = ROLLING_UTILIZATION_WINDOW_NS,
+        job_observer: JobObserver | None = None,
     ):
         """
         Constructor blocks until the worker process has finished creating all
@@ -341,9 +402,12 @@ class WorkerProcessManager:
                                 initialize on this worker
             rolling_utilization_window_ns - Override for utilization smoothing window
                                               (production should use the default)
+            job_observer    - Optional callback invoked on the event loop thread
+                                for every completed job execution
         """
         self._log = logger.child({"worker_id": worker_id})
         self._worker_id = worker_id
+        self._job_observer = job_observer
 
         self._rolling_utilization = _RollingUtilization(
             rolling_utilization_window_ns
@@ -352,6 +416,7 @@ class WorkerProcessManager:
         self._next_job_id = 0
         self._context_defs = context_defs
         self._registered_job_handles: dict[int, JobHandle[Any, Any, Any]] = {}
+        self._job_labels: dict[int, str] = {}
 
         # Signals the result-poller thread to stop. Set during wait_shutdown.
         self._stopping = threading.Event()
@@ -470,6 +535,12 @@ class WorkerProcessManager:
                 result.state, result.time_elapsed_ns
             )
         elif result.type == ResultType.JOB_EXECUTION:
+            # Observe before the registration check: a result that arrives
+            # after its job was deregistered still describes work the worker
+            # really did, and dropping it would under-report utilization
+            # exactly when jobs are churning.
+            self._observe_job_execution(result)
+
             if result.job_id not in self._registered_job_handles:
                 return
             job_handle = self._registered_job_handles[result.job_id]
@@ -478,11 +549,46 @@ class WorkerProcessManager:
             if result.result.has_exception:
                 job_handle.deregister()
 
+    def _observe_job_execution(self, result: JobExecutionResult):
+        """
+        Reports a completed job execution to the configured observer
+
+        Args:
+            result  - Job execution result received from the worker
+
+        The observer is out-of-band bookkeeping (metrics), so a fault in it
+        must not take the result-dispatch path down with it - a job result
+        that never reaches its handle would stall a live transcription
+        session. Failures are logged and swallowed.
+        """
+        if self._job_observer is None:
+            return
+
+        job_result = result.result
+        try:
+            self._job_observer(
+                JobExecutionObservation(
+                    worker_id=self._worker_id,
+                    job_id=result.job_id,
+                    label=self._job_labels.get(result.job_id, ""),
+                    stats=job_result.stats,
+                    exception=(
+                        job_result.value if job_result.has_exception else None
+                    ),
+                )
+            )
+        # pylint: disable-next=broad-exception-caught
+        except Exception as error:
+            self._log.error(
+                "Job observer raised", context={"error": str(error)}
+            )
+
     def register_job(
         self,
         context_ids: tuple[int, ...],
         period_ms: int,
         job: JobInterface[C, D, R, Conf],
+        label: str = "",
     ) -> JobHandle[D, R, Conf]:
         """
         Registers a new job with WorkerProcess
@@ -491,6 +597,7 @@ class WorkerProcessManager:
             context_ids     - Context ids of context instances to provide to Job, can be empty
             period_ms       - Frequency at which job should be run
             job             - Definition of job to register
+            label           - Opaque grouping label reported to the job observer
 
         Returns:
             JobHandle for registered job
@@ -518,11 +625,15 @@ class WorkerProcessManager:
         def _deregister():
             self._task_queue.put(DeregisterJobTask(job_id))
             del self._registered_job_handles[job_id]
+            # Kept only while the job lives, so the label map cannot grow with
+            # the number of sessions the process has ever served.
+            self._job_labels.pop(job_id, None)
 
         job_handle = JobHandle[D, R, Conf](
             self._worker_id, job_id, _queue_data, _update_config, _deregister
         )
         self._registered_job_handles[job_id] = job_handle
+        self._job_labels[job_id] = label
         return job_handle
 
     def send_terminate(self):

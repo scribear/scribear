@@ -26,13 +26,20 @@ class TranscriptionProviderInterface(ABC):
 
     @abstractmethod
     def __init__(
-        self, provider_config: object, logger: Logger, worker_pool: WorkerPool
+        self,
+        provider_config: object,
+        logger: Logger,
+        worker_pool: WorkerPool,
+        provider_key: str,
     ):
         """
         Args:
             provider_config - Provider configuration object unique to transcription provider
             logger          - Application logger
             worker_pool     - Application worker pool to dispatch compute heavy work to
+            provider_key    - Configured key this provider was registered under.
+                                Passed to register_job as the job label so worker
+                                pool telemetry can be grouped by provider.
         """
 
     @abstractmethod

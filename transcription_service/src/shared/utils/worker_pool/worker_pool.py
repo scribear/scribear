@@ -11,10 +11,12 @@ from src.shared.utils.worker_pool.worker_process_manager import (
     ROLLING_UTILIZATION_WINDOW_NS,
     JobHandle,
     WorkerProcessManager,
+    WorkerSnapshot,
 )
 
 from .job_context_interface import JobContextInterface
 from .job_interface import JobInterface
+from .job_result import JobObserver
 
 C = TypeVar("C", bound=tuple)
 D = TypeVar("D")
@@ -82,6 +84,7 @@ class WorkerPool:
         num_workers: int,
         contexts: list[ContextAssignment],
         rolling_utilization_window_ns: int = ROLLING_UTILIZATION_WINDOW_NS,
+        job_observer: JobObserver | None = None,
     ):
         """
         Args:
@@ -93,6 +96,8 @@ class WorkerPool:
             rolling_utilization_window_ns - Override for the per-worker utilization
                                               smoothing window (production should
                                               use the default)
+            job_observer - Optional callback invoked for every completed job
+                            execution on every worker
 
         Raises:
             ValueError      if num_workers is 0 or worker_ids reference an invalid worker
@@ -120,6 +125,7 @@ class WorkerPool:
                 worker_id,
                 per_worker_defs[worker_id],
                 rolling_utilization_window_ns,
+                job_observer,
             )
             for worker_id in range(num_workers)
         ]
@@ -129,6 +135,21 @@ class WorkerPool:
         for context_id, assignment in enumerate(contexts):
             for tag in assignment.context_def.tags:
                 self._tag_to_context_ids.setdefault(tag, set()).add(context_id)
+
+    @property
+    def num_workers(self) -> int:
+        """
+        Gets number of worker processes in the pool
+        """
+        return len(self._processes)
+
+    def worker_snapshots(self) -> list[WorkerSnapshot]:
+        """
+        Gets a point-in-time view of every worker's load, in worker id order
+
+        Side effect free, so it is safe to call from a request handler.
+        """
+        return [process.snapshot() for process in self._processes]
 
     def get_context_ids_by_tag(self, tag: str) -> set[int]:
         """
@@ -232,6 +253,7 @@ class WorkerPool:
         context_tags: tuple[str, ...],
         period_ms: int,
         job: JobInterface[C, D, R, Conf],
+        label: str = "",
     ) -> JobHandle[D, R, Conf]:
         """
         Registers a new job with WorkerPool
@@ -240,6 +262,7 @@ class WorkerPool:
             context_tags    - Tags identifying which contexts the job needs, can be empty
             period_ms       - Frequency at which job should be run
             job             - Definition of job to register
+            label           - Opaque grouping label reported to the job observer
 
         Returns:
             JobHandle for registered job
@@ -250,7 +273,7 @@ class WorkerPool:
         """
         process_id, context_ids = self._assign_process(context_tags)
         return self._processes[process_id].register_job(
-            context_ids, period_ms, job
+            context_ids, period_ms, job, label
         )
 
     def shutdown(self):

@@ -15,7 +15,12 @@ from src.shared.config import (
     TranscriptionProviderUID,
 )
 from src.shared.logger import Logger
-from src.shared.utils.worker_pool import ContextAssignment, WorkerPool
+from src.shared.utils.worker_pool import (
+    ContextAssignment,
+    JobObserver,
+    WorkerPool,
+    WorkerSnapshot,
+)
 from src.transcription_provider_interface import (
     TranscriptionClientError,
     TranscriptionProviderInterface,
@@ -31,16 +36,26 @@ class TranscriptionProviderRegistry:
     build a session for the requested provider key.
     """
 
-    def __init__(self, config: Config, logger: Logger):
+    def __init__(
+        self,
+        config: Config,
+        logger: Logger,
+        job_observer: JobObserver | None = None,
+    ):
         """
         Args:
-            config      - Application config
-            logger      - Application logger
+            config          - Application config
+            logger          - Application logger
+            job_observer    - Optional callback invoked for every completed job
+                                execution, used to feed the metrics registry
         """
         contexts = self._load_contexts(config.provider_config.contexts)
 
         self._worker_pool = WorkerPool(
-            logger, config.provider_config.num_workers, contexts
+            logger,
+            config.provider_config.num_workers,
+            contexts,
+            job_observer=job_observer,
         )
 
         self._providers = self._load_providers(
@@ -114,7 +129,10 @@ class TranscriptionProviderRegistry:
                     )
 
                     provider = DebugProvider(
-                        config.provider_config, child_logger, worker_pool
+                        config.provider_config,
+                        child_logger,
+                        worker_pool,
+                        provider_key,
                     )
                 case TranscriptionProviderUID.WHISPER_STREAMING:
                     from src.transcription_providers.whisper_streaming_provider import (
@@ -122,7 +140,10 @@ class TranscriptionProviderRegistry:
                     )
 
                     provider = WhisperStreamingProvider(
-                        config.provider_config, child_logger, worker_pool
+                        config.provider_config,
+                        child_logger,
+                        worker_pool,
+                        provider_key,
                     )
                 case TranscriptionProviderUID.LUMEN_GRANITE:
                     from src.transcription_providers.lumen_granite_provider import (
@@ -130,11 +151,39 @@ class TranscriptionProviderRegistry:
                     )
 
                     provider = LumenGraniteProvider(
-                        config.provider_config, child_logger, worker_pool
+                        config.provider_config,
+                        child_logger,
+                        worker_pool,
+                        provider_key,
                     )
 
             providers[provider_key] = provider
         return providers
+
+    @property
+    def num_workers(self) -> int:
+        """
+        Gets number of worker processes the pool was configured with
+
+        The deployed value of this has been an open question for the capacity
+        model; reporting it is how it stops being one.
+        """
+        return self._worker_pool.num_workers
+
+    @property
+    def provider_keys(self) -> list[str]:
+        """
+        Gets the configured provider keys, in config order
+        """
+        return list(self._providers.keys())
+
+    def worker_snapshots(self) -> list[WorkerSnapshot]:
+        """
+        Gets a point-in-time view of every worker's load
+
+        Side effect free, so it is safe to call from a request handler.
+        """
+        return self._worker_pool.worker_snapshots()
 
     def create_session(
         self, provider_key: str, session_config: Any, logger: Logger

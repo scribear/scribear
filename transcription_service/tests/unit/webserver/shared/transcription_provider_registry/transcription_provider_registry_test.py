@@ -235,7 +235,7 @@ def test_creates_worker_pool(
 
     # Assert
     mock_worker_pool_import.assert_called_once_with(
-        mock_logger, NUM_WORKERS, expected_assignments
+        mock_logger, NUM_WORKERS, expected_assignments, job_observer=None
     )
 
 
@@ -259,6 +259,7 @@ def test_loads_provider(
                 ].provider_config,
                 mock_logger,
                 mock_worker_pool_instance,
+                "debug_0",
             ),
             call(
                 mock_config.provider_config.providers[
@@ -266,9 +267,56 @@ def test_loads_provider(
                 ].provider_config,
                 mock_logger,
                 mock_worker_pool_instance,
+                "debug_1",
             ),
         ]
     )
+
+
+# pylint: disable=unused-argument
+def test_passes_job_observer_to_worker_pool(
+    mock_config: Config,
+    mock_logger: Logger,
+    mock_worker_pool_import: MagicMock,
+    mock_context_import: MockType,
+    mock_provider_import: MockType,
+):
+    """
+    Test the metrics hook reaches the worker pool
+
+    The observer is what turns job statistics from logged-and-discarded into
+    something the status endpoint can report, so its wiring is worth pinning.
+    """
+    # Arrange
+    observer = MagicMock()
+
+    # Act
+    TranscriptionProviderRegistry(mock_config, mock_logger, observer)
+
+    # Assert
+    assert mock_worker_pool_import.call_args.kwargs["job_observer"] is observer
+
+
+# pylint: disable=unused-argument
+def test_exposes_worker_load_without_private_access(
+    mock_worker_pool_instance: MagicMock,
+    provider_registry: TranscriptionProviderRegistry,
+):
+    """
+    Test the registry surfaces pool capacity and per-worker load
+
+    num_workers in particular is the deployed value the capacity model has
+    been carrying as an open question.
+    """
+    # Arrange
+    mock_worker_pool_instance.num_workers = 4
+    snapshots = [MagicMock()]
+    mock_worker_pool_instance.worker_snapshots.return_value = snapshots
+
+    # Act / Assert
+    assert provider_registry.num_workers == 4
+    assert provider_registry.worker_snapshots() == snapshots
+    assert provider_registry.provider_keys == ["debug_0", "debug_1"]
 
 
 @pytest.mark.parametrize(

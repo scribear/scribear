@@ -39,7 +39,7 @@ class DebugProvider(TranscriptionProviderInterface):
             self._config = config
 
             self._job = provider.worker_pool.register_job(
-                (), 1000, DebugProviderJob(self._config)
+                (), 1000, DebugProviderJob(self._config), provider.provider_key
             )
 
             self._job.on(self._job.JobResultEvent, self._handle_job_result)
@@ -91,10 +91,15 @@ class DebugProvider(TranscriptionProviderInterface):
             self._job.deregister()
 
     def __init__(
-        self, provider_config: object, logger: Logger, worker_pool: WorkerPool
+        self,
+        provider_config: object,
+        logger: Logger,
+        worker_pool: WorkerPool,
+        provider_key: str,
     ):
         self._log = logger
         self.worker_pool = worker_pool
+        self.provider_key = provider_key
 
     def create_session(self, session_config: object, logger: Logger):
         config = debug_session_config_adapter.validate_python(session_config)

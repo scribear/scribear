@@ -235,7 +235,7 @@ def test_register_job_no_context_picks_lowest_utilization(
     # Assert
     mock_wpm_instances[0].register_job.assert_not_called()
     mock_wpm_instances[1].register_job.assert_called_once_with(
-        (), period_ms, job
+        (), period_ms, job, ""
     )
     mock_wpm_instances[2].register_job.assert_not_called()
 
@@ -270,7 +270,7 @@ def test_register_job_routes_to_worker_owning_required_tag(
     mock_wpm_instances[0].register_job.assert_not_called()
     mock_wpm_instances[1].register_job.assert_not_called()
     mock_wpm_instances[2].register_job.assert_called_once_with(
-        (0,), period_ms, job
+        (0,), period_ms, job, ""
     )
 
 
@@ -295,7 +295,7 @@ def test_register_job_picks_lowest_utilization_among_owning_workers(
     # Assert
     mock_wpm_instances[0].register_job.assert_not_called()
     mock_wpm_instances[1].register_job.assert_called_once_with(
-        (CTX_LOGGER,), period_ms, job
+        (CTX_LOGGER,), period_ms, job, ""
     )
     mock_wpm_instances[2].register_job.assert_not_called()
 
@@ -335,7 +335,7 @@ def test_register_job_with_multiple_tags_needs_all_on_same_worker(
     mock_wpm_instances[0].register_job.assert_not_called()
     mock_wpm_instances[1].register_job.assert_not_called()
     mock_wpm_instances[2].register_job.assert_called_once_with(
-        (CTX_CONTEXT, CTX_LOGGER), period_ms, job
+        (CTX_CONTEXT, CTX_LOGGER), period_ms, job, ""
     )
 
 

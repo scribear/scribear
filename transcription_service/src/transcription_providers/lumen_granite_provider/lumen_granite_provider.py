@@ -44,6 +44,7 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
                 (),  # no context - remote endpoint does the work
                 provider.config.job_period_ms,
                 LumenGraniteProviderJob(provider.config),
+                provider.provider_key,
             )
             self._job.on(self._job.JobResultEvent, self._handle_job_result)
 
@@ -66,13 +67,18 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
             self._job.deregister()
 
     def __init__(
-        self, provider_config: object, logger: Logger, worker_pool: WorkerPool
+        self,
+        provider_config: object,
+        logger: Logger,
+        worker_pool: WorkerPool,
+        provider_key: str,
     ):
         self._log = logger
         self.config = lumen_granite_config_adapter.validate_python(
             provider_config
         )
         self.worker_pool = worker_pool
+        self.provider_key = provider_key
 
     def create_session(self, session_config: object, logger: Logger):
         return self._LumenGraniteSession(self, logger)

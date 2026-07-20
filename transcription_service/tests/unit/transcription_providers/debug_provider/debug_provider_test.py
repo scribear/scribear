@@ -48,7 +48,7 @@ async def debug_provider_session():
     logger.level = 10
 
     worker_pool = WorkerPool(ContextLogger(logger), 1, [])
-    provider = DebugProvider(None, MagicMock(spec=Logger), worker_pool)
+    provider = DebugProvider(None, MagicMock(spec=Logger), worker_pool, "debug")
     session = provider.create_session(SESSION_CONFIG, MagicMock(spec=Logger))
 
     yield session
