@@ -1,0 +1,145 @@
+"""
+Defines MetricsController that shapes the metrics registry into a JSON body
+"""
+
+from typing import Any
+
+from src.shared.utils.worker_pool import WorkerSnapshot
+from src.webserver.shared.metrics import Counter, Histogram, MetricsRegistry
+from src.webserver.shared.transcription_provider_registry import (
+    TranscriptionProviderRegistry,
+)
+
+
+def _counter_series(counter: Counter) -> list[dict[str, Any]]:
+    """
+    Serializes every series of a counter
+
+    Args:
+        counter - Counter to serialize
+
+    Returns:
+        List of {labels, value} entries, one per label set
+    """
+    return [
+        {"labels": entry.labels, "value": entry.value}
+        for entry in counter.entries()
+    ]
+
+
+def _histogram_series(histogram: Histogram) -> list[dict[str, Any]]:
+    """
+    Serializes every series of a histogram as summary statistics
+
+    Raw samples are deliberately not exposed: they are an implementation
+    detail of how exact percentiles are computed, and a response carrying
+    thousands of them per series would be unusable.
+
+    Args:
+        histogram   - Histogram to serialize
+
+    Returns:
+        List of {labels, ...summary} entries, one per label set
+    """
+    series: list[dict[str, Any]] = []
+    for labels in histogram.series_labels():
+        summary = histogram.summary(labels)
+        if summary is None:
+            continue
+        series.append(
+            {
+                "labels": labels,
+                "count": summary.count,
+                "sum": summary.sum,
+                "sampleCount": summary.sample_count,
+                "min": summary.minimum,
+                "max": summary.maximum,
+                "mean": summary.mean,
+                "p50": summary.p50,
+                "p95": summary.p95,
+                "p99": summary.p99,
+            }
+        )
+    return series
+
+
+def _worker(snapshot: WorkerSnapshot) -> dict[str, Any]:
+    """
+    Serializes one worker snapshot
+
+    Args:
+        snapshot    - Point-in-time view of a worker
+
+    Returns:
+        JSON-ready worker entry
+    """
+    return {
+        "workerId": snapshot.worker_id,
+        "utilization": snapshot.utilization,
+        "liveJobCount": snapshot.live_job_count,
+        "totalJobsRegistered": snapshot.total_jobs_registered,
+        "contextIds": sorted(snapshot.context_ids),
+    }
+
+
+class MetricsController:
+    """
+    Builds the `/metrics/status` response body
+
+    Reads only: every collaborator it touches exposes side-effect-free
+    accessors, so a poll can never perturb transcription.
+    """
+
+    def __init__(
+        self,
+        metrics_registry: MetricsRegistry,
+        provider_registry: TranscriptionProviderRegistry,
+    ):
+        """
+        Args:
+            metrics_registry    - In-memory telemetry store
+            provider_registry   - Owner of the worker pool and providers
+        """
+        self._metrics = metrics_registry
+        self._providers = provider_registry
+
+    def status(self) -> dict[str, Any]:
+        """
+        Gets the current telemetry snapshot
+
+        Counters are monotonic since process start and are never reset;
+        consumers difference successive reads to obtain rates, and must
+        compare `processUid` first, because a restart returns every counter to
+        zero and would otherwise read as a large negative rate.
+        """
+        return {
+            "processUid": self._metrics.process_uid,
+            "processStartedAt": self._metrics.process_started_at,
+            # The deployed value of this has been an open question for the
+            # capacity model. It defaults to 1 in every provider_config
+            # template, which means every room serializes through one model
+            # process - so it is worth reporting even when it is boring.
+            "numWorkers": self._providers.num_workers,
+            "providerKeys": self._providers.provider_keys,
+            "workers": [
+                _worker(snapshot)
+                for snapshot in self._providers.worker_snapshots()
+            ],
+            "counters": {
+                "jobsCompletedTotal": _counter_series(
+                    self._metrics.jobs_completed_total
+                ),
+                "jobsFailedTotal": _counter_series(
+                    self._metrics.jobs_failed_total
+                ),
+            },
+            "histograms": {
+                "asrSchedulingDelayMs": _histogram_series(
+                    self._metrics.asr_scheduling_delay_ms
+                ),
+                "asrExecutionMs": _histogram_series(
+                    self._metrics.asr_execution_ms
+                ),
+                "asrTotalMs": _histogram_series(self._metrics.asr_total_ms),
+            },
+        }

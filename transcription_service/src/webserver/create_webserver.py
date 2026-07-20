@@ -9,9 +9,10 @@ from fastapi import FastAPI
 from src.shared.config import Config
 from src.shared.logger import Logger
 
+from .features.metrics import metrics_router
 from .features.probes import probes_router
 from .features.transcription_stream import transcription_stream_router
-from .shared.auth_service import AuthService
+from .shared.auth_service import AuthService, MetricsAuthService
 from .shared.metrics import MetricsRegistry
 from .shared.transcription_provider_registry import (
     TranscriptionProviderRegistry,
@@ -31,6 +32,7 @@ def create_webserver(config: Config, logger: Logger):
     """
 
     auth_service = AuthService(config)
+    metrics_auth_service = MetricsAuthService(config)
     metrics_registry = MetricsRegistry()
     provider_registry = TranscriptionProviderRegistry(
         config, logger, metrics_registry.record_job_execution
@@ -55,6 +57,11 @@ def create_webserver(config: Config, logger: Logger):
     app = FastAPI(lifespan=lifespan)
 
     app.include_router(probes_router())
+    app.include_router(
+        metrics_router(
+            logger, metrics_auth_service, metrics_registry, provider_registry
+        )
+    )
     app.include_router(
         transcription_stream_router(
             config, logger, auth_service, provider_registry
