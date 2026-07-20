@@ -5,6 +5,7 @@ transcription providers configured for the service.
 
 # pylint: disable=import-outside-toplevel
 # Only import providers based on configuration
+from dataclasses import dataclass
 from typing import Any
 
 from src.shared.config import (
@@ -22,10 +23,42 @@ from src.shared.utils.worker_pool import (
     WorkerSnapshot,
 )
 from src.transcription_provider_interface import (
+    ProviderHealth,
+    ProviderKind,
+    ProviderStatus,
     TranscriptionClientError,
     TranscriptionProviderInterface,
     TranscriptionSessionInterface,
 )
+
+
+@dataclass(frozen=True)
+class ProviderHealthEntry:
+    """
+    One provider's health, tagged with the identity it was configured under
+
+    `provider_key` is the free-text key clients name in the stream URL;
+    `provider_uid` is the implementation behind it. Both are reported because
+    an operator debugging the "invalid provider key" failure needs to see the
+    keys that *do* exist, while one debugging a model failure needs to know
+    which implementation is misbehaving.
+    """
+
+    provider_key: str
+    provider_uid: str | None
+    health: ProviderHealth
+
+
+@dataclass(frozen=True)
+class ProvidersHealthReport:
+    """
+    Process-wide provider health, the body behind GET /providers/health
+    """
+
+    providers: list[ProviderHealthEntry]
+    workers: list[WorkerSnapshot]
+    num_workers: int
+    invalid_provider_key_rejects: int
 
 
 class TranscriptionProviderRegistry:
@@ -61,6 +94,17 @@ class TranscriptionProviderRegistry:
         self._providers = self._load_providers(
             logger, self._worker_pool, config.provider_config.providers
         )
+
+        self._provider_uids: dict[str, str] = {
+            key: provider.provider_uid
+            for key, provider in config.provider_config.providers.items()
+        }
+
+        # Counts the failure mode that is otherwise invisible from the server
+        # side: `transcriptionProviderId` is free text, so a typo closes the
+        # websocket with a bare 1007 and looks to the client like the service
+        # is broken. A rising count here names the cause.
+        self._invalid_provider_key_rejects = 0
 
     def _load_contexts(
         self, context_configurations: list[JobContextConfigSchema]
@@ -185,6 +229,48 @@ class TranscriptionProviderRegistry:
         """
         return self._worker_pool.worker_snapshots()
 
+    async def providers_health(self) -> ProvidersHealthReport:
+        """
+        Gets the health of every configured provider, plus pool-wide context
+
+        Side effect free with respect to transcription: local providers read
+        in-memory state only and remote providers answer from a cached probe.
+
+        A provider whose own health check raises is reported as down with the
+        error as its detail, rather than being allowed to fail the whole
+        response - one sick provider must not blind the operator to the other
+        five, which is exactly when they would need the page most.
+        """
+        entries: list[ProviderHealthEntry] = []
+        for provider_key, provider in self._providers.items():
+            try:
+                health = await provider.describe_health()
+            # pylint: disable=broad-exception-caught
+            except Exception as error:
+                health = ProviderHealth(
+                    kind=ProviderKind.UNKNOWN,
+                    status=ProviderStatus.DOWN,
+                    active_sessions=0,
+                    detail=(
+                        "health check failed: "
+                        f"{type(error).__name__}: {error}"
+                    ),
+                )
+            entries.append(
+                ProviderHealthEntry(
+                    provider_key=provider_key,
+                    provider_uid=self._provider_uids.get(provider_key),
+                    health=health,
+                )
+            )
+
+        return ProvidersHealthReport(
+            providers=entries,
+            workers=self._worker_pool.worker_snapshots(),
+            num_workers=self._worker_pool.num_workers,
+            invalid_provider_key_rejects=self._invalid_provider_key_rejects,
+        )
+
     def create_session(
         self, provider_key: str, session_config: Any, logger: Logger
     ) -> TranscriptionSessionInterface:
@@ -204,6 +290,7 @@ class TranscriptionProviderRegistry:
             TranscriptionClientError if provider doesn't exist
         """
         if provider_key not in self._providers:
+            self._invalid_provider_key_rejects += 1
             raise TranscriptionClientError("Invalid Provider Key")
 
         provider = self._providers[provider_key]

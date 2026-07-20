@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from src.shared.logger import Logger
 from src.shared.utils.worker_pool import WorkerPool
 
+from .provider_health import ProviderHealth, ProviderKind, ProviderStatus
 from .transcription_session_interface import TranscriptionSessionInterface
 
 
@@ -70,3 +71,61 @@ class TranscriptionProviderInterface(ABC):
         Called when application exits
         Should cleanup resources used by TranscriptionProvider
         """
+
+    # Session accounting and health reporting are concrete, not abstract: a
+    # provider that never opts in still reports a truthful (if opaque) health
+    # entry, so adding a provider cannot silently create a blind spot on the
+    # dashboard.
+
+    # Declared on the class rather than set in __init__ because implementations
+    # define their own __init__ and none of them chain to super(). Ints are
+    # immutable, so the first increment rebinds it as an instance attribute and
+    # no state is ever shared between providers.
+    _active_sessions: int = 0
+
+    @property
+    def active_sessions(self) -> int:
+        """
+        Gets the number of sessions currently open against this provider
+
+        Providers did not track this before B1.7, so "which backend are these
+        rooms actually using" had no answer.
+        """
+        return self._active_sessions
+
+    def session_started(self) -> None:
+        """
+        Counts one session opened against this provider
+
+        Called by the provider's own session, at the END of its __init__ - a
+        session whose construction raises never opened, and counting it up
+        front would leak a count that nothing ever decrements.
+        """
+        self._active_sessions += 1
+
+    def session_ended(self) -> None:
+        """
+        Counts one session closed against this provider
+
+        Clamped at zero so that a double end_session can only ever undercount.
+        An unsigned drift understates load, which is a mild reporting error; a
+        negative count is a visibly broken dashboard.
+        """
+        self._active_sessions = max(0, self._active_sessions - 1)
+
+    async def describe_health(self) -> ProviderHealth:
+        """
+        Gets this provider's current health
+
+        Default: alive but opaque. Providers override to add the signals only
+        they can produce - context-load state for local models, endpoint
+        reachability for remote ones.
+
+        Returns:
+            ProviderHealth snapshot
+        """
+        return ProviderHealth(
+            kind=ProviderKind.DEBUG,
+            status=ProviderStatus.OK,
+            active_sessions=self._active_sessions,
+        )

@@ -37,12 +37,17 @@ class DebugProvider(TranscriptionProviderInterface):
             super().__init__()
             self._logger = logger
             self._config = config
+            self._provider = provider
 
             self._job = provider.worker_pool.register_job(
                 (), 1000, DebugProviderJob(self._config), provider.provider_key
             )
 
             self._job.on(self._job.JobResultEvent, self._handle_job_result)
+
+            # Last, so a registration that raises above never counts a session
+            # that did not open.
+            provider.session_started()
 
         def _handle_job_result(self, result: JobSuccess[float] | JobException):
             """
@@ -89,6 +94,7 @@ class DebugProvider(TranscriptionProviderInterface):
         def end_session(self):
             super().end_session()
             self._job.deregister()
+            self._provider.session_ended()
 
     def __init__(
         self,

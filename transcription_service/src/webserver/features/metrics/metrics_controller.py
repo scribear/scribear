@@ -4,11 +4,11 @@ Defines MetricsController that shapes the metrics registry into a JSON body
 
 from typing import Any
 
-from src.shared.utils.worker_pool import WorkerSnapshot
 from src.webserver.shared.metrics import Counter, Histogram, MetricsRegistry
 from src.webserver.shared.transcription_provider_registry import (
     TranscriptionProviderRegistry,
 )
+from src.webserver.shared.worker_view import serialize_worker
 
 
 def _counter_series(counter: Counter) -> list[dict[str, Any]]:
@@ -63,28 +63,6 @@ def _histogram_series(histogram: Histogram) -> list[dict[str, Any]]:
     return series
 
 
-def _worker(snapshot: WorkerSnapshot) -> dict[str, Any]:
-    """
-    Serializes one worker snapshot
-
-    Args:
-        snapshot    - Point-in-time view of a worker
-
-    Returns:
-        JSON-ready worker entry
-    """
-    return {
-        "workerId": snapshot.worker_id,
-        "utilization": snapshot.utilization,
-        "liveJobCount": snapshot.live_job_count,
-        "totalJobsRegistered": snapshot.total_jobs_registered,
-        "contextIds": sorted(snapshot.context_ids),
-        # A worker that dies after startup is otherwise invisible: jobs already
-        # registered to it never return and never raise. See B1.3.
-        "alive": snapshot.alive,
-    }
-
-
 class MetricsController:
     """
     Builds the `/metrics/status` response body
@@ -125,7 +103,7 @@ class MetricsController:
             "numWorkers": self._providers.num_workers,
             "providerKeys": self._providers.provider_keys,
             "workers": [
-                _worker(snapshot)
+                serialize_worker(snapshot)
                 for snapshot in self._providers.worker_snapshots()
             ],
             "counters": {

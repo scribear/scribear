@@ -4,9 +4,39 @@ Defines MetricsAuthService for authenticating internal telemetry consumers
 
 import hmac
 
+from fastapi.responses import JSONResponse
+
 from src.shared.config import Config
 
 BEARER_PREFIX = "Bearer "
+
+
+def invalid_metrics_key_response() -> JSONResponse:
+    """
+    Builds the 401 every metrics-key guarded route returns
+
+    Returns:
+        JSONResponse rejecting the credential
+
+    One definition rather than one per route: /metrics/status and
+    /providers/health are guarded by the same key, so a consumer should have a
+    single failure case to recognise, and that only stays true if the body
+    cannot drift between them.
+
+    Deliberately does not distinguish an absent credential from a wrong one.
+    Every credential problem is one status with one body, so a consumer has one
+    case to handle and a prober learns nothing.
+    """
+    return JSONResponse(
+        status_code=401,
+        content={
+            "code": "INVALID_METRICS_KEY",
+            "message": (
+                "Missing or invalid metrics API key. Expected "
+                "'Authorization: Bearer <METRICS_API_KEY>'."
+            ),
+        },
+    )
 
 
 class MetricsAuthService:

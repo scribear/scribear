@@ -5,10 +5,12 @@ Defines FastAPI router for the /metrics/* http endpoints
 from typing import Annotated
 
 from fastapi import APIRouter, Header
-from fastapi.responses import JSONResponse
 
 from src.shared.logger import Logger
-from src.webserver.shared.auth_service import MetricsAuthService
+from src.webserver.shared.auth_service import (
+    MetricsAuthService,
+    invalid_metrics_key_response,
+)
 from src.webserver.shared.metrics import MetricsRegistry
 from src.webserver.shared.transcription_provider_registry import (
     TranscriptionProviderRegistry,
@@ -57,19 +59,7 @@ def metrics_router(
     @router.get("/status")
     async def status(authorization: Annotated[str | None, Header()] = None):
         if not metrics_auth_service.is_authenticated(authorization):
-            # Deliberately does not distinguish absent from wrong: every
-            # credential problem is one 401 with one body, so a consumer has a
-            # single case to handle and a prober learns nothing.
-            return JSONResponse(
-                status_code=401,
-                content={
-                    "code": "INVALID_METRICS_KEY",
-                    "message": (
-                        "Missing or invalid metrics API key. Expected "
-                        "'Authorization: Bearer <METRICS_API_KEY>'."
-                    ),
-                },
-            )
+            return invalid_metrics_key_response()
 
         return controller.status()
 

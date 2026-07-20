@@ -2,7 +2,7 @@
 Unit tests for TranscriptionProviderRegistry
 """
 
-from unittest.mock import MagicMock, call
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 from pytest_mock import MockerFixture, MockType
@@ -22,6 +22,9 @@ from src.shared.utils.worker_pool import (
     WorkerPool,
 )
 from src.transcription_provider_interface import (
+    ProviderHealth,
+    ProviderKind,
+    ProviderStatus,
     TranscriptionClientError,
     TranscriptionProviderInterface,
 )
@@ -377,3 +380,124 @@ def test_shutdown_cleans_up_resources(
     for instance in mock_provider_instances:
         instance.cleanup_provider.assert_called_once()
     mock_worker_pool_instance.shutdown.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_providers_health_reports_every_provider_with_its_uid(
+    provider_registry: TranscriptionProviderRegistry,
+    mock_provider_instances: list[MagicMock],
+    mock_worker_pool_instance: MagicMock,
+):
+    """
+    Test each configured provider is reported with the identity it was loaded
+    under, alongside pool-wide context
+    """
+    # Arrange
+    snapshots = [MagicMock()]
+    mock_worker_pool_instance.num_workers = NUM_WORKERS
+    mock_worker_pool_instance.worker_snapshots.return_value = snapshots
+    for instance in mock_provider_instances:
+        instance.describe_health = AsyncMock(
+            return_value=ProviderHealth(
+                kind=ProviderKind.DEBUG,
+                status=ProviderStatus.OK,
+                active_sessions=0,
+            )
+        )
+
+    # Act
+    report = await provider_registry.providers_health()
+
+    # Assert
+    assert [entry.provider_key for entry in report.providers] == [
+        "debug_0",
+        "debug_1",
+    ]
+    assert [entry.provider_uid for entry in report.providers] == [
+        TranscriptionProviderUID.DEBUG,
+        TranscriptionProviderUID.DEBUG,
+    ]
+    assert report.workers == snapshots
+    assert report.num_workers == NUM_WORKERS
+
+
+@pytest.mark.asyncio
+async def test_providers_health_isolates_a_provider_that_raises(
+    provider_registry: TranscriptionProviderRegistry,
+    mock_provider_instances: list[MagicMock],
+    mock_worker_pool_instance: MagicMock,
+):
+    """
+    Test one provider's failing health check does not fail the whole response
+
+    A sick provider must not blind the operator to the healthy ones - that is
+    precisely the moment the page is being looked at.
+    """
+    # Arrange
+    mock_worker_pool_instance.worker_snapshots.return_value = []
+    mock_provider_instances[0].describe_health = AsyncMock(
+        side_effect=RuntimeError("model handle is gone")
+    )
+    mock_provider_instances[1].describe_health = AsyncMock(
+        return_value=ProviderHealth(
+            kind=ProviderKind.DEBUG, status=ProviderStatus.OK, active_sessions=0
+        )
+    )
+
+    # Act
+    report = await provider_registry.providers_health()
+
+    # Assert
+    failed, healthy = report.providers
+    assert failed.health.status == ProviderStatus.DOWN
+    assert failed.health.kind == ProviderKind.UNKNOWN
+    assert "model handle is gone" in (failed.health.detail or "")
+    assert healthy.health.status == ProviderStatus.OK
+
+
+@pytest.mark.asyncio
+async def test_counts_invalid_provider_key_rejects(
+    provider_registry: TranscriptionProviderRegistry,
+    mock_worker_pool_instance: MagicMock,
+):
+    """
+    Test a session opened against an unknown key increments the reject counter
+
+    `transcriptionProviderId` is free text, so a typo closes the websocket with
+    a bare 1007 that looks to the client like the service is broken. This
+    counter is what names the cause.
+    """
+    # Arrange
+    mock_worker_pool_instance.worker_snapshots.return_value = []
+    session_logger = MagicMock(spec=Logger)
+
+    # Act
+    for _ in range(3):
+        with pytest.raises(TranscriptionClientError):
+            provider_registry.create_session(
+                "NOT_A_REAL_PROVIDER", "config", session_logger
+            )
+    report = await provider_registry.providers_health()
+
+    # Assert
+    assert report.invalid_provider_key_rejects == 3
+
+
+@pytest.mark.asyncio
+async def test_valid_provider_key_does_not_count_as_a_reject(
+    provider_registry: TranscriptionProviderRegistry,
+    mock_worker_pool_instance: MagicMock,
+):
+    """
+    Test opening a session against a configured key leaves the counter alone
+    """
+    # Arrange
+    mock_worker_pool_instance.worker_snapshots.return_value = []
+    session_logger = MagicMock(spec=Logger)
+
+    # Act
+    provider_registry.create_session("debug_0", "config", session_logger)
+    report = await provider_registry.providers_health()
+
+    # Assert
+    assert report.invalid_provider_key_rejects == 0

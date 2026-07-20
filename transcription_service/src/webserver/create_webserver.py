@@ -11,6 +11,7 @@ from src.shared.logger import Logger
 
 from .features.metrics import metrics_router
 from .features.probes import probes_router
+from .features.providers import providers_router
 from .features.transcription_stream import transcription_stream_router
 from .shared.auth_service import AuthService, MetricsAuthService
 from .shared.metrics import MetricsRegistry
@@ -61,6 +62,9 @@ def create_webserver(config: Config, logger: Logger):
         metrics_router(
             logger, metrics_auth_service, metrics_registry, provider_registry
         )
+    )
+    app.include_router(
+        providers_router(logger, metrics_auth_service, provider_registry)
     )
     app.include_router(
         transcription_stream_router(

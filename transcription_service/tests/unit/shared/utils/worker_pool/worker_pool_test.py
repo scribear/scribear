@@ -15,6 +15,7 @@ from src.shared.utils.worker_pool import (
     JobInterface,
     WorkerPool,
     WorkerProcessManager,
+    WorkerSnapshot,
 )
 
 from .context_definitions import Context, LoggerContext, SlowContext
@@ -379,3 +380,143 @@ def test_register_job_raises_key_error_for_invalid_tag(pool: WorkerPool):
         match="context tag: non_existent_tag matched 0 context definitions",
     ):
         pool.register_job(("non_existent_tag",), period_ms, job)
+
+
+def _set_worker_load(
+    instance: MagicMock, worker_id: int, utilization: float, alive: bool
+):
+    """
+    Drives a mock worker's load state and the snapshot load_for_tags returns
+
+    Args:
+        instance    - Mock WorkerProcessManager to configure
+        worker_id   - Worker id the snapshot should report
+        utilization - Rolling utilization to report
+        alive       - Whether the worker process is still running
+    """
+    instance.utilization = utilization
+    instance.alive = alive
+    instance.snapshot.return_value = WorkerSnapshot(
+        worker_id=worker_id,
+        utilization=utilization,
+        live_job_count=1,
+        total_jobs_registered=1,
+        context_ids=instance.context_ids,
+        alive=alive,
+    )
+
+
+def test_load_for_tags_reports_alive_owners_with_utilization(
+    mock_wpm_instances: list[MagicMock], pool: WorkerPool
+):
+    """
+    Test that live workers owning every requested tag are reported with load
+    """
+    # Arrange
+    for worker_id, instance in enumerate(mock_wpm_instances):
+        _set_worker_load(instance, worker_id, 0.25 * worker_id, alive=True)
+
+    # Act
+    loads = pool.load_for_tags(("context", "log_context"))
+
+    # Assert
+    assert [load.worker_id for load in loads] == [0, 1, 2]
+    assert [load.utilization for load in loads] == [0.0, 0.25, 0.5]
+
+
+def test_load_for_tags_returns_empty_for_unknown_tag(
+    mock_wpm_instances: list[MagicMock], pool: WorkerPool
+):
+    """
+    Test that a tag matching no context definition reports no owners
+
+    This is the mis-set tag failure the endpoint exists to name. It must come
+    back as data, not as the KeyError register_job would raise, because health
+    reporting has to survive exactly the misconfiguration it is describing.
+    """
+    # Arrange
+    for worker_id, instance in enumerate(mock_wpm_instances):
+        _set_worker_load(instance, worker_id, 0.0, alive=True)
+
+    # Act / Assert
+    assert pool.load_for_tags(("non_existent_tag",)) == []
+    assert pool.load_for_tags(("context", "non_existent_tag")) == []
+
+
+def test_load_for_tags_excludes_dead_owners(
+    mock_wpm_instances: list[MagicMock], pool: WorkerPool
+):
+    """
+    Test that a worker that owns the contexts but has died is not an owner
+
+    A dead worker still holds its context_ids, so routing state alone would
+    call the model loaded. Every session pinned to it would then hang forever.
+    """
+    # Arrange - only worker 1 survives
+    _set_worker_load(mock_wpm_instances[0], 0, 0.0, alive=False)
+    _set_worker_load(mock_wpm_instances[1], 1, 0.0, alive=True)
+    _set_worker_load(mock_wpm_instances[2], 2, 0.0, alive=False)
+
+    # Act
+    loads = pool.load_for_tags(("context",))
+
+    # Assert
+    assert [load.worker_id for load in loads] == [1]
+
+
+def test_load_for_tags_returns_empty_when_every_owner_is_dead(
+    mock_wpm_instances: list[MagicMock], pool: WorkerPool
+):
+    """
+    Test that a provider whose owning workers have all died reads as unloaded
+    """
+    # Arrange
+    for worker_id, instance in enumerate(mock_wpm_instances):
+        _set_worker_load(instance, worker_id, 0.0, alive=False)
+
+    # Act / Assert
+    assert pool.load_for_tags(("context",)) == []
+
+
+def test_load_for_tags_returns_empty_for_no_tags(
+    mock_wpm_instances: list[MagicMock], pool: WorkerPool
+):
+    """
+    Test that a provider needing no context reports no owning workers
+
+    Remote and debug providers register with an empty tag tuple; they are not
+    "loaded on every worker", they simply have no owners to report.
+    """
+    # Arrange
+    for worker_id, instance in enumerate(mock_wpm_instances):
+        _set_worker_load(instance, worker_id, 0.0, alive=True)
+
+    # Act / Assert
+    assert pool.load_for_tags(()) == []
+
+
+def test_load_for_tags_never_raises_where_register_job_would(
+    mock_logger: MagicMock,
+    # pylint: disable=unused-argument
+    mock_wpm_class: MockType,
+    mock_wpm_instances: list[MagicMock],
+):
+    """
+    Test disjoint tag coverage reports no owners rather than raising
+
+    register_job raises RuntimeError for this same arrangement. The two must
+    diverge: a health endpoint that raises on a broken configuration reports
+    nothing about the providers that are still fine.
+    """
+    # Arrange - disjoint coverage, as in the register_job RuntimeError case
+    contexts = [
+        ContextAssignment(context_def=Context(CTX_CONTEXT), worker_ids=[0]),
+        ContextAssignment(context_def=LoggerContext(), worker_ids=[1]),
+    ]
+    _set_context_ids_from(mock_wpm_instances, contexts)
+    pool = WorkerPool(mock_logger, len(mock_wpm_instances), contexts)
+    for worker_id, instance in enumerate(mock_wpm_instances):
+        _set_worker_load(instance, worker_id, 0.0, alive=True)
+
+    # Act / Assert
+    assert pool.load_for_tags(("context", "log_context")) == []

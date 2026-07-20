@@ -42,6 +42,11 @@ NS_PER_SEC = 1000000000
 # Rolling window over which a worker's busy/idle ratio is averaged.
 ROLLING_UTILIZATION_WINDOW_NS = 10 * 60 * NS_PER_SEC
 
+# Rolling utilization at or above which a worker is treated as having no
+# headroom. Not 1.0: the window is a 10-minute average, so a worker that is
+# genuinely pinned rarely reports exactly 1.0. See is_saturated.
+SATURATION_UTILIZATION = 0.95
+
 # How long a single background get() blocks before the poll loop rechecks its
 # stop flag. Bounds how long the (daemon) result-poller thread can be parked in
 # a blocking queue read on an idle queue.
@@ -230,6 +235,33 @@ class WorkerSnapshot:
     total_jobs_registered: int
     context_ids: set[int]
     alive: bool
+
+
+def is_saturated(snapshot: WorkerSnapshot) -> bool:
+    """
+    Whether a worker has no headroom left
+
+    Args:
+        snapshot    - Point-in-time view of the worker
+
+    Returns:
+        True when the worker is pinned and actually holding work
+
+    Utilization alone is not enough. `_RollingUtilization` reports 1.0 once a
+    worker has recorded busy time but no idle time yet, which is exactly the
+    state a freshly-booted worker is in after creating its contexts - so a
+    utilization-only test calls every cold start saturated. A worker holding no
+    jobs is not saturated whatever the window says.
+
+    Shared by the readiness probe and by per-provider health so the two cannot
+    disagree about what "saturated" means; they draw different conclusions from
+    it (readiness reports the pool degraded, provider health reports one
+    provider degraded), but from the same predicate.
+    """
+    return (
+        snapshot.utilization >= SATURATION_UTILIZATION
+        and snapshot.live_job_count > 0
+    )
 
 
 class WorkerProcessManager:

@@ -4,12 +4,10 @@ Evaluates readiness of the transcription service
 
 from dataclasses import dataclass
 
-from src.shared.utils.worker_pool.worker_process_manager import WorkerSnapshot
-
-# Rolling utilization at or above which a worker is treated as having no
-# headroom. Not 1.0: the window is a 10-minute average, so a worker that is
-# genuinely pinned rarely reports exactly 1.0.
-SATURATION_UTILIZATION = 0.95
+from src.shared.utils.worker_pool.worker_process_manager import (
+    WorkerSnapshot,
+    is_saturated,
+)
 
 
 @dataclass(frozen=True)
@@ -75,16 +73,11 @@ def evaluate_readiness(snapshots: list[WorkerSnapshot]) -> ReadinessReport:
             },
         )
 
-    # Utilization alone is not enough. `_RollingUtilization` reports 1.0 once a
-    # worker has recorded busy time but no idle time yet, which is exactly the
-    # state a freshly-booted worker is in after creating its contexts - so a
-    # utilization-only check calls every cold start saturated. A worker holding
-    # no jobs is not saturated whatever the window says.
-    saturated = [
-        s
-        for s in snapshots
-        if s.utilization >= SATURATION_UTILIZATION and s.live_job_count > 0
-    ]
+    # `is_saturated` carries the cold-start caveat: a worker that has recorded
+    # busy time but no idle time yet reports 1.0, so utilization alone would
+    # call every fresh boot saturated. Shared with per-provider health (B1.7)
+    # so the two surfaces cannot disagree about the word.
+    saturated = [s for s in snapshots if is_saturated(s)]
     if len(saturated) == len(snapshots):
         worst = max(s.utilization for s in snapshots)
         return ReadinessReport(

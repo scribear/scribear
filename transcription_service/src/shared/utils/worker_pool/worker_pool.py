@@ -151,6 +151,49 @@ class WorkerPool:
         """
         return [process.snapshot() for process in self._processes]
 
+    def load_for_tags(
+        self, context_tags: tuple[str, ...]
+    ) -> list[WorkerSnapshot]:
+        """
+        Gets the live workers that own EVERY given context tag, with their load
+
+        The read-only counterpart to `_assign_process`, which answers the same
+        routing question but *raises* when a tag matches nothing or no single
+        worker holds them all. Health reporting must never raise - a provider
+        whose contexts are missing is precisely the condition being reported,
+        so it has to come back as data rather than a 500.
+
+        Args:
+            context_tags    - Tags the provider's contexts must all match
+
+        Returns:
+            Snapshots of the alive workers that own every tag, in worker id
+            order. Empty means this provider's model is loaded on no live
+            worker, which is the mis-set worker_ids/tags failure. Also empty
+            for an empty tag tuple, since a provider that needs no context
+            (remote or debug) has no owning workers to report.
+        """
+        if not context_tags:
+            return []
+
+        matched_per_tag = [
+            self._tag_to_context_ids.get(tag, set()) for tag in context_tags
+        ]
+        # A tag matching no context definition at all cannot be satisfied by
+        # any combination, so short circuit before the product.
+        if any(not ids for ids in matched_per_tag):
+            return []
+
+        owners: set[int] = set()
+        for context_ids in product(*matched_per_tag):
+            owners |= self._workers_with_contexts(context_ids)
+
+        return [
+            self._processes[worker_id].snapshot()
+            for worker_id in sorted(owners)
+            if self._processes[worker_id].alive
+        ]
+
     def get_context_ids_by_tag(self, tag: str) -> set[int]:
         """
         Gets set of context_ids that have the given tag
