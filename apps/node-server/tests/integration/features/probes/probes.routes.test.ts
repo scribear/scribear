@@ -62,16 +62,15 @@ describe('Probes Routes', () => {
     it('returns 503 with sessionManager: fail when the Session Manager probe errors', async () => {
       // Arrange - swap in a fake session-manager-client whose probes.liveness
       // resolves to the error slot of the EndpointResult tuple.
-      originalSessionManagerClient =
-        server.fastify.diContainer.resolve('sessionManagerClient');
+      originalSessionManagerClient = server.fastify.diContainer.resolve(
+        'sessionManagerClient',
+      );
       const failingClient = {
         ...originalSessionManagerClient,
         probes: {
-          liveness: async () => [
-            null,
-            new Error('synthetic readiness failure'),
-          ],
-          readiness: async () => [null, new Error('not used')],
+          liveness: () =>
+            Promise.resolve([null, new Error('synthetic readiness failure')]),
+          readiness: () => Promise.resolve([null, new Error('not used')]),
         },
       };
       server.fastify.diContainer.register({
@@ -98,16 +97,18 @@ describe('Probes Routes', () => {
     it('returns 503 with transcriptionService: fail when the Transcription Service probe errors', async () => {
       // Arrange - swap in a fake transcription-service-client whose
       // probes.liveness resolves to the error slot of the EndpointResult tuple.
-      originalTranscriptionServiceClient =
-        server.fastify.diContainer.resolve('transcriptionServiceClient');
+      originalTranscriptionServiceClient = server.fastify.diContainer.resolve(
+        'transcriptionServiceClient',
+      );
       const failingClient = {
         ...originalTranscriptionServiceClient,
         probes: {
-          liveness: async () => [
-            null,
-            new Error('synthetic transcription readiness failure'),
-          ],
-          readiness: async () => [null, new Error('not used')],
+          liveness: () =>
+            Promise.resolve([
+              null,
+              new Error('synthetic transcription readiness failure'),
+            ]),
+          readiness: () => Promise.resolve([null, new Error('not used')]),
         },
       };
       server.fastify.diContainer.register({

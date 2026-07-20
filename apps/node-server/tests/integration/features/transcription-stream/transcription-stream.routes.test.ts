@@ -57,17 +57,27 @@ function nextClose(ws: WebSocket): Promise<{ code: number; reason: string }> {
 }
 
 /**
+ * A decoded server frame. `type` is the enum rather than a bare string so
+ * comparisons against `TranscriptionStreamServerMessageType` members are
+ * type-checked instead of tripping `no-unsafe-enum-comparison`.
+ */
+interface ServerMessage {
+  type: TranscriptionStreamServerMessageType;
+  [key: string]: unknown;
+}
+
+/**
  * Collect all server messages from the WS into a stable array. Returns the
  * array (mutated as messages arrive) plus an unsubscribe function.
  */
 function collectMessages(ws: WebSocket): {
-  messages: { type: string; [key: string]: unknown }[];
+  messages: ServerMessage[];
   stop: () => void;
 } {
-  const messages: { type: string; [key: string]: unknown }[] = [];
+  const messages: ServerMessage[] = [];
   const handler = (data: Buffer | ArrayBuffer | Buffer[]) => {
     try {
-      const parsed = decodeJson(data) as { type: string };
+      const parsed = decodeJson(data) as ServerMessage;
       messages.push(parsed);
     } catch {
       /* ignore non-JSON frames */
@@ -379,8 +389,8 @@ describe('Transcription Stream Routes', () => {
             // "Processed 0.0000 seconds" on its periodic tick even with no
             // audio, so only a positive value proves the SAFP-framed audio
             // actually round-tripped through the upstream.
-            const processed = allText.match(
-              /Processed ([\d.]+) seconds of audio/,
+            const processed = /Processed ([\d.]+) seconds of audio/.exec(
+              allText,
             );
             expect(processed).not.toBeNull();
             expect(Number(processed?.[1] ?? 0)).toBeGreaterThan(0);
