@@ -34,6 +34,7 @@ from src.webserver.features.transcription_stream.transcription_stream_messages i
     TranscriptSequence,
 )
 from src.webserver.shared.auth_service import AuthService
+from src.webserver.shared.metrics import MetricsRegistry
 from src.webserver.shared.transcription_provider_registry import (
     TranscriptionProviderRegistry,
 )
@@ -167,6 +168,7 @@ async def controller(
         mock_logger,
         mock_auth_service,
         mock_provider_registry,
+        MetricsRegistry(),
         PROVIDER_UID,
         mock_websocket,
     )
@@ -606,6 +608,7 @@ async def test_controller_ends_session_on_close(
         mock_logger,
         mock_auth_service,
         mock_provider_registry,
+        MetricsRegistry(),
         PROVIDER_UID,
         mock_websocket,
     )

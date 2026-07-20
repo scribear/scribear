@@ -8,6 +8,7 @@ from starlette.websockets import WebSocket
 from src.shared.config import Config
 from src.shared.logger import Logger
 from src.webserver.shared.auth_service import AuthService
+from src.webserver.shared.metrics import MetricsRegistry
 from src.webserver.shared.transcription_provider_registry import (
     TranscriptionProviderRegistry,
 )
@@ -20,6 +21,7 @@ def transcription_stream_router(
     logger: Logger,
     auth_service: AuthService,
     provider_registry: TranscriptionProviderRegistry,
+    metrics_registry: MetricsRegistry,
 ):
     """
     Creates FastAPI router for /transcription_stream websocket endpoint
@@ -29,6 +31,7 @@ def transcription_stream_router(
         logger              - Application logger
         auth_service        - Auth service instance
         provider_registry   - Transcription provider registry instance
+        metrics_registry    - In-memory telemetry store
 
     Returns:
         FastAPI router
@@ -38,7 +41,13 @@ def transcription_stream_router(
     @router.websocket("/transcription_stream/{provider_key}")
     async def transcription_stream(ws: WebSocket, provider_key: str):
         controller = TranscriptionStreamController(
-            config, logger, auth_service, provider_registry, provider_key, ws
+            config,
+            logger,
+            auth_service,
+            provider_registry,
+            metrics_registry,
+            provider_key,
+            ws,
         )
 
         await controller.receive_messages()

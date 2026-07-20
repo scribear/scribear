@@ -109,6 +109,10 @@ class MetricsRegistry:
             "vad_no_speech_total",
             "Executions where VAD found no speech in the buffer",
         )
+        self.decode_drops_total = Counter(
+            "decode_drops_total",
+            "Audio frames dropped because they failed to decode, by provider",
+        )
         self.no_words_total = Counter(
             "no_words_total",
             "Executions that transcribed no words from a non-empty buffer",
@@ -126,6 +130,20 @@ class MetricsRegistry:
                 self.asr_audio_seconds_total
             ),
         }
+
+    def record_decode_drop(self, provider_key: str) -> None:
+        """
+        Counts one audio frame dropped because it failed to decode
+
+        Unlike everything else here this happens in the FastAPI process, not a
+        worker - it is a framing failure, so the frame never reaches a job.
+
+        Args:
+            provider_key    - Provider the connection was opened against
+        """
+        self.decode_drops_total.inc(
+            {"provider_key": provider_key or UNLABELED_PROVIDER}
+        )
 
     def _record_worker_counters(
         self, counters: dict[str, float], labels: dict[str, str]

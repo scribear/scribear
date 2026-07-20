@@ -295,3 +295,23 @@ def test_failed_execution_still_reports_its_counters():
 
     # Assert
     assert registry.audio_too_fast_total.get({"provider_key": "whisper"}) == 1
+
+
+def test_decode_drops_are_counted_per_provider():
+    """
+    Test framing failures are counted in the process that sees them
+
+    A frame that fails to decode never reaches a worker, so this is the one
+    counter here with no job behind it.
+    """
+    # Arrange
+    registry = MetricsRegistry()
+
+    # Act
+    registry.record_decode_drop("whisper")
+    registry.record_decode_drop("whisper")
+    registry.record_decode_drop("")
+
+    # Assert
+    assert registry.decode_drops_total.get({"provider_key": "whisper"}) == 2
+    assert registry.decode_drops_total.get({"provider_key": "unknown"}) == 1

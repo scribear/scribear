@@ -148,6 +148,12 @@ class MetricsController:
                     self._metrics.vad_no_speech_total
                 ),
                 "noWordsTotal": _counter_series(self._metrics.no_words_total),
+                # The one counter here that is incremented in the FastAPI
+                # process rather than a worker: a frame that fails to decode
+                # never reaches a job.
+                "decodeDropsTotal": _counter_series(
+                    self._metrics.decode_drops_total
+                ),
             },
             "histograms": {
                 "asrSchedulingDelayMs": _histogram_series(

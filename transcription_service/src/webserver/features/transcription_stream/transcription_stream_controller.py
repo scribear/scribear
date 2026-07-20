@@ -21,6 +21,7 @@ from src.transcription_provider_interface import (
     TranscriptionResult,
 )
 from src.webserver.shared.auth_service import AuthService
+from src.webserver.shared.metrics import MetricsRegistry
 from src.webserver.shared.transcription_provider_registry import (
     TranscriptionProviderRegistry,
 )
@@ -58,6 +59,7 @@ class TranscriptionStreamController(WebsocketHandler):
         logger: Logger,
         auth_service: AuthService,
         provider_registry: TranscriptionProviderRegistry,
+        metrics_registry: MetricsRegistry,
         provider_key: str,
         ws: WebSocket,
     ):
@@ -67,6 +69,7 @@ class TranscriptionStreamController(WebsocketHandler):
             logger              - Application logger
             auth_service        - Service used to verify the presented API key
             provider_registry   - Process-singleton provider registry
+            metrics_registry    - Process-singleton telemetry store
             provider_key        - Provider key requested by websocket
             ws                  - Websocket to manage
         """
@@ -74,6 +77,7 @@ class TranscriptionStreamController(WebsocketHandler):
 
         self._auth_service = auth_service
         self._provider_registry = provider_registry
+        self._metrics_registry = metrics_registry
         self._provider_key = provider_key
 
         self._service: TranscriptionStreamService | None = None
@@ -193,6 +197,7 @@ class TranscriptionStreamController(WebsocketHandler):
             frame = decode_audio_frame(message)
         except AudioFrameError:
             self._logger.warning("Dropping malformed audio frame")
+            self._metrics_registry.record_decode_drop(self._provider_key)
             return
 
         self._service.handle_audio_chunk(frame.chunk_id or "", frame.audio)

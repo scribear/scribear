@@ -64,7 +64,7 @@ def create_webserver(config: Config, logger: Logger):
     )
     app.include_router(
         transcription_stream_router(
-            config, logger, auth_service, provider_registry
+            config, logger, auth_service, provider_registry, metrics_registry
         )
     )
 
