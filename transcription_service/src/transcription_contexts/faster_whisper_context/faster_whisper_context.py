@@ -48,7 +48,9 @@ class FasterWhisperContext(JobContextInterface[WhisperModel]):
         kwargs = {}
         if self._config.compute_type is not None:
             kwargs["compute_type"] = self._config.compute_type
-        return WhisperModel(self._config.model, device=self._config.device, **kwargs)
+        return WhisperModel(
+            self._config.model, device=self._config.device, **kwargs
+        )
 
     def destroy(self, log: Logger, context: WhisperModel) -> None:
         log.info("Destroying whisper model")
