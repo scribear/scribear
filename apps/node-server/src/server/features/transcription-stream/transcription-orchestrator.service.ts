@@ -3,7 +3,10 @@ import {
   decodeAudioFrame,
 } from '@scribear/audio-frame-protocol';
 import type { LongPollClient } from '@scribear/base-long-poll-client';
-import type { WebSocketClient } from '@scribear/base-websocket-client';
+import type {
+  ConnectionState,
+  WebSocketClient,
+} from '@scribear/base-websocket-client';
 import { LatencyKind } from '@scribear/node-server-schema';
 import {
   type SESSION_CONFIG_STREAM_SCHEMA,
@@ -58,6 +61,18 @@ type SessionConfigPoll = LongPollClient<typeof SESSION_CONFIG_STREAM_SCHEMA>;
 export type SessionConfigPollFactory = (
   sessionUid: string,
 ) => SessionConfigPoll;
+
+/**
+ * Live, per-session gauges reported by the status endpoint. Counters live in
+ * `NodeServerMetricsService`; these are values only the orchestrator holds.
+ */
+export interface SessionSnapshot {
+  sessionUid: string;
+  sourceCount: number;
+  pendingChunkCount: number;
+  upstreamState: ConnectionState;
+  upstreamRetryAttempt: number;
+}
 
 interface SessionState {
   sourceCount: number;
@@ -183,6 +198,38 @@ export class TranscriptionOrchestratorService {
    */
   get activeSessionCount(): number {
     return this._sessions.size;
+  }
+
+  /**
+   * Point-in-time gauges for each active session, for the status endpoint.
+   *
+   * Deliberately restates the fields rather than embedding the
+   * {@link SessionStatusMessage} that `getStatus` returns: that message is part
+   * of the client-facing WebSocket contract, and coupling an operator-facing
+   * telemetry schema to it would mean neither could change independently.
+   *
+   * `limit` is applied here rather than by the caller so a large fleet of
+   * sessions never materializes an array we intend to discard. The boolean
+   * reports whether it bit.
+   *
+   * @param limit Maximum number of sessions to return.
+   */
+  sessionSnapshots(limit: number): {
+    sessions: SessionSnapshot[];
+    truncated: boolean;
+  } {
+    const sessions: SessionSnapshot[] = [];
+    for (const [sessionUid, state] of this._sessions) {
+      if (sessions.length >= limit) break;
+      sessions.push({
+        sessionUid,
+        sourceCount: state.sourceCount,
+        pendingChunkCount: state.pendingChunks.size,
+        upstreamState: state.upstream.state,
+        upstreamRetryAttempt: state.upstream.attempt,
+      });
+    }
+    return { sessions, truncated: this._sessions.size > sessions.length };
   }
 
   /**

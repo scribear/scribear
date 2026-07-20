@@ -4,6 +4,7 @@ import type { AppConfig } from '#src/app-config/app-config.js';
 
 import registerDependencies from './dependency-injection/register-dependencies.js';
 import { probesRouter } from './features/probes/probes.router.js';
+import { statusRouter } from './features/status/status.router.js';
 import { transcriptionStreamRouter } from './features/transcription-stream/transcription-stream.router.js';
 import swagger from './plugins/swagger.js';
 import websocket from './plugins/websocket.js';
@@ -25,6 +26,7 @@ async function createServer(config: AppConfig) {
   registerDependencies(dependencyContainer, config);
 
   fastify.register(probesRouter);
+  fastify.register(statusRouter);
   fastify.register(transcriptionStreamRouter);
 
   return { logger, fastify };

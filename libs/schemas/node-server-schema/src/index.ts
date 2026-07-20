@@ -6,5 +6,7 @@ export * from './tags.js';
 export * from './probes/routes/liveness.schema.js';
 export * from './probes/routes/readiness.schema.js';
 
+export * from './status/routes/status.schema.js';
+
 export * from './transcription-stream/entities/transcript.schema.js';
 export * from './transcription-stream/routes/transcription-stream.schema.js';

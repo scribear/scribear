@@ -13,6 +13,7 @@ import type {
 } from '#src/app-config/app-config.js';
 import type { LivenessController } from '#src/server/features/probes/liveness.controller.js';
 import type { ReadinessController } from '#src/server/features/probes/readiness.controller.js';
+import type { StatusController } from '#src/server/features/status/status.controller.js';
 import type {
   SessionConfigPollFactory,
   TranscriptionOrchestratorService,
@@ -53,6 +54,9 @@ interface AppDependencies extends BaseDependencies {
   // Probes
   livenessController: LivenessController;
   readinessController: ReadinessController;
+
+  // Status
+  statusController: StatusController;
 
   // Transcription stream
   sessionConfigPollFactory: SessionConfigPollFactory;
