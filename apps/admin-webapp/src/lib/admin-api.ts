@@ -92,11 +92,24 @@ export interface SessionInfo {
   csrfToken: string;
 }
 
+/** One dependency in the BFF health rollup. */
+export interface HealthComponent {
+  /** Stable identifier, matching the compose service name where there is one. */
+  name: string;
+  /** 'ok' | 'degraded' | 'unreachable' | 'fail'; kept loose so a new status
+   *  added server-side renders rather than breaking the build. */
+  status: string;
+  latencyMs: number;
+  /** One-line cause when the component is not ok. */
+  detail?: string;
+}
+
 export interface HealthReport {
   bff: string;
-  database: string;
-  sessionManager: string;
-  sessionManagerLatencyMs: number;
+  /** Every checked dependency. A list rather than named fields so the
+   *  dashboard renders new components (B1.7 providers, and so on) without a
+   *  matching SPA change. */
+  components: HealthComponent[];
   checkedAt: string;
 }
 

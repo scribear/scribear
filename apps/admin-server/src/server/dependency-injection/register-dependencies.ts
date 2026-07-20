@@ -11,6 +11,7 @@ import { AuditController } from '#src/server/features/audit/audit.controller.js'
 import { AuthController } from '#src/server/features/auth/auth.controller.js';
 import { DevicesController } from '#src/server/features/devices/devices.controller.js';
 import { HealthController } from '#src/server/features/health/health.controller.js';
+import { HealthCheckerService } from '#src/server/features/health/health.service.js';
 import { LivenessController } from '#src/server/features/probes/liveness.controller.js';
 import { ReadinessController } from '#src/server/features/probes/readiness.controller.js';
 import { RoomsController } from '#src/server/features/rooms/rooms.controller.js';
@@ -79,6 +80,10 @@ function registerDependencies(
     authController: asClass(AuthController, { lifetime: Lifetime.SCOPED }),
 
     // Health
+    healthCheckerConfig: asValue(config.healthCheckerConfig),
+    healthCheckerService: asClass(HealthCheckerService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
     healthController: asClass(HealthController, { lifetime: Lifetime.SCOPED }),
 
     // Rooms

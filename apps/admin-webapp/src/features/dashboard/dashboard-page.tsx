@@ -30,14 +30,27 @@ function statusColor(status: string): HealthColor {
   return 'default';
 }
 
+/** Compose service names are kebab-case; the dashboard shows title case. */
+function componentLabel(name: string): string {
+  return name
+    .split('-')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 interface HealthTileProps {
   label: string;
   status: string;
   detail?: string;
 }
 
+/**
+ * Four-up on wide screens, two-up on tablets. The rollup grew from three
+ * components to four in B1.5 and will grow again with per-provider health, so
+ * the tiles are rendered from the list rather than hardcoded.
+ */
 const HealthTile = ({ label, status, detail }: HealthTileProps) => (
-  <Grid size={{ xs: 12, sm: 4 }}>
+  <Grid size={{ xs: 12, sm: 6, md: 3 }}>
     <Card>
       <CardContent>
         <Typography variant="body2" color="text.secondary" gutterBottom>
@@ -141,13 +154,21 @@ export const DashboardPage = () => {
         </Box>
       ) : health ? (
         <Grid container spacing={2} sx={{ mb: 3 }}>
-          <HealthTile label="BFF" status={health.bff} />
-          <HealthTile label="Database" status={health.database} />
           <HealthTile
-            label="Session Manager"
-            status={health.sessionManager}
-            detail={`${String(health.sessionManagerLatencyMs)}ms · checked ${new Date(health.checkedAt).toLocaleTimeString()}`}
+            label="BFF"
+            status={health.bff}
+            detail={`checked ${new Date(health.checkedAt).toLocaleTimeString()}`}
           />
+          {health.components.map((component) => (
+            <HealthTile
+              key={component.name}
+              label={componentLabel(component.name)}
+              status={component.status}
+              // The cause, when there is one, beats the latency: a red tile
+              // that only says "312ms" tells an operator nothing actionable.
+              detail={component.detail ?? `${String(component.latencyMs)}ms`}
+            />
+          ))}
         </Grid>
       ) : (
         <Typography color="text.secondary" sx={{ mb: 3 }}>

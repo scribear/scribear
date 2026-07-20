@@ -10,6 +10,8 @@ export const TEST_USERNAME = 'engrit';
 export const TEST_PASSWORD = 'super secret pw!';
 export const TEST_LOCAL_CREDENTIALS = `${TEST_USERNAME} ${TEST_PASSWORD}`;
 export const TEST_SM_BASE_URL = 'http://session-manager.test';
+export const TEST_NODE_BASE_URL = 'http://node-server.test';
+export const TEST_TS_BASE_URL = 'http://transcription-service.test';
 export const TEST_COOKIE_SECRET =
   'test-cookie-secret-at-least-32-characters-long!!';
 
@@ -23,6 +25,7 @@ export interface TestAppConfigOverrides {
   azureAuthConfig?: Partial<AppConfig['azureAuthConfig']>;
   rateLimitConfig?: Partial<AppConfig['rateLimitConfig']>;
   dbClientConfig?: Partial<AppConfig['dbClientConfig']>;
+  healthCheckerConfig?: Partial<AppConfig['healthCheckerConfig']>;
   cookieSecret?: string;
 }
 
@@ -73,6 +76,26 @@ export function buildTestAppConfig(
       loginMax: 5,
       loginWindowMs: 60_000,
       ...overrides.rateLimitConfig,
+    },
+    healthCheckerConfig: {
+      // Short: these targets are stubbed, so a real timeout would only ever be
+      // hit by a test that meant to hit it.
+      timeoutMs: 500,
+      targets: [
+        {
+          name: 'session-manager',
+          readinessUrl: `${TEST_SM_BASE_URL}/api/session-manager/v1/probes/readiness`,
+        },
+        {
+          name: 'node-server',
+          readinessUrl: `${TEST_NODE_BASE_URL}/api/node-server/v1/probes/readiness`,
+        },
+        {
+          name: 'transcription-service',
+          readinessUrl: `${TEST_TS_BASE_URL}/probes/readiness`,
+        },
+      ],
+      ...overrides.healthCheckerConfig,
     },
     dbClientConfig: { ...dbConfig, ...overrides.dbClientConfig },
     cookieSecret: overrides.cookieSecret ?? TEST_COOKIE_SECRET,

@@ -12,6 +12,10 @@ import type { AuditController } from '#src/server/features/audit/audit.controlle
 import type { AuthController } from '#src/server/features/auth/auth.controller.js';
 import type { DevicesController } from '#src/server/features/devices/devices.controller.js';
 import type { HealthController } from '#src/server/features/health/health.controller.js';
+import type {
+  HealthCheckerConfig,
+  HealthCheckerService,
+} from '#src/server/features/health/health.service.js';
 import type { LivenessController } from '#src/server/features/probes/liveness.controller.js';
 import type { ReadinessController } from '#src/server/features/probes/readiness.controller.js';
 import type { RoomsController } from '#src/server/features/rooms/rooms.controller.js';
@@ -70,6 +74,8 @@ interface AppDependencies extends BaseDependencies {
   authController: AuthController;
 
   // Health
+  healthCheckerConfig: HealthCheckerConfig;
+  healthCheckerService: HealthCheckerService;
   healthController: HealthController;
 
   // Rooms

@@ -91,6 +91,11 @@ services:
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
+      # Health rollup (B1.5). Only the unauthenticated readiness probes of
+      # these services are read; no keys are involved.
+      NODE_SERVER_BASE_URL: http://node-server:80
+      TRANSCRIPTION_SERVICE_BASE_URL: http://transcription-service:80
+      HEALTH_CHECK_TIMEOUT_SEC: ${ADMIN_HEALTH_TIMEOUT_SEC:-3}
       ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET}
       ADMIN_LOCAL_CREDENTIALS: ${ADMIN_LOCAL_CREDENTIALS}
       DB_HOST: scribear-db
