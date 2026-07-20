@@ -18,7 +18,7 @@ export const READINESS_SCHEMA = {
     200: Type.Object({ status: Type.Literal('ok') }),
     503: Type.Object({
       status: Type.Literal('fail'),
-      checks: Type.Object({ logIngest: Type.String() }),
+      checks: Type.Object({ collectors: Type.String() }),
     }),
   },
 };

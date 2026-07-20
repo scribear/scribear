@@ -45,8 +45,6 @@ export interface MetricsSnapshot {
   gauges: Record<string, GaugeSeries[]>;
   /** Histograms with percentiles, keyed by metric name. */
   histograms: Record<string, HistogramSeries[]>;
-  /** Ingest self-observability — is the collector actually seeing anything? */
-  ingest: IngestHealth;
   /**
    * Most recent synthetic canary probe (A2), or null when the canary is
    * disabled or has not completed a run yet. This is the only field in the
@@ -54,22 +52,6 @@ export interface MetricsSnapshot {
    * observing it.
    */
   canary: CanaryRunResult | null;
-}
-
-/**
- * The collector's view of itself.
- *
- * Without this a silent sidecar is indistinguishable from a healthy system:
- * zero errors could mean "nothing is wrong" or "no logs are reaching me". A
- * high `unparsed` share specifically indicates log-message drift in a monitored
- * service — the parsers key on literal strings those services don't know exist.
- */
-export interface IngestHealth {
-  parsedTotal: number;
-  unparsedTotal: number;
-  malformedTotal: number;
-  /** Fraction of decodable lines that no parser claimed. */
-  unparsedRatio: number;
 }
 
 /**
@@ -115,11 +97,6 @@ export function buildSnapshot(
     histograms[histogram.name] = series;
   }
 
-  const parsedTotal = metrics.logLinesParsedTotal.total();
-  const unparsedTotal = metrics.logLinesUnparsedTotal.total();
-  const malformedTotal = metrics.logLinesMalformedTotal.total();
-  const decodable = parsedTotal + unparsedTotal;
-
   return {
     generatedAtMs: nowMs,
     rateWindowMs,
@@ -129,11 +106,5 @@ export function buildSnapshot(
     gauges,
     histograms,
     canary,
-    ingest: {
-      parsedTotal,
-      unparsedTotal,
-      malformedTotal,
-      unparsedRatio: decodable === 0 ? 0 : unparsedTotal / decodable,
-    },
   };
 }

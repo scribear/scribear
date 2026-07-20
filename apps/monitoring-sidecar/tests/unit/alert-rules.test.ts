@@ -10,7 +10,6 @@ import {
   canaryFailureRule,
   canaryQualityRule,
   clockSkewRule,
-  configPollErrorRule,
   decodeDropRule,
   pendingChunkEvictionRule,
   probeDownRule,
@@ -161,21 +160,6 @@ describe('alert rules', () => {
 
       // Assert
       expect(alerts).toHaveLength(0);
-    });
-  });
-
-  describe('config poll errors (N2/S3)', (it) => {
-    it('fires on a single auth failure', () => {
-      // Arrange — any 401 here means sessions cannot get their config at all
-      const metrics = new MetricsRegistry();
-      metrics.smConfigPollErrorsTotal.inc({ status: '401' }, 1, NOW);
-
-      // Act
-      const alerts = configPollErrorRule(context(metrics));
-
-      // Assert
-      expect(alerts).toHaveLength(1);
-      expect(alerts[0]?.failureModes).toEqual(['N2', 'S3']);
     });
   });
 

@@ -5,12 +5,11 @@ import type { BaseFastifyInstance } from '@scribear/base-fastify-server';
 import { AppConfig } from '#src/app-config/app-config.js';
 import createServer from '#src/server/create-server.js';
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
-import { pythonDecodeDrop } from '#tests/fixtures/log-lines.js';
 
 /**
- * Boots the real server with collectors disabled, then drives the ingest
- * directly. Attaching to a live Docker socket would make these tests depend on
- * the machine they run on; the collectors themselves are covered separately.
+ * Boots the real server with collectors disabled, then seeds the registry
+ * directly. Letting the pollers reach out would make these tests depend on the
+ * machine they run on; the collectors themselves are covered separately.
  */
 async function boot() {
   process.env['LOG_LEVEL'] = 'silent';
@@ -34,9 +33,9 @@ describe('server endpoints', () => {
     await fastify.close();
   });
 
-  function ingestService() {
-    return fastify.diContainer.resolve<AppDependencies['logIngestService']>(
-      'logIngestService',
+  function metricsRegistry() {
+    return fastify.diContainer.resolve<AppDependencies['metricsRegistry']>(
+      'metricsRegistry',
     );
   }
 
@@ -55,9 +54,9 @@ describe('server endpoints', () => {
   });
 
   describe('readiness', (it) => {
-    it('reports not-ready before any log line has been seen', async () => {
-      // Arrange — catches the common misconfiguration where the Docker socket
-      // is not mounted, which would otherwise look perfectly healthy.
+    it('reports not-ready before any collector has produced a result', async () => {
+      // Arrange — collectors are disabled in this boot, so nothing has polled.
+      // A sidecar collecting nothing must not claim to be healthy.
 
       // Act
       const res = await fastify.inject({
@@ -69,9 +68,12 @@ describe('server endpoints', () => {
       expect(res.statusCode).toBe(503);
     });
 
-    it('reports ready once the ingest has seen traffic', async () => {
+    it('reports ready once a probe result exists', async () => {
       // Arrange
-      ingestService().ingest(pythonDecodeDrop());
+      metricsRegistry().probeUp.set(
+        { service: 'node-server', probe: 'liveness' },
+        1,
+      );
 
       // Act
       const res = await fastify.inject({
@@ -85,14 +87,11 @@ describe('server endpoints', () => {
   });
 
   describe('snapshot', (it) => {
-    it('returns counters, alerts and ingest health as JSON', async () => {
+    it('returns counters, gauges, alerts and probes as JSON', async () => {
       // Arrange — written straight to the registry. The decode-drop parser
       // that used to seed this was retired in B1.2 PR 5; this test is about the
       // snapshot's HTTP shape, not about where the counter came from.
-      const metrics =
-        fastify.diContainer.resolve<AppDependencies['metricsRegistry']>(
-          'metricsRegistry',
-        );
+      const metrics = metricsRegistry();
       metrics.safpDecodeDropsTotal.inc({
         service: 'transcription-service',
         side: 'transcription',
@@ -109,7 +108,7 @@ describe('server endpoints', () => {
       const body = res.json();
       expect(body).toHaveProperty('alerts');
       expect(body).toHaveProperty('probes');
-      expect(body).toHaveProperty('ingest');
+      expect(body).toHaveProperty('gauges');
       expect(body.counters.scribear_safp_decode_drops_total).toHaveLength(1);
     });
 
@@ -141,7 +140,10 @@ describe('server endpoints', () => {
   describe('prometheus', (it) => {
     it('serves the text exposition format with the correct content type', async () => {
       // Arrange
-      ingestService().ingest(pythonDecodeDrop());
+      metricsRegistry().safpDecodeDropsTotal.inc({
+        service: 'transcription-service',
+        side: 'transcription',
+      });
 
       // Act
       const res = await fastify.inject({ method: 'GET', url: '/metrics' });

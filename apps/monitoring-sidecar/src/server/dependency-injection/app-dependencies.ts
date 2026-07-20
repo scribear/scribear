@@ -21,14 +21,6 @@ import type {
   CanaryRunnerConfig,
   CanaryRunnerService,
 } from '#src/server/shared/canary/canary-runner.service.js';
-import type {
-  DockerLogSource,
-  DockerLogSourceConfig,
-} from '#src/server/shared/log-ingest/docker-log-source.js';
-import type {
-  LogIngestConfig,
-  LogIngestService,
-} from '#src/server/shared/log-ingest/log-ingest.service.js';
 import type { MetricsRegistry } from '#src/server/shared/metrics/metrics-registry.service.js';
 import type {
   NodeStatusPollerConfig,
@@ -49,8 +41,6 @@ import type {
 interface AppDependencies extends BaseDependencies {
   // Config
   baseConfig: BaseConfig;
-  logIngestConfig: LogIngestConfig;
-  dockerLogSourceConfig: DockerLogSourceConfig;
   probePollerConfig: ProbePollerConfig;
   nodeStatusPollerConfig: NodeStatusPollerConfig;
   alertThresholds: AlertThresholds;
@@ -60,8 +50,6 @@ interface AppDependencies extends BaseDependencies {
 
   // Shared services
   metricsRegistry: MetricsRegistry;
-  logIngestService: LogIngestService;
-  dockerLogSource: DockerLogSource;
   probePollerService: ProbePollerService;
   nodeStatusPollerService: NodeStatusPollerService;
   transcriptionMetricsPollerConfig: TranscriptionMetricsPollerConfig;

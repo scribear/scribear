@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect } from 'vitest';
 import { AlertEvaluatorService } from '#src/server/shared/alerts/alert-evaluator.service.js';
 import { DEFAULT_THRESHOLDS } from '#src/server/shared/alerts/alert-rules.js';
 import type { CanaryRunnerService } from '#src/server/shared/canary/canary-runner.service.js';
-import { LogIngestService } from '#src/server/shared/log-ingest/log-ingest.service.js';
 import { MetricsRegistry } from '#src/server/shared/metrics/metrics-registry.service.js';
 import { buildSnapshot } from '#src/server/shared/metrics/snapshot-builder.js';
 import { NodeStatusPollerService } from '#src/server/shared/node-status/node-status-poller.service.js';
@@ -17,11 +16,6 @@ import {
   startFakeNodeStatus,
   statusBody,
 } from '#tests/fixtures/fake-node-status.js';
-import {
-  CONFIG_STREAM_URL,
-  incomingRequest,
-  requestCompleted,
-} from '#tests/fixtures/log-lines.js';
 
 const API_KEY = 'test-service-key';
 const SESSION_BAD = '44444444-4444-4444-8444-444444444444';
@@ -69,10 +63,6 @@ describe('BUG.txt upstream flap replay', () => {
 
   function createStack(probes: ProbeStatus[] = []) {
     const metrics = new MetricsRegistry();
-    const ingest = new LogIngestService(metrics, logger, {
-      jobPeriodMs: 1_000,
-      configStreamUrlFragment: '/session-config-stream/',
-    });
     const poller = new NodeStatusPollerService(
       {
         enabled: true,
@@ -95,7 +85,7 @@ describe('BUG.txt upstream flap replay', () => {
       canaryRunner,
       DEFAULT_THRESHOLDS,
     );
-    return { metrics, ingest, poller, evaluator };
+    return { metrics, poller, evaluator };
   }
 
   describe('N1 detection from the status endpoint', (it) => {
@@ -185,54 +175,12 @@ describe('BUG.txt upstream flap replay', () => {
     });
   });
 
-  describe('correlated N2 root cause', (it) => {
-    it('surfaces the secret-drift 401 alongside the churn it causes', async () => {
-      // Arrange - the ISSUES-To-Review.md cross-wiring: the config long poll is
-      // rejected, so the session never gets its config and the upstream churns.
-      // The two signals now come from different sources - the 401 from
-      // session-manager's logs, the churn from node-server's status endpoint -
-      // and still have to line up into one story.
-      const { ingest, poller, evaluator } = createStack();
-      const now = Date.now();
-      for (let i = 0; i < 4; i++) {
-        const t = now - (4 - i) * 5_000;
-        ingest.ingest(
-          incomingRequest(
-            `req-${String(i)}`,
-            CONFIG_STREAM_URL,
-            'session-manager',
-            t,
-          ),
-        );
-        ingest.ingest(
-          requestCompleted(`req-${String(i)}`, 401, 'session-manager', t),
-        );
-      }
-      node.setBody(
-        statusBody({
-          summary: { upstreamChurnTotal: 4, activeSessionCount: 1 },
-          sessions: [
-            session({
-              upstreamState: 'WAITING_RETRY',
-              upstreamRetryAttempt: 2,
-            }),
-          ],
-        }),
-      );
-      await poller.pollOnce();
-
-      // Act
-      const alerts = evaluator.evaluate(Date.now());
-
-      // Assert
-      const modes = alerts.flatMap((a) => a.failureModes);
-      expect(modes).toContain('N1');
-      expect(modes).toContain('N2');
-
-      const n2 = alerts.find((a) => a.failureModes.includes('N2'));
-      expect(n2?.likelyCause).toContain('API key');
-    });
-  });
+  // The 'correlated N2 root cause' case was removed in B1.2 PR 5b along with
+  // log ingest. It asserted that a session-config-stream 401 (from
+  // session-manager's logs) surfaced alongside the N1 churn it causes, so the
+  // alert named the cause and not just the symptom. Nothing detects that 401
+  // now; the churn half of the story is still covered above. Restoring it needs
+  // a session-manager status endpoint.
 
   describe('snapshot output', (it) => {
     it('exposes the firing alert, the churn counter and the session gauges', async () => {

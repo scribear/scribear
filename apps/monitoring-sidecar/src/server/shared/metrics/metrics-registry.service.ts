@@ -363,40 +363,6 @@ export class MetricsRegistry {
     'Transcription buffers that produced no speech, by kind.',
   );
 
-  /**
-   * session-manager `session-config-stream` responses that failed auth. The
-   * direct detector for the secret cross-wiring in ISSUES-To-Review.md
-   * (§3 N2 / S3).
-   */
-  readonly smConfigPollErrorsTotal = new Counter(
-    'scribear_sm_config_poll_errors_total',
-    'session-config-stream requests rejected, by HTTP status.',
-  );
-
-  /** Successful session-config-stream polls, the denominator for the 401 rate. */
-  readonly smConfigPollOkTotal = new Counter(
-    'scribear_sm_config_poll_ok_total',
-    'session-config-stream requests that succeeded.',
-  );
-
-  /** Log lines the ingest saw but no parser claimed. Useful for drift detection. */
-  readonly logLinesUnparsedTotal = new Counter(
-    'scribear_log_lines_unparsed_total',
-    'Ingested log lines that matched no parser, by service.',
-  );
-
-  /** Log lines successfully consumed by a parser. */
-  readonly logLinesParsedTotal = new Counter(
-    'scribear_log_lines_parsed_total',
-    'Ingested log lines consumed by a parser, by service and parser.',
-  );
-
-  /** Lines that could not be decoded as JSON at all (pretty-print mode, partial writes). */
-  readonly logLinesMalformedTotal = new Counter(
-    'scribear_log_lines_malformed_total',
-    'Ingested log lines that could not be parsed as JSON, by service.',
-  );
-
   // --- A3: probe-derived --------------------------------------------------
 
   /** 1 when the probe returned healthy, 0 otherwise. Labelled service/probe. */
@@ -534,11 +500,6 @@ export class MetricsRegistry {
       this.asrBufferOverflowSecondsTotal,
       this.asrAudioTooFastTotal,
       this.asrNoSpeechTotal,
-      this.smConfigPollErrorsTotal,
-      this.smConfigPollOkTotal,
-      this.logLinesUnparsedTotal,
-      this.logLinesParsedTotal,
-      this.logLinesMalformedTotal,
       this.probeTransitionsTotal,
       this.canaryRunsTotal,
       this.canaryTranscriptsTotal,

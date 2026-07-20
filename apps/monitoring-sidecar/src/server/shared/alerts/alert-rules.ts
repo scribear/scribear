@@ -68,8 +68,6 @@ export interface AlertThresholds {
   upstreamChurnCount: number;
   /** Window over which churn and error rates are counted. */
   rateWindowMs: number;
-  /** session-config-stream auth failures within the window before N2 fires. */
-  configPollErrorCount: number;
   /** Decode drops within the window before U2/S4 fires. */
   decodeDropCount: number;
   /** Buffer overflows within the window before T2 fires. */
@@ -99,7 +97,6 @@ export interface AlertThresholds {
 export const DEFAULT_THRESHOLDS: AlertThresholds = {
   upstreamChurnCount: 3,
   rateWindowMs: 120_000,
-  configPollErrorCount: 1,
   decodeDropCount: 10,
   bufferOverflowCount: 5,
   rtfP95: 1.0,
@@ -191,36 +188,19 @@ function sessionsWithUpstreamDown(ctx: AlertContext): string[] {
 }
 
 /**
- * §3 N2 / S3 — session-config-stream long poll rejected.
+ * **The N2/S3 config-poll detector was removed in B1.2 PR 5b**, along with the
+ * log-ingest pipeline that fed it. It was the last consumer of Docker log
+ * ingestion, and keeping the socket mount and the whole ingest path alive for
+ * one rule was not a trade worth making.
  *
- * The direct detector for the ISSUES-To-Review.md secret cross-wiring. Any
- * sustained 401 here means sessions never receive their provider config, which
- * in turn produces the N1 churn pattern — so this rule usually fires first and
- * explains the other.
+ * The capability is genuinely gone, not relocated: nothing currently detects a
+ * session-config-stream 401, which is the direct signature of the
+ * ISSUES-To-Review.md secret cross-wiring. The N1 churn it causes is still
+ * detected by `upstreamChurnRule`, so the *symptom* alerts — but the alert no
+ * longer names the cause. Restoring it needs a session-manager status endpoint
+ * (a future B-item), which is the same shape B1.1 and B1.2 gave node-server and
+ * transcription-service.
  */
-export const configPollErrorRule: AlertRule = (ctx) => {
-  const window = ctx.thresholds.rateWindowMs;
-  const count = ctx.metrics.smConfigPollErrorsTotal.windowCount(
-    {},
-    window,
-    ctx.nowMs,
-  );
-  if (count < ctx.thresholds.configPollErrorCount) return [];
-
-  return [
-    {
-      id: 'config-poll-errors',
-      failureModes: ['N2', 'S3'],
-      severity: AlertSeverity.CRITICAL,
-      stage: PipelineStage.CONTROL_PLANE,
-      summary: `session-config-stream rejected ${String(count)} times in ${String(Math.round(window / 1000))}s.`,
-      likelyCause:
-        'Service API key drift — node-server is presenting a key session-manager does not accept. Compare the service API key env on session-manager and node-server; see ISSUES-To-Review.md.',
-      value: count,
-      threshold: ctx.thresholds.configPollErrorCount,
-    },
-  ];
-};
 
 /**
  * §3 T1 — transcription not keeping up with realtime audio.
@@ -723,7 +703,6 @@ export const canaryQualityRule: AlertRule = (ctx) => {
 /** Every rule, evaluated on each snapshot. */
 export const DEFAULT_RULES: readonly AlertRule[] = [
   upstreamChurnRule,
-  configPollErrorRule,
   transcriptionSaturationRule,
   bufferOverflowRule,
   decodeDropRule,

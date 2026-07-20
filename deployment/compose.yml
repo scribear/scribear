@@ -177,26 +177,22 @@ services:
 
   # Monitoring
   #
-  # Black-box sidecar: parses the other services' JSON logs into metrics, polls
-  # their probes, and evaluates alert rules. It does not modify or depend on the
+  # Black-box sidecar: polls the other services' probe and status endpoints,
+  # folds them into metrics, and evaluates alert rules. It does not modify the
   # monitored services, so it can be removed from this file with no other edits.
   #
-  # SECURITY: the Docker socket is mounted to read container logs. That is
-  # root-equivalent access to the host, granted here read-only and used only for
-  # GET /containers/json and GET /containers/<id>/logs. If that trade is not
-  # acceptable in a given deployment, drop this service and switch to a log
-  # shipping driver instead.
+  # It no longer mounts the Docker socket. Until B1.2 it read container logs to
+  # infer metrics from log text, which meant root-equivalent host access; every
+  # one of those signals now comes from an authed endpoint instead.
   monitoring-sidecar:
     image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/monitoring-sidecar:${IMAGE_TAG:-latest}
     expose:
       - "80"
     environment:
       LOG_LEVEL: ${MONITORING_LOG_LEVEL:-info}
-      # Must match the compose project name, or container discovery finds
-      # nothing and the sidecar silently collects no logs.
-      COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-deployment}
       # Must match job_period_ms in provider_config.json; it is the denominator
-      # of the period-utilization metric.
+      # of the derived period-utilization series. It does not affect RTF, which
+      # transcription-service measures for itself.
       TRANSCRIPTION_JOB_PERIOD_MS: ${MONITORING_JOB_PERIOD_MS:-1000}
       NODE_SERVER_BASE_URL: http://node-server:80
       SESSION_MANAGER_BASE_URL: http://session-manager:80
@@ -231,8 +227,6 @@ services:
       # whose WAV header disagrees rather than resampling it.
       CANARY_SAMPLE_RATE: ${MONITORING_CANARY_SAMPLE_RATE:-16000}
       CANARY_CHANNELS: ${MONITORING_CANARY_CHANNELS:-1}
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - backend
     restart: unless-stopped

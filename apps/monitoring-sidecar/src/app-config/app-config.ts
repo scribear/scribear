@@ -7,9 +7,6 @@ import { LogLevel } from '@scribear/base-fastify-server';
 import type { AlertThresholds } from '#src/server/shared/alerts/alert-rules.js';
 import type { CanaryAuthConfig } from '#src/server/shared/canary/canary-auth.js';
 import type { CanaryRunnerConfig } from '#src/server/shared/canary/canary-runner.service.js';
-import type { DockerLogSourceConfig } from '#src/server/shared/log-ingest/docker-log-source.js';
-import { DEFAULT_SERVICE_DIALECTS } from '#src/server/shared/log-ingest/docker-log-source.js';
-import type { LogIngestConfig } from '#src/server/shared/log-ingest/log-ingest.service.js';
 import type { NodeStatusPollerConfig } from '#src/server/shared/node-status/node-status-poller.service.js';
 import type {
   ProbePollerConfig,
@@ -23,10 +20,6 @@ const CONFIG_SCHEMA = Type.Object({
   LOG_LEVEL: Type.Enum(LogLevel),
   PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
   HOST: Type.String(),
-
-  // Log ingest
-  DOCKER_SOCKET_PATH: Type.String({ default: '/var/run/docker.sock' }),
-  COMPOSE_PROJECT: Type.String({ default: 'scribear' }),
 
   /**
    * Must match `job_period_ms` in the deployed provider_config.json. It is the
@@ -81,7 +74,6 @@ const CONFIG_SCHEMA = Type.Object({
   // Alert thresholds (§4 defaults; every one is deployment-tunable)
   ALERT_RATE_WINDOW_SEC: Type.Integer({ minimum: 1, default: 120 }),
   ALERT_UPSTREAM_CHURN_COUNT: Type.Integer({ minimum: 1, default: 3 }),
-  ALERT_CONFIG_POLL_ERROR_COUNT: Type.Integer({ minimum: 1, default: 1 }),
   ALERT_DECODE_DROP_COUNT: Type.Integer({ minimum: 1, default: 10 }),
   ALERT_BUFFER_OVERFLOW_COUNT: Type.Integer({ minimum: 1, default: 5 }),
   ALERT_RTF_P95: Type.Number({ minimum: 0, default: 1.0 }),
@@ -180,23 +172,6 @@ export class AppConfig {
     };
   }
 
-  get logIngestConfig(): LogIngestConfig {
-    return {
-      jobPeriodMs: this._env.TRANSCRIPTION_JOB_PERIOD_MS,
-      // The long-poll route session-manager serves; a 401 here is the §3 N2
-      // secret-drift detector.
-      configStreamUrlFragment: '/session-config-stream/',
-    };
-  }
-
-  get dockerLogSourceConfig(): DockerLogSourceConfig {
-    return {
-      socketPath: this._env.DOCKER_SOCKET_PATH,
-      composeProject: this._env.COMPOSE_PROJECT,
-      services: DEFAULT_SERVICE_DIALECTS,
-    };
-  }
-
   get probePollerConfig(): ProbePollerConfig {
     const targets: ProbeTarget[] = [
       {
@@ -263,7 +238,6 @@ export class AppConfig {
     return {
       rateWindowMs: this._env.ALERT_RATE_WINDOW_SEC * SECOND_MS,
       upstreamChurnCount: this._env.ALERT_UPSTREAM_CHURN_COUNT,
-      configPollErrorCount: this._env.ALERT_CONFIG_POLL_ERROR_COUNT,
       decodeDropCount: this._env.ALERT_DECODE_DROP_COUNT,
       bufferOverflowCount: this._env.ALERT_BUFFER_OVERFLOW_COUNT,
       rtfP95: this._env.ALERT_RTF_P95,

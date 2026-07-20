@@ -8,8 +8,6 @@ import { AlertEvaluatorService } from '#src/server/shared/alerts/alert-evaluator
 import { DEFAULT_RULES } from '#src/server/shared/alerts/alert-rules.js';
 import { CanaryAuthClient } from '#src/server/shared/canary/canary-auth.js';
 import { CanaryRunnerService } from '#src/server/shared/canary/canary-runner.service.js';
-import { DockerLogSource } from '#src/server/shared/log-ingest/docker-log-source.js';
-import { LogIngestService } from '#src/server/shared/log-ingest/log-ingest.service.js';
 import { MetricsRegistry } from '#src/server/shared/metrics/metrics-registry.service.js';
 import { NodeStatusPollerService } from '#src/server/shared/node-status/node-status-poller.service.js';
 import { ProbePollerService } from '#src/server/shared/probes/probe-poller.service.js';
@@ -34,8 +32,6 @@ function registerDependencies(
   dependencyContainer.register({
     // Config values
     baseConfig: asValue(config.baseConfig),
-    logIngestConfig: asValue(config.logIngestConfig),
-    dockerLogSourceConfig: asValue(config.dockerLogSourceConfig),
     probePollerConfig: asValue(config.probePollerConfig),
     nodeStatusPollerConfig: asValue(config.nodeStatusPollerConfig),
     transcriptionMetricsPollerConfig: asValue(
@@ -53,12 +49,6 @@ function registerDependencies(
     // ingest/poller/source own long-lived state and streams. A scoped lifetime
     // would silently reset metrics on each request.
     metricsRegistry: asClass(MetricsRegistry, {
-      lifetime: Lifetime.SINGLETON,
-    }),
-    logIngestService: asClass(LogIngestService, {
-      lifetime: Lifetime.SINGLETON,
-    }),
-    dockerLogSource: asClass(DockerLogSource, {
       lifetime: Lifetime.SINGLETON,
     }),
     probePollerService: asClass(ProbePollerService, {

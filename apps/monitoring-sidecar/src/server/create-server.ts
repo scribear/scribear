@@ -14,7 +14,7 @@ export interface CreateServerOptions {
   /**
    * Skip attaching to the Docker socket and starting the probe poller.
    *
-   * Integration tests drive the ingest and poller directly with fixtures; a
+   * Integration tests drive the pollers directly with fixtures; a
    * real Docker attach would make them environment-dependent and slow.
    */
   startCollectors?: boolean;
@@ -22,7 +22,7 @@ export interface CreateServerOptions {
 
 /**
  * Initializes the monitoring sidecar: base server, DI, routes, and — unless
- * disabled — the log-ingest and probe-polling collectors.
+ * disabled — the probe poller and the two status pollers.
  *
  * Async with nothing to await, matching the `createServer` signature every
  * other service exposes so callers and tests can treat them uniformly.
@@ -75,10 +75,6 @@ async function createServer(
   if (audioMeterPage) fastify.register(audioMeterRouter);
 
   if (startCollectors) {
-    const dockerLogSource =
-      dependencyContainer.resolve<AppDependencies['dockerLogSource']>(
-        'dockerLogSource',
-      );
     const probePollerService =
       dependencyContainer.resolve<AppDependencies['probePollerService']>(
         'probePollerService',
@@ -94,10 +90,6 @@ async function createServer(
     >('canaryRunnerService');
 
     fastify.addHook('onReady', async () => {
-      // Attaching to container logs is best-effort: if the Docker socket is
-      // unavailable the sidecar still serves probe-derived metrics rather than
-      // refusing to start. The readiness probe reports the degraded state.
-      await dockerLogSource.start();
       probePollerService.start();
       // Source of the connection, upstream and auth metrics since B1.1. It is
       // a no-op when no service API key is configured, and says so once.
@@ -117,7 +109,6 @@ async function createServer(
     });
 
     fastify.addHook('onClose', () => {
-      dockerLogSource.stop();
       probePollerService.stop();
       nodeStatusPollerService.stop();
       transcriptionMetricsPollerService.stop();
