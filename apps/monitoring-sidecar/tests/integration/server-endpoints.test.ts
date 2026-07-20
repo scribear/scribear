@@ -5,7 +5,7 @@ import type { BaseFastifyInstance } from '@scribear/base-fastify-server';
 import { AppConfig } from '#src/app-config/app-config.js';
 import createServer from '#src/server/create-server.js';
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
-import { nodeDecodeDrop, upstreamState } from '#tests/fixtures/log-lines.js';
+import { pythonDecodeDrop } from '#tests/fixtures/log-lines.js';
 
 /**
  * Boots the real server with collectors disabled, then drives the ingest
@@ -71,7 +71,7 @@ describe('server endpoints', () => {
 
     it('reports ready once the ingest has seen traffic', async () => {
       // Arrange
-      ingestService().ingest(nodeDecodeDrop());
+      ingestService().ingest(pythonDecodeDrop());
 
       // Act
       const res = await fastify.inject({
@@ -88,7 +88,7 @@ describe('server endpoints', () => {
     it('returns counters, alerts and ingest health as JSON', async () => {
       // Arrange
       const ingest = ingestService();
-      ingest.ingest(nodeDecodeDrop());
+      ingest.ingest(pythonDecodeDrop());
 
       // Act
       const res = await fastify.inject({
@@ -106,13 +106,15 @@ describe('server endpoints', () => {
     });
 
     it('surfaces a firing alert through the HTTP surface', async () => {
-      // Arrange — enough churn to cross the default threshold
-      const ingest = ingestService();
-      const now = Date.now();
-      for (let i = 0; i < 5; i++) {
-        ingest.ingest(
-          upstreamState('OPEN', 'WAITING_RETRY', 'sess-1', now - i * 1_000),
+      // Arrange — enough churn to cross the default threshold. Written
+      // straight to the registry rather than through the status poller: this
+      // test is about the HTTP surface, and the poller has its own suite.
+      const metrics =
+        fastify.diContainer.resolve<AppDependencies['metricsRegistry']>(
+          'metricsRegistry',
         );
+      for (let i = 0; i < 5; i++) {
+        metrics.upstreamChurnTotal.inc({ service: 'node-server' });
       }
 
       // Act
@@ -131,7 +133,7 @@ describe('server endpoints', () => {
   describe('prometheus', (it) => {
     it('serves the text exposition format with the correct content type', async () => {
       // Arrange
-      ingestService().ingest(nodeDecodeDrop());
+      ingestService().ingest(pythonDecodeDrop());
 
       // Act
       const res = await fastify.inject({ method: 'GET', url: '/metrics' });

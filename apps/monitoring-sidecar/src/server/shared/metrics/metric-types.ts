@@ -147,6 +147,18 @@ export class Gauge {
     return this._values.get(seriesKey(labels));
   }
 
+  /**
+   * Forgets a series entirely.
+   *
+   * A gauge describing something that no longer exists — a session that ended,
+   * say — must disappear rather than freeze at its last value, which would read
+   * as "still there, unchanged" forever. There is no counter equivalent on
+   * purpose: counters are monotonic and deleting one would break differencing.
+   */
+  delete(labels: Labels): void {
+    this._values.delete(seriesKey(labels));
+  }
+
   entries(): { labels: Labels; value: number }[] {
     return [...this._values].map(([key, value]) => ({
       labels: parseSeriesKey(key),

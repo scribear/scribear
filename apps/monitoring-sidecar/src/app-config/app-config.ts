@@ -10,6 +10,7 @@ import type { CanaryRunnerConfig } from '#src/server/shared/canary/canary-runner
 import type { DockerLogSourceConfig } from '#src/server/shared/log-ingest/docker-log-source.js';
 import { DEFAULT_SERVICE_DIALECTS } from '#src/server/shared/log-ingest/docker-log-source.js';
 import type { LogIngestConfig } from '#src/server/shared/log-ingest/log-ingest.service.js';
+import type { NodeStatusPollerConfig } from '#src/server/shared/node-status/node-status-poller.service.js';
 import type {
   ProbePollerConfig,
   ProbeTarget,
@@ -44,6 +45,22 @@ const CONFIG_SCHEMA = Type.Object({
   TRANSCRIPTION_SERVICE_BASE_URL: Type.String({
     default: 'http://transcription-service:80',
   }),
+
+  // node-server status polling (B1.1)
+  /**
+   * Must match node-server's `NODE_SERVER_SERVICE_API_KEY`. Empty disables
+   * status polling entirely, which leaves the connection, upstream, auth and
+   * latency-quality metrics empty — they have no other source since the log
+   * parsers for them were retired.
+   */
+  NODE_SERVER_SERVICE_API_KEY: Type.String({ default: '' }),
+  /**
+   * Status poll cadence. Defaults to the probe interval: the two answer
+   * adjacent questions ("is it up" / "what is it doing") and there is no reason
+   * for them to drift apart unless a deployment finds the status payload
+   * expensive.
+   */
+  NODE_STATUS_INTERVAL_SEC: Type.Integer({ minimum: 1, default: 10 }),
 
   // Alert thresholds (§4 defaults; every one is deployment-tunable)
   ALERT_RATE_WINDOW_SEC: Type.Integer({ minimum: 1, default: 120 }),
@@ -191,6 +208,19 @@ export class AppConfig {
       intervalMs: this._env.PROBE_INTERVAL_SEC * SECOND_MS,
       timeoutMs: this._env.PROBE_TIMEOUT_SEC * SECOND_MS,
       targets,
+    };
+  }
+
+  get nodeStatusPollerConfig(): NodeStatusPollerConfig {
+    return {
+      // Fail closed. Polling without a key would 401 on every interval
+      // forever, and node-server would log an auth failure each time.
+      enabled: this._env.NODE_SERVER_SERVICE_API_KEY.length > 0,
+      intervalMs: this._env.NODE_STATUS_INTERVAL_SEC * SECOND_MS,
+      timeoutMs: this._env.PROBE_TIMEOUT_SEC * SECOND_MS,
+      service: 'node-server',
+      statusUrl: `${this._env.NODE_SERVER_BASE_URL}/api/node-server/v1/status`,
+      serviceApiKey: this._env.NODE_SERVER_SERVICE_API_KEY,
     };
   }
 

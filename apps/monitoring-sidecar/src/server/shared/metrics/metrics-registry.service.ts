@@ -31,12 +31,25 @@ const RATIO_BUCKETS = [
  * consumer is the admin SPA's JSON snapshot.
  */
 export class MetricsRegistry {
-  // --- A1: log-derived ----------------------------------------------------
+  // --- B1.1: node-server status endpoint ----------------------------------
+  //
+  // The four metrics below were originally derived from node-server log text
+  // (A1). They now come from `GET /api/node-server/v1/status`, which reports
+  // the same events as authoritative in-process counters. The metric names are
+  // unchanged, so nothing downstream had to move; only the source did.
+  //
+  // Log inference was lossy by construction: it depended on the log level, on
+  // the collector being attached for the whole window, and on nothing rotating
+  // out. See PLAN-B1.1-node-server-status.md §5.
 
   /**
    * SAFP frames rejected by the decoder. Rising on the node side means the
    * sender is emitting frames this build cannot parse — the version-skew
    * signature (§3 U2 / S4).
+   *
+   * Two sources, distinguished by the `side` label: `node` comes from the
+   * status endpoint, `transcription` is still log-derived because
+   * transcription-service has no equivalent endpoint yet (B1.2).
    */
   readonly safpDecodeDropsTotal = new Counter(
     'scribear_safp_decode_drops_total',
@@ -46,9 +59,6 @@ export class MetricsRegistry {
   /**
    * WebSocket closes on node-server's transcription stream, labelled by close
    * code, reason, role, and initiator (`server` vs `peer`).
-   *
-   * Requires the close-logging added to `transcription-stream.controller.ts`;
-   * before that change no close was observable from logs at all.
    */
   readonly wsCloseTotal = new Counter(
     'scribear_ws_close_total',
@@ -65,14 +75,151 @@ export class MetricsRegistry {
   );
 
   /**
-   * Upstream churn: transitions that indicate a connection was lost and is
-   * being retried, per session. This is the BUG.txt / §3 N1 detector — a
-   * healthy session contributes zero.
+   * Upstream churn: connection lost and being retried. This is the BUG.txt /
+   * §3 N1 detector — a healthy session contributes zero.
+   *
+   * Process-wide rather than per-session, which is the one thing that got
+   * coarser in the cut-over: node-server counts churn as a whole and reports
+   * per-session state as a gauge instead. The trade is worth it — the counter
+   * is now lossless, whereas the log-derived per-session count silently missed
+   * anything that happened while the collector was detached. The affected
+   * sessions are still nameable via {@link nodeSessionUpstreamUp}.
    */
   readonly upstreamChurnTotal = new Counter(
     'scribear_node_upstream_churn_total',
-    'Upstream transcription reconnect events, by session.',
+    'Upstream transcription reconnect events.',
   );
+
+  /** Auth handshakes node-server rejected, by reason (§3 U3 / S2). */
+  readonly nodeAuthFailuresTotal = new Counter(
+    'scribear_node_auth_failures_total',
+    'Transcription-stream auth attempts rejected, by reason.',
+  );
+
+  /**
+   * Auth handshakes that succeeded. The denominator that makes S2 a ratio:
+   * a few rejections are normal, near-total rejection is signing-key drift.
+   */
+  readonly nodeAuthSuccessTotal = new Counter(
+    'scribear_node_auth_success_total',
+    'Transcription-stream auth attempts that succeeded.',
+  );
+
+  /** Connections that never sent `auth` within the watchdog window (§3 U3). */
+  readonly nodeAuthTimeoutsTotal = new Counter(
+    'scribear_node_auth_timeouts_total',
+    'Connections closed for not authenticating in time.',
+  );
+
+  /** Source registrations that threw, closing the socket with 1011. */
+  readonly nodeOrchestratorFailuresTotal = new Counter(
+    'scribear_node_orchestrator_failures_total',
+    'Source registrations that failed inside the orchestrator.',
+  );
+
+  /**
+   * Audio frames evicted at the per-session pending-chunk cap (§3 N3).
+   * Sustained eviction means latency correlation is degrading silently.
+   */
+  readonly nodePendingChunkEvictionsTotal = new Counter(
+    'scribear_node_pending_chunk_evictions_total',
+    'Uncorrelated audio frames evicted at the per-session cap.',
+  );
+
+  /** Latency samples published. Denominator for the two counters below. */
+  readonly nodeLatencySamplesTotal = new Counter(
+    'scribear_node_latency_samples_total',
+    'Latency samples published by node-server.',
+  );
+
+  /**
+   * Samples whose end-to-end time computed negative — the source clock is
+   * ahead of node-server's despite sync (§3 S5). Meaningful as a share of
+   * {@link nodeLatencySamplesTotal}, not as a raw count.
+   */
+  readonly nodeLatencyE2eNegativeTotal = new Counter(
+    'scribear_node_latency_e2e_negative_total',
+    'Latency samples discarded for a negative end-to-end time (clock skew).',
+  );
+
+  /** Samples with no source timestamp, so no end-to-end figure was possible. */
+  readonly nodeLatencyE2eUnavailableTotal = new Counter(
+    'scribear_node_latency_e2e_unavailable_total',
+    'Latency samples with no end-to-end time available.',
+  );
+
+  /** Transcripts referencing an already-evicted or pruned chunk (§3 N3). */
+  readonly nodeLatencyUnmatchedChunkTotal = new Counter(
+    'scribear_node_latency_unmatched_chunk_total',
+    'Transcripts that could not be correlated to an audio frame.',
+  );
+
+  /** node-server restarts observed as a change of `processUid`. */
+  readonly nodeProcessRestartsTotal = new Counter(
+    'scribear_node_process_restarts_total',
+    'Times the polled node-server process identity changed.',
+  );
+
+  /** Status polls that failed, by reason. */
+  readonly nodeStatusPollErrorsTotal = new Counter(
+    'scribear_node_status_poll_errors_total',
+    'Failed polls of the node-server status endpoint, by reason.',
+  );
+
+  /**
+   * 1 when the last status poll succeeded, 0 otherwise.
+   *
+   * Distinct from the liveness probe: node-server can be alive and still be
+   * refusing the sidecar's service key, in which case every counter above is
+   * frozen at its last value. Without this gauge that looks identical to a
+   * quiet, healthy system.
+   */
+  readonly nodeStatusUp = new Gauge(
+    'scribear_node_status_up',
+    'Whether the last node-server status poll succeeded.',
+  );
+
+  /** Sessions currently holding an upstream transcription connection. */
+  readonly nodeActiveSessions = new Gauge(
+    'scribear_node_active_sessions',
+    'Sessions with a live upstream transcription connection.',
+  );
+
+  /** Source-role connections feeding a session. */
+  readonly nodeSessionSources = new Gauge(
+    'scribear_node_session_sources',
+    'Source connections per session.',
+  );
+
+  /**
+   * Connections subscribed to a session, both roles (§3 N4). Nothing measured
+   * this before B1.1 — receive-only clients never reach the orchestrator, so
+   * fan-out cost in a large room was entirely invisible.
+   */
+  readonly nodeSessionSubscribers = new Gauge(
+    'scribear_node_session_subscribers',
+    'Subscribed connections per session, both roles.',
+  );
+
+  /** Audio frames awaiting transcript correlation, per session (§3 N3). */
+  readonly nodeSessionPendingChunks = new Gauge(
+    'scribear_node_session_pending_chunks',
+    'Audio frames awaiting transcript correlation, per session.',
+  );
+
+  /** 1 when a session's upstream is OPEN, 0 in any other state (§3 N1). */
+  readonly nodeSessionUpstreamUp = new Gauge(
+    'scribear_node_session_upstream_up',
+    'Whether a session’s upstream transcription connection is OPEN.',
+  );
+
+  /** Consecutive reconnect attempts for a session's upstream (§3 N1). */
+  readonly nodeSessionUpstreamRetryAttempt = new Gauge(
+    'scribear_node_session_upstream_retry_attempt',
+    'Consecutive upstream reconnect attempts, per session.',
+  );
+
+  // --- A1: log-derived ----------------------------------------------------
 
   /** Queue wait before a transcription job starts executing. */
   readonly asrSchedulingDelayMs = new Histogram(
@@ -281,6 +428,17 @@ export class MetricsRegistry {
       this.wsCloseTotal,
       this.upstreamStateTotal,
       this.upstreamChurnTotal,
+      this.nodeAuthFailuresTotal,
+      this.nodeAuthSuccessTotal,
+      this.nodeAuthTimeoutsTotal,
+      this.nodeOrchestratorFailuresTotal,
+      this.nodePendingChunkEvictionsTotal,
+      this.nodeLatencySamplesTotal,
+      this.nodeLatencyE2eNegativeTotal,
+      this.nodeLatencyE2eUnavailableTotal,
+      this.nodeLatencyUnmatchedChunkTotal,
+      this.nodeProcessRestartsTotal,
+      this.nodeStatusPollErrorsTotal,
       this.asrBufferOverflowTotal,
       this.asrAudioTooFastTotal,
       this.asrNoSpeechTotal,
@@ -302,6 +460,13 @@ export class MetricsRegistry {
       this.probeLatencyMs,
       this.probeConsecutiveFailures,
       this.serviceBuildInfo,
+      this.nodeStatusUp,
+      this.nodeActiveSessions,
+      this.nodeSessionSources,
+      this.nodeSessionSubscribers,
+      this.nodeSessionPendingChunks,
+      this.nodeSessionUpstreamUp,
+      this.nodeSessionUpstreamRetryAttempt,
       this.canaryUp,
       this.canaryAccuracyRecall,
       this.canaryAccuracyPrecision,

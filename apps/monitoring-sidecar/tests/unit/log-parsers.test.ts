@@ -37,22 +37,6 @@ function createIngest() {
 
 describe('log parsers', () => {
   describe('decode drops', (it) => {
-    it('counts node-side malformed frames with the node label', () => {
-      // Arrange
-      const { metrics, ingest } = createIngest();
-
-      // Act
-      ingest.ingest(nodeDecodeDrop());
-
-      // Assert
-      expect(
-        metrics.safpDecodeDropsTotal.get({
-          service: 'node-server',
-          side: 'node',
-        }),
-      ).toBe(1);
-    });
-
     it('counts the capitalized Python variant separately by side', () => {
       // Arrange
       const { metrics, ingest } = createIngest();
@@ -68,104 +52,44 @@ describe('log parsers', () => {
         }),
       ).toBe(1);
     });
+
+    it('no longer claims the node-server variant, which the status endpoint now reports', () => {
+      // Arrange - B1.1 retired this parser; the line is still logged for
+      // forensics, so the ingest must treat it as an ordinary unclaimed line
+      // rather than double-counting alongside the status poller.
+      const { metrics, ingest } = createIngest();
+
+      // Act
+      ingest.ingest(nodeDecodeDrop());
+
+      // Assert
+      expect(
+        metrics.safpDecodeDropsTotal.get({
+          service: 'node-server',
+          side: 'node',
+        }),
+      ).toBe(0);
+      expect(metrics.logLinesUnparsedTotal.total()).toBe(1);
+    });
   });
 
-  describe('websocket closes', (it) => {
-    it('records code, reason, role and a server initiator', () => {
-      // Arrange
+  describe('retired node-server parsers', (it) => {
+    it('ignores WebSocket close and upstream state lines', () => {
+      // Arrange - these three signals moved to GET /status in B1.1. Their log
+      // lines remain in node-server as the only per-event forensic record, and
+      // must not feed metrics from both sources at once.
       const { metrics, ingest } = createIngest();
 
       // Act
       ingest.ingest(wsClose(1008, 'invalid-token'));
-
-      // Assert
-      expect(
-        metrics.wsCloseTotal.get({
-          service: 'node-server',
-          code: '1008',
-          reason: 'invalid-token',
-          role: 'source',
-          initiator: 'server',
-        }),
-      ).toBe(1);
-    });
-
-    it('distinguishes a peer-initiated close from a server-initiated one', () => {
-      // Arrange
-      const { metrics, ingest } = createIngest();
-
-      // Act
       ingest.ingest(wsClosePeer(1006, 'abnormal'));
-
-      // Assert
-      expect(
-        metrics.wsCloseTotal.get({
-          service: 'node-server',
-          code: '1006',
-          reason: 'abnormal',
-          role: 'source',
-          initiator: 'peer',
-        }),
-      ).toBe(1);
-    });
-  });
-
-  describe('upstream state transitions', (it) => {
-    it('counts every transition', () => {
-      // Arrange
-      const { metrics, ingest } = createIngest();
-
-      // Act
-      ingest.ingest(upstreamState('IDLE', 'CONNECTING'));
-
-      // Assert
-      expect(
-        metrics.upstreamStateTotal.get({
-          service: 'node-server',
-          from: 'IDLE',
-          to: 'CONNECTING',
-        }),
-      ).toBe(1);
-    });
-
-    it('does not count a healthy session start as churn', () => {
-      // Arrange
-      const { metrics, ingest } = createIngest();
-
-      // Act — the normal startup path
-      ingest.ingest(upstreamState('IDLE', 'CONNECTING'));
-      ingest.ingest(upstreamState('CONNECTING', 'HANDSHAKING'));
-      ingest.ingest(upstreamState('HANDSHAKING', 'OPEN'));
-
-      // Assert — churn must stay at zero, or every session start would alert
-      expect(metrics.upstreamChurnTotal.total()).toBe(0);
-    });
-
-    it('counts a drop from OPEN back into retry as churn', () => {
-      // Arrange
-      const { metrics, ingest } = createIngest();
-
-      // Act
       ingest.ingest(upstreamState('OPEN', 'WAITING_RETRY'));
 
       // Assert
-      expect(
-        metrics.upstreamChurnTotal.get({
-          service: 'node-server',
-          sessionUid: 'sess-1',
-        }),
-      ).toBe(1);
-    });
-
-    it('does not count a deliberate teardown as churn', () => {
-      // Arrange
-      const { metrics, ingest } = createIngest();
-
-      // Act — terminate() drives OPEN -> CLOSED, which is a normal end of session
-      ingest.ingest(upstreamState('OPEN', 'CLOSED'));
-
-      // Assert
+      expect(metrics.wsCloseTotal.total()).toBe(0);
+      expect(metrics.upstreamStateTotal.total()).toBe(0);
       expect(metrics.upstreamChurnTotal.total()).toBe(0);
+      expect(metrics.logLinesUnparsedTotal.total()).toBe(3);
     });
   });
 

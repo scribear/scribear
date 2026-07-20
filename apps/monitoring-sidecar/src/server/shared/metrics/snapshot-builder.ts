@@ -12,6 +12,12 @@ export interface CounterSeries {
   windowValue: number;
 }
 
+/** A gauge series flattened for JSON transport. */
+export interface GaugeSeries {
+  labels: Record<string, string>;
+  value: number;
+}
+
 /** A histogram series with computed percentiles. */
 export interface HistogramSeries {
   labels: Record<string, string>;
@@ -28,9 +34,16 @@ export interface MetricsSnapshot {
   alerts: Alert[];
   /** Probe status matrix (A3). */
   probes: ProbeStatus[];
-  /** Log-derived counters, keyed by metric name. */
+  /** Counters, keyed by metric name. */
   counters: Record<string, CounterSeries[]>;
-  /** Log-derived histograms with percentiles, keyed by metric name. */
+  /**
+   * Point-in-time gauges, keyed by metric name. Where a counter answers "how
+   * often has this happened", these answer "what is true right now" - live
+   * session counts, per-session upstream state, whether the status poll is
+   * working. A session that ends disappears from here rather than freezing.
+   */
+  gauges: Record<string, GaugeSeries[]>;
+  /** Histograms with percentiles, keyed by metric name. */
   histograms: Record<string, HistogramSeries[]>;
   /** Ingest self-observability — is the collector actually seeing anything? */
   ingest: IngestHealth;
@@ -83,6 +96,14 @@ export function buildSnapshot(
     }));
   }
 
+  const gauges: Record<string, GaugeSeries[]> = {};
+  for (const gauge of metrics.gauges()) {
+    gauges[gauge.name] = gauge.entries().map(({ labels, value }) => ({
+      labels: { ...labels },
+      value,
+    }));
+  }
+
   const histograms: Record<string, HistogramSeries[]> = {};
   for (const histogram of metrics.histograms()) {
     const series: HistogramSeries[] = [];
@@ -105,6 +126,7 @@ export function buildSnapshot(
     alerts,
     probes,
     counters,
+    gauges,
     histograms,
     canary,
     ingest: {

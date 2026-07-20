@@ -11,6 +11,7 @@ import { CanaryRunnerService } from '#src/server/shared/canary/canary-runner.ser
 import { DockerLogSource } from '#src/server/shared/log-ingest/docker-log-source.js';
 import { LogIngestService } from '#src/server/shared/log-ingest/log-ingest.service.js';
 import { MetricsRegistry } from '#src/server/shared/metrics/metrics-registry.service.js';
+import { NodeStatusPollerService } from '#src/server/shared/node-status/node-status-poller.service.js';
 import { ProbePollerService } from '#src/server/shared/probes/probe-poller.service.js';
 
 import type { AppConfig } from './app-dependencies.js';
@@ -35,6 +36,7 @@ function registerDependencies(
     logIngestConfig: asValue(config.logIngestConfig),
     dockerLogSourceConfig: asValue(config.dockerLogSourceConfig),
     probePollerConfig: asValue(config.probePollerConfig),
+    nodeStatusPollerConfig: asValue(config.nodeStatusPollerConfig),
     alertThresholds: asValue(config.alertThresholds),
     canaryAuthConfig: asValue(config.canaryAuthConfig),
     canaryRunnerConfig: asValue(config.canaryRunnerConfig(expectedTranscript)),
@@ -56,6 +58,9 @@ function registerDependencies(
       lifetime: Lifetime.SINGLETON,
     }),
     probePollerService: asClass(ProbePollerService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    nodeStatusPollerService: asClass(NodeStatusPollerService, {
       lifetime: Lifetime.SINGLETON,
     }),
     canaryAuthClient: asClass(CanaryAuthClient, {

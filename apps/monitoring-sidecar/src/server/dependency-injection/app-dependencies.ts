@@ -31,6 +31,10 @@ import type {
 } from '#src/server/shared/log-ingest/log-ingest.service.js';
 import type { MetricsRegistry } from '#src/server/shared/metrics/metrics-registry.service.js';
 import type {
+  NodeStatusPollerConfig,
+  NodeStatusPollerService,
+} from '#src/server/shared/node-status/node-status-poller.service.js';
+import type {
   ProbePollerConfig,
   ProbePollerService,
 } from '#src/server/shared/probes/probe-poller.service.js';
@@ -44,6 +48,7 @@ interface AppDependencies extends BaseDependencies {
   logIngestConfig: LogIngestConfig;
   dockerLogSourceConfig: DockerLogSourceConfig;
   probePollerConfig: ProbePollerConfig;
+  nodeStatusPollerConfig: NodeStatusPollerConfig;
   alertThresholds: AlertThresholds;
   alertRules: readonly AlertRule[];
   canaryAuthConfig: CanaryAuthConfig;
@@ -54,6 +59,7 @@ interface AppDependencies extends BaseDependencies {
   logIngestService: LogIngestService;
   dockerLogSource: DockerLogSource;
   probePollerService: ProbePollerService;
+  nodeStatusPollerService: NodeStatusPollerService;
   canaryAuthClient: CanaryAuthClient;
   canaryRunnerService: CanaryRunnerService;
   alertEvaluatorService: AlertEvaluatorService;

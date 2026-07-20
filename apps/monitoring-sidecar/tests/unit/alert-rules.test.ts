@@ -11,6 +11,7 @@ import {
   canaryQualityRule,
   configPollErrorRule,
   decodeDropRule,
+  nodeStatusUnavailableRule,
   probeDownRule,
   transcriptionSaturationRule,
   upstreamChurnRule,
@@ -93,7 +94,7 @@ describe('alert rules', () => {
     it('stays silent below the threshold', () => {
       // Arrange
       const metrics = new MetricsRegistry();
-      metrics.upstreamChurnTotal.inc({ sessionUid: 'sess-1' }, 1, NOW);
+      metrics.upstreamChurnTotal.inc({ service: 'node-server' }, 1, NOW);
 
       // Act
       const alerts = upstreamChurnRule(context(metrics));
@@ -102,12 +103,17 @@ describe('alert rules', () => {
       expect(alerts).toHaveLength(0);
     });
 
-    it('fires per session once churn crosses the threshold', () => {
-      // Arrange
+    it('fires once churn crosses the threshold, naming the affected session', () => {
+      // Arrange - the counter is process-wide since B1.1, so the room is named
+      // from the per-session upstream gauge rather than from a counter label.
       const metrics = new MetricsRegistry();
       for (let i = 0; i < 4; i++) {
-        metrics.upstreamChurnTotal.inc({ sessionUid: 'sess-1' }, 1, NOW - i);
+        metrics.upstreamChurnTotal.inc({ service: 'node-server' }, 1, NOW - i);
       }
+      metrics.nodeSessionUpstreamUp.set(
+        { service: 'node-server', sessionUid: 'sess-1' },
+        0,
+      );
 
       // Act
       const alerts = upstreamChurnRule(context(metrics));
@@ -121,12 +127,28 @@ describe('alert rules', () => {
       expect(alerts[0]?.likelyCause).toContain('session-config-stream');
     });
 
+    it('still fires when no session is currently down', () => {
+      // Arrange - a link that flapped and recovered between polls leaves churn
+      // in the window but nothing to name. The count is what fires the rule.
+      const metrics = new MetricsRegistry();
+      for (let i = 0; i < 4; i++) {
+        metrics.upstreamChurnTotal.inc({ service: 'node-server' }, 1, NOW - i);
+      }
+
+      // Act
+      const alerts = upstreamChurnRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]?.summary).toContain('across all sessions');
+    });
+
     it('ignores churn that has aged out of the rate window', () => {
       // Arrange — old enough to fall outside the window
       const metrics = new MetricsRegistry();
       for (let i = 0; i < 5; i++) {
         metrics.upstreamChurnTotal.inc(
-          { sessionUid: 'sess-1' },
+          { service: 'node-server' },
           1,
           NOW - 10 * 60_000,
         );
@@ -244,6 +266,59 @@ describe('alert rules', () => {
 
       // Assert
       expect(alerts).toHaveLength(0);
+    });
+  });
+
+  describe('node status unavailable', (it) => {
+    it('stays silent while the status poll is succeeding', () => {
+      // Arrange
+      const metrics = new MetricsRegistry();
+      metrics.nodeStatusUp.set({ service: 'node-server' }, 1);
+
+      // Act
+      const alerts = nodeStatusUnavailableRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('escalates a rejected service key to critical', () => {
+      // Arrange - the blind spot the B1.1 cut-over introduced: node-server is
+      // healthy, every probe is green, and four metrics silently report zero.
+      const metrics = new MetricsRegistry();
+      metrics.nodeStatusUp.set({ service: 'node-server' }, 0);
+      metrics.nodeStatusPollErrorsTotal.inc(
+        { service: 'node-server', reason: 'unauthorized' },
+        1,
+        NOW,
+      );
+
+      // Act
+      const alerts = nodeStatusUnavailableRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]?.severity).toBe(AlertSeverity.CRITICAL);
+      expect(alerts[0]?.likelyCause).toContain('NODE_SERVER_SERVICE_API_KEY');
+    });
+
+    it('warns rather than pages when the endpoint is merely unreachable', () => {
+      // Arrange - the probe poller already alerts on an unreachable service, so
+      // this would be the second alert for one outage.
+      const metrics = new MetricsRegistry();
+      metrics.nodeStatusUp.set({ service: 'node-server' }, 0);
+      metrics.nodeStatusPollErrorsTotal.inc(
+        { service: 'node-server', reason: 'unreachable' },
+        1,
+        NOW,
+      );
+
+      // Act
+      const alerts = nodeStatusUnavailableRule(context(metrics));
+
+      // Assert
+      expect(alerts[0]?.severity).toBe(AlertSeverity.WARNING);
+      expect(alerts[0]?.stage).toBe(PipelineStage.CONTROL_PLANE);
     });
   });
 

@@ -118,28 +118,41 @@ export type AlertRule = (context: AlertContext) => Alert[];
  * §3 N1 — upstream WS to transcription-service flapping.
  *
  * The live `BUG.txt` failure: the session reports "running" but no captions
- * arrive because the upstream link keeps dropping and reconnecting. Fires per
- * session so the dashboard can name the affected room.
+ * arrive because the upstream link keeps dropping and reconnecting.
+ *
+ * Each churn series is evaluated against its own labels rather than a fixed
+ * label name, because the source changed shape in B1.1: node-server's status
+ * endpoint counts churn per process, where the old log-derived counter counted
+ * it per session. Matching on whatever labels a series actually carries keeps
+ * this rule correct under either, and the affected rooms are still named — from
+ * the per-session upstream gauge, which the endpoint reports directly.
  */
 export const upstreamChurnRule: AlertRule = (ctx) => {
   const alerts: Alert[] = [];
   const window = ctx.thresholds.rateWindowMs;
 
   for (const { labels } of ctx.metrics.upstreamChurnTotal.entries()) {
-    const sessionUid = labels['sessionUid'] ?? 'unknown';
     const count = ctx.metrics.upstreamChurnTotal.windowCount(
-      { sessionUid },
+      labels,
       window,
       ctx.nowMs,
     );
     if (count < ctx.thresholds.upstreamChurnCount) continue;
 
+    const sessionUid = labels['sessionUid'];
+    const affected = sessionUid ?? sessionsWithUpstreamDown(ctx).join(', ');
+    const scope =
+      affected.length > 0 ? ` for session ${affected}` : ' across all sessions';
+
     alerts.push({
-      id: `upstream-churn:${sessionUid}`,
+      id:
+        sessionUid === undefined
+          ? 'upstream-churn'
+          : `upstream-churn:${sessionUid}`,
       failureModes: ['N1'],
       severity: AlertSeverity.CRITICAL,
       stage: PipelineStage.NODE,
-      summary: `Upstream transcription link flapping for session ${sessionUid}: ${String(count)} reconnects in ${String(Math.round(window / 1000))}s.`,
+      summary: `Upstream transcription link flapping${scope}: ${String(count)} reconnects in ${String(Math.round(window / 1000))}s.`,
       likelyCause:
         'Transcription upstream flapping — check session-manager 401s on session-config-stream (secret drift between SESSION_MANAGER service API key and node-server), then transcription-service availability.',
       value: count,
@@ -148,6 +161,20 @@ export const upstreamChurnRule: AlertRule = (ctx) => {
   }
   return alerts;
 };
+
+/**
+ * Sessions whose upstream is currently not OPEN, newest label order.
+ *
+ * Used to name rooms in the churn alert now that the counter itself is
+ * process-wide. A session that has already recovered by evaluation time will
+ * not appear, which is why the count — not this list — is what fires the rule.
+ */
+function sessionsWithUpstreamDown(ctx: AlertContext): string[] {
+  return ctx.metrics.nodeSessionUpstreamUp
+    .entries()
+    .filter(({ value }) => value === 0)
+    .map(({ labels }) => labels['sessionUid'] ?? 'unknown');
+}
 
 /**
  * §3 N2 / S3 — session-config-stream long poll rejected.
@@ -319,6 +346,46 @@ export const authFailureRule: AlertRule = (ctx) => {
       threshold: ctx.thresholds.authFailureRatio,
     },
   ];
+};
+
+/**
+ * The node-server status poll is failing, so the metrics sourced from it are
+ * stale.
+ *
+ * This rule exists because of the B1.1 cut-over. WebSocket closes, upstream
+ * churn, upstream state and node-side decode drops used to be inferred from log
+ * text; they now come only from the status endpoint. An unreachable node-server
+ * is already covered by the probe poller — but a node-server that is perfectly
+ * healthy and simply *rejecting the sidecar's service key* is not: probes stay
+ * green, and four metrics quietly report nothing forever. Without this rule
+ * that state is indistinguishable from a quiet, healthy deployment.
+ */
+export const nodeStatusUnavailableRule: AlertRule = (ctx) => {
+  const alerts: Alert[] = [];
+  for (const { labels, value } of ctx.metrics.nodeStatusUp.entries()) {
+    if (value === 1) continue;
+    const service = labels['service'] ?? 'node-server';
+
+    const reasons = ctx.metrics.nodeStatusPollErrorsTotal
+      .entries()
+      .filter(({ labels: l }) => l['service'] === service)
+      .map(({ labels: l }) => l['reason'] ?? 'unknown');
+    const unauthorized = reasons.includes('unauthorized');
+
+    alerts.push({
+      id: `node-status-unavailable:${service}`,
+      failureModes: ['S3'],
+      severity: unauthorized ? AlertSeverity.CRITICAL : AlertSeverity.WARNING,
+      stage: PipelineStage.CONTROL_PLANE,
+      summary: `Cannot read ${service} status (${reasons.length === 0 ? 'unknown' : reasons.join(', ')}); connection, upstream and auth metrics are stale.`,
+      likelyCause: unauthorized
+        ? `${service} rejected the sidecar's service API key. Compare NODE_SERVER_SERVICE_API_KEY on both — until it matches, the WebSocket-close, upstream-churn and auth metrics report nothing while every probe stays green.`
+        : `${service}'s status endpoint is not answering. Check it is reachable on the internal network (it must not be exposed through nginx) and that the probes agree about its health.`,
+      value: 0,
+      threshold: 1,
+    });
+  }
+  return alerts;
 };
 
 /** §3 N5 / S1 / T9 — a service probe is down. */
@@ -514,6 +581,7 @@ export const DEFAULT_RULES: readonly AlertRule[] = [
   bufferOverflowRule,
   decodeDropRule,
   authFailureRule,
+  nodeStatusUnavailableRule,
   probeDownRule,
   canaryFailureRule,
   canaryQualityRule,

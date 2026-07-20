@@ -1,108 +1,153 @@
-import { describe, expect } from 'vitest';
+import { afterEach, beforeEach, describe, expect } from 'vitest';
 
 import { AlertEvaluatorService } from '#src/server/shared/alerts/alert-evaluator.service.js';
 import { DEFAULT_THRESHOLDS } from '#src/server/shared/alerts/alert-rules.js';
 import type { CanaryRunnerService } from '#src/server/shared/canary/canary-runner.service.js';
 import { LogIngestService } from '#src/server/shared/log-ingest/log-ingest.service.js';
-import type { RawLogLine } from '#src/server/shared/log-ingest/log-ingest.service.js';
 import { MetricsRegistry } from '#src/server/shared/metrics/metrics-registry.service.js';
 import { buildSnapshot } from '#src/server/shared/metrics/snapshot-builder.js';
+import { NodeStatusPollerService } from '#src/server/shared/node-status/node-status-poller.service.js';
 import type {
   ProbePollerService,
   ProbeStatus,
 } from '#src/server/shared/probes/probe-poller.service.js';
 import {
+  type FakeNodeStatus,
+  type FakeSession,
+  startFakeNodeStatus,
+  statusBody,
+} from '#tests/fixtures/fake-node-status.js';
+import {
   CONFIG_STREAM_URL,
   incomingRequest,
   requestCompleted,
-  upstreamState,
 } from '#tests/fixtures/log-lines.js';
 
-const START_MS = 1_755_624_000_000;
+const API_KEY = 'test-service-key';
+const SESSION_BAD = '44444444-4444-4444-8444-444444444444';
+const SESSION_GOOD = '55555555-5555-4555-8555-555555555555';
 
-function createStack(probes: ProbeStatus[] = []) {
-  const metrics = new MetricsRegistry();
-  const logger = {
-    warn: () => undefined,
-    info: () => undefined,
-    error: () => undefined,
-  } as never;
-  const ingest = new LogIngestService(metrics, logger, {
-    jobPeriodMs: 1_000,
-    configStreamUrlFragment: '/session-config-stream/',
-  });
-  const probePoller = { statuses: () => probes } as ProbePollerService;
-  // The canary is irrelevant to log replay; a runner that has never produced a
-  // result keeps the canary rules inert without stubbing the whole service.
-  const canaryRunner = { lastResult: null } as CanaryRunnerService;
-  const evaluator = new AlertEvaluatorService(
-    metrics,
-    probePoller,
-    canaryRunner,
-    DEFAULT_THRESHOLDS,
-  );
-  return { metrics, ingest, evaluator };
+const logger = {
+  warn: () => undefined,
+  info: () => undefined,
+  error: () => undefined,
+} as never;
+
+function session(overrides: Partial<FakeSession> = {}): FakeSession {
+  return {
+    sessionUid: SESSION_BAD,
+    sourceCount: 1,
+    subscriberCount: 1,
+    pendingChunkCount: 0,
+    upstreamState: 'OPEN',
+    upstreamRetryAttempt: 0,
+    ...overrides,
+  };
 }
 
 /**
- * Synthesizes the BUG.txt failure: node-server's upstream link to
- * transcription-service repeatedly opens and drops while the session still
+ * Replays the BUG.txt failure: node-server's upstream link to
+ * transcription-service repeatedly drops and reconnects while the session still
  * reports as running.
  *
- * Each cycle is one full reconnect: OPEN is lost, the client waits, retries,
- * handshakes, and comes back up — then loses it again.
+ * Since B1.1 this is driven through the status endpoint rather than log text.
+ * That is the point of the cut-over — the endpoint counts churn in-process, so
+ * detection no longer depends on the sidecar having been attached to the log
+ * stream for the whole window, on the log level, or on nothing having rotated
+ * out.
  */
-function flapPattern(cycles: number, startMs: number, stepMs: number) {
-  const lines: RawLogLine[] = [];
-  let t = startMs;
-  const step = () => {
-    t += stepMs;
-    return t;
-  };
-
-  // Healthy start.
-  lines.push(upstreamState('IDLE', 'CONNECTING', 'sess-flap', step()));
-  lines.push(upstreamState('CONNECTING', 'HANDSHAKING', 'sess-flap', step()));
-  lines.push(upstreamState('HANDSHAKING', 'OPEN', 'sess-flap', step()));
-
-  for (let i = 0; i < cycles; i++) {
-    lines.push(upstreamState('OPEN', 'WAITING_RETRY', 'sess-flap', step()));
-    lines.push(
-      upstreamState('WAITING_RETRY', 'CONNECTING', 'sess-flap', step()),
-    );
-    lines.push(upstreamState('CONNECTING', 'HANDSHAKING', 'sess-flap', step()));
-    lines.push(upstreamState('HANDSHAKING', 'OPEN', 'sess-flap', step()));
-  }
-  return lines;
-}
-
 describe('BUG.txt upstream flap replay', () => {
-  describe('N1 detection from logs alone', (it) => {
-    it('raises a critical N1 alert within 30 seconds of the flap starting', () => {
-      // Arrange — the acceptance bound from PLAN-MONITORING-DASHBOARD.md §5 A1:
-      // "the collector flags N1 within 30 s, from logs alone". Flap every 5s.
-      const { ingest, evaluator } = createStack();
-      const lines = flapPattern(4, START_MS, 5_000);
+  let node: FakeNodeStatus;
 
-      // Act
-      ingest.ingestAll(lines);
-      const evaluatedAt = START_MS + 30_000;
-      const alerts = evaluator.evaluate(evaluatedAt);
+  beforeEach(async () => {
+    node = await startFakeNodeStatus(API_KEY);
+  });
+
+  afterEach(async () => {
+    await node.close();
+  });
+
+  function createStack(probes: ProbeStatus[] = []) {
+    const metrics = new MetricsRegistry();
+    const ingest = new LogIngestService(metrics, logger, {
+      jobPeriodMs: 1_000,
+      configStreamUrlFragment: '/session-config-stream/',
+    });
+    const poller = new NodeStatusPollerService(
+      {
+        enabled: true,
+        intervalMs: 60_000,
+        timeoutMs: 2_000,
+        service: 'node-server',
+        statusUrl: node.statusUrl,
+        serviceApiKey: API_KEY,
+      },
+      metrics,
+      logger,
+    );
+    const probePoller = { statuses: () => probes } as ProbePollerService;
+    // The canary is irrelevant to this replay; a runner that has never produced
+    // a result keeps the canary rules inert without stubbing the whole service.
+    const canaryRunner = { lastResult: null } as CanaryRunnerService;
+    const evaluator = new AlertEvaluatorService(
+      metrics,
+      probePoller,
+      canaryRunner,
+      DEFAULT_THRESHOLDS,
+    );
+    return { metrics, ingest, poller, evaluator };
+  }
+
+  describe('N1 detection from the status endpoint', (it) => {
+    it('raises a critical N1 alert once the flap crosses the threshold', async () => {
+      // Arrange - a healthy first poll, so the alert cannot come from a
+      // cold-start baseline being mistaken for a burst of churn.
+      const { poller, evaluator } = createStack();
+      node.setBody(statusBody({ sessions: [session()] }));
+      await poller.pollOnce();
+
+      // Act - four reconnects since, and the session is now retrying
+      node.setBody(
+        statusBody({
+          summary: { upstreamChurnTotal: 4, activeSessionCount: 1 },
+          sessions: [
+            session({
+              upstreamState: 'WAITING_RETRY',
+              upstreamRetryAttempt: 2,
+            }),
+          ],
+        }),
+      );
+      await poller.pollOnce();
+      const alerts = evaluator.evaluate(Date.now());
 
       // Assert
       const n1 = alerts.find((a) => a.failureModes.includes('N1'));
       expect(n1).toBeDefined();
       expect(n1?.severity).toBe('critical');
-      expect(n1?.summary).toContain('sess-flap');
+      expect(n1?.value).toBe(4);
     });
 
-    it('stays silent for a healthy session over the same period', () => {
-      // Arrange — the do-no-false-alarm side of the gate
-      const { ingest, evaluator } = createStack();
+    it('stays silent for a healthy session', async () => {
+      // Arrange - the do-no-false-alarm side of the gate. A session that starts
+      // up normally walks IDLE -> CONNECTING -> HANDSHAKING -> OPEN, and none of
+      // that is churn.
+      const { poller, evaluator } = createStack();
 
       // Act
-      ingest.ingestAll(flapPattern(0, START_MS, 5_000));
-      const alerts = evaluator.evaluate(START_MS + 30_000);
+      node.setBody(
+        statusBody({
+          summary: { activeSessionCount: 1 },
+          upstreamStateTransitions: [
+            { from: 'IDLE', to: 'CONNECTING', count: 1 },
+            { from: 'CONNECTING', to: 'HANDSHAKING', count: 1 },
+            { from: 'HANDSHAKING', to: 'OPEN', count: 1 },
+          ],
+          sessions: [session()],
+        }),
+      );
+      await poller.pollOnce();
+      const alerts = evaluator.evaluate(Date.now());
 
       // Assert
       expect(alerts.filter((a) => a.failureModes.includes('N1'))).toHaveLength(
@@ -110,37 +155,47 @@ describe('BUG.txt upstream flap replay', () => {
       );
     });
 
-    it('isolates the flapping session from healthy ones', () => {
-      // Arrange — a real deployment runs many rooms at once
-      const { ingest, evaluator } = createStack();
-      let t = START_MS;
-      for (let i = 0; i < 4; i++) {
-        t += 5_000;
-        ingest.ingest(upstreamState('OPEN', 'WAITING_RETRY', 'sess-bad', t));
-        ingest.ingest(upstreamState('HANDSHAKING', 'OPEN', 'sess-good', t));
-      }
+    it('names the flapping session and not the healthy one', async () => {
+      // Arrange - a real deployment runs many rooms at once. The counter is now
+      // process-wide, so the room is named from the per-session upstream gauge.
+      const { poller, evaluator } = createStack();
 
       // Act
+      node.setBody(
+        statusBody({
+          summary: { upstreamChurnTotal: 4, activeSessionCount: 2 },
+          sessions: [
+            session({
+              upstreamState: 'WAITING_RETRY',
+              upstreamRetryAttempt: 3,
+            }),
+            session({ sessionUid: SESSION_GOOD }),
+          ],
+        }),
+      );
+      await poller.pollOnce();
       const alerts = evaluator
-        .evaluate(START_MS + 30_000)
+        .evaluate(Date.now())
         .filter((a) => a.failureModes.includes('N1'));
 
       // Assert
       expect(alerts).toHaveLength(1);
-      expect(alerts[0]?.summary).toContain('sess-bad');
-      expect(alerts[0]?.summary).not.toContain('sess-good');
+      expect(alerts[0]?.summary).toContain(SESSION_BAD);
+      expect(alerts[0]?.summary).not.toContain(SESSION_GOOD);
     });
   });
 
   describe('correlated N2 root cause', (it) => {
-    it('surfaces the secret-drift 401 alongside the churn it causes', () => {
-      // Arrange — the ISSUES-To-Review.md cross-wiring: the config long poll is
+    it('surfaces the secret-drift 401 alongside the churn it causes', async () => {
+      // Arrange - the ISSUES-To-Review.md cross-wiring: the config long poll is
       // rejected, so the session never gets its config and the upstream churns.
-      // Both alerts should fire, and the N2 one names the actual root cause.
-      const { ingest, evaluator } = createStack();
-      let t = START_MS;
+      // The two signals now come from different sources - the 401 from
+      // session-manager's logs, the churn from node-server's status endpoint -
+      // and still have to line up into one story.
+      const { ingest, poller, evaluator } = createStack();
+      const now = Date.now();
       for (let i = 0; i < 4; i++) {
-        t += 5_000;
+        const t = now - (4 - i) * 5_000;
         ingest.ingest(
           incomingRequest(
             `req-${String(i)}`,
@@ -152,11 +207,22 @@ describe('BUG.txt upstream flap replay', () => {
         ingest.ingest(
           requestCompleted(`req-${String(i)}`, 401, 'session-manager', t),
         );
-        ingest.ingest(upstreamState('OPEN', 'WAITING_RETRY', 'sess-flap', t));
       }
+      node.setBody(
+        statusBody({
+          summary: { upstreamChurnTotal: 4, activeSessionCount: 1 },
+          sessions: [
+            session({
+              upstreamState: 'WAITING_RETRY',
+              upstreamRetryAttempt: 2,
+            }),
+          ],
+        }),
+      );
+      await poller.pollOnce();
 
       // Act
-      const alerts = evaluator.evaluate(START_MS + 30_000);
+      const alerts = evaluator.evaluate(Date.now());
 
       // Assert
       const modes = alerts.flatMap((a) => a.failureModes);
@@ -169,11 +235,22 @@ describe('BUG.txt upstream flap replay', () => {
   });
 
   describe('snapshot output', (it) => {
-    it('exposes the firing alert and the churn counter to the SPA', () => {
+    it('exposes the firing alert, the churn counter and the session gauges', async () => {
       // Arrange
-      const { metrics, ingest, evaluator } = createStack();
-      ingest.ingestAll(flapPattern(4, START_MS, 5_000));
-      const at = START_MS + 30_000;
+      const { metrics, poller, evaluator } = createStack();
+      node.setBody(
+        statusBody({
+          summary: { upstreamChurnTotal: 4, activeSessionCount: 1 },
+          sessions: [
+            session({
+              upstreamState: 'WAITING_RETRY',
+              upstreamRetryAttempt: 2,
+            }),
+          ],
+        }),
+      );
+      await poller.pollOnce();
+      const at = Date.now();
 
       // Act
       const snapshot = buildSnapshot(
@@ -189,9 +266,17 @@ describe('BUG.txt upstream flap replay', () => {
       expect(snapshot.alerts.length).toBeGreaterThan(0);
       const churn = snapshot.counters['scribear_node_upstream_churn_total'];
       expect(churn?.[0]?.value).toBe(4);
-      // Ingest self-observability: everything replayed was understood.
-      expect(snapshot.ingest.unparsedTotal).toBe(0);
-      expect(snapshot.ingest.parsedTotal).toBeGreaterThan(0);
+
+      // The gauges are what let the SPA draw the affected room rather than just
+      // a number: which session, in what upstream state, how many retries.
+      const upstreamUp = snapshot.gauges['scribear_node_session_upstream_up'];
+      expect(upstreamUp).toStrictEqual([
+        {
+          labels: { service: 'node-server', sessionUid: SESSION_BAD },
+          value: 0,
+        },
+      ]);
+      expect(snapshot.gauges['scribear_node_status_up']?.[0]?.value).toBe(1);
     });
   });
 });

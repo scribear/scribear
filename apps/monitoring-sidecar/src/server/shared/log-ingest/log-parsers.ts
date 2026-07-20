@@ -26,39 +26,15 @@ function str(line: NormalizedLogLine, key: string): string | undefined {
   return typeof v === 'string' ? v : undefined;
 }
 
-/** Reads a numeric field, or undefined when absent/not a number. */
-function num(line: NormalizedLogLine, key: string): number | undefined {
-  const v = line.fields[key];
-  return typeof v === 'number' ? v : undefined;
-}
-
-/**
- * Upstream states that mean "the connection is not up and we are trying
- * again". Entering any of these from OPEN is a churn event.
- *
- * Mirrors the state machine in
- * `libs/clients/base-websocket-client/src/websocket-client.ts`.
- */
-const RECONNECTING_STATES = new Set(['WAITING_RETRY', 'CONNECTING']);
-
-/**
- * node-server: `dropping malformed audio frame`
- * @see apps/node-server/src/server/features/transcription-stream/transcription-orchestrator.service.ts
- */
-export const nodeDecodeDropParser: LogParser = {
-  id: 'node-decode-drop',
-  match: (line) => line.msg === 'dropping malformed audio frame',
-  apply: (line, metrics) => {
-    metrics.safpDecodeDropsTotal.inc(
-      { service: line.service, side: 'node' },
-      1,
-      line.timeMs,
-    );
-  },
-};
-
 /**
  * transcription-service: `Dropping malformed audio frame` (capital D).
+ *
+ * The node-server side of this signal moved to the status endpoint in B1.1,
+ * along with WebSocket closes and upstream state transitions - see
+ * {@link NodeStatusPollerService}. This parser stays because
+ * transcription-service has no status endpoint yet (B1.2), so its decode drops
+ * are still only visible in log text.
+ *
  * @see transcription_service/src/webserver/features/transcription_stream/transcription_stream_controller.py
  */
 export const pythonDecodeDropParser: LogParser = {
@@ -70,67 +46,6 @@ export const pythonDecodeDropParser: LogParser = {
       1,
       line.timeMs,
     );
-  },
-};
-
-/**
- * node-server WebSocket closes, both server- and peer-initiated.
- *
- * Depends on the close logging added to `transcription-stream.controller.ts`;
- * these lines did not exist before that change.
- */
-export const wsCloseParser: LogParser = {
-  id: 'ws-close',
-  match: (line) =>
-    line.msg === 'transcription-stream socket closed' ||
-    line.msg === 'transcription-stream socket closed by peer',
-  apply: (line, metrics) => {
-    const initiator = line.msg.endsWith('by peer') ? 'peer' : 'server';
-    metrics.wsCloseTotal.inc(
-      {
-        service: line.service,
-        code: String(num(line, 'code') ?? 'unknown'),
-        reason: str(line, 'reason') ?? '',
-        role: str(line, 'role') ?? 'unknown',
-        initiator,
-      },
-      1,
-      line.timeMs,
-    );
-  },
-};
-
-/**
- * node-server upstream connection state machine.
- *
- * Emits both a transition counter and — for transitions that mean the link
- * dropped and is being re-established — a per-session churn counter. The churn
- * counter is the §3 N1 / BUG.txt detector.
- */
-export const upstreamStateParser: LogParser = {
-  id: 'upstream-state',
-  match: (line) => line.msg === 'upstream transcription state change',
-  apply: (line, metrics) => {
-    const from = str(line, 'from') ?? 'unknown';
-    const to = str(line, 'to') ?? 'unknown';
-    const sessionUid = str(line, 'sessionUid') ?? 'unknown';
-
-    metrics.upstreamStateTotal.inc(
-      { service: line.service, from, to },
-      1,
-      line.timeMs,
-    );
-
-    // Churn = we had a working link and are now re-establishing it. The
-    // OPEN-guard matters: the initial IDLE -> CONNECTING of a healthy session
-    // must not count, or every normal session start would look like a flap.
-    if (from === 'OPEN' && RECONNECTING_STATES.has(to)) {
-      metrics.upstreamChurnTotal.inc(
-        { service: line.service, sessionUid },
-        1,
-        line.timeMs,
-      );
-    }
   },
 };
 
@@ -336,10 +251,7 @@ export class RequestCorrelator {
 /** Every standalone parser, in evaluation order. */
 export function defaultParsers(jobPeriodMs: number): LogParser[] {
   return [
-    nodeDecodeDropParser,
     pythonDecodeDropParser,
-    wsCloseParser,
-    upstreamStateParser,
     createJobCompletionParser(jobPeriodMs),
     bufferOverflowParser,
     audioTooFastParser,

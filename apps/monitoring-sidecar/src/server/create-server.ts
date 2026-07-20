@@ -83,6 +83,9 @@ async function createServer(
       dependencyContainer.resolve<AppDependencies['probePollerService']>(
         'probePollerService',
       );
+    const nodeStatusPollerService = dependencyContainer.resolve<
+      AppDependencies['nodeStatusPollerService']
+    >('nodeStatusPollerService');
     const canaryRunnerService = dependencyContainer.resolve<
       AppDependencies['canaryRunnerService']
     >('canaryRunnerService');
@@ -93,6 +96,9 @@ async function createServer(
       // refusing to start. The readiness probe reports the degraded state.
       await dockerLogSource.start();
       probePollerService.start();
+      // Source of the connection, upstream and auth metrics since B1.1. It is
+      // a no-op when no service API key is configured, and says so once.
+      nodeStatusPollerService.start();
 
       // Likewise best-effort. A bad fixture path or unreadable audio file must
       // not take down the log and probe collectors, which are independently
@@ -107,6 +113,7 @@ async function createServer(
     fastify.addHook('onClose', () => {
       dockerLogSource.stop();
       probePollerService.stop();
+      nodeStatusPollerService.stop();
       canaryRunnerService.stop();
     });
   }
