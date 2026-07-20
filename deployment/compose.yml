@@ -71,6 +71,11 @@ services:
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_SERVICE_API_KEY: ${NODE_SERVER_KEY}
       SESSION_TOKEN_SIGNING_KEY: ${JWT_SECRET}
+      # Device presence (B1.6). The TTL must comfortably exceed the schedule
+      # long-poll cycle plus the write interval, or a healthy device flips
+      # offline between two writes.
+      DEVICE_LAST_SEEN_WRITE_INTERVAL_SEC: ${DEVICE_LAST_SEEN_WRITE_SEC:-60}
+      DEVICE_ONLINE_TTL_SEC: ${DEVICE_ONLINE_TTL_SEC:-180}
       DB_HOST: scribear-db
       DB_PORT: "5432"
       DB_NAME: ${DB_NAME}

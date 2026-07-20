@@ -1,5 +1,6 @@
-import { LogLevel } from '@scribear/base-fastify-server';
 import { afterAll, describe, expect, inject } from 'vitest';
+
+import { LogLevel } from '@scribear/base-fastify-server';
 
 import type { AppConfig } from '#src/app-config/app-config.js';
 import createServer from '#src/server/create-server.js';
@@ -40,7 +41,12 @@ describe('Probes Routes', () => {
     it('returns 503 with database fail when the database is unreachable', async () => {
       // Arrange - spin up a server pointing at a non-existent database host
       const brokenConfig = {
-        baseConfig: { isDevelopment: false, logLevel: LogLevel.SILENT, port: 0, host: '127.0.0.1' },
+        baseConfig: {
+          isDevelopment: false,
+          logLevel: LogLevel.SILENT,
+          port: 0,
+          host: '127.0.0.1',
+        },
         adminAuthConfig: { adminApiKey: TEST_ADMIN_KEY },
         dbClientConfig: {
           ...inject('dbConfig'),
@@ -58,7 +64,10 @@ describe('Probes Routes', () => {
       await fastify.ready();
 
       // Act
-      const res = await fastify.inject({ method: 'GET', url: `${BASE}/readiness` });
+      const res = await fastify.inject({
+        method: 'GET',
+        url: `${BASE}/readiness`,
+      });
       await fastify.close();
 
       // Assert

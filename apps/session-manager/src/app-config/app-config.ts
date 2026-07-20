@@ -10,6 +10,7 @@ import {
   type MaterializationWorkerConfig,
 } from '#src/server/features/schedule-management/materialization.worker.js';
 import type { AdminAuthConfig } from '#src/server/shared/services/admin-auth.service.js';
+import type { DevicePresenceConfig } from '#src/server/shared/services/device-presence.service.js';
 import type { ServiceAuthConfig } from '#src/server/shared/services/service-auth.service.js';
 import type { SessionTokenConfig } from '#src/server/shared/services/session-token.service.js';
 
@@ -25,6 +26,15 @@ const CONFIG_SCHEMA = Type.Object({
   DB_NAME: Type.String(),
   DB_USER: Type.String(),
   DB_PASSWORD: Type.String(),
+
+  // Device presence (B1.6). The TTL must comfortably exceed the schedule long
+  // poll cycle plus the write interval, or a healthy device flips offline
+  // between two writes.
+  DEVICE_LAST_SEEN_WRITE_INTERVAL_SEC: Type.Integer({
+    minimum: 1,
+    default: 60,
+  }),
+  DEVICE_ONLINE_TTL_SEC: Type.Integer({ minimum: 1, default: 180 }),
 });
 
 export interface BaseConfig {
@@ -44,6 +54,13 @@ export class AppConfig {
       logLevel: this._env.LOG_LEVEL,
       port: this._env.PORT,
       host: this._env.HOST,
+    };
+  }
+
+  get devicePresenceConfig(): DevicePresenceConfig {
+    return {
+      writeIntervalMs: this._env.DEVICE_LAST_SEEN_WRITE_INTERVAL_SEC * 1_000,
+      onlineTtlMs: this._env.DEVICE_ONLINE_TTL_SEC * 1_000,
     };
   }
 

@@ -9,15 +9,20 @@ function makeRequest(overrides: {
   token?: string;
   deviceAuthService?: { verify: Mock };
   baseConfig?: { isDevelopment: boolean };
+  devicePresenceService?: { touch: Mock };
 }) {
   const deviceAuthService = overrides.deviceAuthService ?? { verify: vi.fn() };
   const baseConfig = overrides.baseConfig ?? { isDevelopment: false };
+  const devicePresenceService = overrides.devicePresenceService ?? {
+    touch: vi.fn(),
+  };
   return {
     cookies: { [DEVICE_TOKEN_COOKIE_NAME]: overrides.token },
     diScope: {
       resolve: vi.fn((name: string) => {
         if (name === 'deviceAuthService') return deviceAuthService;
         if (name === 'baseConfig') return baseConfig;
+        if (name === 'devicePresenceService') return devicePresenceService;
         return;
       }),
     },

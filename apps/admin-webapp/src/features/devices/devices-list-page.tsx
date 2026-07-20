@@ -24,6 +24,7 @@ import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
 import { useNavigate } from 'react-router-dom';
@@ -321,6 +322,7 @@ export const DevicesListPage = () => {
             <TableRow>
               <TableCell>Name</TableCell>
               <TableCell>Status</TableCell>
+              <TableCell>Presence</TableCell>
               <TableCell>Room</TableCell>
               <TableCell>Created</TableCell>
             </TableRow>
@@ -328,13 +330,13 @@ export const DevicesListPage = () => {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                   <CircularProgress size={28} />
                 </TableCell>
               </TableRow>
             ) : devices.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                   <Typography color="text.secondary">
                     No devices found.
                   </Typography>
@@ -369,6 +371,25 @@ export const DevicesListPage = () => {
                       label={device.active ? 'Activated' : 'Pending'}
                       color={device.active ? 'success' : 'warning'}
                     />
+                  </TableCell>
+                  <TableCell>
+                    {/* Distinct from Status: a device can be activated and
+                        still be unplugged. `online` is derived server-side so
+                        every view agrees on the cutoff. */}
+                    <Tooltip
+                      title={
+                        device.lastSeenAt === null
+                          ? 'Never seen'
+                          : `Last seen ${new Date(device.lastSeenAt).toLocaleString()}`
+                      }
+                    >
+                      <Chip
+                        size="small"
+                        label={device.online ? 'Online' : 'Offline'}
+                        color={device.online ? 'success' : 'default'}
+                        variant="outlined"
+                      />
+                    </Tooltip>
                   </TableCell>
                   <TableCell>{device.roomUid ?? 'Unassigned'}</TableCell>
                   <TableCell>

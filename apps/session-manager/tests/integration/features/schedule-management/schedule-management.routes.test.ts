@@ -1248,7 +1248,10 @@ describe('Schedule Management Routes', () => {
         },
       });
       expect(create.statusCode).toBe(201);
-      const session = create.json<{ uid: string; sessionConfigVersion: number }>();
+      const session = create.json<{
+        uid: string;
+        sessionConfigVersion: number;
+      }>();
 
       // Act - start the long-poll, wait for subscription, end the session.
       const longPoll = server.fastify.inject({
@@ -1256,9 +1259,7 @@ describe('Schedule Management Routes', () => {
         url: `${SCHEDULE_BASE}/session-config-stream/${session.uid}?sinceVersion=${session.sessionConfigVersion}`,
         headers: { authorization: SERVICE_HEADER },
       });
-      await waitForSubscriber(
-        `session-config-version-bumped:${session.uid}`,
-      );
+      await waitForSubscriber(`session-config-version-bumped:${session.uid}`);
       const startMs = Date.now();
       const end = await server.fastify.inject({
         method: 'POST',

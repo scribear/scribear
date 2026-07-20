@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, vi } from 'vitest';
 
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
 import {
-  type MaterializationWorkerConfig,
   MaterializationWorker,
+  type MaterializationWorkerConfig,
 } from '#src/server/features/schedule-management/materialization.worker.js';
 import { MaterializationFailedError } from '#src/server/features/schedule-management/schedule-management.service.js';
 import { type MockLogger, createMockLogger } from '#tests/utils/mock-logger.js';
@@ -87,7 +87,9 @@ describe('MaterializationWorker', () => {
       const cause = new Error('boom');
       service.materializeOneStaleRoom
         .mockResolvedValueOnce('room-good-1')
-        .mockRejectedValueOnce(new MaterializationFailedError('room-bad', cause))
+        .mockRejectedValueOnce(
+          new MaterializationFailedError('room-bad', cause),
+        )
         .mockResolvedValueOnce('room-good-2')
         .mockResolvedValueOnce(null);
       const worker = makeWorker();
