@@ -18,6 +18,55 @@ export interface FakeSession {
     | 'WAITING_RETRY'
     | 'CLOSED';
   upstreamRetryAttempt: number;
+  latency: FakeLatencySeries[];
+}
+
+/**
+ * A session as a test writes it. `latency` defaults to empty in
+ * {@link statusBody}, because most tests here predate B1.4 and care about the
+ * connection gauges only - but the field is required on the wire, so it has to
+ * be filled in or the poller rejects the body as malformed.
+ */
+export type FakeSessionInput = Omit<FakeSession, 'latency'> & {
+  latency?: FakeLatencySeries[];
+};
+
+/** One latency distribution as node-server reports it (B1.4). */
+export interface FakeLatencySeries {
+  measure: 'pipeline' | 'e2e';
+  kind: 'final' | 'inProgress';
+  count: number;
+  sum: number;
+  sampleCount: number;
+  min: number;
+  max: number;
+  mean: number;
+  p50: number;
+  p95: number;
+  p99: number;
+}
+
+/**
+ * A latency series with plausible defaults, so a test states only the figures
+ * it asserts on.
+ */
+export function latencySeries(
+  overrides: Partial<FakeLatencySeries> = {},
+): FakeLatencySeries {
+  return {
+    measure: 'pipeline',
+    kind: 'final',
+    count: 100,
+    sum: 10_000,
+    sampleCount: 100,
+    min: 10,
+    max: 400,
+    mean: 100,
+    p50: 90,
+    p95: 300,
+    p99: 380,
+    ...overrides,
+  };
 }
 
 export interface FakeStatusBody {
@@ -34,6 +83,7 @@ export interface FakeStatusBody {
     count: number;
   }[];
   authFailures: { reason: string; count: number }[];
+  latency: FakeLatencySeries[];
   sessions: FakeSession[];
   sessionsTruncated: boolean;
 }
@@ -60,11 +110,12 @@ export const FAKE_PROCESS_UID = '11111111-1111-4111-8111-111111111111';
  * without restating the other ten.
  */
 export function statusBody(
-  overrides: Partial<Omit<FakeStatusBody, 'summary'>> & {
+  overrides: Partial<Omit<FakeStatusBody, 'summary' | 'sessions'>> & {
     summary?: Partial<typeof ZERO_SUMMARY>;
+    sessions?: FakeSessionInput[];
   } = {},
 ): FakeStatusBody {
-  const { summary, ...rest } = overrides;
+  const { summary, sessions, ...rest } = overrides;
   return {
     processUid: FAKE_PROCESS_UID,
     processStartedAt: '2026-07-20T00:00:00.000Z',
@@ -72,9 +123,10 @@ export function statusBody(
     upstreamStateTransitions: [],
     wsCloses: [],
     authFailures: [],
-    sessions: [],
+    latency: [],
     sessionsTruncated: false,
     ...rest,
+    sessions: (sessions ?? []).map((session) => ({ latency: [], ...session })),
     summary: { ...ZERO_SUMMARY, ...summary },
   };
 }

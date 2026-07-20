@@ -13,6 +13,7 @@ import type {
 import {
   type FakeNodeStatus,
   type FakeSession,
+  type FakeSessionInput,
   startFakeNodeStatus,
   statusBody,
 } from '#tests/fixtures/fake-node-status.js';
@@ -27,7 +28,7 @@ const logger = {
   error: () => undefined,
 } as never;
 
-function session(overrides: Partial<FakeSession> = {}): FakeSession {
+function session(overrides: Partial<FakeSession> = {}): FakeSessionInput {
   return {
     sessionUid: SESSION_BAD,
     sourceCount: 1,

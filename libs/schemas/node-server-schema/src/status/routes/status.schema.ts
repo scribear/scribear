@@ -46,6 +46,53 @@ const CONNECTION_ROLE_SCHEMA = Type.Union([
 const LABELLED_COUNT_DESCRIPTION =
   'Monotonic since process start. Absent label combinations have never occurred; they are omitted rather than reported as zero.';
 
+/**
+ * One latency distribution, over the samples the reporting process still
+ * retains (B1.4).
+ *
+ * `count` and `sum` are lifetime totals and behave like the counters above -
+ * difference them for a rate. Everything else describes only the retained ring,
+ * so it is a gauge of recent behaviour: once the ring wraps, `mean` and
+ * `sum / count` legitimately disagree.
+ *
+ * These are `Type.Number()`, not `Type.Integer()` like every other figure in
+ * this response: `pipelineMs` comes off `performance.now()` and is fractional,
+ * and a mean or percentile of integers need not be one.
+ *
+ * The field set matches the histogram series transcription-service reports from
+ * its own metrics endpoint, so a consumer can render either service's latency
+ * with one component.
+ */
+const LATENCY_SERIES_SCHEMA = Type.Object({
+  measure: Type.Union([Type.Literal('pipeline'), Type.Literal('e2e')], {
+    description:
+      '`pipeline` is audio ingress -> transcript received, measured entirely on this process’s monotonic clock. `e2e` additionally includes capture and uplink, using the source’s clock-corrected send time, and is therefore only as trustworthy as time-sync (S5).',
+  }),
+  kind: Type.Union([Type.Literal('final'), Type.Literal('inProgress')], {
+    description:
+      'Which transcript the samples describe. Reported separately because interim and final transcripts are different populations - a final is only emitted once the provider decides an utterance ended - and pooling them yields percentiles that describe neither.',
+  }),
+  count: Type.Number({
+    description: 'Samples observed since process start.',
+  }),
+  sum: Type.Number({
+    description: 'Sum of every sample since process start, in milliseconds.',
+  }),
+  sampleCount: Type.Number({
+    description:
+      'Samples currently retained. The percentiles below describe exactly these.',
+  }),
+  min: Type.Number(),
+  max: Type.Number(),
+  mean: Type.Number(),
+  p50: Type.Number(),
+  p95: Type.Number(),
+  p99: Type.Number(),
+});
+
+const LATENCY_ARRAY_DESCRIPTION =
+  'Latency distributions, one entry per (measure, kind). A series that has never been observed is omitted rather than reported as zeroes - notably, `e2e` series are absent entirely when no source supplies a send timestamp, which is not the same as an end-to-end latency of zero. Milliseconds throughout.';
+
 const SESSION_SCHEMA = Type.Object(
   {
     sessionUid: Type.String({ format: 'uuid' }),
@@ -64,6 +111,9 @@ const SESSION_SCHEMA = Type.Object(
     upstreamRetryAttempt: Type.Integer({
       description:
         'Consecutive reconnect attempts for this session’s upstream. Non-zero while flapping; back to 0 once a connection is established.',
+    }),
+    latency: Type.Array(LATENCY_SERIES_SCHEMA, {
+      description: `Per-session latency (B1.4). ${LATENCY_ARRAY_DESCRIPTION} Retained per session and discarded when the session’s last connection closes, so unlike the process-wide series these describe live rooms only.`,
     }),
   },
   { $id: 'NodeServerStatusSession' },
@@ -167,6 +217,9 @@ const STATUS_SCHEMA = {
           }),
           { description: LABELLED_COUNT_DESCRIPTION },
         ),
+        latency: Type.Array(LATENCY_SERIES_SCHEMA, {
+          description: `Process-wide latency across every session (B1.4). ${LATENCY_ARRAY_DESCRIPTION}`,
+        }),
         authFailures: Type.Array(
           Type.Object({
             reason: Type.String(),

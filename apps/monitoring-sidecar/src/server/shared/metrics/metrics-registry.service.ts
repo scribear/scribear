@@ -138,6 +138,36 @@ export class MetricsRegistry {
     'Latency samples with no end-to-end time available.',
   );
 
+  /**
+   * Transcript latency as measured by node-server itself (B1.4), by `kind`
+   * (`final` / `inProgress`) and `quantile`.
+   *
+   * Gauges rather than histograms, for the same reason as the `asr*` timing
+   * series above: node-server reports pre-computed percentiles over its own
+   * retained ring, so there is no distribution left to rebuild, and observing a
+   * reported p95 into a local histogram would yield a distribution of p95s.
+   *
+   * `pipeline` is node-server's monotonic clock only. {@link nodeE2eLatencyMs}
+   * additionally covers capture and uplink using the source's clock-corrected
+   * send time, so it is the number a user would recognise as "delay" — and the
+   * only one that can be poisoned by clock skew (§3 S5).
+   *
+   * Per-session percentiles are deliberately *not* mirrored here. They exist on
+   * node-server's `/status` for the fleet SPA to read directly; folding them in
+   * would add twelve series per live session to every scrape, for a cardinality
+   * that grows with room count.
+   */
+  readonly nodePipelineLatencyMs = new Gauge(
+    'scribear_node_pipeline_latency_ms',
+    'Audio ingress to transcript received, on node-server’s monotonic clock, by kind and quantile.',
+  );
+
+  /** End-to-end transcript latency including capture and uplink (§3 S5). */
+  readonly nodeE2eLatencyMs = new Gauge(
+    'scribear_node_e2e_latency_ms',
+    'Source capture to transcript received, by kind and quantile.',
+  );
+
   /** Transcripts referencing an already-evicted or pruned chunk (§3 N3). */
   readonly nodeLatencyUnmatchedChunkTotal = new Counter(
     'scribear_node_latency_unmatched_chunk_total',
@@ -543,6 +573,8 @@ export class MetricsRegistry {
       this.nodeSessionPendingChunks,
       this.nodeSessionUpstreamUp,
       this.nodeSessionUpstreamRetryAttempt,
+      this.nodePipelineLatencyMs,
+      this.nodeE2eLatencyMs,
       this.canaryUp,
       this.canaryAccuracyRecall,
       this.canaryAccuracyPrecision,

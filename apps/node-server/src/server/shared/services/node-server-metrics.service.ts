@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
+import {
+  type LatencySummary,
+  LatencyWindow,
+} from '#src/server/shared/services/latency-window.js';
+
 /** Which side initiated a WebSocket close. */
 export type CloseInitiator = 'server' | 'peer';
 
@@ -22,6 +27,37 @@ export type UpstreamState =
 
 /** How a latency sample's end-to-end time turned out. */
 export type E2eOutcome = 'ok' | 'unavailable' | 'negative';
+
+/**
+ * Which transcript a latency sample describes, mirroring `LatencyKind` from
+ * `@scribear/node-server-schema`. Restated for the same reason as
+ * {@link UpstreamState}: this service stays dependency-free, and the two are
+ * structurally identical, so a real `LatencyKind` is accepted here.
+ */
+export type LatencySampleKind = 'final' | 'inProgress';
+
+/** Which leg of the journey a latency window measures. */
+export type LatencyMeasure = 'pipeline' | 'e2e';
+
+/** One latency observation, as correlated by the orchestrator. */
+export interface LatencySample {
+  sessionUid: string;
+  kind: LatencySampleKind;
+  /** Audio ingress -> transcript received, on the monotonic clock. */
+  pipelineMs: number;
+  /**
+   * Source capture -> transcript received, on the (clock-corrected) source
+   * clock. Null when no timestamp was supplied or the result was negative.
+   */
+  e2eMs: number | null;
+  e2eOutcome: E2eOutcome;
+}
+
+/** A latency summary tagged with the series it describes. */
+export interface LatencySeries extends LatencySummary {
+  measure: LatencyMeasure;
+  kind: LatencySampleKind;
+}
 
 /**
  * Separator joining label parts into one map key. ASCII unit separator: it
@@ -59,9 +95,82 @@ const KNOWN_CLOSE_REASONS: ReadonlySet<string> = new Set([
   '',
 ]);
 
+/**
+ * Retained samples per series, process-wide. 4096 matches the sidecar's and
+ * transcription-service's histogram depth.
+ */
+const PROCESS_LATENCY_CAPACITY = 4096;
+
+/**
+ * Retained samples per series, per session. Deliberately far smaller than the
+ * process-wide depth: it is multiplied by four series and by every live
+ * session, and a room's percentiles are wanted "right now" rather than over
+ * its whole history.
+ */
+const SESSION_LATENCY_CAPACITY = 512;
+
+/**
+ * The four latency windows kept for one scope: {pipeline, e2e} x
+ * {final, inProgress}.
+ *
+ * Split by kind because the two are not the same population - an interim
+ * transcript is emitted while the provider is still listening, a final one
+ * only once it decides an utterance ended, so finals are routinely several
+ * times slower. Pooled, the p50 would describe interims and the p95 would
+ * describe finals, and neither number would mean anything. The split costs 2x
+ * memory and two extra series.
+ */
+class LatencyAggregate {
+  private readonly _capacity: number;
+  private _windows = new Map<string, LatencyWindow>();
+
+  constructor(capacity: number) {
+    this._capacity = capacity;
+  }
+
+  observe(
+    measure: LatencyMeasure,
+    kind: LatencySampleKind,
+    valueMs: number,
+  ): void {
+    const key = labelKey(measure, kind);
+    let window = this._windows.get(key);
+    if (window === undefined) {
+      window = new LatencyWindow(this._capacity);
+      this._windows.set(key, window);
+    }
+    window.observe(valueMs);
+  }
+
+  /**
+   * Every series with at least one retained sample. A series that has never
+   * been observed is omitted rather than reported as zeroes, matching how the
+   * labelled counters treat absent label combinations.
+   */
+  series(): LatencySeries[] {
+    const out: LatencySeries[] = [];
+    for (const [key, window] of this._windows) {
+      const summary = window.summary();
+      if (summary === null) continue;
+      const [measure = '', kind = ''] = key.split(LABEL_SEPARATOR);
+      out.push({
+        measure: measure as LatencyMeasure,
+        kind: kind as LatencySampleKind,
+        ...summary,
+      });
+    }
+    return out;
+  }
+}
+
 /** Live, per-session numbers. Deleted when the session's last connection goes. */
 interface SessionCounts {
   subscriberCount: number;
+  /**
+   * Created on the session's first latency sample; many sessions never produce
+   * one, and four empty windows each would be pure overhead.
+   */
+  latency: LatencyAggregate | null;
 }
 
 /**
@@ -90,6 +199,7 @@ export class NodeServerMetricsService {
   readonly processStartedAt = new Date().toISOString();
 
   private _sessions = new Map<string, SessionCounts>();
+  private _latency = new LatencyAggregate(PROCESS_LATENCY_CAPACITY);
 
   private _decodeDropsTotal = 0;
   private _pendingChunkEvictionsTotal = 0;
@@ -114,7 +224,7 @@ export class NodeServerMetricsService {
   recordConnectionOpen(sessionUid: string): void {
     const counts = this._sessions.get(sessionUid);
     if (counts === undefined) {
-      this._sessions.set(sessionUid, { subscriberCount: 1 });
+      this._sessions.set(sessionUid, { subscriberCount: 1, latency: null });
       return;
     }
     counts.subscriberCount += 1;
@@ -213,16 +323,60 @@ export class NodeServerMetricsService {
   }
 
   /**
-   * A latency sample was published. `e2e` records what happened to the
-   * end-to-end figure: `unavailable` when the source sent no timestamp, and
-   * `negative` when the computed time was below zero, which means the source
-   * clock is still ahead of ours despite sync (S5). Like S2, S5 is a ratio -
-   * hence the total alongside.
+   * A latency sample was published (B1.4).
+   *
+   * `e2eOutcome` records what happened to the end-to-end figure: `unavailable`
+   * when the source sent no timestamp, and `negative` when the computed time
+   * was below zero, which means the source clock is still ahead of ours despite
+   * sync (S5). Like S2, S5 is a ratio - hence the total alongside.
+   *
+   * The measured values are also retained in bounded windows, process-wide and
+   * per session, so `GET /status` can report percentiles. Before B1.4 a sample
+   * was fanned out to subscribed clients and then discarded, which meant the
+   * only way to see a room's latency was to be watching that room.
+   *
+   * `e2eMs` is observed only when it is a real figure; an unavailable or
+   * negative sample contributes to the counters above but must not enter the
+   * window, where a null coerced to 0 would drag every percentile down and make
+   * a clock-skewed source look like the fastest room in the fleet.
    */
-  recordLatencySample(e2e: E2eOutcome): void {
+  recordLatencySample(sample: LatencySample): void {
     this._latencySamplesTotal += 1;
-    if (e2e === 'unavailable') this._latencyE2eUnavailableTotal += 1;
-    else if (e2e === 'negative') this._latencyE2eNegativeTotal += 1;
+    if (sample.e2eOutcome === 'unavailable') {
+      this._latencyE2eUnavailableTotal += 1;
+    } else if (sample.e2eOutcome === 'negative') {
+      this._latencyE2eNegativeTotal += 1;
+    }
+
+    this._latency.observe('pipeline', sample.kind, sample.pipelineMs);
+    if (sample.e2eMs !== null) {
+      this._latency.observe('e2e', sample.kind, sample.e2eMs);
+    }
+
+    // Attributed to a session only while that session has a live connection.
+    // A sample arriving for an unknown session still counts process-wide, but
+    // creating an entry for it here would grow the map by every session the
+    // process has ever served rather than by the ones it is serving now - the
+    // same reasoning that has `recordConnectionClose` delete the entry.
+    const counts = this._sessions.get(sample.sessionUid);
+    if (counts === undefined) return;
+    counts.latency ??= new LatencyAggregate(SESSION_LATENCY_CAPACITY);
+    counts.latency.observe('pipeline', sample.kind, sample.pipelineMs);
+    if (sample.e2eMs !== null) {
+      counts.latency.observe('e2e', sample.kind, sample.e2eMs);
+    }
+  }
+
+  /**
+   * Latency series for one session, empty when it has produced no samples.
+   *
+   * Per-session windows are discarded with the session's last connection, so
+   * these describe live rooms only - the same lifetime as
+   * {@link subscriberCount}, and the reason the status endpoint reports them
+   * beside it rather than in the process-wide block.
+   */
+  sessionLatency(sessionUid: string): LatencySeries[] {
+    return this._sessions.get(sessionUid)?.latency?.series() ?? [];
   }
 
   /**
@@ -280,6 +434,9 @@ export class NodeServerMetricsService {
         reason,
         count,
       })),
+      // Freshly summarized, so a snapshot taken now keeps the numbers it was
+      // taken with even as more samples arrive.
+      latency: this._latency.series(),
     };
   }
 }

@@ -5,6 +5,7 @@ import { NodeStatusPollerService } from '#src/server/shared/node-status/node-sta
 import {
   FAKE_PROCESS_UID,
   type FakeNodeStatus,
+  latencySeries,
   startFakeNodeStatus,
   statusBody,
 } from '#tests/fixtures/fake-node-status.js';
@@ -352,6 +353,106 @@ describe('node-server status poller (B1.1 PR 4)', () => {
           sessionUid: SESSION_A,
         }),
       ).toBe(2);
+    });
+  });
+
+  describe('latency quantiles', (it) => {
+    it('mirrors each measure and kind onto its own gauge series', async () => {
+      // Arrange - node-server reports pre-computed percentiles, so these become
+      // quantile-labelled gauges rather than local histogram observations.
+      const { metrics, poller } = createPoller();
+      node.setBody(
+        statusBody({
+          latency: [
+            latencySeries({ measure: 'pipeline', kind: 'final', p95: 300 }),
+            latencySeries({
+              measure: 'pipeline',
+              kind: 'inProgress',
+              p95: 40,
+            }),
+            latencySeries({ measure: 'e2e', kind: 'final', p95: 900 }),
+          ],
+        }),
+      );
+
+      // Act
+      await poller.pollOnce();
+
+      // Assert - interim and final stay separate; pooled they would describe
+      // neither population.
+      expect(
+        metrics.nodePipelineLatencyMs.get({
+          service: SERVICE,
+          kind: 'final',
+          quantile: 'p95',
+        }),
+      ).toBe(300);
+      expect(
+        metrics.nodePipelineLatencyMs.get({
+          service: SERVICE,
+          kind: 'inProgress',
+          quantile: 'p95',
+        }),
+      ).toBe(40);
+      expect(
+        metrics.nodeE2eLatencyMs.get({
+          service: SERVICE,
+          kind: 'final',
+          quantile: 'p95',
+        }),
+      ).toBe(900);
+      // Never reported, so never exported - not exported as zero.
+      expect(
+        metrics.nodeE2eLatencyMs.get({
+          service: SERVICE,
+          kind: 'inProgress',
+          quantile: 'p95',
+        }),
+      ).toBeUndefined();
+    });
+
+    it('ignores a series with nothing retained', async () => {
+      // Arrange - an empty ring carries meaningless zeroes, and a p95 of 0 on a
+      // latency panel reads as "instant" rather than "no data".
+      const { metrics, poller } = createPoller();
+      node.setBody(
+        statusBody({
+          latency: [latencySeries({ sampleCount: 0, p95: 0, p50: 0, p99: 0 })],
+        }),
+      );
+
+      // Act
+      await poller.pollOnce();
+
+      // Assert
+      expect(
+        metrics.nodePipelineLatencyMs.get({
+          service: SERVICE,
+          kind: 'final',
+          quantile: 'p95',
+        }),
+      ).toBeUndefined();
+    });
+
+    it('forgets a series that stopped being reported', async () => {
+      // Arrange - a stale p95 left behind would keep a latency alert firing
+      // long after the traffic that caused it stopped.
+      const { metrics, poller } = createPoller();
+      node.setBody(statusBody({ latency: [latencySeries({ p95: 300 })] }));
+      await poller.pollOnce();
+
+      // Act
+      node.setBody(statusBody({ latency: [] }));
+      await poller.pollOnce();
+
+      // Assert
+      expect(
+        metrics.nodePipelineLatencyMs.get({
+          service: SERVICE,
+          kind: 'final',
+          quantile: 'p95',
+        }),
+      ).toBeUndefined();
     });
   });
 

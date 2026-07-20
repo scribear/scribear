@@ -18,6 +18,21 @@ const DEBUG_SAMPLE_RATE = 48000;
 const DEBUG_NUM_CHANNELS = 1;
 const FAKE_SESSION_UID = '00000000-0000-0000-0000-000000000abc';
 
+/** One latency distribution in the response (B1.4). */
+interface LatencySeriesBody {
+  measure: string;
+  kind: string;
+  count: number;
+  sum: number;
+  sampleCount: number;
+  min: number;
+  max: number;
+  mean: number;
+  p50: number;
+  p95: number;
+  p99: number;
+}
+
 /** Response shape, narrowed to what these tests assert on. */
 interface StatusBody {
   processUid: string;
@@ -38,6 +53,7 @@ interface StatusBody {
     count: number;
   }[];
   authFailures: { reason: string; count: number }[];
+  latency: LatencySeriesBody[];
   sessions: {
     sessionUid: string;
     sourceCount: number;
@@ -45,6 +61,7 @@ interface StatusBody {
     pendingChunkCount: number;
     upstreamState: string;
     upstreamRetryAttempt: number;
+    latency: LatencySeriesBody[];
   }[];
   sessionsTruncated: boolean;
 }
@@ -350,6 +367,26 @@ describe('Status Routes', () => {
           },
           { timeout: 5_000 },
         );
+
+        // Assert - latency blocks survive response serialization (B1.4).
+        // Whether the debug provider has echoed a transcript back yet is
+        // timing-dependent, so this asserts the shape rather than a count:
+        // percentiles are `Type.Number()` where the rest of this response is
+        // `Type.Integer()`, and getting that wrong strips them silently.
+        const withLatency = await statusBody();
+        const session = withLatency.sessions.find(
+          (s) => s.sessionUid === sessionUid,
+        );
+        expect(Array.isArray(session?.latency)).toBe(true);
+        for (const series of [
+          ...withLatency.latency,
+          ...(session?.latency ?? []),
+        ]) {
+          expect(series.sampleCount).toBeGreaterThan(0);
+          expect(series.p50).toBeLessThanOrEqual(series.p95);
+          expect(series.p95).toBeLessThanOrEqual(series.p99);
+          expect(series.p99).toBeLessThanOrEqual(series.max);
+        }
 
         clientA.terminate();
         clientB.terminate();

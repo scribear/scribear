@@ -19,6 +19,16 @@ type NodeStatusBody = Static<typeof STATUS_BODY_SCHEMA>;
 export type NodeStatusPollerConfig = AbsoluteStatusPollerConfig;
 
 /**
+ * Quantiles mirrored as gauge series, matching the transcription-service
+ * poller so both services' latency panels can query the same `quantile` label
+ * values.
+ */
+const QUANTILES = ['p50', 'p95', 'p99', 'max'] as const;
+
+/** Joins `(measure, kind)` into one bookkeeping key. Neither value contains it. */
+const SERIES_KEY_SEPARATOR = '/';
+
+/**
  * Folds node-server's status endpoint into the registry (B1.1).
  *
  * Transport, auth, restart rebasing and absolute-to-delta arithmetic all live
@@ -36,9 +46,13 @@ export class NodeStatusPollerService extends AbsoluteStatusPoller<NodeStatusBody
   protected readonly _disabledWarning =
     'node-server status polling disabled: NODE_SERVER_SERVICE_API_KEY is unset. Connection, upstream and auth metrics will be empty.';
 
+  /** Kinds seen in the previous poll, so a kind that stopped can be removed. */
+  private _knownLatencyKinds = new Set<string>();
+
   protected _apply(body: NodeStatusBody): void {
     this._applyCounters(body);
     this._applySessionGauges(body);
+    this._applyLatencyQuantiles(body);
   }
 
   private _applyCounters(body: NodeStatusBody): void {
@@ -123,6 +137,47 @@ export class NodeStatusPollerService extends AbsoluteStatusPoller<NodeStatusBody
         f.count,
       );
     }
+  }
+
+  /**
+   * Process-wide latency percentiles (B1.4).
+   *
+   * Only the process-wide block is folded in; per-session percentiles stay on
+   * node-server's `/status` for the fleet SPA, because mirroring them would add
+   * a dozen series per live room to every scrape.
+   */
+  private _applyLatencyQuantiles(body: NodeStatusBody): void {
+    const service = this._config.service;
+    const seen = new Set<string>();
+
+    for (const series of body.latency) {
+      // A series with nothing retained carries meaningless zeroes.
+      if (series.sampleCount === 0) continue;
+      const gauge =
+        series.measure === 'pipeline'
+          ? this._metrics.nodePipelineLatencyMs
+          : this._metrics.nodeE2eLatencyMs;
+      seen.add(`${series.measure}${SERIES_KEY_SEPARATOR}${series.kind}`);
+      for (const quantile of QUANTILES) {
+        gauge.set({ service, kind: series.kind, quantile }, series[quantile]);
+      }
+    }
+
+    // A series that stopped being reported must stop being exported: node-server
+    // drops a series only when the process restarts, but a stale p95 left behind
+    // would keep a latency alert firing long after the traffic stopped.
+    for (const key of this._knownLatencyKinds) {
+      if (seen.has(key)) continue;
+      const [measure = '', kind = ''] = key.split(SERIES_KEY_SEPARATOR);
+      const gauge =
+        measure === 'pipeline'
+          ? this._metrics.nodePipelineLatencyMs
+          : this._metrics.nodeE2eLatencyMs;
+      for (const quantile of QUANTILES) {
+        gauge.delete({ service, kind, quantile });
+      }
+    }
+    this._knownLatencyKinds = seen;
   }
 
   private _applySessionGauges(body: NodeStatusBody): void {

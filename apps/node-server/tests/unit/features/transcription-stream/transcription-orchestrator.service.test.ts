@@ -330,6 +330,16 @@ describe('TranscriptionOrchestratorService', () => {
       expect(samples[0]?.kind).toBe(LatencyKind.FINAL);
       expect(typeof samples[0]?.pipelineMs).toBe('number');
       expect(samples[0]?.e2eMs).toBeGreaterThanOrEqual(0);
+
+      // B1.4: the same sample is aggregated server-side, so a room's latency
+      // is visible without a client watching it. Aggregated here rather than in
+      // the per-connection stream service, which would count it once per
+      // subscriber.
+      const series = h.metrics
+        .snapshot()
+        .latency.find((s) => s.measure === 'pipeline' && s.kind === 'final');
+      expect(series?.sampleCount).toBe(1);
+      expect(series?.p95).toBeCloseTo(samples[0]?.pipelineMs ?? -1, 6);
     });
 
     it('emits no latency sample for a transcript with no matching chunk id', async () => {

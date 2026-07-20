@@ -326,7 +326,17 @@ export class TranscriptionOrchestratorService {
         );
       }
     }
-    this._metrics.recordLatencySample(e2eOutcome);
+    // Aggregated here rather than in the per-connection stream service: this
+    // runs once per correlated transcript, whereas that runs once per
+    // subscribed connection and would multiply-count every sample by the room
+    // size (B1.4).
+    this._metrics.recordLatencySample({
+      sessionUid,
+      kind,
+      pipelineMs,
+      e2eMs,
+      e2eOutcome,
+    });
 
     this._eventBus.publish(
       LatencyChannel,

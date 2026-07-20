@@ -58,13 +58,17 @@ export class StatusController {
       },
       upstreamStateTransitions: counters.upstreamStateTransitions,
       wsCloses: counters.wsCloses,
+      latency: counters.latency,
       authFailures: counters.authFailures,
-      // Subscribers are counted per session by the metrics service, because
-      // receive-only connections never reach the orchestrator - they subscribe
-      // to the transcript bus directly.
+      // Subscribers and latency are both held per session by the metrics
+      // service rather than by the orchestrator: receive-only connections never
+      // reach the orchestrator - they subscribe to the transcript bus directly
+      // - and latency windows are kept beside them so both share the session's
+      // lifetime.
       sessions: sessions.map((session) => ({
         ...session,
         subscriberCount: this._metrics.subscriberCount(session.sessionUid),
+        latency: this._metrics.sessionLatency(session.sessionUid),
       })),
       sessionsTruncated: truncated,
     });
