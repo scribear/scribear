@@ -572,7 +572,7 @@ describe('Session Auth Routes', () => {
       // Arrange
       const { token, sessionUid } = await setupActiveSession();
       const refresh = await exchangeJoinCodeForRefresh(token, sessionUid);
-      const tampered = `${refresh.split(':')[0]}:wrong-secret`;
+      const tampered = `${refresh.split(':')[0]!}:wrong-secret`;
 
       // Act
       const res = await server.fastify.inject({

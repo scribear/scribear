@@ -1,6 +1,5 @@
 import { type Mock, beforeEach, describe, expect, vi } from 'vitest';
 
-import { HttpError } from '@scribear/base-fastify-server';
 import { DEVICE_TOKEN_COOKIE_NAME } from '@scribear/session-manager-schema';
 
 import { deviceTokenHook } from '#src/server/hooks/device-token.hook.js';
@@ -71,7 +70,9 @@ describe('deviceTokenHook', () => {
 
       // Act
       deviceTokenHook(req, reply, done);
-      await vi.waitFor(() => expect(done).toHaveBeenCalled());
+      await vi.waitFor(() => {
+        expect(done).toHaveBeenCalled();
+      });
 
       // Assert
       expect(done).toHaveBeenCalledWith(
@@ -94,7 +95,9 @@ describe('deviceTokenHook', () => {
 
       // Act
       deviceTokenHook(req, reply, done);
-      await vi.waitFor(() => expect(done).toHaveBeenCalled());
+      await vi.waitFor(() => {
+        expect(done).toHaveBeenCalled();
+      });
 
       // Assert
       expect(done).toHaveBeenCalledWith(error);
@@ -111,7 +114,9 @@ describe('deviceTokenHook', () => {
 
       // Act
       deviceTokenHook(req, reply, done);
-      await vi.waitFor(() => expect(done).toHaveBeenCalled());
+      await vi.waitFor(() => {
+        expect(done).toHaveBeenCalled();
+      });
 
       // Assert
       expect((req as { deviceUid?: string }).deviceUid).toBe('device-1');
@@ -129,7 +134,9 @@ describe('deviceTokenHook', () => {
 
       // Act
       deviceTokenHook(req, reply, done);
-      await vi.waitFor(() => expect(done).toHaveBeenCalled());
+      await vi.waitFor(() => {
+        expect(done).toHaveBeenCalled();
+      });
 
       // Assert
       expect((reply as { setCookie: Mock }).setCookie).toHaveBeenCalledWith(
@@ -151,7 +158,9 @@ describe('deviceTokenHook', () => {
 
       // Act
       deviceTokenHook(req, reply, done);
-      await vi.waitFor(() => expect(done).toHaveBeenCalled());
+      await vi.waitFor(() => {
+        expect(done).toHaveBeenCalled();
+      });
 
       // Assert
       expect((reply as { setCookie: Mock }).setCookie).toHaveBeenCalledWith(
@@ -173,7 +182,9 @@ describe('deviceTokenHook', () => {
 
       // Act
       deviceTokenHook(req, reply, done);
-      await vi.waitFor(() => expect(done).toHaveBeenCalled());
+      await vi.waitFor(() => {
+        expect(done).toHaveBeenCalled();
+      });
 
       // Assert
       expect((reply as { setCookie: Mock }).setCookie).toHaveBeenCalledWith(

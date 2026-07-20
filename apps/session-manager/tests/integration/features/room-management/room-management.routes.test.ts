@@ -257,7 +257,7 @@ describe('Room Management Routes', () => {
       // Act - second page
       const secondRes = await server.fastify.inject({
         method: 'GET',
-        url: `${ROOM_BASE}/list-rooms?limit=2&cursor=${firstBody.nextCursor}`,
+        url: `${ROOM_BASE}/list-rooms?limit=2&cursor=${firstBody.nextCursor!}`,
         headers: { authorization: ADMIN_HEADER },
       });
 

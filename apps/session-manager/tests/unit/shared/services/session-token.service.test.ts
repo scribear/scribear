@@ -55,7 +55,7 @@ describe('SessionTokenService', () => {
         JSON.stringify({ ...PAYLOAD, scopes: ['SEND_AUDIO'] }),
         'utf8',
       ).toString('base64url');
-      const tampered = `${tamperedPayload}.${signature}`;
+      const tampered = `${tamperedPayload}.${signature!}`;
 
       // Act
       const result = service.verify(tampered);
@@ -72,7 +72,7 @@ describe('SessionTokenService', () => {
       // valid base64url string of zeros - so the only thing that changes is
       // whether the HMAC validates.
       const fakeSig = 'A'.repeat(signature!.length);
-      const forged = `${encodedPayload}.${fakeSig}`;
+      const forged = `${encodedPayload!}.${fakeSig}`;
 
       // Act
       const result = service.verify(forged);

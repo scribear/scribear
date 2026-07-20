@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, inject } from 'vitest';
+import { describe, expect, inject } from 'vitest';
 
 import { LogLevel } from '@scribear/base-fastify-server';
 

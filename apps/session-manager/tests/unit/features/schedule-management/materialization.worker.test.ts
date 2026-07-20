@@ -8,9 +8,17 @@ import {
 import { MaterializationFailedError } from '#src/server/features/schedule-management/schedule-management.service.js';
 import { type MockLogger, createMockLogger } from '#tests/utils/mock-logger.js';
 
-type ServiceMock = {
-  materializeOneStaleRoom: ReturnType<typeof vi.fn>;
-};
+interface ServiceMock {
+  materializeOneStaleRoom: ReturnType<
+    typeof vi.fn<
+      (
+        now: Date,
+        cutoff: Date,
+        excludeUids?: readonly string[],
+      ) => Promise<string | null>
+    >
+  >;
+}
 
 const BASE_CONFIG: MaterializationWorkerConfig = {
   enabled: true,
@@ -71,7 +79,9 @@ describe('MaterializationWorker', () => {
 
     it('respects maxRoomsPerTick', async () => {
       // Arrange - service would keep returning rooms forever
-      service.materializeOneStaleRoom.mockImplementation(async () => 'room');
+      service.materializeOneStaleRoom.mockImplementation(() =>
+        Promise.resolve('room'),
+      );
       const worker = makeWorker({ maxRoomsPerTick: 5 });
 
       // Act
@@ -141,7 +151,7 @@ describe('MaterializationWorker', () => {
 
       // Assert
       const [, cutoff] = service.materializeOneStaleRoom.mock.calls[0]!;
-      expect((cutoff as Date).toISOString()).toBe(
+      expect(cutoff.toISOString()).toBe(
         new Date(fixedNow.getTime() - 60_000).toISOString(),
       );
 
@@ -217,7 +227,9 @@ describe('MaterializationWorker', () => {
       service.materializeOneStaleRoom.mockImplementation(
         () =>
           new Promise<null>((resolve) => {
-            resolveTick = () => resolve(null);
+            resolveTick = () => {
+              resolve(null);
+            };
           }),
       );
       const worker = makeWorker({ intervalMs: 1_000 });
@@ -229,7 +241,7 @@ describe('MaterializationWorker', () => {
 
       // The stop must not resolve while the tick is pending.
       let stopped = false;
-      stopPromise.then(() => {
+      void stopPromise.then(() => {
         stopped = true;
       });
       await Promise.resolve();

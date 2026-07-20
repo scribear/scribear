@@ -37,7 +37,7 @@ describe('Device Management Routes', () => {
   }): string {
     const setCookie = res.headers['set-cookie'];
     const raw = (Array.isArray(setCookie) ? setCookie[0] : setCookie) ?? '';
-    const nameValue = `${raw}`.split(';')[0]!;
+    const nameValue = String(raw).split(';')[0]!;
     return nameValue.slice(nameValue.indexOf('=') + 1);
   }
 
@@ -221,7 +221,7 @@ describe('Device Management Routes', () => {
       // Act - second page
       const secondRes = await server.fastify.inject({
         method: 'GET',
-        url: `${BASE}/list-devices?limit=2&cursor=${firstBody.nextCursor}`,
+        url: `${BASE}/list-devices?limit=2&cursor=${firstBody.nextCursor!}`,
         headers: { authorization: ADMIN_HEADER },
       });
 
