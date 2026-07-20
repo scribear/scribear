@@ -15,7 +15,7 @@ from src.shared.utils.worker_pool import (
 )
 
 from .conftest import TEST_ROLLING_UTILIZATION_WINDOW_NS, TEST_WORKER_ID
-from .jobs import ErrorJob, SumJob
+from .jobs import CountingJob, ErrorJob, SumJob
 
 # Spawning a real worker process is slower than the global 1s timeout allows
 pytestmark = pytest.mark.timeout(2)
@@ -163,3 +163,71 @@ async def test_snapshot_tracks_live_and_total_jobs(
     snapshot = wpm.snapshot()
     assert snapshot.live_job_count == 1
     assert snapshot.total_jobs_registered == 2
+
+
+@pytest.mark.asyncio
+async def test_counters_cross_the_process_boundary(
+    observed_wpm: tuple[WorkerProcessManager, list[JobExecutionObservation]],
+):
+    """
+    Test a counter incremented inside the worker is visible in the parent
+
+    This is the gate the whole cross-process design rests on. Without it the
+    worker-side counters would silently report zero forever, and the only
+    alternative - parsing the worker's own log records in our own process -
+    is exactly the log-string inference this work exists to remove.
+    """
+    # Arrange
+    wpm, observations = observed_wpm
+    job = wpm.register_job((), JOB_PERIOD_MS, CountingJob(), "whisper")
+
+    # Act
+    job.queue_data([1, 2, 3])
+    await asyncio.sleep(SETTLE_SEC)
+
+    # Assert
+    assert len(observations) == 1
+    assert observations[0].counters == {"items": 3}
+
+
+@pytest.mark.asyncio
+async def test_counters_survive_a_failing_execution(
+    observed_wpm: tuple[WorkerProcessManager, list[JobExecutionObservation]],
+):
+    """
+    Test counters accumulated before a raise still reach the parent
+
+    Audio-too-fast is counted and then immediately raised, so a drain that
+    only ran on the success path would never report it.
+    """
+    # Arrange
+    wpm, observations = observed_wpm
+    job = wpm.register_job((), JOB_PERIOD_MS, CountingJob(fail=True), "whisper")
+
+    # Act
+    job.queue_data([1, 2])
+    await asyncio.sleep(SETTLE_SEC)
+
+    # Assert
+    assert len(observations) == 1
+    assert observations[0].exception is not None
+    assert observations[0].counters == {"items": 2}
+
+
+@pytest.mark.asyncio
+async def test_jobs_reporting_no_counters_are_unaffected(
+    observed_wpm: tuple[WorkerProcessManager, list[JobExecutionObservation]],
+):
+    """
+    Test the default is empty, so jobs opt in rather than being forced to care
+    """
+    # Arrange
+    wpm, observations = observed_wpm
+    job = wpm.register_job((), JOB_PERIOD_MS, SumJob())
+
+    # Act
+    job.queue_data([1])
+    await asyncio.sleep(SETTLE_SEC)
+
+    # Assert
+    assert observations[0].counters == {}

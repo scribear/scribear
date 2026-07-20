@@ -29,7 +29,9 @@ from src.shared.utils.np_circular_buffer import NPCircularBuffer
 from src.shared.utils.worker_pool import JobInterface
 from src.transcription_provider_interface import (
     AudioChunkPayload,
+    JobCounterCollector,
     TranscriptionClientError,
+    TranscriptionJobCounter,
     TranscriptionResult,
     TranscriptionSequence,
 )
@@ -47,6 +49,10 @@ class LumenGraniteProviderJob(
     """
 
     def __init__(self, config: LumenGraniteProviderConfig):
+        # Instrumenting only whisper would produce a dashboard that goes quiet
+        # when a deployment switches providers.
+        self._counters = JobCounterCollector()
+
         self._config = config
         self._decoder = AudioDecoder(
             config.sample_rate, config.num_channels, TargetFormat.FLOAT_32
@@ -89,7 +95,12 @@ class LumenGraniteProviderJob(
                 raise TranscriptionClientError(str(e)) from e
 
             extra = self._buffer.append(samples)
+            self._counters.inc(
+                TranscriptionJobCounter.AUDIO_SECONDS_DECODED,
+                len(samples) / self._config.sample_rate,
+            )
             if len(extra) > 0:
+                self._counters.inc(TranscriptionJobCounter.AUDIO_TOO_FAST)
                 raise TranscriptionClientError("Client sent audio too quickly.")
             self._window_chunk_ids.append(chunk.chunk_id)
 
@@ -180,6 +191,9 @@ class LumenGraniteProviderJob(
             in_progress=TranscriptionSequence(text=[text]),
             in_progress_chunk_ids=window_ids,
         )
+
+    def drain_counters(self) -> dict[str, float]:
+        return self._counters.drain()
 
     def update_config(self, log: Logger, contexts: tuple, config: None) -> None:
         raise TranscriptionClientError("On the fly config update not supported")

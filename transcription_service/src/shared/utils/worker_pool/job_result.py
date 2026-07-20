@@ -2,7 +2,7 @@
 Definition for job execution result
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Generic, Literal, TypeVar
 
 R = TypeVar("R")
@@ -56,6 +56,7 @@ class JobSuccess(Generic[R]):
 
     value: R
     stats: JobStatistics
+    counters: dict[str, float] = field(default_factory=dict)
     has_exception: Literal[False] = False
 
 
@@ -67,6 +68,7 @@ class JobException:
 
     value: Exception
     stats: JobStatistics
+    counters: dict[str, float] = field(default_factory=dict)
     has_exception: Literal[True] = True
 
 
@@ -87,6 +89,7 @@ class JobExecutionObservation:
     label: str
     stats: JobStatistics
     exception: Exception | None
+    counters: dict[str, float]
 
 
 JobObserver = Callable[[JobExecutionObservation], None]

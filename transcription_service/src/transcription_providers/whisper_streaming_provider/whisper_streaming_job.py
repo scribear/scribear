@@ -14,7 +14,9 @@ from src.transcription_contexts.faster_whisper_context import WhisperModel
 from src.transcription_contexts.silero_vad_context import SileroVadModelType
 from src.transcription_provider_interface import (
     AudioChunkPayload,
+    JobCounterCollector,
     TranscriptionClientError,
+    TranscriptionJobCounter,
     TranscriptionResult,
     TranscriptionSequence,
 )
@@ -38,6 +40,10 @@ class WhisperStreamingProviderJob(
     """
 
     def __init__(self, config: WhisperStreamingProviderConfig):
+        # Per-execution counters for events that happen inside the worker
+        # process and are otherwise invisible to the parent.
+        self._counters = JobCounterCollector()
+
         self._decoder = AudioDecoder(
             SAMPLE_RATE, NUM_CHANNELS, TargetFormat.FLOAT_32
         )
@@ -101,8 +107,16 @@ class WhisperStreamingProviderJob(
             )
             extra = self._buffer.append(samples)
             self._total_decoded_samples += num_samples
+            self._counters.inc(
+                TranscriptionJobCounter.AUDIO_SECONDS_DECODED,
+                num_samples / SAMPLE_RATE,
+            )
             # More than expected number of samples received, client sending audio to fast
             if len(extra) > 0:
+                # Counted before the raise, not inferred from the exception
+                # class: decode failures raise the same type, so the class
+                # alone cannot tell the two apart.
+                self._counters.inc(TranscriptionJobCounter.AUDIO_TOO_FAST)
                 raise TranscriptionClientError("Client sent audio too quickly.")
 
     def _detect_speech_ranges(
@@ -124,7 +138,10 @@ class WhisperStreamingProviderJob(
         )
 
         if not ranges:
+            # DEBUG, so invisible at the default production log level - the
+            # counter is the only production-visible form of this signal.
             log.debug("VAD detected no speech in buffer")
+            self._counters.inc(TranscriptionJobCounter.VAD_NO_SPEECH)
             return []
 
         return ranges
@@ -284,6 +301,11 @@ class WhisperStreamingProviderJob(
             log.info(
                 f"Buffer full. Forcing finalization of audio up to: {end_time:.4f}"
             )
+            self._counters.inc(TranscriptionJobCounter.BUFFER_OVERFLOW)
+            self._counters.inc(
+                TranscriptionJobCounter.BUFFER_OVERFLOW_SECONDS,
+                samples_to_purge / SAMPLE_RATE,
+            )
             forced_final = self._local_agree.force_finalized(end_time)
 
             # Remove finalized audio from buffer
@@ -295,6 +317,7 @@ class WhisperStreamingProviderJob(
         segments = self._transcribe_audio(whisper_model, vad_context, log)
         if len(segments) == 0:
             log.info("No words transcribed in buffer.")
+            self._counters.inc(TranscriptionJobCounter.NO_WORDS)
 
             if forced_final is not None:
                 self._last_finalized = "".join(forced_final.text)
@@ -328,6 +351,9 @@ class WhisperStreamingProviderJob(
             return self._build_result(forced_final, in_progress)
 
         return self._build_result(final, in_progress)
+
+    def drain_counters(self) -> dict[str, float]:
+        return self._counters.drain()
 
     def update_config(self, log: Logger, contexts: tuple, config: None) -> None:
         raise TranscriptionClientError("On the fly config update not supported")

@@ -3,6 +3,7 @@ Unit tests for MetricsRegistry
 """
 
 from src.shared.utils.worker_pool import JobExecutionObservation, JobStatistics
+from src.transcription_provider_interface import TranscriptionJobCounter
 from src.webserver.shared.metrics import MetricsRegistry
 
 NS_PER_MS = 1_000_000
@@ -13,6 +14,7 @@ def make_observation(
     scheduling_delay_ms: float = 1,
     execution_ms: float = 2,
     exception: Exception | None = None,
+    counters: dict[str, float] | None = None,
 ) -> JobExecutionObservation:
     """
     Builds an observation with the given derived timings
@@ -25,6 +27,7 @@ def make_observation(
         scheduling_delay_ms - Desired scheduling_delay_ns, in milliseconds
         execution_ms        - Desired execution_time_ns, in milliseconds
         exception           - Exception the execution raised, if any
+        counters            - Worker-side per-execution counter deltas
     """
     period_start_ns = 0
     job_scheduled_time_ns = int(scheduling_delay_ms * NS_PER_MS)
@@ -42,6 +45,7 @@ def make_observation(
             complete_time_ns=complete_time_ns,
         ),
         exception=exception,
+        counters=counters or {},
     )
 
 
@@ -172,3 +176,122 @@ def test_unlabelled_execution_is_named_rather_than_dropped():
 
     # Assert
     assert registry.jobs_completed_total.get({"provider_key": "unknown"}) == 1
+
+
+def test_worker_side_counters_are_accumulated():
+    """
+    Test per-execution deltas from inside the worker become monotonic totals
+
+    The worker reports deltas rather than running totals so the parent owns
+    the totals - which is what makes a worker restart harmless.
+    """
+    # Arrange
+    registry = MetricsRegistry()
+    labels = {"provider_key": "whisper"}
+
+    # Act
+    for _ in range(2):
+        registry.record_job_execution(
+            make_observation(
+                counters={
+                    TranscriptionJobCounter.BUFFER_OVERFLOW: 1,
+                    TranscriptionJobCounter.BUFFER_OVERFLOW_SECONDS: 1.5,
+                    TranscriptionJobCounter.AUDIO_TOO_FAST: 1,
+                    TranscriptionJobCounter.VAD_NO_SPEECH: 1,
+                    TranscriptionJobCounter.NO_WORDS: 1,
+                    TranscriptionJobCounter.AUDIO_SECONDS_DECODED: 4,
+                }
+            )
+        )
+
+    # Assert
+    assert registry.buffer_overflow_total.get(labels) == 2
+    assert registry.buffer_overflow_seconds_total.get(labels) == 3
+    assert registry.audio_too_fast_total.get(labels) == 2
+    assert registry.vad_no_speech_total.get(labels) == 2
+    assert registry.no_words_total.get(labels) == 2
+    assert registry.asr_audio_seconds_total.get(labels) == 8
+
+
+def test_unknown_counter_names_are_ignored():
+    """
+    Test a name the registry does not know does not create a metric
+
+    The response shape is a contract with the sidecar; a typo in a job should
+    not silently extend it.
+    """
+    # Arrange
+    registry = MetricsRegistry()
+
+    # Act
+    registry.record_job_execution(
+        make_observation(counters={"buffer_overfow": 99})
+    )
+
+    # Assert
+    assert registry.buffer_overflow_total.total() == 0
+
+
+def test_rtf_is_execution_time_over_audio_ingested():
+    """
+    Test real RTF is derived from the audio duration the worker reports
+
+    This is the number the period-utilization proxy was standing in for: 0.5
+    means the model took half a second of wall clock per second of audio.
+    """
+    # Arrange
+    registry = MetricsRegistry()
+
+    # Act
+    registry.record_job_execution(
+        make_observation(
+            execution_ms=500,
+            counters={TranscriptionJobCounter.AUDIO_SECONDS_DECODED: 1},
+        )
+    )
+
+    # Assert
+    summary = registry.asr_rtf.summary({"provider_key": "whisper"})
+    assert summary is not None
+    assert summary.p50 == 0.5
+
+
+def test_rtf_is_not_recorded_without_audio():
+    """
+    Test an execution that ingested no audio contributes no RTF sample
+
+    Jobs run every period whether or not audio arrived, so recording those
+    would divide by zero - and, if defaulted, would flood the histogram with
+    meaningless samples that drag the percentiles.
+    """
+    # Arrange
+    registry = MetricsRegistry()
+
+    # Act
+    registry.record_job_execution(make_observation(execution_ms=500))
+
+    # Assert
+    assert registry.asr_rtf.summary({"provider_key": "whisper"}) is None
+
+
+def test_failed_execution_still_reports_its_counters():
+    """
+    Test counters incremented before a raise are not lost
+
+    Audio-too-fast is only ever observed on the failure path: the job counts
+    it and immediately raises, so a drain that skipped failures would report
+    zero forever.
+    """
+    # Arrange
+    registry = MetricsRegistry()
+
+    # Act
+    registry.record_job_execution(
+        make_observation(
+            exception=RuntimeError("Client sent audio too quickly."),
+            counters={TranscriptionJobCounter.AUDIO_TOO_FAST: 1},
+        )
+    )
+
+    # Assert
+    assert registry.audio_too_fast_total.get({"provider_key": "whisper"}) == 1

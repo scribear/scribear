@@ -18,6 +18,7 @@ import soundfile as sf
 from src.transcription_provider_interface import (
     AudioChunkPayload,
     TranscriptionClientError,
+    TranscriptionJobCounter,
 )
 from src.transcription_providers.lumen_granite_provider.lumen_granite_config import (
     lumen_granite_config_adapter,
@@ -203,3 +204,36 @@ def test_update_config_not_supported(log):
     job = LumenGraniteProviderJob(make_config())
     with pytest.raises(TranscriptionClientError):
         job.update_config(log, (), None)
+
+
+def test_counters_report_audio_ingested_and_reset_on_drain(log, mocker):
+    """Decoded audio is counted in seconds and drained per execution."""
+    mocker.patch(
+        POST_TARGET, return_value=fake_response(json_body={"text": "hi"})
+    )
+    job = LumenGraniteProviderJob(make_config())
+
+    job.process_batch(log, (), [chunk(2.0, "a")])
+    first = job.drain_counters()
+
+    # Drains are per-execution deltas, not running totals: the parent owns the
+    # monotonic totals, so a second read must not repeat the first.
+    assert first[TranscriptionJobCounter.AUDIO_SECONDS_DECODED] == 2.0
+    assert not job.drain_counters()
+
+
+def test_audio_too_fast_is_counted_before_the_raise(log, mocker):
+    """Overrunning the buffer counts the event, not just raises."""
+    mocker.patch(
+        POST_TARGET, return_value=fake_response(json_body={"text": "hi"})
+    )
+    # Buffer is sized off max_buffer_len_sec, so a single oversized chunk
+    # overruns it in one call.
+    job = LumenGraniteProviderJob(make_config(max_buffer_len_sec=1))
+
+    with pytest.raises(TranscriptionClientError):
+        job.process_batch(log, (), [chunk(30.0, "a")])
+
+    # The counter is the whole point of draining on the failure path: this is
+    # the only place audio-too-fast is ever observable.
+    assert job.drain_counters()[TranscriptionJobCounter.AUDIO_TOO_FAST] == 1

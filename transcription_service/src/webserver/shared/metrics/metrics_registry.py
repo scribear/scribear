@@ -6,10 +6,12 @@ import uuid
 from datetime import datetime, timezone
 
 from src.shared.utils.worker_pool import JobExecutionObservation
+from src.transcription_provider_interface import TranscriptionJobCounter
 
 from .metric_types import DEFAULT_MAX_SAMPLES, Counter, Histogram
 
 NS_PER_MS = 1_000_000
+NS_PER_SEC = 1_000_000_000
 
 # Label applied to executions whose job carried no label. Only reachable when a
 # result arrives after its job was deregistered, so it should stay near zero;
@@ -81,6 +83,68 @@ class MetricsRegistry:
             "Total time a job spent in the worker pool",
             max_histogram_samples,
         )
+        self.asr_rtf = Histogram(
+            "asr_rtf",
+            "Wall-clock seconds spent per second of ingested audio",
+            max_histogram_samples,
+        )
+
+        self.asr_audio_seconds_total = Counter(
+            "asr_audio_seconds_total",
+            "Seconds of audio decoded and ingested, by provider",
+        )
+        self.buffer_overflow_total = Counter(
+            "buffer_overflow_total",
+            "Times the audio buffer filled and audio was force-finalized",
+        )
+        self.buffer_overflow_seconds_total = Counter(
+            "buffer_overflow_seconds_total",
+            "Seconds of audio discarded by those force-finalizations",
+        )
+        self.audio_too_fast_total = Counter(
+            "audio_too_fast_total",
+            "Times a client pushed audio faster than realtime",
+        )
+        self.vad_no_speech_total = Counter(
+            "vad_no_speech_total",
+            "Executions where VAD found no speech in the buffer",
+        )
+        self.no_words_total = Counter(
+            "no_words_total",
+            "Executions that transcribed no words from a non-empty buffer",
+        )
+
+        self._worker_counters = {
+            TranscriptionJobCounter.BUFFER_OVERFLOW: self.buffer_overflow_total,
+            TranscriptionJobCounter.BUFFER_OVERFLOW_SECONDS: (
+                self.buffer_overflow_seconds_total
+            ),
+            TranscriptionJobCounter.AUDIO_TOO_FAST: self.audio_too_fast_total,
+            TranscriptionJobCounter.VAD_NO_SPEECH: self.vad_no_speech_total,
+            TranscriptionJobCounter.NO_WORDS: self.no_words_total,
+            TranscriptionJobCounter.AUDIO_SECONDS_DECODED: (
+                self.asr_audio_seconds_total
+            ),
+        }
+
+    def _record_worker_counters(
+        self, counters: dict[str, float], labels: dict[str, str]
+    ) -> None:
+        """
+        Folds one execution's worker-side counter deltas into the totals
+
+        Args:
+            counters    - Per-execution deltas reported by the job
+            labels      - Label set to record them under
+
+        Unknown names are ignored rather than auto-registered: a typo in a job
+        should not silently create a metric nobody consumes, and the response
+        shape must stay fixed for the sidecar.
+        """
+        for name, delta in counters.items():
+            counter = self._worker_counters.get(name)
+            if counter is not None:
+                counter.inc(labels, delta)
 
     def record_job_execution(
         self, observation: JobExecutionObservation
@@ -108,6 +172,20 @@ class MetricsRegistry:
             stats.execution_time_ns / NS_PER_MS, labels
         )
         self.asr_total_ms.observe(stats.total_time_ns / NS_PER_MS, labels)
+
+        self._record_worker_counters(observation.counters, labels)
+
+        # Real RTF, at last: wall-clock seconds per second of audio ingested.
+        # NOT computed over VAD-kept audio only - wall-clock cost per second of
+        # *ingested* audio is the capacity number, and excluding silence would
+        # flatter the figure exactly when VAD is discarding the most.
+        audio_seconds = observation.counters.get(
+            TranscriptionJobCounter.AUDIO_SECONDS_DECODED, 0
+        )
+        if audio_seconds > 0:
+            self.asr_rtf.observe(
+                (stats.execution_time_ns / NS_PER_SEC) / audio_seconds, labels
+            )
 
         if observation.exception is None:
             self.jobs_completed_total.inc(labels)

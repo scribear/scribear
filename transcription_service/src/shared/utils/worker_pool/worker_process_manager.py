@@ -575,6 +575,7 @@ class WorkerProcessManager:
                     exception=(
                         job_result.value if job_result.has_exception else None
                     ),
+                    counters=job_result.counters,
                 )
             )
         # pylint: disable-next=broad-exception-caught

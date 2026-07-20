@@ -204,6 +204,12 @@ def test_reports_identity_and_empty_series_before_any_job(
     assert body["counters"]["jobsCompletedTotal"] == []
     assert body["counters"]["jobsFailedTotal"] == []
     assert body["histograms"]["asrExecutionMs"] == []
+    assert body["histograms"]["asrRtf"] == []
+    assert body["counters"]["bufferOverflowTotal"] == []
+    assert body["counters"]["audioTooFastTotal"] == []
+    assert body["counters"]["vadNoSpeechTotal"] == []
+    assert body["counters"]["noWordsTotal"] == []
+    assert body["counters"]["asrAudioSecondsTotal"] == []
 
 
 @pytest.mark.asyncio

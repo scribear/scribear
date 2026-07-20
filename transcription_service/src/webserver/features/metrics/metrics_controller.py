@@ -132,6 +132,22 @@ class MetricsController:
                 "jobsFailedTotal": _counter_series(
                     self._metrics.jobs_failed_total
                 ),
+                "asrAudioSecondsTotal": _counter_series(
+                    self._metrics.asr_audio_seconds_total
+                ),
+                "bufferOverflowTotal": _counter_series(
+                    self._metrics.buffer_overflow_total
+                ),
+                "bufferOverflowSecondsTotal": _counter_series(
+                    self._metrics.buffer_overflow_seconds_total
+                ),
+                "audioTooFastTotal": _counter_series(
+                    self._metrics.audio_too_fast_total
+                ),
+                "vadNoSpeechTotal": _counter_series(
+                    self._metrics.vad_no_speech_total
+                ),
+                "noWordsTotal": _counter_series(self._metrics.no_words_total),
             },
             "histograms": {
                 "asrSchedulingDelayMs": _histogram_series(
@@ -141,5 +157,10 @@ class MetricsController:
                     self._metrics.asr_execution_ms
                 ),
                 "asrTotalMs": _histogram_series(self._metrics.asr_total_ms),
+                # Wall-clock seconds per second of ingested audio. Crossing
+                # 1.0 means the model cannot keep up with realtime on this
+                # hardware, which is the capacity question the plan has been
+                # approximating with a period-utilization proxy.
+                "asrRtf": _histogram_series(self._metrics.asr_rtf),
             },
         }
