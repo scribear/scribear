@@ -34,6 +34,16 @@
                 "max_buffer_len_sec": 30,
                 "local_agree_dim": 2
             }
+        },
+        "lumen_granite": {
+            "provider_uid": "lumen-granite",
+            "provider_config": {
+                "base_url": "https://lumen.ncsa.illinois.edu/v1",
+                "model": "granite-speech-4.1-2b-plus",
+                "api_key_env": "TRANSCRIPTION_PROVIDER_API_KEY",
+                "job_period_ms": 3000,
+                "max_buffer_len_sec": 20
+            }
         }
     }
 }

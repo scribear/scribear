@@ -22,7 +22,7 @@ const FAKE_SESSION_UID = '00000000-0000-0000-0000-000000000abc';
 
 const TEST_AUDIO_PATH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  '../../../../../../test_audio_files/chords/mono_f64le.wav',
+  '../../../../../../test_audio_files/musical_chords/mono_f64le.wav',
 );
 const TEST_AUDIO = fs.readFileSync(TEST_AUDIO_PATH);
 

@@ -124,6 +124,14 @@ class TranscriptionProviderRegistry:
                     provider = WhisperStreamingProvider(
                         config.provider_config, child_logger, worker_pool
                     )
+                case TranscriptionProviderUID.LUMEN_GRANITE:
+                    from src.transcription_providers.lumen_granite_provider import (
+                        LumenGraniteProvider,
+                    )
+
+                    provider = LumenGraniteProvider(
+                        config.provider_config, child_logger, worker_pool
+                    )
 
             providers[provider_key] = provider
         return providers
