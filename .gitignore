@@ -633,3 +633,9 @@ flycheck_*.el
 # undo-tree
 *.~undo-tree~
 scribear.wiki
+
+# Claude Code. Scoped to the two paths that must not be committed rather than
+# to `.claude/` as a whole, so shared config - settings.json, agents, skills,
+# commands - can be checked in normally if the team ever wants it.
+.claude/worktrees/
+.claude/settings.local.json
