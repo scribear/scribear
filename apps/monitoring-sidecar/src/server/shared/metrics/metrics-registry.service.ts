@@ -14,16 +14,6 @@ const MS_BUCKETS = [
 ] as const;
 
 /**
- * Buckets for the period-utilization ratio (job execution time / job period).
- * 1.0 is the saturation line: above it a job takes longer than the cadence that
- * schedules it, so backlog accrues. See the caveat on
- * {@link MetricsRegistry.asrPeriodUtilization}.
- */
-const RATIO_BUCKETS = [
-  0.1, 0.25, 0.5, 0.6, 0.75, 0.9, 1.0, 1.25, 1.5, 2.0, 4.0,
-] as const;
-
-/**
  * The full metric catalog, held in memory.
  *
  * Naming follows Prometheus convention (`_total` for counters, base unit
@@ -47,9 +37,9 @@ export class MetricsRegistry {
    * sender is emitting frames this build cannot parse — the version-skew
    * signature (§3 U2 / S4).
    *
-   * Two sources, distinguished by the `side` label: `node` comes from the
-   * status endpoint, `transcription` is still log-derived because
-   * transcription-service has no equivalent endpoint yet (B1.2).
+   * Two sources, distinguished by the `side` label, and since B1.2 both are
+   * endpoint-derived: `node` from `GET /api/node-server/v1/status`,
+   * `transcription` from `GET /metrics/status`.
    */
   readonly safpDecodeDropsTotal = new Counter(
     'scribear_safp_decode_drops_total',
@@ -154,29 +144,37 @@ export class MetricsRegistry {
     'Transcripts that could not be correlated to an audio frame.',
   );
 
-  /** node-server restarts observed as a change of `processUid`. */
-  readonly nodeProcessRestartsTotal = new Counter(
-    'scribear_node_process_restarts_total',
-    'Times the polled node-server process identity changed.',
+  // --- Status polling, shared by every polled service ----------------------
+  //
+  // Written by `AbsoluteStatusPoller` and distinguished by the `service` label,
+  // so node-server (B1.1) and transcription-service (B1.2) share them. They
+  // were named `scribear_node_*` when node-server was the only polled service;
+  // B1.2 renamed them to `scribear_service_*`, which is a breaking change for
+  // anything querying the old names.
+
+  /** Restarts of a polled service, observed as a change of `processUid`. */
+  readonly serviceProcessRestartsTotal = new Counter(
+    'scribear_service_process_restarts_total',
+    'Times a polled service process identity changed.',
   );
 
-  /** Status polls that failed, by reason. */
-  readonly nodeStatusPollErrorsTotal = new Counter(
-    'scribear_node_status_poll_errors_total',
-    'Failed polls of the node-server status endpoint, by reason.',
+  /** Status polls that failed, by service and reason. */
+  readonly serviceStatusPollErrorsTotal = new Counter(
+    'scribear_service_status_poll_errors_total',
+    'Failed polls of a service status endpoint, by reason.',
   );
 
   /**
    * 1 when the last status poll succeeded, 0 otherwise.
    *
-   * Distinct from the liveness probe: node-server can be alive and still be
-   * refusing the sidecar's service key, in which case every counter above is
+   * Distinct from the liveness probe: a service can be alive and still be
+   * refusing the sidecar's key, in which case every counter it sources is
    * frozen at its last value. Without this gauge that looks identical to a
    * quiet, healthy system.
    */
-  readonly nodeStatusUp = new Gauge(
-    'scribear_node_status_up',
-    'Whether the last node-server status poll succeeded.',
+  readonly serviceStatusUp = new Gauge(
+    'scribear_service_status_up',
+    'Whether the last status poll of a service succeeded.',
   );
 
   /** Sessions currently holding an upstream transcription connection. */
@@ -219,44 +217,131 @@ export class MetricsRegistry {
     'Consecutive upstream reconnect attempts, per session.',
   );
 
-  // --- A1: log-derived ----------------------------------------------------
+  // --- B1.2: transcription-service metrics endpoint ------------------------
+  //
+  // Everything below came from log text until B1.2. Three of these counters are
+  // incremented *inside a spawned worker process*, so logging them was the only
+  // reason they were visible at all; B1.2 PR 4 gave them a transport back to
+  // the parent, and PR 5 retired the parsers.
+  //
+  // The four job-timing series are gauges, not histograms. The endpoint reports
+  // pre-computed percentiles over its own retained ring rather than raw
+  // samples, so there is nothing to rebuild a distribution from — observing a
+  // reported p95 into a local histogram would yield a distribution of
+  // percentiles. They carry a `quantile` label instead, the Prometheus summary
+  // idiom.
 
-  /** Queue wait before a transcription job starts executing. */
-  readonly asrSchedulingDelayMs = new Histogram(
+  /** Queue wait before a transcription job starts executing, by quantile. */
+  readonly asrSchedulingDelayMs = new Gauge(
     'scribear_asr_scheduling_delay_ms',
-    'Delay between a transcription job becoming ready and being scheduled.',
-    MS_BUCKETS,
+    'Delay between a transcription job becoming ready and being scheduled, by quantile.',
   );
 
-  /** Wall time a transcription job spent executing. */
-  readonly asrProcessingMs = new Histogram(
-    'scribear_asr_processing_ms',
-    'Transcription job execution time.',
-    MS_BUCKETS,
+  /** Wall time a transcription job spent executing, by quantile. */
+  readonly asrExecutionMs = new Gauge(
+    'scribear_asr_execution_ms',
+    'Transcription job execution time, by quantile.',
+  );
+
+  /** Scheduling delay plus execution, by quantile. */
+  readonly asrTotalMs = new Gauge(
+    'scribear_asr_total_ms',
+    'Total transcription job time, by quantile.',
   );
 
   /**
-   * Job execution time divided by the configured job period.
+   * **The real real-time factor** (§4.3): wall-clock execution time per second
+   * of audio ingested, measured by transcription-service itself. Above 1.0 the
+   * service cannot keep up with realtime audio and backlog accrues.
    *
-   * NOT the real-time factor the plan (§4.3) specifies. True RTF needs the
-   * audio duration of the processed buffer as its denominator, and the
-   * `"Completed transcription job"` log line does not carry it — `asdict()`
-   * on `JobStatistics` serializes only the four raw timestamps, and the
-   * derived properties are absent. This ratio answers the closely-related and
-   * still-actionable question "is a job finishing within the cadence that
-   * schedules it?", which saturates at the same 1.0 line. Replace with true
-   * RTF when B1.2 exposes it.
+   * Superseded {@link asrPeriodUtilization} as the T1 saturation signal. Note
+   * it is computed over *ingested* audio rather than VAD-kept audio, so silence
+   * does not flatter it.
    */
-  readonly asrPeriodUtilization = new Histogram(
+  readonly asrRtf = new Gauge(
+    'scribear_asr_rtf',
+    'Transcription real-time factor (execution seconds per second of ingested audio), by quantile. 1.0 = saturated.',
+  );
+
+  /**
+   * Job execution time divided by the configured job period, derived in the
+   * sidecar from {@link asrExecutionMs} and `TRANSCRIPTION_JOB_PERIOD_MS`.
+   *
+   * Kept as a secondary series now that {@link asrRtf} exists. It saturates at
+   * the same 1.0 line but answers a different question — "is a job finishing
+   * within the cadence that schedules it?" — and no longer depends on a log
+   * line, so it survived the parser retirement.
+   */
+  readonly asrPeriodUtilization = new Gauge(
     'scribear_asr_period_utilization',
-    'Transcription job execution time divided by the job period (1.0 = saturated). Proxy for RTF; see docs.',
-    RATIO_BUCKETS,
+    'Transcription job execution time divided by the job period (1.0 = saturated), by quantile.',
+  );
+
+  /** Worker processes the deployment is configured to run. */
+  readonly asrWorkers = new Gauge(
+    'scribear_asr_workers',
+    'Configured transcription worker processes.',
+  );
+
+  /** Rolling 10-minute busy fraction per worker; the scheduler's own signal. */
+  readonly asrWorkerUtilization = new Gauge(
+    'scribear_asr_worker_utilization',
+    'Rolling utilization of a transcription worker process.',
+  );
+
+  /** Jobs currently registered on a worker. Instantaneous, unlike utilization. */
+  readonly asrWorkerLiveJobs = new Gauge(
+    'scribear_asr_worker_live_jobs',
+    'Jobs currently registered on a transcription worker.',
+  );
+
+  /** Transcription contexts held open on a worker (§3 T9). */
+  readonly asrWorkerContexts = new Gauge(
+    'scribear_asr_worker_contexts',
+    'Transcription contexts held open on a worker.',
+  );
+
+  /** Jobs ever registered on a worker, monotonic per worker process. */
+  readonly asrWorkerJobsRegisteredTotal = new Counter(
+    'scribear_asr_worker_jobs_registered_total',
+    'Jobs registered on a transcription worker since it started.',
+  );
+
+  /** Transcription jobs that completed successfully. */
+  readonly asrJobsCompletedTotal = new Counter(
+    'scribear_asr_jobs_completed_total',
+    'Transcription jobs that completed successfully, by provider.',
+  );
+
+  /**
+   * Transcription jobs that raised, by `reason`. The reason is the exception
+   * *class* name, never its message — messages are unbounded and would make
+   * this series unbounded with them.
+   */
+  readonly asrJobsFailedTotal = new Counter(
+    'scribear_asr_jobs_failed_total',
+    'Transcription jobs that raised, by provider and exception class.',
+  );
+
+  /** Seconds of audio ingested. The service's throughput, and RTF's denominator. */
+  readonly asrAudioSecondsTotal = new Counter(
+    'scribear_asr_audio_seconds_total',
+    'Seconds of audio ingested by transcription jobs, by provider.',
   );
 
   /** Jobs whose buffer filled and were force-finalized (§3 T2). */
   readonly asrBufferOverflowTotal = new Counter(
     'scribear_asr_buffer_overflow_total',
     'Transcription buffers force-finalized because they filled.',
+  );
+
+  /**
+   * Seconds of audio discarded to buffer overflow — *how much* was lost, which
+   * the overflow count alone does not say.
+   */
+  readonly asrBufferOverflowSecondsTotal = new Counter(
+    'scribear_asr_buffer_overflow_seconds_total',
+    'Seconds of audio discarded when a transcription buffer overflowed.',
   );
 
   /** Clients pushing audio faster than realtime (§3 T2, hard error). */
@@ -267,9 +352,11 @@ export class MetricsRegistry {
 
   /**
    * Buffers that yielded no speech, labelled `kind`:
-   * - `no_words` from `"No words transcribed in buffer."` (INFO, always visible)
-   * - `vad_no_speech` from `"VAD detected no speech in buffer"` (DEBUG — only
-   *   visible if transcription-service runs at LOG_LEVEL=debug)
+   * - `no_words` — the model transcribed nothing from a buffer VAD accepted
+   * - `vad_no_speech` — VAD found no speech at all
+   *
+   * Both were log-derived before B1.2, and `vad_no_speech` was DEBUG-only, i.e.
+   * invisible in any production deployment.
    */
   readonly asrNoSpeechTotal = new Counter(
     'scribear_asr_no_speech_total',
@@ -437,9 +524,14 @@ export class MetricsRegistry {
       this.nodeLatencyE2eNegativeTotal,
       this.nodeLatencyE2eUnavailableTotal,
       this.nodeLatencyUnmatchedChunkTotal,
-      this.nodeProcessRestartsTotal,
-      this.nodeStatusPollErrorsTotal,
+      this.serviceProcessRestartsTotal,
+      this.serviceStatusPollErrorsTotal,
+      this.asrWorkerJobsRegisteredTotal,
+      this.asrJobsCompletedTotal,
+      this.asrJobsFailedTotal,
+      this.asrAudioSecondsTotal,
       this.asrBufferOverflowTotal,
+      this.asrBufferOverflowSecondsTotal,
       this.asrAudioTooFastTotal,
       this.asrNoSpeechTotal,
       this.smConfigPollErrorsTotal,
@@ -460,7 +552,16 @@ export class MetricsRegistry {
       this.probeLatencyMs,
       this.probeConsecutiveFailures,
       this.serviceBuildInfo,
-      this.nodeStatusUp,
+      this.serviceStatusUp,
+      this.asrSchedulingDelayMs,
+      this.asrExecutionMs,
+      this.asrTotalMs,
+      this.asrRtf,
+      this.asrPeriodUtilization,
+      this.asrWorkers,
+      this.asrWorkerUtilization,
+      this.asrWorkerLiveJobs,
+      this.asrWorkerContexts,
       this.nodeActiveSessions,
       this.nodeSessionSources,
       this.nodeSessionSubscribers,
@@ -479,11 +580,6 @@ export class MetricsRegistry {
 
   /** Every histogram in the registry, for generic export. */
   histograms(): Histogram[] {
-    return [
-      this.asrSchedulingDelayMs,
-      this.asrProcessingMs,
-      this.asrPeriodUtilization,
-      this.canaryTimeToFirstTranscriptMs,
-    ];
+    return [this.canaryTimeToFirstTranscriptMs];
   }
 }

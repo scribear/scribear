@@ -86,9 +86,17 @@ describe('server endpoints', () => {
 
   describe('snapshot', (it) => {
     it('returns counters, alerts and ingest health as JSON', async () => {
-      // Arrange
-      const ingest = ingestService();
-      ingest.ingest(pythonDecodeDrop());
+      // Arrange — written straight to the registry. The decode-drop parser
+      // that used to seed this was retired in B1.2 PR 5; this test is about the
+      // snapshot's HTTP shape, not about where the counter came from.
+      const metrics =
+        fastify.diContainer.resolve<AppDependencies['metricsRegistry']>(
+          'metricsRegistry',
+        );
+      metrics.safpDecodeDropsTotal.inc({
+        service: 'transcription-service',
+        side: 'transcription',
+      });
 
       // Act
       const res = await fastify.inject({

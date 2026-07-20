@@ -74,8 +74,8 @@ export interface AlertThresholds {
   decodeDropCount: number;
   /** Buffer overflows within the window before T2 fires. */
   bufferOverflowCount: number;
-  /** p95 period-utilization at or above which T1 fires (1.0 = saturated). */
-  periodUtilizationP95: number;
+  /** p95 real-time factor at or above which T1 fires (1.0 = realtime). */
+  rtfP95: number;
   /** Consecutive failed polls before a probe is called down. */
   probeFailureThreshold: number;
   /** Fraction of WS closes that are auth rejections before S2 fires. */
@@ -102,7 +102,7 @@ export const DEFAULT_THRESHOLDS: AlertThresholds = {
   configPollErrorCount: 1,
   decodeDropCount: 10,
   bufferOverflowCount: 5,
-  periodUtilizationP95: 1.0,
+  rtfP95: 1.0,
   probeFailureThreshold: 2,
   authFailureRatio: 0.5,
   authFailureMinSamples: 5,
@@ -223,17 +223,22 @@ export const configPollErrorRule: AlertRule = (ctx) => {
 };
 
 /**
- * §3 T1 — transcription falling behind the cadence that schedules it.
+ * §3 T1 — transcription not keeping up with realtime audio.
  *
- * Keyed on the period-utilization proxy, not true RTF; see the note on
- * `MetricsRegistry.asrPeriodUtilization`.
+ * Keyed on **true RTF** since B1.2: execution seconds per second of ingested
+ * audio, measured by transcription-service itself. Before that this rule read
+ * the period-utilization proxy, which saturated at the same 1.0 line but was
+ * derived from a log line that carried no audio duration.
+ *
+ * `asrPeriodUtilization` is still collected as a secondary series and is
+ * deliberately not alerted on: two alerts firing for one saturation event is
+ * noise, and RTF is the one that means what it says.
  */
 export const transcriptionSaturationRule: AlertRule = (ctx) => {
   const alerts: Alert[] = [];
-  for (const labels of ctx.metrics.asrPeriodUtilization.seriesLabels()) {
-    const summary = ctx.metrics.asrPeriodUtilization.summary(labels);
-    if (summary === undefined) continue;
-    if (summary.p95 < ctx.thresholds.periodUtilizationP95) continue;
+  for (const { labels, value: rtf } of ctx.metrics.asrRtf.entries()) {
+    if (labels['quantile'] !== 'p95') continue;
+    if (rtf < ctx.thresholds.rtfP95) continue;
 
     const providerKey = labels['providerKey'] ?? 'unknown';
     alerts.push({
@@ -241,11 +246,11 @@ export const transcriptionSaturationRule: AlertRule = (ctx) => {
       failureModes: ['T1'],
       severity: AlertSeverity.CRITICAL,
       stage: PipelineStage.TRANSCRIPTION,
-      summary: `Transcription jobs for ${providerKey} are not keeping up: p95 period utilization ${summary.p95.toFixed(2)} (1.0 = saturated).`,
+      summary: `Transcription for ${providerKey} is slower than realtime: p95 RTF ${rtf.toFixed(2)} (1.0 = realtime).`,
       likelyCause:
         'Transcription service is saturated — more concurrent streams than num_workers can serve, or the model fell back to CPU. Check worker count and GPU availability; latency will keep climbing until load drops.',
-      value: summary.p95,
-      threshold: ctx.thresholds.periodUtilizationP95,
+      value: rtf,
+      threshold: ctx.thresholds.rtfP95,
     });
   }
   return alerts;
@@ -387,27 +392,39 @@ export const authFailureRule: AlertRule = (ctx) => {
  * green, and four metrics quietly report nothing forever. Without this rule
  * that state is indistinguishable from a quiet, healthy deployment.
  */
-export const nodeStatusUnavailableRule: AlertRule = (ctx) => {
+export const statusPollUnavailableRule: AlertRule = (ctx) => {
   const alerts: Alert[] = [];
-  for (const { labels, value } of ctx.metrics.nodeStatusUp.entries()) {
+  for (const { labels, value } of ctx.metrics.serviceStatusUp.entries()) {
     if (value === 1) continue;
-    const service = labels['service'] ?? 'node-server';
+    const service = labels['service'] ?? 'unknown';
 
-    const reasons = ctx.metrics.nodeStatusPollErrorsTotal
+    const reasons = ctx.metrics.serviceStatusPollErrorsTotal
       .entries()
       .filter(({ labels: l }) => l['service'] === service)
       .map(({ labels: l }) => l['reason'] ?? 'unknown');
+
+    // Both are configuration faults that no amount of waiting fixes, and both
+    // leave probes green while the metrics they feed report nothing.
     const unauthorized = reasons.includes('unauthorized');
+    const notFound = reasons.includes('not-found');
+    const misconfigured = unauthorized || notFound;
+
+    let likelyCause: string;
+    if (unauthorized) {
+      likelyCause = `${service} rejected the sidecar's API key. Compare the key on both sides — until it matches, the metrics this endpoint feeds report nothing while every probe stays green.`;
+    } else if (notFound) {
+      likelyCause = `${service} has no status endpoint registered, which is what it does when its own metrics key is empty. Set the key on the service as well as on the sidecar; a key on only one side leaves the endpoint switched off.`;
+    } else {
+      likelyCause = `${service}'s status endpoint is not answering. Check it is reachable on the internal network (it must not be exposed through nginx) and that the probes agree about its health.`;
+    }
 
     alerts.push({
-      id: `node-status-unavailable:${service}`,
+      id: `status-poll-unavailable:${service}`,
       failureModes: ['S3'],
-      severity: unauthorized ? AlertSeverity.CRITICAL : AlertSeverity.WARNING,
+      severity: misconfigured ? AlertSeverity.CRITICAL : AlertSeverity.WARNING,
       stage: PipelineStage.CONTROL_PLANE,
-      summary: `Cannot read ${service} status (${reasons.length === 0 ? 'unknown' : reasons.join(', ')}); connection, upstream and auth metrics are stale.`,
-      likelyCause: unauthorized
-        ? `${service} rejected the sidecar's service API key. Compare NODE_SERVER_SERVICE_API_KEY on both — until it matches, the WebSocket-close, upstream-churn and auth metrics report nothing while every probe stays green.`
-        : `${service}'s status endpoint is not answering. Check it is reachable on the internal network (it must not be exposed through nginx) and that the probes agree about its health.`,
+      summary: `Cannot read ${service} status (${reasons.length === 0 ? 'unknown' : reasons.join(', ')}); the metrics it sources are stale.`,
+      likelyCause,
       value: 0,
       threshold: 1,
     });
@@ -713,7 +730,7 @@ export const DEFAULT_RULES: readonly AlertRule[] = [
   authFailureRule,
   clockSkewRule,
   pendingChunkEvictionRule,
-  nodeStatusUnavailableRule,
+  statusPollUnavailableRule,
   probeDownRule,
   canaryFailureRule,
   canaryQualityRule,

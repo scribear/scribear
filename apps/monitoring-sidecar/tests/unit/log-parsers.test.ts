@@ -1,7 +1,10 @@
 import { describe, expect } from 'vitest';
 
 import { LogIngestService } from '#src/server/shared/log-ingest/log-ingest.service.js';
-import { LogDialect } from '#src/server/shared/log-ingest/log-line.js';
+import {
+  LogDialect,
+  normalizeLogLine,
+} from '#src/server/shared/log-ingest/log-line.js';
 import { MetricsRegistry } from '#src/server/shared/metrics/metrics-registry.service.js';
 import {
   CONFIG_STREAM_URL,
@@ -36,45 +39,8 @@ function createIngest() {
 }
 
 describe('log parsers', () => {
-  describe('decode drops', (it) => {
-    it('counts the capitalized Python variant separately by side', () => {
-      // Arrange
-      const { metrics, ingest } = createIngest();
-
-      // Act
-      ingest.ingest(pythonDecodeDrop());
-
-      // Assert
-      expect(
-        metrics.safpDecodeDropsTotal.get({
-          service: 'transcription-service',
-          side: 'transcription',
-        }),
-      ).toBe(1);
-    });
-
-    it('no longer claims the node-server variant, which the status endpoint now reports', () => {
-      // Arrange - B1.1 retired this parser; the line is still logged for
-      // forensics, so the ingest must treat it as an ordinary unclaimed line
-      // rather than double-counting alongside the status poller.
-      const { metrics, ingest } = createIngest();
-
-      // Act
-      ingest.ingest(nodeDecodeDrop());
-
-      // Assert
-      expect(
-        metrics.safpDecodeDropsTotal.get({
-          service: 'node-server',
-          side: 'node',
-        }),
-      ).toBe(0);
-      expect(metrics.logLinesUnparsedTotal.total()).toBe(1);
-    });
-  });
-
-  describe('retired node-server parsers', (it) => {
-    it('ignores WebSocket close and upstream state lines', () => {
+  describe('retired parsers', (it) => {
+    it('ignores node-server WebSocket close and upstream state lines', () => {
       // Arrange - these three signals moved to GET /status in B1.1. Their log
       // lines remain in node-server as the only per-event forensic record, and
       // must not feed metrics from both sources at once.
@@ -91,111 +57,28 @@ describe('log parsers', () => {
       expect(metrics.upstreamChurnTotal.total()).toBe(0);
       expect(metrics.logLinesUnparsedTotal.total()).toBe(3);
     });
-  });
 
-  describe('job completion', (it) => {
-    it('derives scheduling delay and execution time from the raw timestamps', () => {
-      // Arrange — the derived @property fields are absent from the JSON, so the
-      // parser must compute them from period_start/scheduled/start/complete.
+    it('ignores every transcription line, which /metrics/status now reports', () => {
+      // Arrange - B1.2 PR 5 retired the last five parsers. Double-counting is
+      // the failure this pins: the poller adds the endpoint's absolute totals,
+      // so a parser still claiming these lines would inflate every counter.
       const { metrics, ingest } = createIngest();
 
       // Act
+      ingest.ingest(pythonDecodeDrop());
+      ingest.ingest(nodeDecodeDrop());
       ingest.ingest(jobCompletion({ schedulingDelayMs: 12, executionMs: 350 }));
-
-      // Assert
-      const labels = {
-        service: 'transcription-service',
-        providerKey: 'whisper',
-      };
-      expect(metrics.asrSchedulingDelayMs.summary(labels)?.p50).toBe(12);
-      expect(metrics.asrProcessingMs.summary(labels)?.p50).toBe(350);
-    });
-
-    it('reports period utilization as execution time over the job period', () => {
-      // Arrange
-      const { metrics, ingest } = createIngest();
-
-      // Act — a job taking 1.5x its period is over the saturation line
-      ingest.ingest(jobCompletion({ executionMs: 1_500 }));
-
-      // Assert
-      const labels = {
-        service: 'transcription-service',
-        providerKey: 'whisper',
-      };
-      expect(metrics.asrPeriodUtilization.summary(labels)?.p50).toBeCloseTo(
-        1.5,
-      );
-    });
-
-    it('ignores a job completion whose stats block is malformed', () => {
-      // Arrange
-      const { metrics, ingest } = createIngest();
-
-      // Act
-      ingest.ingest({
-        service: 'transcription-service',
-        dialect: LogDialect.PYTHON,
-        text: JSON.stringify({
-          level: 20,
-          time: 1,
-          msg: 'Completed transcription job',
-          stats: { period_start_ns: 'not-a-number' },
-        }),
-      });
-
-      // Assert — counted as parsed, but contributes no observation
-      expect(metrics.asrProcessingMs.count()).toBe(0);
-    });
-  });
-
-  describe('overload signals', (it) => {
-    it('counts a force-finalized buffer despite the float suffix', () => {
-      // Arrange
-      const { metrics, ingest } = createIngest();
-
-      // Act
       ingest.ingest(bufferOverflow());
-
-      // Assert
-      expect(metrics.asrBufferOverflowTotal.total()).toBe(1);
-    });
-
-    it('counts audio-too-fast through the error-hook wrapper text', () => {
-      // Arrange — the raised message is embedded in "Websocket encountered
-      // error: ...", so an equality match would miss it entirely.
-      const { metrics, ingest } = createIngest();
-
-      // Act
       ingest.ingest(audioTooFast());
-
-      // Assert
-      expect(metrics.asrAudioTooFastTotal.total()).toBe(1);
-    });
-  });
-
-  describe('no-speech signals', (it) => {
-    it('labels the INFO and DEBUG variants distinctly', () => {
-      // Arrange
-      const { metrics, ingest } = createIngest();
-
-      // Act
       ingest.ingest(noWords());
       ingest.ingest(vadNoSpeech());
 
-      // Assert — conflating these would hide the T5-vs-T8 distinction
-      expect(
-        metrics.asrNoSpeechTotal.get({
-          service: 'transcription-service',
-          kind: 'no_words',
-        }),
-      ).toBe(1);
-      expect(
-        metrics.asrNoSpeechTotal.get({
-          service: 'transcription-service',
-          kind: 'vad_no_speech',
-        }),
-      ).toBe(1);
+      // Assert
+      expect(metrics.safpDecodeDropsTotal.total()).toBe(0);
+      expect(metrics.asrBufferOverflowTotal.total()).toBe(0);
+      expect(metrics.asrAudioTooFastTotal.total()).toBe(0);
+      expect(metrics.asrNoSpeechTotal.total()).toBe(0);
+      expect(metrics.logLinesUnparsedTotal.total()).toBe(7);
     });
   });
 
@@ -260,21 +143,17 @@ describe('log parsers', () => {
   describe('dialect handling', (it) => {
     it('normalizes Python epoch-seconds timestamps to milliseconds', () => {
       // Arrange — pino writes ms and Python writes seconds; a 1000x error here
-      // would silently break every rolling-window rate.
-      const { metrics, ingest } = createIngest();
+      // would silently break every rolling-window rate. Asserted on the
+      // normalized line rather than through a metric, because B1.2 PR 5 retired
+      // every parser that consumed a Python line.
       const timeSec = 1_755_624_000;
 
       // Act
-      ingest.ingest(bufferOverflow(timeSec));
+      const raw = bufferOverflow(timeSec);
+      const line = normalizeLogLine(raw.text, raw.service, raw.dialect);
 
-      // Assert — the sample must land inside a window anchored at the ms value
-      expect(
-        metrics.asrBufferOverflowTotal.windowCount(
-          {},
-          1_000,
-          timeSec * 1_000 + 500,
-        ),
-      ).toBe(1);
+      // Assert
+      expect(line?.timeMs).toBe(timeSec * 1_000);
     });
 
     it('counts unrecognized lines rather than discarding them silently', () => {

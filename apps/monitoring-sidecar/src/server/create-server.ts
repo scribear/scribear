@@ -86,6 +86,9 @@ async function createServer(
     const nodeStatusPollerService = dependencyContainer.resolve<
       AppDependencies['nodeStatusPollerService']
     >('nodeStatusPollerService');
+    const transcriptionMetricsPollerService = dependencyContainer.resolve<
+      AppDependencies['transcriptionMetricsPollerService']
+    >('transcriptionMetricsPollerService');
     const canaryRunnerService = dependencyContainer.resolve<
       AppDependencies['canaryRunnerService']
     >('canaryRunnerService');
@@ -99,6 +102,9 @@ async function createServer(
       // Source of the connection, upstream and auth metrics since B1.1. It is
       // a no-op when no service API key is configured, and says so once.
       nodeStatusPollerService.start();
+      // Source of job timings, true RTF, worker utilization and the T2
+      // counters since B1.2. Also a no-op without a key, and also says so once.
+      transcriptionMetricsPollerService.start();
 
       // Likewise best-effort. A bad fixture path or unreadable audio file must
       // not take down the log and probe collectors, which are independently
@@ -114,6 +120,7 @@ async function createServer(
       dockerLogSource.stop();
       probePollerService.stop();
       nodeStatusPollerService.stop();
+      transcriptionMetricsPollerService.stop();
       canaryRunnerService.stop();
     });
   }

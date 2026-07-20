@@ -40,7 +40,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
         timeoutMs: 2_000,
         service: SERVICE,
         statusUrl: node.statusUrl,
-        serviceApiKey: apiKey,
+        apiKey: apiKey,
       },
       metrics,
       logger,
@@ -168,9 +168,9 @@ describe('node-server status poller (B1.1 PR 4)', () => {
       // subtracted, and the restart itself is observable.
       expect(result.restarted).toBe(true);
       expect(metrics.nodeAuthTimeoutsTotal.get({ service: SERVICE })).toBe(102);
-      expect(metrics.nodeProcessRestartsTotal.get({ service: SERVICE })).toBe(
-        1,
-      );
+      expect(
+        metrics.serviceProcessRestartsTotal.get({ service: SERVICE }),
+      ).toBe(1);
     });
 
     it('treats a counter that went backwards as a missed restart', async () => {
@@ -200,7 +200,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
       // Assert - there is no previous process to have restarted from
       expect(result.restarted).toBe(false);
       expect(result.processUid).toBe(FAKE_PROCESS_UID);
-      expect(metrics.nodeProcessRestartsTotal.total()).toBe(0);
+      expect(metrics.serviceProcessRestartsTotal.total()).toBe(0);
     });
   });
 
@@ -368,12 +368,12 @@ describe('node-server status poller (B1.1 PR 4)', () => {
       expect(result.ok).toBe(false);
       expect(result.reason).toBe('unauthorized');
       expect(
-        metrics.nodeStatusPollErrorsTotal.get({
+        metrics.serviceStatusPollErrorsTotal.get({
           service: SERVICE,
           reason: 'unauthorized',
         }),
       ).toBe(1);
-      expect(metrics.nodeStatusUp.get({ service: SERVICE })).toBe(0);
+      expect(metrics.serviceStatusUp.get({ service: SERVICE })).toBe(0);
     });
 
     it('rejects a body that does not match the status schema', async () => {
@@ -387,7 +387,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
 
       // Assert
       expect(result.reason).toBe('malformed');
-      expect(metrics.nodeStatusUp.get({ service: SERVICE })).toBe(0);
+      expect(metrics.serviceStatusUp.get({ service: SERVICE })).toBe(0);
     });
 
     it('reports a server error without losing prior counter values', async () => {
@@ -405,7 +405,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
       expect(
         metrics.safpDecodeDropsTotal.get({ service: SERVICE, side: 'node' }),
       ).toBe(7);
-      expect(metrics.nodeStatusUp.get({ service: SERVICE })).toBe(0);
+      expect(metrics.serviceStatusUp.get({ service: SERVICE })).toBe(0);
     });
 
     it('recovers and marks the poll up again', async () => {
@@ -420,7 +420,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
 
       // Assert
       expect(result.ok).toBe(true);
-      expect(metrics.nodeStatusUp.get({ service: SERVICE })).toBe(1);
+      expect(metrics.serviceStatusUp.get({ service: SERVICE })).toBe(1);
     });
 
     it('presents the service API key as a bearer credential', async () => {

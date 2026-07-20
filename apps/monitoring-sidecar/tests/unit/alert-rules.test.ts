@@ -12,9 +12,9 @@ import {
   clockSkewRule,
   configPollErrorRule,
   decodeDropRule,
-  nodeStatusUnavailableRule,
   pendingChunkEvictionRule,
   probeDownRule,
+  statusPollUnavailableRule,
   transcriptionSaturationRule,
   upstreamChurnRule,
 } from '#src/server/shared/alerts/alert-rules.js';
@@ -180,12 +180,17 @@ describe('alert rules', () => {
   });
 
   describe('transcription saturation (T1)', (it) => {
-    it('fires when p95 period utilization reaches the saturation line', () => {
+    it('fires when p95 RTF reaches the realtime line', () => {
       // Arrange
       const metrics = new MetricsRegistry();
-      for (let i = 0; i < 20; i++) {
-        metrics.asrPeriodUtilization.observe(1.4, { providerKey: 'whisper' });
-      }
+      metrics.asrRtf.set(
+        {
+          service: 'transcription-service',
+          providerKey: 'whisper',
+          quantile: 'p95',
+        },
+        1.4,
+      );
 
       // Act
       const alerts = transcriptionSaturationRule(context(metrics));
@@ -193,14 +198,67 @@ describe('alert rules', () => {
       // Assert
       expect(alerts).toHaveLength(1);
       expect(alerts[0]?.stage).toBe('transcription');
+      expect(alerts[0]?.summary).toContain('p95 RTF 1.40');
     });
 
-    it('stays silent for a comfortably-under-period workload', () => {
+    it('stays silent for a comfortably-faster-than-realtime workload', () => {
       // Arrange
       const metrics = new MetricsRegistry();
-      for (let i = 0; i < 20; i++) {
-        metrics.asrPeriodUtilization.observe(0.4, { providerKey: 'whisper' });
-      }
+      metrics.asrRtf.set(
+        {
+          service: 'transcription-service',
+          providerKey: 'whisper',
+          quantile: 'p95',
+        },
+        0.4,
+      );
+
+      // Act
+      const alerts = transcriptionSaturationRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('ignores quantiles other than p95', () => {
+      // Arrange — a saturated max with a healthy p95 is a spike, not saturation.
+      const metrics = new MetricsRegistry();
+      metrics.asrRtf.set(
+        {
+          service: 'transcription-service',
+          providerKey: 'whisper',
+          quantile: 'max',
+        },
+        4.0,
+      );
+      metrics.asrRtf.set(
+        {
+          service: 'transcription-service',
+          providerKey: 'whisper',
+          quantile: 'p95',
+        },
+        0.3,
+      );
+
+      // Act
+      const alerts = transcriptionSaturationRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('does not fire on the secondary period-utilization series', () => {
+      // Arrange — two alerts for one saturation event would be noise, so only
+      // RTF is wired to the rule.
+      const metrics = new MetricsRegistry();
+      metrics.asrPeriodUtilization.set(
+        {
+          service: 'transcription-service',
+          providerKey: 'whisper',
+          quantile: 'p95',
+        },
+        3.0,
+      );
 
       // Act
       const alerts = transcriptionSaturationRule(context(metrics));
@@ -403,10 +461,10 @@ describe('alert rules', () => {
     it('stays silent while the status poll is succeeding', () => {
       // Arrange
       const metrics = new MetricsRegistry();
-      metrics.nodeStatusUp.set({ service: 'node-server' }, 1);
+      metrics.serviceStatusUp.set({ service: 'node-server' }, 1);
 
       // Act
-      const alerts = nodeStatusUnavailableRule(context(metrics));
+      const alerts = statusPollUnavailableRule(context(metrics));
 
       // Assert
       expect(alerts).toHaveLength(0);
@@ -416,35 +474,57 @@ describe('alert rules', () => {
       // Arrange - the blind spot the B1.1 cut-over introduced: node-server is
       // healthy, every probe is green, and four metrics silently report zero.
       const metrics = new MetricsRegistry();
-      metrics.nodeStatusUp.set({ service: 'node-server' }, 0);
-      metrics.nodeStatusPollErrorsTotal.inc(
+      metrics.serviceStatusUp.set({ service: 'node-server' }, 0);
+      metrics.serviceStatusPollErrorsTotal.inc(
         { service: 'node-server', reason: 'unauthorized' },
         1,
         NOW,
       );
 
       // Act
-      const alerts = nodeStatusUnavailableRule(context(metrics));
+      const alerts = statusPollUnavailableRule(context(metrics));
 
       // Assert
       expect(alerts).toHaveLength(1);
       expect(alerts[0]?.severity).toBe(AlertSeverity.CRITICAL);
-      expect(alerts[0]?.likelyCause).toContain('NODE_SERVER_SERVICE_API_KEY');
+      expect(alerts[0]?.likelyCause).toContain('rejected the sidecar');
+    });
+
+    it('pages on a 404, which means the far end never registered the route', () => {
+      // Arrange - transcription-service leaves /metrics/status unregistered
+      // when its own key is empty, so a key set on the sidecar alone reads as
+      // not-found rather than unauthorized. Both are config faults that no
+      // amount of waiting fixes, so both page.
+      const metrics = new MetricsRegistry();
+      metrics.serviceStatusUp.set({ service: 'transcription-service' }, 0);
+      metrics.serviceStatusPollErrorsTotal.inc(
+        { service: 'transcription-service', reason: 'not-found' },
+        1,
+        NOW,
+      );
+
+      // Act
+      const alerts = statusPollUnavailableRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]?.severity).toBe(AlertSeverity.CRITICAL);
+      expect(alerts[0]?.likelyCause).toContain('metrics key is empty');
     });
 
     it('warns rather than pages when the endpoint is merely unreachable', () => {
       // Arrange - the probe poller already alerts on an unreachable service, so
       // this would be the second alert for one outage.
       const metrics = new MetricsRegistry();
-      metrics.nodeStatusUp.set({ service: 'node-server' }, 0);
-      metrics.nodeStatusPollErrorsTotal.inc(
+      metrics.serviceStatusUp.set({ service: 'node-server' }, 0);
+      metrics.serviceStatusPollErrorsTotal.inc(
         { service: 'node-server', reason: 'unreachable' },
         1,
         NOW,
       );
 
       // Act
-      const alerts = nodeStatusUnavailableRule(context(metrics));
+      const alerts = statusPollUnavailableRule(context(metrics));
 
       // Assert
       expect(alerts[0]?.severity).toBe(AlertSeverity.WARNING);

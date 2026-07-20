@@ -20,164 +20,24 @@ export interface LogParser {
   apply(line: NormalizedLogLine, metrics: MetricsRegistry): void;
 }
 
-/** Reads a string field, or undefined when absent/not a string. */
-function str(line: NormalizedLogLine, key: string): string | undefined {
-  const v = line.fields[key];
-  return typeof v === 'string' ? v : undefined;
-}
-
 /**
- * transcription-service: `Dropping malformed audio frame` (capital D).
+ * **All five transcription/decode parsers were retired in B1.2 PR 5.**
  *
- * The node-server side of this signal moved to the status endpoint in B1.1,
- * along with WebSocket closes and upstream state transitions - see
- * {@link NodeStatusPollerService}. This parser stays because
- * transcription-service has no status endpoint yet (B1.2), so its decode drops
- * are still only visible in log text.
+ * `pythonDecodeDropParser`, `createJobCompletionParser`, `bufferOverflowParser`,
+ * `audioTooFastParser` and `noSpeechParser` inferred decode drops, job timings,
+ * buffer overflows, audio-too-fast rejections and no-speech buffers from log
+ * text. All five now come from transcription-service's `GET /metrics/status` via
+ * `TranscriptionMetricsPollerService`, which reports them as authoritative
+ * in-process counters. Three of them were incremented *inside a spawned worker
+ * process*, so logging them was the only reason they were ever visible.
  *
- * @see transcription_service/src/webserver/features/transcription_stream/transcription_stream_controller.py
+ * The log lines themselves remain in transcription-service as forensics; the
+ * sidecar simply stopped deriving numbers from them. This mirrors what B1.1 did
+ * to the node-server parsers.
+ *
+ * What is left below is the session-manager config-poll correlator, the last
+ * consumer of log ingest.
  */
-export const pythonDecodeDropParser: LogParser = {
-  id: 'python-decode-drop',
-  match: (line) => line.msg === 'Dropping malformed audio frame',
-  apply: (line, metrics) => {
-    metrics.safpDecodeDropsTotal.inc(
-      { service: line.service, side: 'transcription' },
-      1,
-      line.timeMs,
-    );
-  },
-};
-
-/**
- * transcription-service job completion, carrying `JobStatistics`.
- *
- * The nested `stats` object holds only the four raw `perf_counter_ns`
- * timestamps — `asdict()` does not serialize the derived `@property`
- * accessors — so scheduling delay and execution time are computed here using
- * the same arithmetic as `job_result.py`.
- *
- * @see transcription_service/src/shared/utils/worker_pool/job_result.py
- */
-export function createJobCompletionParser(jobPeriodMs: number): LogParser {
-  return {
-    id: 'job-completion',
-    match: (line) => line.msg === 'Completed transcription job',
-    apply: (line, metrics) => {
-      const stats = line.fields['stats'];
-      if (typeof stats !== 'object' || stats === null) return;
-      const s = stats as Record<string, unknown>;
-
-      const periodStart = s['period_start_ns'];
-      const scheduled = s['job_scheduled_time_ns'];
-      const startExec = s['start_execute_time_ns'];
-      const complete = s['complete_time_ns'];
-      if (
-        typeof periodStart !== 'number' ||
-        typeof scheduled !== 'number' ||
-        typeof startExec !== 'number' ||
-        typeof complete !== 'number'
-      ) {
-        return;
-      }
-
-      const labels = {
-        service: line.service,
-        providerKey: str(line, 'provider_key') ?? 'unknown',
-      };
-
-      const NS_PER_MS = 1_000_000;
-      const schedulingDelayMs = (scheduled - periodStart) / NS_PER_MS;
-      const executionMs = (complete - startExec) / NS_PER_MS;
-
-      // These are perf_counter_ns deltas — monotonic and unaffected by clock
-      // skew — but a negative value would mean the fields arrived out of order,
-      // so guard rather than poison the histogram.
-      if (schedulingDelayMs >= 0) {
-        metrics.asrSchedulingDelayMs.observe(schedulingDelayMs, labels);
-      }
-      if (executionMs >= 0) {
-        metrics.asrProcessingMs.observe(executionMs, labels);
-        if (jobPeriodMs > 0) {
-          metrics.asrPeriodUtilization.observe(
-            executionMs / jobPeriodMs,
-            labels,
-          );
-        }
-      }
-    },
-  };
-}
-
-/**
- * transcription-service: `Buffer full. Forcing finalization of audio up to: N`
- *
- * The message is an f-string with a 4-decimal float appended, so this matches on
- * prefix rather than equality.
- * @see transcription_service/.../whisper_streaming_job.py
- */
-export const bufferOverflowParser: LogParser = {
-  id: 'buffer-overflow',
-  match: (line) => line.msg.startsWith('Buffer full. Forcing finalization'),
-  apply: (line, metrics) => {
-    metrics.asrBufferOverflowTotal.inc(
-      {
-        service: line.service,
-        workerId: str(line, 'worker_id') ?? 'unknown',
-      },
-      1,
-      line.timeMs,
-    );
-  },
-};
-
-/**
- * transcription-service: client pushed audio faster than realtime.
- *
- * `TranscriptionClientError("Client sent audio too quickly.")` is raised, not
- * logged directly; it surfaces via the controller's error hook as
- * `"Websocket encountered error: Client sent audio too quickly."`. Hence a
- * substring match rather than a prefix or equality match.
- */
-export const audioTooFastParser: LogParser = {
-  id: 'audio-too-fast',
-  match: (line) => line.msg.includes('Client sent audio too quickly'),
-  apply: (line, metrics) => {
-    metrics.asrAudioTooFastTotal.inc(
-      {
-        service: line.service,
-        socketId: str(line, 'socket_id') ?? 'unknown',
-      },
-      1,
-      line.timeMs,
-    );
-  },
-};
-
-/**
- * transcription-service: buffer produced no speech.
- *
- * Two distinct lines with different visibility. `No words transcribed in
- * buffer.` is INFO and always present; `VAD detected no speech in buffer` is
- * DEBUG and therefore invisible unless transcription-service is deliberately
- * run at LOG_LEVEL=debug. They are labelled separately so a dashboard can tell
- * "VAD saw nothing" from "VAD saw speech but Whisper produced no words" —
- * the §3 T5/T8 distinction — without silently conflating them.
- */
-export const noSpeechParser: LogParser = {
-  id: 'no-speech',
-  match: (line) =>
-    line.msg === 'No words transcribed in buffer.' ||
-    line.msg === 'VAD detected no speech in buffer',
-  apply: (line, metrics) => {
-    const kind = line.msg.startsWith('VAD') ? 'vad_no_speech' : 'no_words';
-    metrics.asrNoSpeechTotal.inc(
-      { service: line.service, kind },
-      1,
-      line.timeMs,
-    );
-  },
-};
 
 /**
  * session-manager `session-config-stream` outcomes (§3 N2 / S3).
@@ -248,13 +108,14 @@ export class RequestCorrelator {
   }
 }
 
-/** Every standalone parser, in evaluation order. */
-export function defaultParsers(jobPeriodMs: number): LogParser[] {
-  return [
-    pythonDecodeDropParser,
-    createJobCompletionParser(jobPeriodMs),
-    bufferOverflowParser,
-    audioTooFastParser,
-    noSpeechParser,
-  ];
+/**
+ * Every standalone parser, in evaluation order.
+ *
+ * Empty since B1.2 PR 5: the only surviving detector is the config-poll
+ * correlator, which LogIngestService drives directly rather than through a
+ * `LogParser`. Every ingested line therefore now counts as unparsed, which is
+ * why `logLinesUnparsedTotal` stopped being a useful drift alarm.
+ */
+export function defaultParsers(): LogParser[] {
+  return [];
 }

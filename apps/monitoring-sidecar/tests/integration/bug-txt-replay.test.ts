@@ -80,7 +80,7 @@ describe('BUG.txt upstream flap replay', () => {
         timeoutMs: 2_000,
         service: 'node-server',
         statusUrl: node.statusUrl,
-        serviceApiKey: API_KEY,
+        apiKey: API_KEY,
       },
       metrics,
       logger,
@@ -276,7 +276,7 @@ describe('BUG.txt upstream flap replay', () => {
           value: 0,
         },
       ]);
-      expect(snapshot.gauges['scribear_node_status_up']?.[0]?.value).toBe(1);
+      expect(snapshot.gauges['scribear_service_status_up']?.[0]?.value).toBe(1);
     });
   });
 });

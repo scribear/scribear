@@ -15,6 +15,7 @@ import type {
   ProbePollerConfig,
   ProbeTarget,
 } from '#src/server/shared/probes/probe-poller.service.js';
+import type { TranscriptionMetricsPollerConfig } from '#src/server/shared/transcription-metrics/transcription-metrics-poller.service.js';
 
 const SECOND_MS = 1_000;
 
@@ -29,8 +30,9 @@ const CONFIG_SCHEMA = Type.Object({
 
   /**
    * Must match `job_period_ms` in the deployed provider_config.json. It is the
-   * denominator of the period-utilization proxy metric and cannot be read from
-   * the logs, so a wrong value silently rescales that metric.
+   * denominator of the derived period-utilization series and is not reported by
+   * the metrics endpoint, so a wrong value silently rescales that metric. It
+   * does not affect `asrRtf`, which transcription-service measures itself.
    */
   TRANSCRIPTION_JOB_PERIOD_MS: Type.Integer({ minimum: 1, default: 1_000 }),
 
@@ -62,13 +64,27 @@ const CONFIG_SCHEMA = Type.Object({
    */
   NODE_STATUS_INTERVAL_SEC: Type.Integer({ minimum: 1, default: 10 }),
 
+  // transcription-service metrics polling (B1.2)
+  /**
+   * Must match transcription-service's `METRICS_API_KEY`. Empty disables the
+   * poll, which leaves job timings, RTF, worker utilization and the
+   * buffer-overflow counters empty — they have no other source since the log
+   * parsers for them were retired.
+   *
+   * The service leaves the route unregistered when *its* key is empty, so a key
+   * set here but not there produces a 404, reported as the `not-found` poll
+   * reason rather than as an auth failure.
+   */
+  TRANSCRIPTION_SERVICE_METRICS_KEY: Type.String({ default: '' }),
+  TRANSCRIPTION_METRICS_INTERVAL_SEC: Type.Integer({ minimum: 1, default: 10 }),
+
   // Alert thresholds (§4 defaults; every one is deployment-tunable)
   ALERT_RATE_WINDOW_SEC: Type.Integer({ minimum: 1, default: 120 }),
   ALERT_UPSTREAM_CHURN_COUNT: Type.Integer({ minimum: 1, default: 3 }),
   ALERT_CONFIG_POLL_ERROR_COUNT: Type.Integer({ minimum: 1, default: 1 }),
   ALERT_DECODE_DROP_COUNT: Type.Integer({ minimum: 1, default: 10 }),
   ALERT_BUFFER_OVERFLOW_COUNT: Type.Integer({ minimum: 1, default: 5 }),
-  ALERT_PERIOD_UTILIZATION_P95: Type.Number({ minimum: 0, default: 1.0 }),
+  ALERT_RTF_P95: Type.Number({ minimum: 0, default: 1.0 }),
   ALERT_PROBE_FAILURE_THRESHOLD: Type.Integer({ minimum: 1, default: 2 }),
   ALERT_AUTH_FAILURE_RATIO: Type.Number({
     minimum: 0,
@@ -223,7 +239,23 @@ export class AppConfig {
       timeoutMs: this._env.PROBE_TIMEOUT_SEC * SECOND_MS,
       service: 'node-server',
       statusUrl: `${this._env.NODE_SERVER_BASE_URL}/api/node-server/v1/status`,
-      serviceApiKey: this._env.NODE_SERVER_SERVICE_API_KEY,
+      apiKey: this._env.NODE_SERVER_SERVICE_API_KEY,
+    };
+  }
+
+  get transcriptionMetricsPollerConfig(): TranscriptionMetricsPollerConfig {
+    return {
+      // Fail closed, as for node-server: polling without a key would 401 or
+      // 404 on every interval forever.
+      enabled: this._env.TRANSCRIPTION_SERVICE_METRICS_KEY.length > 0,
+      intervalMs: this._env.TRANSCRIPTION_METRICS_INTERVAL_SEC * SECOND_MS,
+      timeoutMs: this._env.PROBE_TIMEOUT_SEC * SECOND_MS,
+      service: 'transcription-service',
+      // Root-mounted, with no /api/<service>/v1 prefix — the same exception
+      // its probes make.
+      statusUrl: `${this._env.TRANSCRIPTION_SERVICE_BASE_URL}/metrics/status`,
+      apiKey: this._env.TRANSCRIPTION_SERVICE_METRICS_KEY,
+      jobPeriodMs: this._env.TRANSCRIPTION_JOB_PERIOD_MS,
     };
   }
 
@@ -234,7 +266,7 @@ export class AppConfig {
       configPollErrorCount: this._env.ALERT_CONFIG_POLL_ERROR_COUNT,
       decodeDropCount: this._env.ALERT_DECODE_DROP_COUNT,
       bufferOverflowCount: this._env.ALERT_BUFFER_OVERFLOW_COUNT,
-      periodUtilizationP95: this._env.ALERT_PERIOD_UTILIZATION_P95,
+      rtfP95: this._env.ALERT_RTF_P95,
       probeFailureThreshold: this._env.ALERT_PROBE_FAILURE_THRESHOLD,
       authFailureRatio: this._env.ALERT_AUTH_FAILURE_RATIO,
       authFailureMinSamples: this._env.ALERT_AUTH_FAILURE_MIN_SAMPLES,

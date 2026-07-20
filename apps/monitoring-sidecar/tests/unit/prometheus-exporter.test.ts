@@ -39,18 +39,18 @@ describe('prometheus exporter', () => {
     it('emits the mandatory +Inf bucket matching the observation count', () => {
       // Arrange
       const metrics = new MetricsRegistry();
-      metrics.asrProcessingMs.observe(120, { providerKey: 'whisper' });
-      metrics.asrProcessingMs.observe(9_000, { providerKey: 'whisper' });
+      metrics.canaryTimeToFirstTranscriptMs.observe(120, { room: 'canary' });
+      metrics.canaryTimeToFirstTranscriptMs.observe(9_000, { room: 'canary' });
 
       // Act
       const text = renderPrometheus(metrics);
 
       // Assert — a histogram without +Inf is rejected by scrapers
       expect(text).toContain(
-        'scribear_asr_processing_ms_bucket{providerKey="whisper",le="+Inf"} 2',
+        'scribear_canary_time_to_first_transcript_ms_bucket{room="canary",le="+Inf"} 2',
       );
       expect(text).toContain(
-        'scribear_asr_processing_ms_count{providerKey="whisper"} 2',
+        'scribear_canary_time_to_first_transcript_ms_count{room="canary"} 2',
       );
     });
 

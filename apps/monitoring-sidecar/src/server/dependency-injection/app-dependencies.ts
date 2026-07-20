@@ -38,6 +38,10 @@ import type {
   ProbePollerConfig,
   ProbePollerService,
 } from '#src/server/shared/probes/probe-poller.service.js';
+import type {
+  TranscriptionMetricsPollerConfig,
+  TranscriptionMetricsPollerService,
+} from '#src/server/shared/transcription-metrics/transcription-metrics-poller.service.js';
 
 /**
  * All named dependencies available in the Awilix container.
@@ -60,6 +64,8 @@ interface AppDependencies extends BaseDependencies {
   dockerLogSource: DockerLogSource;
   probePollerService: ProbePollerService;
   nodeStatusPollerService: NodeStatusPollerService;
+  transcriptionMetricsPollerConfig: TranscriptionMetricsPollerConfig;
+  transcriptionMetricsPollerService: TranscriptionMetricsPollerService;
   canaryAuthClient: CanaryAuthClient;
   canaryRunnerService: CanaryRunnerService;
   alertEvaluatorService: AlertEvaluatorService;

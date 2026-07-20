@@ -57,7 +57,7 @@ export class LogIngestService {
     this._metrics = metricsRegistry;
     this._logger = logger;
     this._config = logIngestConfig;
-    this._parsers = defaultParsers(logIngestConfig.jobPeriodMs);
+    this._parsers = defaultParsers();
   }
 
   /** Ingests one raw line. Never throws; malformed input is counted, not raised. */
