@@ -171,6 +171,59 @@ services:
       - backend
     restart: unless-stopped
 
+  # Monitoring
+  #
+  # Black-box sidecar: parses the other services' JSON logs into metrics, polls
+  # their probes, and evaluates alert rules. It does not modify or depend on the
+  # monitored services, so it can be removed from this file with no other edits.
+  #
+  # SECURITY: the Docker socket is mounted to read container logs. That is
+  # root-equivalent access to the host, granted here read-only and used only for
+  # GET /containers/json and GET /containers/<id>/logs. If that trade is not
+  # acceptable in a given deployment, drop this service and switch to a log
+  # shipping driver instead.
+  monitoring-sidecar:
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/monitoring-sidecar:${IMAGE_TAG:-latest}
+    expose:
+      - "80"
+    environment:
+      LOG_LEVEL: ${MONITORING_LOG_LEVEL:-info}
+      # Must match the compose project name, or container discovery finds
+      # nothing and the sidecar silently collects no logs.
+      COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-deployment}
+      # Must match job_period_ms in provider_config.json; it is the denominator
+      # of the period-utilization metric.
+      TRANSCRIPTION_JOB_PERIOD_MS: ${MONITORING_JOB_PERIOD_MS:-1000}
+      NODE_SERVER_BASE_URL: http://node-server:80
+      SESSION_MANAGER_BASE_URL: http://session-manager:80
+      ADMIN_SERVER_BASE_URL: http://admin-server:80
+      TRANSCRIPTION_SERVICE_BASE_URL: http://transcription-service:80
+      PROBE_INTERVAL_SEC: ${MONITORING_PROBE_INTERVAL_SEC:-10}
+      ALERT_RATE_WINDOW_SEC: ${MONITORING_ALERT_WINDOW_SEC:-120}
+      ALERT_UPSTREAM_CHURN_COUNT: ${MONITORING_ALERT_CHURN_COUNT:-3}
+      # Synthetic canary (A2). Empty disables it entirely, which is the
+      # default: the canary needs a registered device, and until one exists
+      # there is nothing to authenticate as. The one-time device registration
+      # is documented in apps/monitoring-sidecar/.env.example.
+      #
+      # The canary streams synthetic audio into whatever session is active in
+      # its device's room, so that device MUST belong to a dedicated canary
+      # room. Pointing it at a real teaching room would inject fixture speech
+      # into a live lecture's captions.
+      CANARY_DEVICE_TOKEN: ${MONITORING_CANARY_DEVICE_TOKEN:-}
+      CANARY_INTERVAL_SEC: ${MONITORING_CANARY_INTERVAL_SEC:-300}
+      CANARY_RUN_DURATION_SEC: ${MONITORING_CANARY_RUN_SEC:-40}
+      # Must match sample_rate / num_channels in the canary session's
+      # transcriptionStreamConfig; the transcription service rejects audio
+      # whose WAV header disagrees rather than resampling it.
+      CANARY_SAMPLE_RATE: ${MONITORING_CANARY_SAMPLE_RATE:-16000}
+      CANARY_CHANNELS: ${MONITORING_CANARY_CHANNELS:-1}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - backend
+    restart: unless-stopped
+
 networks:
   frontend:
   backend:

@@ -67,6 +67,11 @@ jobs:
             dockerfile: apps/node-server/Dockerfile
             workspace: apps/node-server
             version_file: apps/node-server/package.json
+          - image_name: scribear/monitoring-sidecar
+            build_context: .
+            dockerfile: apps/monitoring-sidecar/Dockerfile
+            workspace: apps/monitoring-sidecar
+            version_file: apps/monitoring-sidecar/package.json
           - image_name: scribear/admin-server
             build_context: .
             dockerfile: apps/admin-server/Dockerfile

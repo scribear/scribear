@@ -9,6 +9,7 @@ docker build -f "$ROOT/apps/session-manager/Dockerfile"    "$ROOT" -t "scribear/
 docker build -f "$ROOT/apps/client-webapp/Dockerfile"      "$ROOT" -t "scribear/client-webapp:$TAG"
 docker build -f "$ROOT/apps/standalone-webapp/Dockerfile"  "$ROOT" -t "scribear/standalone-webapp:$TAG"
 docker build -f "$ROOT/apps/kiosk-webapp/Dockerfile"       "$ROOT" -t "scribear/kiosk-webapp:$TAG"
+docker build -f "$ROOT/apps/monitoring-sidecar/Dockerfile" "$ROOT" -t "scribear/monitoring-sidecar:$TAG"
 
 docker build "$ROOT/infra/scribear-db"    -t "scribear/scribear-db:$TAG"
 docker build "$ROOT/infra/scribear-nginx" -t "scribear/scribear-nginx:$TAG"
