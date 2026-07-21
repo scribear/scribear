@@ -7,6 +7,7 @@ import type { AddressInfo } from 'node:net';
  */
 export interface FakeSession {
   sessionUid: string;
+  providerKey: string;
   sourceCount: number;
   subscriberCount: number;
   pendingChunkCount: number;
@@ -22,13 +23,14 @@ export interface FakeSession {
 }
 
 /**
- * A session as a test writes it. `latency` defaults to empty in
- * {@link statusBody}, because most tests here predate B1.4 and care about the
- * connection gauges only - but the field is required on the wire, so it has to
- * be filled in or the poller rejects the body as malformed.
+ * A session as a test writes it. `latency` and `providerKey` are defaulted in
+ * {@link statusBody}, because most tests here predate B1.4 and B1.7 and care
+ * about the connection gauges only - but both are required on the wire, so
+ * they have to be filled in or the poller rejects the body as malformed.
  */
-export type FakeSessionInput = Omit<FakeSession, 'latency'> & {
+export type FakeSessionInput = Omit<FakeSession, 'latency' | 'providerKey'> & {
   latency?: FakeLatencySeries[];
+  providerKey?: string;
 };
 
 /** One latency distribution as node-server reports it (B1.4). */
@@ -126,7 +128,11 @@ export function statusBody(
     latency: [],
     sessionsTruncated: false,
     ...rest,
-    sessions: (sessions ?? []).map((session) => ({ latency: [], ...session })),
+    sessions: (sessions ?? []).map((session) => ({
+      latency: [],
+      providerKey: 'debug',
+      ...session,
+    })),
     summary: { ...ZERO_SUMMARY, ...summary },
   };
 }

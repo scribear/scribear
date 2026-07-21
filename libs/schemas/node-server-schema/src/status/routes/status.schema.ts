@@ -1,4 +1,5 @@
 import { Type } from 'typebox';
+import type { Static } from 'typebox';
 
 import {
   type BaseRouteDefinition,
@@ -106,6 +107,10 @@ const LATENCY_ARRAY_DESCRIPTION =
 export const STATUS_SESSION_SCHEMA = Type.Object(
   {
     sessionUid: Type.String({ format: 'uuid' }),
+    providerKey: Type.String({
+      description:
+        'Transcription provider this session’s upstream was opened against, as configured when the session was created. Operator-chosen free text on the Transcription Service side, so it is reported verbatim and never parsed; it is what joins a room to the provider health reported for it (B1.7 §11).',
+    }),
     sourceCount: Type.Integer({
       description: 'Source-role connections feeding this session.',
     }),
@@ -128,6 +133,9 @@ export const STATUS_SESSION_SCHEMA = Type.Object(
   },
   { $id: 'NodeServerStatusSession' },
 );
+
+/** One live session's gauges. @see {@link STATUS_SESSION_SCHEMA} */
+export type StatusSession = Static<typeof STATUS_SESSION_SCHEMA>;
 
 /**
  * Everything this process reports about itself, excluding the per-session
@@ -226,6 +234,9 @@ export const STATUS_PROCESS_SCHEMA = Type.Object({
     { description: LABELLED_COUNT_DESCRIPTION },
   ),
 });
+
+/** This process's own telemetry. @see {@link STATUS_PROCESS_SCHEMA} */
+export type StatusProcess = Static<typeof STATUS_PROCESS_SCHEMA>;
 
 const STATUS_SCHEMA = {
   description:

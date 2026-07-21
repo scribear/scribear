@@ -14,5 +14,7 @@ declare module 'vitest' {
     sessionTokenSigningKey: string;
     /** API key the live Transcription Service expects on its WS handshake. */
     transcriptionApiKey: string;
+    /** URL of the Redis container backing the telemetry backplane (B1.7). */
+    redisUrl: string;
   }
 }

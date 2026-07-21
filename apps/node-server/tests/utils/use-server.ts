@@ -6,6 +6,7 @@ import type {
   AppConfig,
   BaseConfig,
   SessionManagerClientConfig,
+  TelemetryPublisherConfig,
   TranscriptionServiceClientConfig,
 } from '#src/app-config/app-config.js';
 import createServer from '#src/server/create-server.js';
@@ -33,6 +34,7 @@ export interface TestAppConfigOverrides {
   sessionTokenConfig?: Partial<SessionTokenConfig>;
   sessionManagerClientConfig?: Partial<SessionManagerClientConfig>;
   transcriptionServiceClientConfig?: Partial<TranscriptionServiceClientConfig>;
+  telemetryPublisherConfig?: Partial<TelemetryPublisherConfig>;
 }
 
 /**
@@ -79,6 +81,14 @@ export function buildTestAppConfig(
       baseUrl: transcriptionServiceBaseUrl,
       apiKey: transcriptionApiKey,
       ...overrides.transcriptionServiceClientConfig,
+    },
+    // Off by default: an integration suite has no Redis, and a publisher that
+    // retried against one for the length of the run would log an outage into
+    // every test's output.
+    telemetryPublisherConfig: {
+      redisUrl: '',
+      nodeInstanceId: 'test-node-instance',
+      ...overrides.telemetryPublisherConfig,
     },
   } as unknown as AppConfig;
 }

@@ -13,63 +13,27 @@ import type { AppDependencies } from '#src/server/dependency-injection/app-depen
  * Serves the process telemetry snapshot consumed by the Monitoring Sidecar
  * (monitoring plan B1.1), replacing the log-text inference it used before.
  *
- * Purely a composition step: process-wide counters come from
- * `NodeServerMetricsService` and live per-session gauges from the
- * orchestrator, which is the only object that holds them. Nothing is computed
- * here beyond joining the two by sessionUid, so the same pair can later feed a
- * Redis publisher without this controller being in the path.
+ * Purely a transport step: the numbers and the join that produces them belong
+ * to {@link StatusSnapshotService}, which the Redis telemetry publisher reads
+ * the same way (B1.7), so this controller is in nobody's path but HTTP's.
  */
 export class StatusController {
-  private _metrics: AppDependencies['nodeServerMetricsService'];
-  private _orchestrator: AppDependencies['transcriptionOrchestratorService'];
+  private _snapshots: AppDependencies['statusSnapshotService'];
 
-  constructor(
-    nodeServerMetricsService: AppDependencies['nodeServerMetricsService'],
-    transcriptionOrchestratorService: AppDependencies['transcriptionOrchestratorService'],
-  ) {
-    this._metrics = nodeServerMetricsService;
-    this._orchestrator = transcriptionOrchestratorService;
+  constructor(statusSnapshotService: AppDependencies['statusSnapshotService']) {
+    this._snapshots = statusSnapshotService;
   }
 
   status(
     _req: BaseFastifyRequest<typeof STATUS_SCHEMA>,
     res: BaseFastifyReply<typeof STATUS_SCHEMA>,
   ) {
-    const counters = this._metrics.snapshot();
     const { sessions, truncated } =
-      this._orchestrator.sessionSnapshots(STATUS_MAX_SESSIONS);
+      this._snapshots.sessions(STATUS_MAX_SESSIONS);
 
     res.code(200).send({
-      processUid: counters.processUid,
-      processStartedAt: counters.processStartedAt,
-      generatedAt: new Date().toISOString(),
-      summary: {
-        activeSessionCount: this._orchestrator.activeSessionCount,
-        decodeDropsTotal: counters.decodeDropsTotal,
-        pendingChunkEvictionsTotal: counters.pendingChunkEvictionsTotal,
-        upstreamChurnTotal: counters.upstreamChurnTotal,
-        authSuccessTotal: counters.authSuccessTotal,
-        authTimeoutsTotal: counters.authTimeoutsTotal,
-        orchestratorFailuresTotal: counters.orchestratorFailuresTotal,
-        latencySamplesTotal: counters.latencySamplesTotal,
-        latencyE2eUnavailableTotal: counters.latencyE2eUnavailableTotal,
-        latencyE2eNegativeTotal: counters.latencyE2eNegativeTotal,
-        latencyUnmatchedChunkTotal: counters.latencyUnmatchedChunkTotal,
-      },
-      upstreamStateTransitions: counters.upstreamStateTransitions,
-      wsCloses: counters.wsCloses,
-      latency: counters.latency,
-      authFailures: counters.authFailures,
-      // Subscribers and latency are both held per session by the metrics
-      // service rather than by the orchestrator: receive-only connections never
-      // reach the orchestrator - they subscribe to the transcript bus directly
-      // - and latency windows are kept beside them so both share the session's
-      // lifetime.
-      sessions: sessions.map((session) => ({
-        ...session,
-        subscriberCount: this._metrics.subscriberCount(session.sessionUid),
-        latency: this._metrics.sessionLatency(session.sessionUid),
-      })),
+      ...this._snapshots.process(),
+      sessions,
       sessionsTruncated: truncated,
     });
   }

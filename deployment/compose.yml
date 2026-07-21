@@ -130,6 +130,13 @@ services:
       SESSION_MANAGER_SERVICE_API_KEY: ${NODE_SERVER_KEY}
       TRANSCRIPTION_SERVICE_BASE_URL: http://transcription-service:80
       TRANSCRIPTION_SERVICE_API_KEY: ${TRANSCRIPTION_API_KEY}
+      # Fleet telemetry publishing (B1.7). Empty switches it off, which is the
+      # default in .env.example: publishing is what puts this instance's rooms
+      # in the dashboard, and nothing else depends on it. `NODE_INSTANCE_ID` is
+      # left unset deliberately - it defaults to the hostname, which compose
+      # sets to the container name, so scaling this service gives each replica
+      # a distinct identity with no further configuration.
+      REDIS_URL: ${NODE_SERVER_REDIS_URL:-}
     depends_on:
       transcription-service:
         condition: service_healthy

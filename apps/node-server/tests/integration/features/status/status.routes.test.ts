@@ -56,6 +56,7 @@ interface StatusBody {
   latency: LatencySeriesBody[];
   sessions: {
     sessionUid: string;
+    providerKey: string;
     sourceCount: number;
     subscriberCount: number;
     pendingChunkCount: number;
@@ -310,6 +311,10 @@ describe('Status Routes', () => {
             );
             expect(session).toBeDefined();
             expect(session?.sourceCount).toBe(1);
+            // The provider the session was seeded with, reported verbatim:
+            // it is what joins this room to the health reported for the
+            // provider serving it (B1.7).
+            expect(session?.providerKey).toBe('debug');
             // All three connections count: the fan-out cost of a room is
             // dominated by receive-only clients, which never reach the
             // orchestrator and so are invisible to `sourceCount`.

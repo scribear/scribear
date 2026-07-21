@@ -1,4 +1,5 @@
 import envSchema from 'env-schema';
+import { hostname } from 'node:os';
 import { Type } from 'typebox';
 import type { Static } from 'typebox';
 
@@ -17,6 +18,11 @@ const CONFIG_SCHEMA = Type.Object({
   SESSION_MANAGER_SERVICE_API_KEY: Type.String(),
   TRANSCRIPTION_SERVICE_BASE_URL: Type.String(),
   TRANSCRIPTION_SERVICE_API_KEY: Type.String(),
+  // Defaulted, unlike everything above, because telemetry publishing is
+  // optional: an unset URL means this instance simply does not publish, which
+  // is what keeps a deployment that predates B1.7 booting unchanged.
+  REDIS_URL: Type.String({ default: '' }),
+  NODE_INSTANCE_ID: Type.String({ default: '' }),
 });
 
 export interface BaseConfig {
@@ -34,6 +40,17 @@ export interface SessionManagerClientConfig {
 export interface TranscriptionServiceClientConfig {
   baseUrl: string;
   apiKey: string;
+}
+
+export interface TelemetryPublisherConfig {
+  /** Empty when telemetry publishing is switched off. */
+  redisUrl: string;
+  /**
+   * Identity this instance publishes under - a hostname or pod name, stable
+   * across restarts. Part of the key it writes, and the value of the route key
+   * that says which instance owns a session's upstream.
+   */
+  nodeInstanceId: string;
 }
 
 export class AppConfig {
@@ -78,6 +95,31 @@ export class AppConfig {
     return {
       baseUrl: this._env.TRANSCRIPTION_SERVICE_BASE_URL,
       apiKey: this._env.TRANSCRIPTION_SERVICE_API_KEY,
+    };
+  }
+
+  /**
+   * Fleet telemetry publishing (B1.7). Off unless `REDIS_URL` is set, so this
+   * is opt-in per deployment and absent Redis is a configuration state rather
+   * than an error.
+   *
+   * `NODE_INSTANCE_ID` defaults to the hostname, which under Docker and
+   * Kubernetes is already the container or pod name - the identity an operator
+   * reading the fleet view would name anyway. It is rejected here rather than
+   * at each heartbeat if it could forge a key in another part of the telemetry
+   * namespace, so a bad value fails at boot instead of quietly writing where a
+   * reader will not look for it.
+   */
+  get telemetryPublisherConfig(): TelemetryPublisherConfig {
+    const nodeInstanceId = this._env.NODE_INSTANCE_ID || hostname();
+    if (nodeInstanceId.includes(':') || nodeInstanceId === '') {
+      throw new Error(
+        `NODE_INSTANCE_ID must be non-empty and must not contain ':' (got '${nodeInstanceId}')`,
+      );
+    }
+    return {
+      redisUrl: this._env.REDIS_URL,
+      nodeInstanceId,
     };
   }
 

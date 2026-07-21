@@ -1,3 +1,4 @@
+import { hostname } from 'node:os';
 import { afterEach, beforeEach, describe, expect } from 'vitest';
 
 import { LogLevel } from '@scribear/base-fastify-server';
@@ -18,7 +19,13 @@ const VALID_ENV: Record<string, string> = {
   TRANSCRIPTION_SERVICE_BASE_URL: 'http://transcription:4000',
   TRANSCRIPTION_SERVICE_API_KEY: 'transcription-key',
 };
-const ENV_KEYS = Object.keys(VALID_ENV);
+/**
+ * Optional variables, absent from {@link VALID_ENV} on purpose: they are
+ * cleared before each test so the defaults are what is exercised, and restored
+ * afterwards like the rest.
+ */
+const OPTIONAL_ENV_KEYS = ['REDIS_URL', 'NODE_INSTANCE_ID'];
+const ENV_KEYS = [...Object.keys(VALID_ENV), ...OPTIONAL_ENV_KEYS];
 
 // A path that does not exist, used to disable dotenv file loading so validation
 // failures depend only on `process.env` (env-schema silently ignores ENOENT).
@@ -33,7 +40,12 @@ describe('AppConfig', () => {
     savedEnv = {};
     for (const key of ENV_KEYS) {
       savedEnv[key] = process.env[key];
-      process.env[key] = VALID_ENV[key];
+      const value = VALID_ENV[key];
+      if (value === undefined) {
+        Reflect.deleteProperty(process.env, key);
+      } else {
+        process.env[key] = value;
+      }
     }
     // Deterministic, non-dev argv unless a test opts in.
     process.argv = ['node', 'app-config.test.ts'];
@@ -104,6 +116,45 @@ describe('AppConfig', () => {
         baseUrl: 'http://transcription:4000',
         apiKey: 'transcription-key',
       });
+    });
+  });
+
+  describe('telemetry publisher configuration', (it) => {
+    it('is off and named after the host when neither variable is set', () => {
+      // Act - both are absent from VALID_ENV, which is the state every
+      // deployment predating B1.7 boots in.
+      const config = new AppConfig(NO_DOTENV_FILE);
+
+      // Assert
+      expect(config.telemetryPublisherConfig.redisUrl).toBe('');
+      expect(config.telemetryPublisherConfig.nodeInstanceId).toBe(hostname());
+    });
+
+    it('maps an explicit instance id and redis url', () => {
+      // Arrange
+      process.env['REDIS_URL'] = 'redis://:pw@redis:6379';
+      process.env['NODE_INSTANCE_ID'] = 'node-a7';
+
+      // Act
+      const config = new AppConfig(NO_DOTENV_FILE);
+
+      // Assert
+      expect(config.telemetryPublisherConfig).toStrictEqual({
+        redisUrl: 'redis://:pw@redis:6379',
+        nodeInstanceId: 'node-a7',
+      });
+    });
+
+    it('rejects an instance id containing a colon', () => {
+      // Arrange - the id is interpolated into the telemetry key namespace, so
+      // a colon would let it forge a key in another part of it. Failing here
+      // means failing at boot rather than once per heartbeat.
+      process.env['NODE_INSTANCE_ID'] = 'node:a7';
+
+      // Act / Assert
+      expect(
+        () => new AppConfig(NO_DOTENV_FILE).telemetryPublisherConfig,
+      ).toThrow(/NODE_INSTANCE_ID/);
     });
   });
 

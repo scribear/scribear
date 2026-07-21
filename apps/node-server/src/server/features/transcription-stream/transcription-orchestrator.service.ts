@@ -68,6 +68,7 @@ export type SessionConfigPollFactory = (
  */
 export interface SessionSnapshot {
   sessionUid: string;
+  providerKey: string;
   sourceCount: number;
   pendingChunkCount: number;
   upstreamState: ConnectionState;
@@ -76,6 +77,14 @@ export interface SessionSnapshot {
 
 interface SessionState {
   sourceCount: number;
+  /**
+   * Provider the upstream was opened against. Read from the session's initial
+   * config and kept, rather than re-read from the long-poll on demand, because
+   * it is the provider actually in use: a later config change does not move a
+   * live upstream (see the note in the `longPoll.on('data')` handler), so the
+   * current config and this can legitimately disagree.
+   */
+  providerKey: string;
   upstream: UpstreamClient;
   longPoll: SessionConfigPoll;
   audioUnsubscribe: () => void;
@@ -223,6 +232,7 @@ export class TranscriptionOrchestratorService {
       if (sessions.length >= limit) break;
       sessions.push({
         sessionUid,
+        providerKey: state.providerKey,
         sourceCount: state.sourceCount,
         pendingChunkCount: state.pendingChunks.size,
         upstreamState: state.upstream.state,
@@ -363,6 +373,7 @@ export class TranscriptionOrchestratorService {
 
     const state: SessionState = {
       sourceCount: 0,
+      providerKey: initial.transcriptionProviderId,
       upstream,
       longPoll,
       audioUnsubscribe: () => {

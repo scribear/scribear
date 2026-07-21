@@ -1,4 +1,5 @@
 import { Type } from 'typebox';
+import type { Static } from 'typebox';
 
 import {
   STATUS_PROCESS_SCHEMA,
@@ -30,6 +31,15 @@ export const SESSION_SNAPSHOT_SCHEMA = Type.Object({
 });
 
 /**
+ * Value of a session snapshot key. @see {@link SESSION_SNAPSHOT_SCHEMA}
+ *
+ * Publishers should type the record they build as this rather than assembling
+ * it loosely: a field added to `/status` then fails to compile here until it is
+ * carried through, which is the whole point of composing the two schemas.
+ */
+export type SessionSnapshot = Static<typeof SESSION_SNAPSHOT_SCHEMA>;
+
+/**
  * One Node Server instance as published to the backplane.
  *
  * The process fields are its `/status` body minus the session list, which
@@ -46,3 +56,6 @@ export const NODE_SNAPSHOT_SCHEMA = Type.Object({
       'Stable identity of this instance across restarts - a hostname or pod name. `processUid` distinguishes runs of it.',
   }),
 });
+
+/** Value of a Node Server instance key. @see {@link NODE_SNAPSHOT_SCHEMA} */
+export type NodeSnapshot = Static<typeof NODE_SNAPSHOT_SCHEMA>;
