@@ -61,6 +61,10 @@ def mock_config():
 
     mock.api_key = API_KEY
     mock.metrics_api_key = METRICS_API_KEY
+    # Telemetry publishing off: a MagicMock's `redis_url` is otherwise a truthy
+    # mock, which sends the lifespan into opening a Redis connection to a
+    # nonsense URL and hangs startup.
+    mock.redis_url = ""
     mock.ws_init_timeout_sec = TIMEOUT_SEC
     mock.provider_config.num_workers = NUM_WORKERS
     mock.provider_config.contexts = []

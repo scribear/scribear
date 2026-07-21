@@ -30,6 +30,10 @@ def mock_config():
     Create mock config object for testing
     """
     mock = MagicMock(spec=Config)
+    # Telemetry publishing off: a MagicMock's `redis_url` is otherwise a truthy
+    # mock, which sends the lifespan into opening a Redis connection to a
+    # nonsense URL and hangs startup.
+    mock.redis_url = ""
     mock.provider_config.num_workers = 2
     return mock
 

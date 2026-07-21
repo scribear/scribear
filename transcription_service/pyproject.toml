@@ -32,6 +32,11 @@ dependencies = [
 
     # Multi process management
     "multiprocess==0.70.18",
+
+    # Fleet telemetry backplane (B1.7). Optional at runtime - nothing is
+    # imported unless REDIS_URL is set - but not an optional dependency, since
+    # a deployment that turns publishing on must not have to reinstall to get it.
+    "redis==8.0.1",
 ]
 
 [project.optional-dependencies]

@@ -226,6 +226,13 @@ services:
       # key from an env var named by provider_config.json's "api_key_env". Empty
       # by default and ignored by local-model providers, so it is safe to leave unset.
       TRANSCRIPTION_PROVIDER_API_KEY: ${TRANSCRIPTION_PROVIDER_API_KEY:-}
+      # Fleet telemetry publishing (B1.7). Empty switches it off, which is the
+      # default in .env.example: publishing is what puts this host's provider
+      # health in the dashboard's fleet view, and nothing else depends on it.
+      # TRANSCRIPTION_HOST_ID is left unset deliberately - it defaults to the
+      # hostname, which compose sets to the container name, so scaling this
+      # service gives each replica a distinct identity with no configuration.
+      REDIS_URL: ${TRANSCRIPTION_REDIS_URL:-}
     volumes:
       - ${PROVIDER_CONFIG_PATH:-./provider_config.json}:/app/provider_config.json:ro
     networks:

@@ -1,5 +1,5 @@
 """
-Unit tests for ProvidersController response shaping
+Unit tests for ProviderHealthSnapshotService body shaping
 """
 
 from unittest.mock import AsyncMock, MagicMock
@@ -12,8 +12,10 @@ from src.transcription_provider_interface import (
     ProviderKind,
     ProviderStatus,
 )
-from src.webserver.features.providers import ProvidersController
 from src.webserver.shared.process_identity import ProcessIdentity
+from src.webserver.shared.provider_health_snapshot import (
+    ProviderHealthSnapshotService,
+)
 from src.webserver.shared.transcription_provider_registry import (
     ProviderHealthEntry,
     ProvidersHealthReport,
@@ -35,16 +37,16 @@ WORKER = WorkerSnapshot(
 )
 
 
-def _controller(report: ProvidersHealthReport) -> ProvidersController:
+def _snapshots(report: ProvidersHealthReport) -> ProviderHealthSnapshotService:
     """
-    Builds a controller over a registry returning the given report
+    Builds a snapshot service over a registry returning the given report
 
     Args:
         report  - Report the mocked registry should return
     """
     registry = MagicMock(spec=TranscriptionProviderRegistry)
     registry.providers_health = AsyncMock(return_value=report)
-    return ProvidersController(registry, IDENTITY)
+    return ProviderHealthSnapshotService(registry, IDENTITY)
 
 
 def _report(*entries: ProviderHealthEntry) -> ProvidersHealthReport:
@@ -71,10 +73,10 @@ async def test_serializes_envelope_as_camel_case():
     telemetry endpoints on one service must not speak two spellings.
     """
     # Arrange
-    controller = _controller(_report())
+    snapshots = _snapshots(_report())
 
     # Act
-    body = await controller.health()
+    body = await snapshots.snapshot()
 
     # Assert
     assert body["processUid"] == IDENTITY.process_uid
@@ -102,7 +104,7 @@ async def test_keys_providers_by_their_configured_key_verbatim():
     /metrics/status gives label keys.
     """
     # Arrange
-    controller = _controller(
+    snapshots = _snapshots(
         _report(
             ProviderHealthEntry(
                 provider_key="lumen_granite",
@@ -117,7 +119,7 @@ async def test_keys_providers_by_their_configured_key_verbatim():
     )
 
     # Act
-    body = await controller.health()
+    body = await snapshots.snapshot()
 
     # Assert
     assert list(body["providers"]) == ["lumen_granite"]
@@ -134,7 +136,7 @@ async def test_reports_a_fixed_shape_with_nulls_for_inapplicable_fields():
     stopped sending would read as a legitimately absent value.
     """
     # Arrange
-    controller = _controller(
+    snapshots = _snapshots(
         _report(
             ProviderHealthEntry(
                 provider_key="debug",
@@ -149,7 +151,7 @@ async def test_reports_a_fixed_shape_with_nulls_for_inapplicable_fields():
     )
 
     # Act
-    body = await controller.health()
+    body = await snapshots.snapshot()
 
     # Assert
     assert body["providers"]["debug"] == {
@@ -176,7 +178,7 @@ async def test_serializes_owning_workers_like_pool_workers():
     shapes by hand because Python shares no schema package with the Node apps.
     """
     # Arrange
-    controller = _controller(
+    snapshots = _snapshots(
         _report(
             ProviderHealthEntry(
                 provider_key="whisper",
@@ -193,7 +195,7 @@ async def test_serializes_owning_workers_like_pool_workers():
     )
 
     # Act
-    body = await controller.health()
+    body = await snapshots.snapshot()
 
     # Assert
     assert body["providers"]["whisper"]["owningWorkers"] == body["workers"]
@@ -207,7 +209,7 @@ async def test_serializes_enums_as_their_string_values():
     Test kind and status cross the wire as plain strings, not enum reprs
     """
     # Arrange
-    controller = _controller(
+    snapshots = _snapshots(
         _report(
             ProviderHealthEntry(
                 provider_key="whisper",
@@ -222,7 +224,7 @@ async def test_serializes_enums_as_their_string_values():
     )
 
     # Act
-    body = await controller.health()
+    body = await snapshots.snapshot()
 
     # Assert
     provider = body["providers"]["whisper"]
@@ -242,10 +244,10 @@ async def test_reports_process_identity_alongside_the_reject_counter():
     and it is the same uid /metrics/status reports.
     """
     # Arrange
-    controller = _controller(_report())
+    snapshots = _snapshots(_report())
 
     # Act
-    body = await controller.health()
+    body = await snapshots.snapshot()
 
     # Assert
     assert body["processUid"] == IDENTITY.process_uid

@@ -11,9 +11,8 @@ from src.webserver.shared.auth_service import (
     MetricsAuthService,
     invalid_metrics_key_response,
 )
-from src.webserver.shared.process_identity import ProcessIdentity
-from src.webserver.shared.transcription_provider_registry import (
-    TranscriptionProviderRegistry,
+from src.webserver.shared.provider_health_snapshot import (
+    ProviderHealthSnapshotService,
 )
 
 from .providers_controller import ProvidersController
@@ -22,8 +21,7 @@ from .providers_controller import ProvidersController
 def providers_router(
     logger: Logger,
     metrics_auth_service: MetricsAuthService,
-    provider_registry: TranscriptionProviderRegistry,
-    process_identity: ProcessIdentity,
+    snapshots: ProviderHealthSnapshotService,
 ):
     """
     Creates FastAPI router for the GET /providers/health endpoint
@@ -47,8 +45,8 @@ def providers_router(
     Args:
         logger                  - Application logger
         metrics_auth_service    - Auth service for the metrics key
-        provider_registry       - Owner of the worker pool and providers
-        process_identity        - Identity of this process run
+        snapshots               - Source of this host's provider health
+                                    snapshot
 
     Returns:
         FastAPI router
@@ -62,7 +60,7 @@ def providers_router(
         )
         return router
 
-    controller = ProvidersController(provider_registry, process_identity)
+    controller = ProvidersController(snapshots)
 
     @router.get("/health")
     async def health(authorization: Annotated[str | None, Header()] = None):

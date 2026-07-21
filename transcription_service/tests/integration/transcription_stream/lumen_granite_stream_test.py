@@ -85,6 +85,10 @@ def mock_config(stub_server: str):
     """Config with a single lumen_granite provider pointed at the stub."""
     mock = MagicMock(spec=Config)
     mock.api_key = API_KEY
+    # Telemetry publishing off: a MagicMock's `redis_url` is otherwise a truthy
+    # mock, which sends the lifespan into opening a Redis connection to a
+    # nonsense URL and hangs startup.
+    mock.redis_url = ""
     mock.ws_init_timeout_sec = TIMEOUT_SEC
     mock.provider_config.num_workers = 1
     mock.provider_config.contexts = []
