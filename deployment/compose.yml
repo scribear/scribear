@@ -157,6 +157,46 @@ services:
       timeout: 5s
       retries: 5
 
+  # Telemetry backplane for the fleet dashboard (B1.7).
+  #
+  # Every publisher and reader is gated on its own REDIS_URL, all of which are
+  # unset by default, so today this container runs and nothing talks to it. It
+  # is here ahead of them because the alternative - introducing shared
+  # infrastructure in the same change that starts depending on it - makes a
+  # telemetry bug and a deployment bug look identical.
+  #
+  # Nothing in the transcription path touches it. Losing Redis costs the
+  # dashboard its cross-instance view and costs sessions nothing.
+  #
+  # No persistence, deliberately: every key is a snapshot its publisher
+  # rewrites within seconds under a TTL of the same order, so a restart
+  # repopulates faster than an operator can notice, while an RDB or AOF would
+  # only restore state that is stale by construction - and would restore rooms
+  # that no longer exist.
+  redis:
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/scribear-redis:${IMAGE_TAG:-latest}
+    command:
+      [
+        "redis-server",
+        "--requirepass",
+        "${REDIS_PASSWORD}",
+        "--save",
+        "",
+        "--appendonly",
+        "no",
+      ]
+    environment:
+      # Read by the image's healthcheck, which authenticates before PINGing.
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    # Not published to the host, unlike scribear-db: nothing outside the
+    # backend network has any reason to reach it, and its contents are the
+    # whole fleet's operational state.
+    expose:
+      - "6379"
+    networks:
+      - backend
+    restart: unless-stopped
+
   transcription-service:
     image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/transcription-service-${TRANSCRIPTION_DEVICE:-cpu}:${IMAGE_TAG:-latest}
     deploy:

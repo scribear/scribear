@@ -13,6 +13,7 @@ docker build -f "$ROOT/apps/monitoring-sidecar/Dockerfile" "$ROOT" -t "scribear/
 
 docker build "$ROOT/infra/scribear-db"    -t "scribear/scribear-db:$TAG"
 docker build "$ROOT/infra/scribear-nginx" -t "scribear/scribear-nginx:$TAG"
+docker build "$ROOT/infra/scribear-redis" -t "scribear/scribear-redis:$TAG"
 
 docker build -f "$ROOT/transcription_service/Dockerfile_CPU"  "$ROOT/transcription_service" -t "scribear/transcription-service-cpu:$TAG"
 docker build -f "$ROOT/transcription_service/Dockerfile_CUDA" "$ROOT/transcription_service" -t "scribear/transcription-service-cuda:$TAG"

@@ -63,7 +63,7 @@ const LABELLED_COUNT_DESCRIPTION =
  * its own metrics endpoint, so a consumer can render either service's latency
  * with one component.
  */
-const LATENCY_SERIES_SCHEMA = Type.Object({
+export const LATENCY_SERIES_SCHEMA = Type.Object({
   measure: Type.Union([Type.Literal('pipeline'), Type.Literal('e2e')], {
     description:
       '`pipeline` is audio ingress -> transcript received, measured entirely on this process’s monotonic clock. `e2e` additionally includes capture and uplink, using the source’s clock-corrected send time, and is therefore only as trustworthy as time-sync (S5).',
@@ -93,7 +93,17 @@ const LATENCY_SERIES_SCHEMA = Type.Object({
 const LATENCY_ARRAY_DESCRIPTION =
   'Latency distributions, one entry per (measure, kind). A series that has never been observed is omitted rather than reported as zeroes - notably, `e2e` series are absent entirely when no source supplies a send timestamp, which is not the same as an end-to-end latency of zero. Milliseconds throughout.';
 
-const SESSION_SCHEMA = Type.Object(
+/**
+ * One live session's gauges.
+ *
+ * Exported because this process is not the only place these records surface:
+ * the Redis telemetry backplane publishes the same record per session so the
+ * fleet view can read every instance's rooms at once (B1.7). Sharing the
+ * schema rather than restating it is what keeps a field added here from
+ * silently meaning something else there - the same argument transcription
+ * service's `serialize_worker` makes for its two endpoints.
+ */
+export const STATUS_SESSION_SCHEMA = Type.Object(
   {
     sessionUid: Type.String({ format: 'uuid' }),
     sourceCount: Type.Integer({
@@ -119,6 +129,104 @@ const SESSION_SCHEMA = Type.Object(
   { $id: 'NodeServerStatusSession' },
 );
 
+/**
+ * Everything this process reports about itself, excluding the per-session
+ * list.
+ *
+ * Split out and exported for the same reason as {@link STATUS_SESSION_SCHEMA}:
+ * the Redis telemetry backplane publishes this record per Node Server instance
+ * (B1.7), which is what distinguishes an instance that is up and idle from one
+ * that has died - a fleet view assembled only from session records cannot tell
+ * those apart, because both contribute no sessions.
+ */
+export const STATUS_PROCESS_SCHEMA = Type.Object({
+  processUid: Type.String({
+    format: 'uuid',
+    description:
+      'Identifies this process instance; regenerated on every boot. A change means the counters below restarted from zero.',
+  }),
+  processStartedAt: Type.String({ format: 'date-time' }),
+  generatedAt: Type.String({
+    format: 'date-time',
+    description:
+      'When this response was assembled. Lets a consumer bound the age of the numbers independently of its own clock.',
+  }),
+  summary: Type.Object({
+    activeSessionCount: Type.Integer({
+      description: 'Sessions currently holding an upstream connection.',
+    }),
+    decodeDropsTotal: Type.Integer({
+      description: 'Malformed SAFP frames dropped rather than forwarded (U2).',
+    }),
+    pendingChunkEvictionsTotal: Type.Integer({
+      description:
+        'Uncorrelated audio frames evicted at the per-session cap (N3).',
+    }),
+    upstreamChurnTotal: Type.Integer({
+      description: 'Transitions into WAITING_RETRY across all sessions (N1).',
+    }),
+    authSuccessTotal: Type.Integer({
+      description:
+        'Successful WebSocket auth handshakes. The denominator for the failure ratio: a signing-key mismatch shows up as failures approaching 100%, which a failure count alone cannot distinguish from a few bad clients (S2).',
+    }),
+    authTimeoutsTotal: Type.Integer({
+      description:
+        'Connections that never sent `auth` inside the watchdog window (U3).',
+    }),
+    orchestratorFailuresTotal: Type.Integer({
+      description:
+        'Source registrations that threw, closing the socket with 1011.',
+    }),
+    latencySamplesTotal: Type.Integer({
+      description:
+        'Latency samples published. The denominator for the two figures below.',
+    }),
+    latencyE2eUnavailableTotal: Type.Integer({
+      description:
+        'Samples whose source supplied no send timestamp, so no end-to-end figure was computable.',
+    }),
+    latencyE2eNegativeTotal: Type.Integer({
+      description:
+        'Samples whose end-to-end time computed negative - the source clock is still ahead of ours despite sync. Meaningful as a ratio of `latencySamplesTotal`, not as a count (S5).',
+    }),
+    latencyUnmatchedChunkTotal: Type.Integer({
+      description:
+        'Transcripts referencing a chunk already evicted or pruned (N3).',
+    }),
+  }),
+  upstreamStateTransitions: Type.Array(
+    Type.Object({
+      from: UPSTREAM_STATE_SCHEMA,
+      to: UPSTREAM_STATE_SCHEMA,
+      count: Type.Integer(),
+    }),
+    { description: LABELLED_COUNT_DESCRIPTION },
+  ),
+  wsCloses: Type.Array(
+    Type.Object({
+      code: Type.Integer(),
+      reason: Type.String({
+        description:
+          'Close reason, normalised to a known-reason allowlist. Peer-initiated closes carry arbitrary remote text, which collapses to `other`.',
+      }),
+      role: CONNECTION_ROLE_SCHEMA,
+      initiator: Type.Union([Type.Literal('server'), Type.Literal('peer')]),
+      count: Type.Integer(),
+    }),
+    { description: LABELLED_COUNT_DESCRIPTION },
+  ),
+  latency: Type.Array(LATENCY_SERIES_SCHEMA, {
+    description: `Process-wide latency across every session (B1.4). ${LATENCY_ARRAY_DESCRIPTION}`,
+  }),
+  authFailures: Type.Array(
+    Type.Object({
+      reason: Type.String(),
+      count: Type.Integer(),
+    }),
+    { description: LABELLED_COUNT_DESCRIPTION },
+  ),
+});
+
 const STATUS_SCHEMA = {
   description:
     'Operational telemetry for this Node Server process: connection, session and upstream counters that are otherwise only inferable from log text. Counters are monotonic since process start and are never reset - consumers difference successive reads to obtain rates, and must compare `processUid` first, because a restart returns every counter to zero and would otherwise read as a large negative rate. Intended for internal observability consumers (Monitoring Sidecar, Admin Server) on the cluster-internal network; it must not be exposed through the public reverse proxy.',
@@ -137,97 +245,8 @@ const STATUS_SCHEMA = {
   response: {
     200: Type.Object(
       {
-        processUid: Type.String({
-          format: 'uuid',
-          description:
-            'Identifies this process instance; regenerated on every boot. A change means the counters below restarted from zero.',
-        }),
-        processStartedAt: Type.String({ format: 'date-time' }),
-        generatedAt: Type.String({
-          format: 'date-time',
-          description:
-            'When this response was assembled. Lets a consumer bound the age of the numbers independently of its own clock.',
-        }),
-        summary: Type.Object({
-          activeSessionCount: Type.Integer({
-            description: 'Sessions currently holding an upstream connection.',
-          }),
-          decodeDropsTotal: Type.Integer({
-            description:
-              'Malformed SAFP frames dropped rather than forwarded (U2).',
-          }),
-          pendingChunkEvictionsTotal: Type.Integer({
-            description:
-              'Uncorrelated audio frames evicted at the per-session cap (N3).',
-          }),
-          upstreamChurnTotal: Type.Integer({
-            description:
-              'Transitions into WAITING_RETRY across all sessions (N1).',
-          }),
-          authSuccessTotal: Type.Integer({
-            description:
-              'Successful WebSocket auth handshakes. The denominator for the failure ratio: a signing-key mismatch shows up as failures approaching 100%, which a failure count alone cannot distinguish from a few bad clients (S2).',
-          }),
-          authTimeoutsTotal: Type.Integer({
-            description:
-              'Connections that never sent `auth` inside the watchdog window (U3).',
-          }),
-          orchestratorFailuresTotal: Type.Integer({
-            description:
-              'Source registrations that threw, closing the socket with 1011.',
-          }),
-          latencySamplesTotal: Type.Integer({
-            description:
-              'Latency samples published. The denominator for the two figures below.',
-          }),
-          latencyE2eUnavailableTotal: Type.Integer({
-            description:
-              'Samples whose source supplied no send timestamp, so no end-to-end figure was computable.',
-          }),
-          latencyE2eNegativeTotal: Type.Integer({
-            description:
-              'Samples whose end-to-end time computed negative - the source clock is still ahead of ours despite sync. Meaningful as a ratio of `latencySamplesTotal`, not as a count (S5).',
-          }),
-          latencyUnmatchedChunkTotal: Type.Integer({
-            description:
-              'Transcripts referencing a chunk already evicted or pruned (N3).',
-          }),
-        }),
-        upstreamStateTransitions: Type.Array(
-          Type.Object({
-            from: UPSTREAM_STATE_SCHEMA,
-            to: UPSTREAM_STATE_SCHEMA,
-            count: Type.Integer(),
-          }),
-          { description: LABELLED_COUNT_DESCRIPTION },
-        ),
-        wsCloses: Type.Array(
-          Type.Object({
-            code: Type.Integer(),
-            reason: Type.String({
-              description:
-                'Close reason, normalised to a known-reason allowlist. Peer-initiated closes carry arbitrary remote text, which collapses to `other`.',
-            }),
-            role: CONNECTION_ROLE_SCHEMA,
-            initiator: Type.Union([
-              Type.Literal('server'),
-              Type.Literal('peer'),
-            ]),
-            count: Type.Integer(),
-          }),
-          { description: LABELLED_COUNT_DESCRIPTION },
-        ),
-        latency: Type.Array(LATENCY_SERIES_SCHEMA, {
-          description: `Process-wide latency across every session (B1.4). ${LATENCY_ARRAY_DESCRIPTION}`,
-        }),
-        authFailures: Type.Array(
-          Type.Object({
-            reason: Type.String(),
-            count: Type.Integer(),
-          }),
-          { description: LABELLED_COUNT_DESCRIPTION },
-        ),
-        sessions: Type.Array(SESSION_SCHEMA, {
+        ...STATUS_PROCESS_SCHEMA.properties,
+        sessions: Type.Array(STATUS_SESSION_SCHEMA, {
           maxItems: STATUS_MAX_SESSIONS,
           description:
             'Live per-session gauges. Unlike the counters above these are point-in-time and vanish when the session ends.',
