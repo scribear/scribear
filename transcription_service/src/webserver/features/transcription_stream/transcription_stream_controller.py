@@ -186,7 +186,8 @@ class TranscriptionStreamController(WebsocketHandler):
 
     def _handle_audio_stats(self, result: TranscriptionResult):
         """
-        Forward a result's audio-level stats to the fleet telemetry backplane
+        Forward a result's audio-level stats, and VAD stats alongside them,
+        to the fleet telemetry backplane
 
         A second listener on the same event `_handle_transcription_result`
         subscribes to, kept separate rather than folded into that handler:
@@ -194,11 +195,21 @@ class TranscriptionStreamController(WebsocketHandler):
         that happen to react to the same event, matching this codebase's
         existing separation between a join (`ProviderHealthSnapshotService`)
         and its publisher.
+
+        Guarded on `audio_stats` alone, not `vad_stats` too: `vad_stats` can
+        legitimately be None (VAD off, or no VAD ran this batch) independent
+        of whether `audio_stats` is present - they come from different
+        mechanisms, a persistent meter vs. a transient per-call
+        computation - so a missing `vad_stats` should not suppress an
+        otherwise-useful audio-stats publish.
         """
         if self._audio_publisher is None or result.audio_stats is None:
             return
         self._audio_publisher.publish(
-            self._session_uid, self._room_uid, result.audio_stats
+            self._session_uid,
+            self._room_uid,
+            result.audio_stats,
+            result.vad_stats,
         )
 
     async def _handle_text_message(self, message: str):

@@ -12,6 +12,7 @@ from freezegun import freeze_time
 
 from src.shared.logger import ContextLogger
 from src.shared.utils.audio_meter import AudioLevelStats
+from src.transcription_provider_interface import VadStats
 from src.webserver.features.telemetry import RedisSessionAudioPublisher
 from src.webserver.features.telemetry.telemetry_keys import (
     AUDIO_STATS_TTL_MS,
@@ -31,6 +32,15 @@ STATS = AudioLevelStats(
     clipping_pct=0.0,
     silence=False,
     noise_floor_dbfs=-45.0,
+)
+
+VAD_STATS = VadStats(
+    vad_enabled=True,
+    speech_active_ratio=0.5,
+    segment_count=2,
+    mean_segment_duration_sec=0.25,
+    speech_to_pause_ratio=1.0,
+    snr_db=12.5,
 )
 
 
@@ -131,12 +141,60 @@ async def test_publishes_the_stats_under_this_sessions_key():
         "clippingPct": STATS.clipping_pct,
         "silence": STATS.silence,
         "noiseFloorDbfs": STATS.noise_floor_dbfs,
+        "vadStats": None,
         "sessionUid": SESSION_UID,
         "roomUid": ROOM_UID,
         "transcriptionHost": "ts-host-1",
         "updatedAt": NOW_MS,
     }
     assert px == AUDIO_STATS_TTL_MS
+
+
+@pytest.mark.asyncio
+@freeze_time(NOW)
+async def test_publishes_vad_stats_alongside_audio_stats_when_present():
+    """A publish given vad_stats folds it into the same record, camelCase."""
+    # Arrange
+    redis_client = FakeRedis()
+    publisher, _ = _publisher(redis_client)
+
+    # Act
+    publisher.publish(SESSION_UID, ROOM_UID, STATS, VAD_STATS)
+    await _drain()
+
+    # Assert
+    _, _, value, _ = redis_client.commands[0]
+    record = json.loads(value)
+    assert record["vadStats"] == {
+        "vadEnabled": VAD_STATS.vad_enabled,
+        "speechActiveRatio": VAD_STATS.speech_active_ratio,
+        "segmentCount": VAD_STATS.segment_count,
+        "meanSegmentDurationSec": VAD_STATS.mean_segment_duration_sec,
+        "speechToPauseRatio": VAD_STATS.speech_to_pause_ratio,
+        "snrDb": VAD_STATS.snr_db,
+    }
+
+
+@pytest.mark.asyncio
+@freeze_time(NOW)
+async def test_publishes_with_vad_stats_none_writes_a_null_field():
+    """
+    A publish with vad_stats=None (VAD off, or no VAD ran this batch) still
+    writes the record - just with a null vadStats, not a skipped publish.
+    """
+    # Arrange
+    redis_client = FakeRedis()
+    publisher, _ = _publisher(redis_client)
+
+    # Act
+    publisher.publish(SESSION_UID, ROOM_UID, STATS, None)
+    await _drain()
+
+    # Assert
+    _, _, value, _ = redis_client.commands[0]
+    record = json.loads(value)
+    assert record["vadStats"] is None
+    assert record["rmsDbfs"] == STATS.rms_dbfs  # audio_stats still published
 
 
 @pytest.mark.asyncio

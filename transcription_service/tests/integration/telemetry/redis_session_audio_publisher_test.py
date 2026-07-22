@@ -23,6 +23,7 @@ from redis.asyncio import Redis
 
 from src.shared.logger import ContextLogger, Logger
 from src.shared.utils.audio_meter import AudioLevelStats
+from src.transcription_provider_interface import VadStats
 from src.webserver.features.telemetry import (
     RedisSessionAudioPublisher,
     create_telemetry_redis_client,
@@ -50,6 +51,15 @@ STATS = AudioLevelStats(
     clipping_pct=0.0,
     silence=False,
     noise_floor_dbfs=-42.0,
+)
+
+VAD_STATS = VadStats(
+    vad_enabled=True,
+    speech_active_ratio=0.42,
+    segment_count=3,
+    mean_segment_duration_sec=0.31,
+    speech_to_pause_ratio=0.72,
+    snr_db=14.2,
 )
 
 
@@ -143,6 +153,37 @@ async def test_snapshot_lands_with_an_expiry_on_it(
     assert record["silence"] == STATS.silence
     assert record["noiseFloorDbfs"] == STATS.noise_floor_dbfs
     assert record["transcriptionHost"] == "ts-host-1"
+
+
+@pytest.mark.asyncio
+async def test_vad_stats_round_trip_through_a_real_redis(
+    publisher: RedisSessionAudioPublisher, reader: Redis
+):
+    """
+    Test a vadStats payload survives a real write/read through Redis
+
+    B2.2 folds vad_stats into the same key/write as audio_stats rather than
+    adding a second one - this is the one integration point that proves the
+    nested object actually round-trips as JSON, which a fake pipeline (unit
+    tests) cannot prove.
+    """
+    # Act
+    publisher.publish(SESSION_UID, ROOM_UID, STATS, VAD_STATS)
+
+    # Assert
+    key = transcription_session_audio_key(SESSION_UID)
+    payload = await _wait_for_key(reader, key)
+    assert payload is not None
+
+    record = json.loads(payload)
+    assert record["vadStats"] == {
+        "vadEnabled": VAD_STATS.vad_enabled,
+        "speechActiveRatio": VAD_STATS.speech_active_ratio,
+        "segmentCount": VAD_STATS.segment_count,
+        "meanSegmentDurationSec": VAD_STATS.mean_segment_duration_sec,
+        "speechToPauseRatio": VAD_STATS.speech_to_pause_ratio,
+        "snrDb": VAD_STATS.snr_db,
+    }
 
 
 @pytest.mark.asyncio

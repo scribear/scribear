@@ -6,7 +6,7 @@ import numpy as np
 
 from src.shared.logger import Logger
 from src.shared.utils.audio_decoder import AudioDecoder, TargetFormat
-from src.shared.utils.audio_meter import AudioMeter
+from src.shared.utils.audio_meter import AudioMeter, dbfs
 from src.shared.utils.local_agree import LocalAgree, TranscriptionSegment
 from src.shared.utils.np_circular_buffer import NPCircularBuffer
 from src.shared.utils.repeated_segment_detector import RepeatedSegmentDetector
@@ -20,6 +20,7 @@ from src.transcription_provider_interface import (
     TranscriptionJobCounter,
     TranscriptionResult,
     TranscriptionSequence,
+    VadStats,
 )
 
 from .whisper_streaming_config import WhisperStreamingProviderConfig
@@ -99,6 +100,13 @@ class WhisperStreamingProviderJob(
         if self._vad_neg_threshold is not None:
             self._vad_neg_threshold = float(self._vad_neg_threshold)
 
+        # VAD statistics (B2.2) - transient, unlike self._meter: recomputed
+        # every _transcribe_audio call and read by the next _build_result,
+        # the same instance-state handoff self._last_finalized already uses
+        # across process_batch's several _build_result call sites. None
+        # until the first _transcribe_audio call completes.
+        self._vad_stats: VadStats | None = None
+
     def _decode_audio(self, batch: list[AudioChunkPayload]):
         """
         Decodes audio chunks and appends to buffer, recording each chunk's
@@ -166,6 +174,95 @@ class WhisperStreamingProviderJob(
 
         return ranges
 
+    def _compute_vad_stats(
+        self, ranges: list[tuple[int, int]], buffer_samples: np.ndarray
+    ) -> VadStats:
+        """
+        Accumulates VAD statistics (B2.2) from the speech ranges
+        `_detect_speech_ranges` already computed for this buffer - no new
+        detection logic, just reduction over `ranges`/`buffer_samples`.
+
+        Args:
+            ranges          - Speech ranges from _detect_speech_ranges
+            buffer_samples  - The buffer those ranges were computed over
+
+        Returns:
+            Every field but vad_enabled is None when VAD is off - the
+            [(0, N)] placeholder _detect_speech_ranges returns in that case
+            is not a measurement, so it is not treated as one. When VAD is
+            on but found no speech (`ranges == []`), speech_active_ratio/
+            segment_count/speech_to_pause_ratio are real zero-valued
+            readings; mean_segment_duration_sec and snr_db stay None
+            (undefined, not zero - there is no segment to average and no
+            signal side to compare against noise).
+        """
+        if not self._enable_vad:
+            return VadStats(
+                vad_enabled=False,
+                speech_active_ratio=None,
+                segment_count=None,
+                mean_segment_duration_sec=None,
+                speech_to_pause_ratio=None,
+                snr_db=None,
+            )
+
+        total_samples = buffer_samples.shape[0]
+        speech_samples = sum(end - start for start, end in ranges)
+        speech_active_ratio = speech_samples / total_samples
+        segment_count = len(ranges)
+
+        mean_segment_duration_sec = (
+            sum((end - start) / SAMPLE_RATE for start, end in ranges)
+            / segment_count
+            if segment_count > 0
+            else None
+        )
+
+        speech_to_pause_ratio = (
+            speech_active_ratio / (1 - speech_active_ratio)
+            if speech_active_ratio < 1.0
+            else None
+        )
+
+        return VadStats(
+            vad_enabled=True,
+            speech_active_ratio=speech_active_ratio,
+            segment_count=segment_count,
+            mean_segment_duration_sec=mean_segment_duration_sec,
+            speech_to_pause_ratio=speech_to_pause_ratio,
+            snr_db=self._compute_snr_db(ranges, buffer_samples),
+        )
+
+    def _compute_snr_db(
+        self, ranges: list[tuple[int, int]], buffer_samples: np.ndarray
+    ) -> float | None:
+        """
+        VAD-gated SNR: mean RMS (dBFS) of samples inside `ranges` minus mean
+        RMS (dBFS) of samples outside them, reusing AudioMeter's dbfs() so
+        this is not a second copy of the RMS->dB math.
+
+        Returns:
+            None when either side has no samples - `ranges` covering 0% or
+            100% of the buffer, where "signal vs. noise" has nothing on one
+            side to compare against.
+        """
+        in_range_mask = np.zeros(buffer_samples.shape[0], dtype=bool)
+        for start, end in ranges:
+            in_range_mask[start:end] = True
+
+        signal_samples = buffer_samples[in_range_mask]
+        noise_samples = buffer_samples[~in_range_mask]
+        if signal_samples.size == 0 or noise_samples.size == 0:
+            return None
+
+        signal_rms = float(
+            np.sqrt(np.mean(np.square(signal_samples, dtype=np.float64)))
+        )
+        noise_rms = float(
+            np.sqrt(np.mean(np.square(noise_samples, dtype=np.float64)))
+        )
+        return dbfs(signal_rms) - dbfs(noise_rms)
+
     def _transcribe_audio(
         self,
         whisper: WhisperModel,
@@ -185,9 +282,15 @@ class WhisperStreamingProviderJob(
         # Silero VAD Model detection
         buffer_samples = np.asarray(self._buffer.get())
         if buffer_samples.size == 0:
+            # No VAD ran this call at all - a distinct absence from "VAD ran
+            # and found nothing", so the whole reading is None rather than a
+            # VadStats with every field None (same "absent series is not a
+            # zero" distinction AudioMeter.snapshot() already makes).
+            self._vad_stats = None
             return []
 
         ranges = self._detect_speech_ranges(buffer_samples, vad_context, log)
+        self._vad_stats = self._compute_vad_stats(ranges, buffer_samples)
         transcription: list = []
 
         for start_sample, end_sample in ranges:
@@ -308,6 +411,7 @@ class WhisperStreamingProviderJob(
                 in_progress_end_time
             ),
             audio_stats=self._meter.snapshot(),
+            vad_stats=self._vad_stats,
         )
 
     def _append_sequence(

@@ -43,9 +43,14 @@ class AudioLevelStats:
     noise_floor_dbfs: float
 
 
-def _dbfs(value: float) -> float:
+def dbfs(value: float) -> float:
     """
     Converts a linear amplitude/RMS value to dBFS, clamped at DB_FLOOR
+
+    Public (not module-private): B2.2's VAD-gated SNR calculation
+    (`whisper_streaming_job.py`) is a second real caller of this conversion,
+    outside this module - the point at which the plan called for factoring
+    the formula out rather than growing a second `20 * log10(...)` copy.
 
     Args:
         value   - Linear amplitude in [0, 1], e.g. an RMS or peak sample value
@@ -145,12 +150,12 @@ class AudioMeter:
 
         clipping_pct = float(np.mean(np.abs(window) >= 1.0 - CLIP_EPSILON))
 
-        rms_dbfs = _dbfs(rms)
-        silence = rms_dbfs <= _dbfs(self._silence_threshold)
+        rms_dbfs = dbfs(rms)
+        silence = rms_dbfs <= dbfs(self._silence_threshold)
 
         return AudioLevelStats(
             rms_dbfs=rms_dbfs,
-            peak_dbfs=_dbfs(peak),
+            peak_dbfs=dbfs(peak),
             clipping_pct=clipping_pct,
             silence=bool(silence),
             noise_floor_dbfs=self._noise_floor_dbfs(window, rms_dbfs),
@@ -180,5 +185,5 @@ class AudioMeter:
         sub_window_rms = np.sqrt(
             np.mean(np.square(sub_windows, dtype=np.float64), axis=1)
         )
-        sub_window_dbs = [_dbfs(float(r)) for r in sub_window_rms]
+        sub_window_dbs = [dbfs(float(r)) for r in sub_window_rms]
         return float(np.percentile(sub_window_dbs, 10))

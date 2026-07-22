@@ -26,6 +26,7 @@ from src.transcription_provider_interface import (
     TranscriptionResult,
     TranscriptionSequence,
     TranscriptionSessionInterface,
+    VadStats,
 )
 from src.webserver.features.telemetry import RedisSessionAudioPublisher
 from src.webserver.features.transcription_stream import (
@@ -724,12 +725,80 @@ async def test_controller_publishes_audio_stats_to_the_backplane(
         TranscriptionResult(audio_stats=stats),
     )
 
-    # Assert
+    # Assert - vad_stats is None here (not set on this TranscriptionResult),
+    # forwarded as such rather than blocking the publish.
     mock_audio_publisher.publish.assert_called_once_with(
-        SESSION_UID, ROOM_UID, stats
+        SESSION_UID, ROOM_UID, stats, None
     )
     # Still forwarded to the WS-serialization listener.
     mock_send_method.assert_called_once()
+
+    controller._handle_close(1000, "Test End")
+
+
+@pytest.mark.asyncio
+async def test_controller_forwards_vad_stats_alongside_audio_stats(
+    mock_config: MagicMock,
+    mock_logger: MagicMock,
+    mock_auth_service: MagicMock,
+    mock_provider_registry: MagicMock,
+    mock_websocket: MagicMock,
+    mock_send_method: MagicMock,
+    mock_close_method: MagicMock,
+    mock_audio_publisher: MagicMock,
+):
+    """
+    A result carrying both audio_stats and vad_stats forwards both to the
+    publisher - vad_stats is a sibling argument on the same call/key, not a
+    second publish.
+    """
+    # Arrange
+    controller = TranscriptionStreamController(
+        mock_config,
+        mock_logger,
+        mock_auth_service,
+        mock_provider_registry,
+        MetricsRegistry(),
+        PROVIDER_UID,
+        mock_websocket,
+        mock_audio_publisher,
+    )
+    controller.send = mock_send_method
+    controller.close = mock_close_method
+
+    mock_session = MockTranscriptionSession()
+    mock_auth_service.is_authenticated.return_value = True
+    mock_provider_registry.create_session.return_value = mock_session
+
+    await controller._handle_text_message(VALID_AUTH_MESSAGE)
+    await controller._handle_text_message(VALID_CONFIG_MESSAGE_WITH_UIDS)
+
+    stats = AudioLevelStats(
+        rms_dbfs=-20.0,
+        peak_dbfs=-10.0,
+        clipping_pct=0.0,
+        silence=False,
+        noise_floor_dbfs=-45.0,
+    )
+    vad_stats = VadStats(
+        vad_enabled=True,
+        speech_active_ratio=0.5,
+        segment_count=2,
+        mean_segment_duration_sec=0.25,
+        speech_to_pause_ratio=1.0,
+        snr_db=12.5,
+    )
+
+    # Act
+    mock_session.emit(
+        TranscriptionSessionInterface.TranscriptionResultEvent,
+        TranscriptionResult(audio_stats=stats, vad_stats=vad_stats),
+    )
+
+    # Assert
+    mock_audio_publisher.publish.assert_called_once_with(
+        SESSION_UID, ROOM_UID, stats, vad_stats
+    )
 
     controller._handle_close(1000, "Test End")
 

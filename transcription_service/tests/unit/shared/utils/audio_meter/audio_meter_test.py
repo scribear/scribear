@@ -15,7 +15,8 @@ import time
 import numpy as np
 import pytest
 
-from src.shared.utils.audio_meter import AudioLevelStats, AudioMeter
+from src.shared.utils.audio_meter import AudioLevelStats, AudioMeter, dbfs
+from src.shared.utils.audio_meter.audio_meter import DB_FLOOR
 
 SAMPLE_RATE = 16000
 
@@ -44,6 +45,32 @@ def square_wave(
 def silence(seconds: float = 1.0):
     """An exact-zero array."""
     return np.zeros(int(SAMPLE_RATE * seconds), dtype=np.float32)
+
+
+class TestDbfs:
+    """
+    Direct coverage of the public `dbfs()` helper (renamed from `_dbfs` in
+    B2.2, so a second caller - the VAD-gated SNR calculation - could reuse it
+    instead of a second `20 * log10(...)`). `TestKnownLevels` already
+    exercises it indirectly through `rms_dbfs`/`peak_dbfs`; this covers the
+    floor clamp directly instead of only inferring it from `silence`.
+    """
+
+    def test_full_scale_reads_as_zero_dbfs(self):
+        """A linear amplitude of 1.0 is exactly 0 dBFS."""
+        assert dbfs(1.0) == pytest.approx(0.0, abs=1e-9)
+
+    def test_zero_is_clamped_at_the_floor(self):
+        """A zero-valued RMS/peak never hits log10(0); it clamps at DB_FLOOR."""
+        assert dbfs(0.0) == DB_FLOOR
+
+    def test_negative_input_is_clamped_at_the_floor(self):
+        """Defensive: a negative value (should not occur for RMS/peak) also clamps."""
+        assert dbfs(-1.0) == DB_FLOOR
+
+    def test_a_very_quiet_value_never_drops_below_the_floor(self):
+        """An extremely small but positive amplitude still clamps at DB_FLOOR."""
+        assert dbfs(1e-20) == DB_FLOOR
 
 
 class TestKnownLevels:

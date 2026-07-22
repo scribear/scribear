@@ -1,6 +1,7 @@
 """
 Defines RedisSessionAudioPublisher that publishes per-session audio-level
-stats to the fleet telemetry backplane (B2.1)
+stats, and VAD statistics alongside them, to the fleet telemetry backplane
+(B2.1 / B2.2)
 """
 
 import asyncio
@@ -11,6 +12,7 @@ from redis.asyncio import Redis
 
 from src.shared.logger import Logger
 from src.shared.utils.audio_meter import AudioLevelStats
+from src.transcription_provider_interface import VadStats
 
 from .telemetry_keys import (
     AUDIO_STATS_TTL_MS,
@@ -21,8 +23,8 @@ from .telemetry_keys import (
 
 class RedisSessionAudioPublisher:
     """
-    Publishes a live session's latest audio-level meter readout to Redis
-    (B2.1 / plan §3)
+    Publishes a live session's latest audio-level meter readout, and VAD
+    statistics alongside it, to Redis (B2.1/B2.2 / plan §3)
 
     **Push-based, not a beat.** Unlike `RedisTelemetryPublisher` - host-level
     and pull-based, reading live worker-pool state from the main process on a
@@ -77,6 +79,7 @@ class RedisSessionAudioPublisher:
         session_uid: str | None,
         room_uid: str | None,
         stats: AudioLevelStats,
+        vad_stats: VadStats | None = None,
     ) -> None:
         """
         Fire-and-forget publish of one session's audio-level snapshot
@@ -86,10 +89,19 @@ class RedisSessionAudioPublisher:
         opened before the CONFIG message carried session_uid) or if this
         session published within the last min_publish_interval_sec.
 
+        `vad_stats` folds into the same envelope/publish as `stats` (B2.2) -
+        one Redis key, one write, not a second key: both are per-session,
+        per-batch, produced by the same job execution at the same instant, so
+        splitting them would only let a reader observe one without the other
+        for no freshness benefit. `vad_stats` may legitimately be None (VAD
+        off, or no VAD ran this batch) independent of whether `stats` is
+        present - that does not block the publish, only the field.
+
         Args:
             session_uid  - Opaque session identifier, or None if unknown
             room_uid     - Opaque room identifier, or None if unknown
-            stats        - Snapshot to publish
+            stats        - Audio-level snapshot to publish
+            vad_stats    - VAD statistics to publish alongside it, or None
         """
         if session_uid is None:
             return
@@ -100,7 +112,9 @@ class RedisSessionAudioPublisher:
             return
         self._last_published[session_uid] = now
 
-        asyncio.create_task(self._publish_once(session_uid, room_uid, stats))
+        asyncio.create_task(
+            self._publish_once(session_uid, room_uid, stats, vad_stats)
+        )
 
     def forget(self, session_uid: str | None) -> None:
         """
@@ -132,7 +146,11 @@ class RedisSessionAudioPublisher:
         await self._redis.aclose()
 
     async def _publish_once(
-        self, session_uid: str, room_uid: str | None, stats: AudioLevelStats
+        self,
+        session_uid: str,
+        room_uid: str | None,
+        stats: AudioLevelStats,
+        vad_stats: VadStats | None,
     ) -> None:
         """
         Performs the actual write: a snapshot key, its index entry, and a
@@ -147,6 +165,18 @@ class RedisSessionAudioPublisher:
                 "clippingPct": stats.clipping_pct,
                 "silence": stats.silence,
                 "noiseFloorDbfs": stats.noise_floor_dbfs,
+                "vadStats": (
+                    {
+                        "vadEnabled": vad_stats.vad_enabled,
+                        "speechActiveRatio": vad_stats.speech_active_ratio,
+                        "segmentCount": vad_stats.segment_count,
+                        "meanSegmentDurationSec": vad_stats.mean_segment_duration_sec,
+                        "speechToPauseRatio": vad_stats.speech_to_pause_ratio,
+                        "snrDb": vad_stats.snr_db,
+                    }
+                    if vad_stats is not None
+                    else None
+                ),
                 "sessionUid": session_uid,
                 "roomUid": room_uid,
                 "transcriptionHost": self._transcription_host_id,

@@ -14,6 +14,7 @@ import {
   SESSION_SNAPSHOT_SCHEMA,
   TRANSCRIPTION_HOST_SNAPSHOT_SCHEMA,
   TRANSCRIPTION_WORKER_SCHEMA,
+  VAD_STATS_SCHEMA,
 } from '#src/index.js';
 
 /**
@@ -188,17 +189,51 @@ describe('session audio snapshot schema', () => {
    * `HOST_SNAPSHOT` is: its job is to fail if the publisher's shape and this
    * schema ever diverge.
    */
+  /**
+   * A vadStats value exactly as `RedisSessionAudioPublisher` publishes one
+   * when VAD ran and found speech, for the same reason SESSION_AUDIO is
+   * kept literal.
+   */
+  const VAD_STATS = {
+    vadEnabled: true,
+    speechActiveRatio: 0.5,
+    segmentCount: 2,
+    meanSegmentDurationSec: 0.25,
+    speechToPauseRatio: 1,
+    snrDb: 12.5,
+  };
+
   const SESSION_AUDIO = {
     rmsDbfs: -18.4,
     peakDbfs: -6.2,
     clippingPct: 0,
     silence: false,
     noiseFloorDbfs: -42.1,
+    vadStats: VAD_STATS,
     sessionUid: 'session-1',
     roomUid: 'room-1',
     transcriptionHost: 'gpu-1',
     updatedAt: 1_731_970_000_123,
   };
+
+  it('should accept a full vad stats object', () => {
+    // Assert
+    expect(Value.Check(VAD_STATS_SCHEMA, VAD_STATS)).toBe(true);
+  });
+
+  it('should accept a vad stats object with every field but vadEnabled null', () => {
+    // Assert - VAD off: only vadEnabled is meaningful.
+    expect(
+      Value.Check(VAD_STATS_SCHEMA, {
+        vadEnabled: false,
+        speechActiveRatio: null,
+        segmentCount: null,
+        meanSegmentDurationSec: null,
+        speechToPauseRatio: null,
+        snrDb: null,
+      }),
+    ).toBe(true);
+  });
 
   it('should accept a full session audio snapshot', () => {
     // Assert
@@ -228,6 +263,29 @@ describe('session audio snapshot schema', () => {
         roomUid: null,
       }),
     ).toBe(true);
+  });
+
+  it('should accept a snapshot with a null vadStats', () => {
+    // Assert - VAD off, or no VAD ran this batch: a legitimate value, not
+    // a malformed payload.
+    expect(
+      Value.Check(SESSION_AUDIO_SNAPSHOT_SCHEMA, {
+        ...SESSION_AUDIO,
+        vadStats: null,
+      }),
+    ).toBe(true);
+  });
+
+  it('should reject a snapshot missing the vadStats key entirely', () => {
+    // Assert - vadStats is a required key even though its value can be
+    // null: the publisher always writes it, so a missing key means the
+    // shape drifted, not that VAD was off.
+    expect(
+      Value.Check(
+        SESSION_AUDIO_SNAPSHOT_SCHEMA,
+        without(SESSION_AUDIO, 'vadStats'),
+      ),
+    ).toBe(false);
   });
 
   it('should reject a snapshot missing a stats field', () => {
