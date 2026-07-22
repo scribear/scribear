@@ -141,8 +141,10 @@ def test_counts_vad_no_speech(log):
     is the only form of the signal that exists.
     """
     job = make_job(vad_detector=True)
+    # The job VADs through a per-session stream it creates from the shared
+    # context, so the stream is what has to be stubbed.
     vad = MagicMock()
-    vad.detect_speech_ranges.return_value = []
+    vad.create_stream.return_value.detect_speech_ranges.return_value = []
 
     job.process_batch(log, (MagicMock(), vad), [chunk(0.5)])
 

@@ -271,7 +271,9 @@ class TestVadStats:
         whisper = MagicMock()
         whisper.transcribe.return_value = ([], None)
         vad_context = MagicMock()
-        vad_context.detect_speech_ranges.return_value = [(0, SAMPLE_RATE // 4)]
+        vad_context.create_stream.return_value.detect_speech_ranges.return_value = [
+            (0, SAMPLE_RATE // 4)
+        ]
 
         result = job.process_batch(
             log, (whisper, vad_context), [_wav_chunk(0.5)]

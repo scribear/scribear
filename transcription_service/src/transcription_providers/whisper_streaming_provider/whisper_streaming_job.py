@@ -10,6 +10,7 @@ from src.shared.utils.audio_meter import AudioMeter, dbfs
 from src.shared.utils.local_agree import LocalAgree, TranscriptionSegment
 from src.shared.utils.np_circular_buffer import NPCircularBuffer
 from src.shared.utils.repeated_segment_detector import RepeatedSegmentDetector
+from src.shared.utils.silence_filter import IncrementalVadStream
 from src.shared.utils.worker_pool import JobInterface
 from src.transcription_contexts.faster_whisper_context import WhisperModel
 from src.transcription_contexts.silero_vad_context import SileroVadModelType
@@ -100,6 +101,15 @@ class WhisperStreamingProviderJob(
         if self._vad_neg_threshold is not None:
             self._vad_neg_threshold = float(self._vad_neg_threshold)
 
+        # Per-session VAD stream, created on first use because the shared model
+        # only arrives with the contexts in process_batch. It scores each
+        # 512-sample window once and caches the probability, so a job period
+        # costs only the audio that arrived during it rather than a rescan of
+        # the whole buffer - 3.5ms against 69.7ms measured on a 30s buffer.
+        # Anchored on absolute stream position, which is why every call below
+        # passes self._buffer_offset_samples: the buffer slides underneath it.
+        self._vad_stream: IncrementalVadStream | None = None
+
         # VAD statistics (B2.2) - transient, unlike self._meter: recomputed
         # every _transcribe_audio call and read by the next _build_result,
         # the same instance-state handoff self._last_finalized already uses
@@ -159,8 +169,12 @@ class WhisperStreamingProviderJob(
         if not self._enable_vad:
             return [(0, buffer_samples.shape[0])]
 
-        ranges = vad_context.detect_speech_ranges(
+        if self._vad_stream is None:
+            self._vad_stream = vad_context.create_stream()
+
+        ranges = self._vad_stream.detect_speech_ranges(
             buffer_samples,
+            buffer_start_sample=self._buffer_offset_samples,
             threshold=self._vad_threshold,
             neg_threshold=self._vad_neg_threshold,
         )
