@@ -211,6 +211,8 @@ class RollbackError extends Error {
  *  - Bumps `room_schedule_version` and `last_materialized_at`.
  */
 export class ScheduleManagementService {
+  private static readonly _MAX_LIST_SESSIONS_RANGE_DAYS = 31;
+
   private _log: AppDependencies['logger'];
   private _dbClient: AppDependencies['dbClient'];
   private _repo: AppDependencies['scheduleManagementRepository'];
@@ -779,6 +781,27 @@ export class ScheduleManagementService {
     range: { from: Date; to: Date },
   ): Promise<Session[]> {
     return this._repo.listSessionsForRoomInRange(this._repo.db, roomUid, range);
+  }
+
+  /**
+   * Lists sessions across one, several, or (when `roomUids` is null) all
+   * rooms whose effective interval overlaps `[range.from, range.to)`, for
+   * calendar views. Includes canceled sessions.
+   * @param roomUids Rooms to restrict to, or `null` for all rooms.
+   * @param range Time range to test for overlap; capped at
+   * `_MAX_LIST_SESSIONS_RANGE_DAYS`.
+   * @returns The matching sessions, or `'RANGE_TOO_LARGE'` if the range exceeds the cap.
+   */
+  async listSessionsInRange(
+    roomUids: string[] | null,
+    range: { from: Date; to: Date },
+  ): Promise<Session[] | 'RANGE_TOO_LARGE'> {
+    const rangeDays =
+      (range.to.getTime() - range.from.getTime()) / (24 * 60 * 60 * 1000);
+    if (rangeDays > ScheduleManagementService._MAX_LIST_SESSIONS_RANGE_DAYS) {
+      return 'RANGE_TOO_LARGE';
+    }
+    return this._repo.listSessionsInRange(this._repo.db, roomUids, range);
   }
 
   /**

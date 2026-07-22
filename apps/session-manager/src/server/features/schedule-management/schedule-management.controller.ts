@@ -16,6 +16,7 @@ import {
   GET_SESSION_SCHEMA,
   LIST_AUTO_SESSION_WINDOWS_SCHEMA,
   LIST_SCHEDULES_SCHEMA,
+  LIST_SESSIONS_SCHEMA,
   MY_SCHEDULE_SCHEMA,
   SESSION_CONFIG_STREAM_SCHEMA,
   START_SESSION_EARLY_SCHEMA,
@@ -380,6 +381,29 @@ export class ScheduleManagementController {
     res.code(200).send(this._mapSession(result));
   }
 
+  async listSessions(
+    req: BaseFastifyRequest<typeof LIST_SESSIONS_SCHEMA>,
+    res: BaseFastifyReply<typeof LIST_SESSIONS_SCHEMA>,
+  ) {
+    const roomUids =
+      req.query.roomUids === undefined
+        ? null
+        : Array.isArray(req.query.roomUids)
+          ? req.query.roomUids
+          : [req.query.roomUids];
+    const result = await this._scheduleService.listSessionsInRange(roomUids, {
+      from: new Date(req.query.from),
+      to: new Date(req.query.to),
+    });
+    if (result === 'RANGE_TOO_LARGE')
+      throw HttpError.unprocessable(
+        'RANGE_TOO_LARGE',
+        'Date range must be 31 days or less.',
+      );
+
+    res.code(200).send({ items: result.map((s) => this._mapSession(s)) });
+  }
+
   async createOnDemandSession(
     req: BaseFastifyRequest<typeof CREATE_ON_DEMAND_SESSION_SCHEMA>,
     res: BaseFastifyReply<typeof CREATE_ON_DEMAND_SESSION_SCHEMA>,
@@ -629,6 +653,7 @@ export class ScheduleManagementController {
       scheduledEndTime: s.scheduledEndTime?.toISOString() ?? null,
       startOverride: s.startOverride?.toISOString() ?? null,
       endOverride: s.endOverride?.toISOString() ?? null,
+      canceledAt: s.canceledAt?.toISOString() ?? null,
       effectiveStart: s.effectiveStart.toISOString(),
       effectiveEnd: s.effectiveEnd?.toISOString() ?? null,
       createdAt: s.createdAt.toISOString(),

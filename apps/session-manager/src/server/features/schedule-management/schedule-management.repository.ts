@@ -56,6 +56,7 @@ const SESSION_COLUMNS = [
   'scheduled_end_time',
   'start_override',
   'end_override',
+  'canceled_at',
   'join_code_scopes',
   'transcription_provider_id',
   'transcription_stream_config',
@@ -104,6 +105,7 @@ interface SessionRow {
   scheduled_end_time: Date | null;
   start_override: Date | null;
   end_override: Date | null;
+  canceled_at: Date | null;
   join_code_scopes: SessionScope[];
   transcription_provider_id: string;
   transcription_stream_config: Json;
@@ -163,6 +165,8 @@ export interface Session {
   scheduledEndTime: Date | null;
   startOverride: Date | null;
   endOverride: Date | null;
+  /** Set when this occurrence was individually canceled. Only ever set on SCHEDULED sessions. */
+  canceledAt: Date | null;
   joinCodeScopes: SessionScope[];
   transcriptionProviderId: string;
   transcriptionStreamConfig: Json;
@@ -267,6 +271,7 @@ function mapSession(row: SessionRow): Session {
     scheduledEndTime: row.scheduled_end_time,
     startOverride: row.start_override,
     endOverride: row.end_override,
+    canceledAt: row.canceled_at,
     joinCodeScopes: parsePgEnumArray(row.join_code_scopes) as SessionScope[],
     transcriptionProviderId: row.transcription_provider_id,
     transcriptionStreamConfig: row.transcription_stream_config,
@@ -950,6 +955,40 @@ export class ScheduleManagementRepository {
       )
       .orderBy(effectiveStart, 'asc')
       .execute();
+    return rows.map(mapSession);
+  }
+
+  /**
+   * Sessions across one, several, or (when `roomUids` is null) all rooms
+   * whose effective interval overlaps `[range.from, range.to)`. Includes
+   * canceled sessions (canceledAt set) so calendar views can render
+   * cancellation history — callers that need "is this slot actually
+   * occupied" semantics must filter canceledAt themselves. Ordered by
+   * scheduled start ascending.
+   */
+  async listSessionsInRange(
+    db: DBOrTrx,
+    roomUids: string[] | null,
+    range: { from: Date; to: Date },
+  ): Promise<Session[]> {
+    const effectiveStart = sql<Date>`COALESCE(start_override, scheduled_start_time)`;
+    const effectiveEnd = sql<Date | null>`COALESCE(end_override, scheduled_end_time)`;
+
+    let query = db
+      .selectFrom('sessions')
+      .select(SESSION_COLUMNS)
+      .where(effectiveStart, '<', range.to)
+      .where((eb) =>
+        eb.or([
+          eb(effectiveEnd, 'is', null),
+          eb(effectiveEnd, '>', range.from),
+        ]),
+      );
+    if (roomUids !== null) {
+      query = query.where('room_uid', 'in', roomUids);
+    }
+
+    const rows = await query.orderBy('scheduled_start_time', 'asc').execute();
     return rows.map(mapSession);
   }
 

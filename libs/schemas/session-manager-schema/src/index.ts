@@ -50,6 +50,7 @@ export * from './schedule-management/routes/get-auto-session-window.schema.js';
 export * from './schedule-management/routes/update-auto-session-window.schema.js';
 export * from './schedule-management/routes/delete-auto-session-window.schema.js';
 export * from './schedule-management/routes/get-session.schema.js';
+export * from './schedule-management/routes/list-sessions.schema.js';
 export * from './schedule-management/routes/create-on-demand-session.schema.js';
 export * from './schedule-management/routes/start-session-early.schema.js';
 export * from './schedule-management/routes/end-session-early.schema.js';

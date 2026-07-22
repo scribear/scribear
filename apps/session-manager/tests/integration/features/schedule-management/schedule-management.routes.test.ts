@@ -900,6 +900,134 @@ describe('Schedule Management Routes', () => {
     });
   });
 
+  describe('GET /list-sessions', (it) => {
+    async function createOnDemand(roomUid: string, name = 'Quick') {
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/create-on-demand-session`,
+        headers: { authorization: ADMIN_HEADER },
+        body: {
+          roomUid,
+          name,
+          joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS'],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+      });
+      return res.json<{ uid: string; name: string }>();
+    }
+
+    // On-demand sessions start "now", so the list window must span the
+    // actual current time rather than a fixed date (and stay well under the
+    // 31-day range cap).
+    const yesterdayIso = new Date(
+      Date.now() - 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const tomorrowIso = new Date(
+      Date.now() + 24 * 60 * 60 * 1000,
+    ).toISOString();
+
+    it('returns 401 without credentials', async () => {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${SCHEDULE_BASE}/list-sessions?from=2030-01-01T00:00:00.000Z&to=2030-01-02T00:00:00.000Z`,
+        headers: { authorization: 'Bearer wrong-key' },
+      });
+
+      expect(res.statusCode).toBe(401);
+    });
+
+    it('scopes to a single room via one roomUids entry', async () => {
+      // Arrange
+      const { roomUid: roomA } = await setupRoom('Room A');
+      const { roomUid: roomB } = await setupRoom('Room B');
+      await createOnDemand(roomA, 'In room A');
+      await createOnDemand(roomB, 'In room B');
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url:
+          `${SCHEDULE_BASE}/list-sessions?roomUids=${roomA}` +
+          `&from=${yesterdayIso}&to=${tomorrowIso}`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      const { items } = res.json<{ items: { name: string }[] }>();
+      expect(items.map((s) => s.name)).toEqual(['In room A']);
+    });
+
+    it('scopes to multiple rooms via repeated roomUids entries', async () => {
+      // Arrange
+      const { roomUid: roomA } = await setupRoom('Room A');
+      const { roomUid: roomB } = await setupRoom('Room B');
+      const { roomUid: roomC } = await setupRoom('Room C');
+      await createOnDemand(roomA, 'In room A');
+      await createOnDemand(roomB, 'In room B');
+      await createOnDemand(roomC, 'In room C');
+
+      // Act - repeated query key is how a browser/fetch serializes an array param.
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url:
+          `${SCHEDULE_BASE}/list-sessions?roomUids=${roomA}&roomUids=${roomB}` +
+          `&from=${yesterdayIso}&to=${tomorrowIso}`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      const { items } = res.json<{ items: { name: string }[] }>();
+      expect(items.map((s) => s.name).sort()).toEqual([
+        'In room A',
+        'In room B',
+      ]);
+    });
+
+    it('returns sessions across all rooms when roomUids is omitted', async () => {
+      // Arrange
+      const { roomUid: roomA } = await setupRoom('Room A');
+      const { roomUid: roomB } = await setupRoom('Room B');
+      await createOnDemand(roomA, 'In room A');
+      await createOnDemand(roomB, 'In room B');
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${SCHEDULE_BASE}/list-sessions?from=${yesterdayIso}&to=${tomorrowIso}`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      const { items } = res.json<{ items: { name: string }[] }>();
+      expect(items.map((s) => s.name).sort()).toEqual([
+        'In room A',
+        'In room B',
+      ]);
+    });
+
+    it('returns 422 RANGE_TOO_LARGE when the range exceeds 31 days', async () => {
+      // Arrange
+      const { roomUid } = await setupRoom();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url:
+          `${SCHEDULE_BASE}/list-sessions?roomUids=${roomUid}` +
+          `&from=2030-01-01T00:00:00.000Z&to=2030-03-01T00:00:00.000Z`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(422);
+      expect(res.json<{ code: string }>().code).toBe('RANGE_TOO_LARGE');
+    });
+  });
+
   describe('POST /create-on-demand-session', (it) => {
     function makeBody(roomUid: string, overrides: object = {}) {
       return {

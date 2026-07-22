@@ -1146,6 +1146,142 @@ describe('ScheduleManagementRepository', () => {
     });
   });
 
+  describe('listSessionsInRange', (it) => {
+    async function insertSession(
+      roomUid: string,
+      name: string,
+      startIso: string,
+      endIso: string,
+    ) {
+      await dbContext.db
+        .insertInto('sessions')
+        .values({
+          room_uid: roomUid,
+          name,
+          type: 'ON_DEMAND',
+          scheduled_start_time: new Date(startIso),
+          scheduled_end_time: new Date(endIso),
+          transcription_provider_id: 'whisper',
+          transcription_stream_config: {},
+        })
+        .execute();
+    }
+
+    it('scopes to a single room when roomUids has one entry', async () => {
+      const { uid: roomA } = await insertRoom();
+      const { uid: roomB } = await insertRoom();
+      await insertSession(
+        roomA,
+        'In room A',
+        '2024-06-01T10:00:00Z',
+        '2024-06-01T11:00:00Z',
+      );
+      await insertSession(
+        roomB,
+        'In room B',
+        '2024-06-01T10:00:00Z',
+        '2024-06-01T11:00:00Z',
+      );
+
+      const found = await repository.listSessionsInRange(
+        repository.db,
+        [roomA],
+        {
+          from: new Date('2024-06-01T00:00:00Z'),
+          to: new Date('2024-06-02T00:00:00Z'),
+        },
+      );
+
+      expect(found.map((s) => s.name)).toEqual(['In room A']);
+    });
+
+    it('scopes to several rooms when roomUids has multiple entries', async () => {
+      const { uid: roomA } = await insertRoom();
+      const { uid: roomB } = await insertRoom();
+      const { uid: roomC } = await insertRoom();
+      await insertSession(
+        roomA,
+        'In room A',
+        '2024-06-01T10:00:00Z',
+        '2024-06-01T11:00:00Z',
+      );
+      await insertSession(
+        roomB,
+        'In room B',
+        '2024-06-01T10:00:00Z',
+        '2024-06-01T11:00:00Z',
+      );
+      await insertSession(
+        roomC,
+        'In room C',
+        '2024-06-01T10:00:00Z',
+        '2024-06-01T11:00:00Z',
+      );
+
+      const found = await repository.listSessionsInRange(
+        repository.db,
+        [roomA, roomB],
+        {
+          from: new Date('2024-06-01T00:00:00Z'),
+          to: new Date('2024-06-02T00:00:00Z'),
+        },
+      );
+
+      expect(found.map((s) => s.name).sort()).toEqual([
+        'In room A',
+        'In room B',
+      ]);
+    });
+
+    it('returns sessions across all rooms when roomUids is null', async () => {
+      const { uid: roomA } = await insertRoom();
+      const { uid: roomB } = await insertRoom();
+      await insertSession(
+        roomA,
+        'In room A',
+        '2024-06-01T10:00:00Z',
+        '2024-06-01T11:00:00Z',
+      );
+      await insertSession(
+        roomB,
+        'In room B',
+        '2024-06-01T10:00:00Z',
+        '2024-06-01T11:00:00Z',
+      );
+
+      const found = await repository.listSessionsInRange(repository.db, null, {
+        from: new Date('2024-06-01T00:00:00Z'),
+        to: new Date('2024-06-02T00:00:00Z'),
+      });
+
+      expect(found.map((s) => s.name).sort()).toEqual([
+        'In room A',
+        'In room B',
+      ]);
+    });
+
+    it('excludes sessions fully outside the requested range', async () => {
+      const { uid: roomUid } = await insertRoom();
+      await insertSession(
+        roomUid,
+        'Outside range',
+        '2024-06-01T01:00:00Z',
+        '2024-06-01T02:00:00Z',
+      );
+
+      const found = await repository.listSessionsInRange(
+        repository.db,
+        [roomUid],
+        {
+          from: new Date('2024-06-01T10:00:00Z'),
+          to: new Date('2024-06-01T11:00:00Z'),
+        },
+      );
+
+      expect(found).toEqual([]);
+    });
+  });
+
   describe('listActiveAndUpcomingSessions', (it) => {
     it('returns active + upcoming up to horizon, excludes past and beyond', async () => {
       // Arrange

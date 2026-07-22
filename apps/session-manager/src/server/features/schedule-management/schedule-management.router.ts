@@ -22,6 +22,8 @@ import {
   LIST_AUTO_SESSION_WINDOWS_SCHEMA,
   LIST_SCHEDULES_ROUTE,
   LIST_SCHEDULES_SCHEMA,
+  LIST_SESSIONS_ROUTE,
+  LIST_SESSIONS_SCHEMA,
   MY_SCHEDULE_ROUTE,
   MY_SCHEDULE_SCHEMA,
   SESSION_CONFIG_STREAM_ROUTE,
@@ -146,6 +148,13 @@ export function scheduleManagementRouter(fastify: BaseFastifyInstance) {
     schema: GET_SESSION_SCHEMA,
     preHandler: adminApiKeyHook,
     handler: resolveHandler('scheduleManagementController', 'getSession'),
+  });
+
+  fastify.route({
+    ...LIST_SESSIONS_ROUTE,
+    schema: LIST_SESSIONS_SCHEMA,
+    preHandler: adminApiKeyHook,
+    handler: resolveHandler('scheduleManagementController', 'listSessions'),
   });
 
   fastify.route({

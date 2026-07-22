@@ -23,6 +23,8 @@ import {
   LIST_AUTO_SESSION_WINDOWS_SCHEMA,
   LIST_SCHEDULES_ROUTE,
   LIST_SCHEDULES_SCHEMA,
+  LIST_SESSIONS_ROUTE,
+  LIST_SESSIONS_SCHEMA,
   MY_SCHEDULE_ROUTE,
   MY_SCHEDULE_SCHEMA,
   SESSION_CONFIG_STREAM_ROUTE,
@@ -104,6 +106,11 @@ function createScheduleManagementClient(baseUrl: string) {
     getSession: createEndpointClient(
       GET_SESSION_SCHEMA,
       GET_SESSION_ROUTE,
+      baseUrl,
+    ),
+    listSessions: createEndpointClient(
+      LIST_SESSIONS_SCHEMA,
+      LIST_SESSIONS_ROUTE,
       baseUrl,
     ),
     createOnDemandSession: createEndpointClient(
