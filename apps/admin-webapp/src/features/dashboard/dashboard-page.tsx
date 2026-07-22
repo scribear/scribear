@@ -21,6 +21,8 @@ import { adminApi } from '#src/lib/admin-api';
 import { ApiError } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
 
+import { FleetPanel } from './fleet-panel';
+
 type HealthColor = 'success' | 'warning' | 'error' | 'default';
 
 function statusColor(status: string): HealthColor {
@@ -175,6 +177,8 @@ export const DashboardPage = () => {
           Health status unavailable.
         </Typography>
       )}
+
+      <FleetPanel />
 
       <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
         Pending activations
