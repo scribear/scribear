@@ -39,6 +39,10 @@ COPY --from=uv /uv /usr/local/bin/uv
 
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
+# uv's download cache is written inside the same layer as the venv it
+# populates, so keeping it doubles the image's dependency weight for a cache
+# no later build can read. Costly with the CUDA torch wheels in particular.
+ENV UV_NO_CACHE=1
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 ENV UV_PYTHON=/usr/bin/python3.12
 
