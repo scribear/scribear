@@ -7,6 +7,7 @@ import type { AppDependencies } from '#src/server/dependency-injection/app-depen
 import { auditedMutation } from '#src/server/shared/proxy/audited-proxy.js';
 
 import type {
+  CANCEL_SESSION_INPUT,
   CREATE_AUTO_SESSION_WINDOW_INPUT,
   CREATE_ON_DEMAND_SESSION_INPUT,
   CREATE_SCHEDULE_INPUT,
@@ -18,7 +19,9 @@ import type {
   GET_SESSION_INPUT,
   LIST_AUTO_SESSION_WINDOWS_INPUT,
   LIST_SCHEDULES_INPUT,
+  LIST_SESSIONS_INPUT,
   START_SESSION_EARLY_INPUT,
+  UNCANCEL_SESSION_INPUT,
   UPDATE_AUTO_SESSION_WINDOW_INPUT,
   UPDATE_ROOM_SCHEDULE_CONFIG_INPUT,
   UPDATE_SCHEDULE_INPUT,
@@ -87,6 +90,17 @@ export class SchedulingController {
     res: BaseFastifyReply,
   ) {
     this._gateway.respond(req, res, await this._gateway.getSession(req.params));
+  }
+
+  async listSessions(
+    req: BaseFastifyRequest<typeof LIST_SESSIONS_INPUT>,
+    res: BaseFastifyReply,
+  ) {
+    this._gateway.respond(
+      req,
+      res,
+      await this._gateway.listSessions(req.query),
+    );
   }
 
   // ---- Mutations (require read-write + CSRF) ----
@@ -256,6 +270,38 @@ export class SchedulingController {
       target: req.body.sessionUid,
       paramsSummary: {},
       call: () => this._gateway.endSessionEarly(req.body),
+    });
+  }
+
+  async cancelSession(
+    req: BaseFastifyRequest<typeof CANCEL_SESSION_INPUT>,
+    res: BaseFastifyReply,
+  ) {
+    await auditedMutation({
+      gateway: this._gateway,
+      auditService: this._auditService,
+      req,
+      reply: res,
+      action: 'cancel-session',
+      target: req.body.sessionUid,
+      paramsSummary: {},
+      call: () => this._gateway.cancelSession(req.body),
+    });
+  }
+
+  async uncancelSession(
+    req: BaseFastifyRequest<typeof UNCANCEL_SESSION_INPUT>,
+    res: BaseFastifyReply,
+  ) {
+    await auditedMutation({
+      gateway: this._gateway,
+      auditService: this._auditService,
+      req,
+      reply: res,
+      action: 'uncancel-session',
+      target: req.body.sessionUid,
+      paramsSummary: {},
+      call: () => this._gateway.uncancelSession(req.body),
     });
   }
 }

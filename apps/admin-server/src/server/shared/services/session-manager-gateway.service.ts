@@ -7,6 +7,7 @@ import { createSessionManagerClient as buildClient } from '@scribear/session-man
 import type { SessionManagerClient } from '@scribear/session-manager-client';
 import {
   ADD_DEVICE_TO_ROOM_SCHEMA,
+  CANCEL_SESSION_SCHEMA,
   CREATE_AUTO_SESSION_WINDOW_SCHEMA,
   CREATE_ON_DEMAND_SESSION_SCHEMA,
   CREATE_ROOM_SCHEMA,
@@ -25,11 +26,13 @@ import {
   LIST_DEVICES_SCHEMA,
   LIST_ROOMS_SCHEMA,
   LIST_SCHEDULES_SCHEMA,
+  LIST_SESSIONS_SCHEMA,
   REGISTER_DEVICE_SCHEMA,
   REMOVE_DEVICE_FROM_ROOM_SCHEMA,
   REREGISTER_DEVICE_SCHEMA,
   SET_SOURCE_DEVICE_SCHEMA,
   START_SESSION_EARLY_SCHEMA,
+  UNCANCEL_SESSION_SCHEMA,
   UPDATE_AUTO_SESSION_WINDOW_SCHEMA,
   UPDATE_DEVICE_SCHEMA,
   UPDATE_ROOM_SCHEDULE_CONFIG_SCHEMA,
@@ -282,6 +285,15 @@ export class SessionManagerGatewayService {
     });
   }
 
+  listSessions(
+    querystring: Static<(typeof LIST_SESSIONS_SCHEMA)['querystring']>,
+  ) {
+    return this._client.scheduleManagement.listSessions({
+      headers: this._authHeaders(),
+      querystring,
+    });
+  }
+
   createOnDemandSession(
     body: Static<(typeof CREATE_ON_DEMAND_SESSION_SCHEMA)['body']>,
   ) {
@@ -300,6 +312,20 @@ export class SessionManagerGatewayService {
 
   endSessionEarly(body: Static<(typeof END_SESSION_EARLY_SCHEMA)['body']>) {
     return this._client.scheduleManagement.endSessionEarly({
+      headers: this._authHeaders(),
+      body,
+    });
+  }
+
+  cancelSession(body: Static<(typeof CANCEL_SESSION_SCHEMA)['body']>) {
+    return this._client.scheduleManagement.cancelSession({
+      headers: this._authHeaders(),
+      body,
+    });
+  }
+
+  uncancelSession(body: Static<(typeof UNCANCEL_SESSION_SCHEMA)['body']>) {
+    return this._client.scheduleManagement.uncancelSession({
       headers: this._authHeaders(),
       body,
     });
