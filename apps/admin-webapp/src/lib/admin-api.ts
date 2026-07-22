@@ -73,6 +73,12 @@ export interface CreateOnDemandSessionBody {
   transcriptionStreamConfig: unknown;
 }
 
+export interface SessionsRangeQuery {
+  roomUids?: string[];
+  from: string; // ISO
+  to: string; // ISO
+}
+
 const BASE = '/api/admin/v1';
 
 /** `EventSource` can't go through `_request` (it sends no cookie header the
@@ -320,12 +326,17 @@ interface EnvelopeErr {
   error: { code: string; message: string; requestId?: string };
 }
 
-type QueryValue = string | number | boolean | null | undefined;
+type QueryValue = string | number | boolean | null | undefined | string[];
 
 function toQueryString(params: Record<string, QueryValue>): string {
   const usp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== null && v !== '') usp.set(k, String(v));
+    if (v === undefined || v === null || v === '') continue;
+    if (Array.isArray(v)) {
+      for (const item of v) usp.append(k, item);
+    } else {
+      usp.set(k, String(v));
+    }
   }
   const s = usp.toString();
   return s ? `?${s}` : '';
@@ -555,6 +566,12 @@ export class AdminApiClient {
       `/sessions/get/${encodeURIComponent(sessionUid)}`,
     );
   }
+  listSessions(query: SessionsRangeQuery): Promise<{ items: Session[] }> {
+    return this._request(
+      'GET',
+      `/sessions/list${toQueryString(query as unknown as Record<string, QueryValue>)}`,
+    );
+  }
   createOnDemandSession(body: CreateOnDemandSessionBody): Promise<Session> {
     return this._request('POST', '/sessions/create-on-demand', body);
   }
@@ -563,6 +580,9 @@ export class AdminApiClient {
   }
   endSessionEarly(sessionUid: string): Promise<null> {
     return this._request('POST', '/sessions/end-early', { sessionUid });
+  }
+  cancelSession(sessionUid: string): Promise<null> {
+    return this._request('POST', '/sessions/cancel', { sessionUid });
   }
 
   // ---- Audit ----
