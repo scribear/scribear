@@ -1,13 +1,36 @@
+# CUDA runtime this image is built against. Declared before the first FROM so it
+# is global-scope and so usable in the FROM below; an ARG declared after a stage
+# has begun is scoped to that stage and expands to nothing here.
+#
+# It fixes both the CUDA and the cuDNN
+# version available to ctranslate2, whose wheels link the base image's libraries
+# rather than shipping their own - so this argument, not a Python dependency,
+# is what decides which GPUs the image can drive. A GPU newer than the CUDA
+# toolkit here has no usable kernels and falls back to failing at load time.
+#
+# The variants built by CI are listed in cuda-variants.json; each becomes its
+# own image (transcription-service-<device>), selected by TRANSCRIPTION_DEVICE
+# in a deployment's .env. Keep this default in step with the "cuda" entry there.
+#
+# The Python side is deliberately NOT parameterized: ctranslate2 and torch are
+# pinned by uv.lock, which stays the single source of truth for them. Pairing a
+# new base image with a different ctranslate2 is a pyproject.toml/uv.lock change.
+ARG CUDA_BASE_IMAGE=nvidia/cuda:12.2.2-cudnn8-runtime-ubuntu22.04
+
 FROM ghcr.io/astral-sh/uv:0.11.2 AS uv
 
-FROM nvidia/cuda:12.2.2-cudnn8-runtime-ubuntu22.04
+FROM ${CUDA_BASE_IMAGE}
 
+# Python 3.12 comes from the distro on Ubuntu 24.04 bases and from deadsnakes on
+# 22.04 ones; try the distro first so newer bases do not need the PPA at all.
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update -y && \
-    apt-get install -y software-properties-common && \
-    add-apt-repository ppa:deadsnakes/ppa && \
-    apt-get update -y && \
-    apt-get install -y python3.12 python3.12-venv curl && \
+    if ! apt-get install -y --no-install-recommends python3.12 python3.12-venv curl; then \
+      apt-get install -y software-properties-common && \
+      add-apt-repository ppa:deadsnakes/ppa && \
+      apt-get update -y && \
+      apt-get install -y python3.12 python3.12-venv curl; \
+    fi && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

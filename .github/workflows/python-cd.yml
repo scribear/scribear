@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       transcription_service: ${{ steps.filter.outputs.transcription_service }}
+      image_matrix: ${{ steps.image_matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
       - name: Detect changed paths
@@ -27,21 +28,20 @@ jobs:
             transcription_service:
               - 'transcription_service/**'
 
+      - name: Resolve transcription image matrix
+        id: image_matrix
+        uses: ./.github/actions/transcription-image-matrix
+
   docker-build:
     needs: [changes]
     if: needs.changes.outputs.transcription_service == 'true'
+    # One parallel job per image: the CPU build plus every CUDA variant in
+    # transcription_service/cuda-variants.json. fail-fast stays off so a broken
+    # new CUDA base image does not cancel the builds of the working ones.
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - image_name: scribear/transcription-service-cpu
-            build_context: transcription_service
-            dockerfile: transcription_service/Dockerfile_CPU
-            version_file: transcription_service/pyproject.toml
-          - image_name: scribear/transcription-service-cuda
-            build_context: transcription_service
-            dockerfile: transcription_service/Dockerfile_CUDA
-            version_file: transcription_service/pyproject.toml
+      matrix: ${{ fromJSON(needs.changes.outputs.image_matrix) }}
+    name: docker-build (${{ matrix.image_name }})
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -58,6 +58,7 @@ jobs:
           image_name: ${{ matrix.image_name }}
           build_context: ${{ matrix.build_context }}
           dockerfile: ${{ matrix.dockerfile }}
+          build_args: ${{ matrix.build_args }}
           cache_variant: ${{ github.ref_name }}
           custom_tags: ${{ steps.tags.outputs.tags }}
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
