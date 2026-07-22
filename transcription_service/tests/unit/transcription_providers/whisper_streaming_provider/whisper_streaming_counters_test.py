@@ -50,6 +50,35 @@ def chunk(seconds: float, chunk_id: str = "a") -> AudioChunkPayload:
     return AudioChunkPayload(chunk_id=chunk_id, audio_bytes=buf.getvalue())
 
 
+def make_word(text: str, start: float = 0.0, end: float = 0.5):
+    """A stand-in for a faster-whisper Word: only the fields the job reads."""
+    word = MagicMock()
+    word.word = text
+    word.start = start
+    word.end = end
+    return word
+
+
+def make_part(
+    words=(),
+    avg_logprob: float = -0.1,
+    no_speech_prob: float = 0.1,
+    compression_ratio: float = 1.0,
+    temperature: float = 0.0,
+):
+    """
+    A stand-in for a faster-whisper Segment carrying only the fields the job
+    reads, with quality-signal defaults that never trip a guard.
+    """
+    part = MagicMock()
+    part.words = list(words)
+    part.avg_logprob = avg_logprob
+    part.no_speech_prob = no_speech_prob
+    part.compression_ratio = compression_ratio
+    part.temperature = temperature
+    return part
+
+
 @pytest.fixture(name="log")
 def log_fixture():
     """A logger stub that swallows calls."""
@@ -143,3 +172,153 @@ def test_drain_resets_between_executions(log, contexts):
     job.drain_counters()
 
     assert not job.drain_counters()
+
+
+def test_counts_compression_ratio_guard_fired_above_threshold(log, contexts):
+    """A segment's compression_ratio over the configured threshold is counted.
+
+    High compression ratio means the text is repetitive - one of Whisper's
+    own hallucination-risk signals.
+    """
+    job = make_job()
+    contexts[0].transcribe.return_value = (
+        [make_part(compression_ratio=3.0)],
+        None,
+    )
+
+    job.process_batch(log, contexts, [chunk(0.5)])
+
+    counters = job.drain_counters()
+    assert counters[TranscriptionJobCounter.COMPRESSION_RATIO_GUARD_FIRED] == 1
+
+
+def test_compression_ratio_guard_does_not_fire_below_threshold(log, contexts):
+    """A segment's compression_ratio at or under the threshold is not counted."""
+    job = make_job()
+    contexts[0].transcribe.return_value = (
+        [make_part(compression_ratio=1.5)],
+        None,
+    )
+
+    job.process_batch(log, contexts, [chunk(0.5)])
+
+    counters = job.drain_counters()
+    assert TranscriptionJobCounter.COMPRESSION_RATIO_GUARD_FIRED not in counters
+
+
+def test_counts_avg_logprob_guard_fired_below_threshold(log, contexts):
+    """A segment's avg_logprob under the configured threshold is counted.
+
+    A low average log-probability means Whisper itself was not confident in
+    what it decoded.
+    """
+    job = make_job()
+    contexts[0].transcribe.return_value = ([make_part(avg_logprob=-2.0)], None)
+
+    job.process_batch(log, contexts, [chunk(0.5)])
+
+    counters = job.drain_counters()
+    assert counters[TranscriptionJobCounter.AVG_LOGPROB_GUARD_FIRED] == 1
+
+
+def test_avg_logprob_guard_does_not_fire_above_threshold(log, contexts):
+    """A segment's avg_logprob at or over the threshold is not counted."""
+    job = make_job()
+    contexts[0].transcribe.return_value = ([make_part(avg_logprob=-0.5)], None)
+
+    job.process_batch(log, contexts, [chunk(0.5)])
+
+    counters = job.drain_counters()
+    assert TranscriptionJobCounter.AVG_LOGPROB_GUARD_FIRED not in counters
+
+
+def test_counts_no_speech_prob_guard_fired_above_threshold(log, contexts):
+    """A segment's no_speech_prob over the configured threshold is counted.
+
+    A high no-speech probability flags audio that likely produced text
+    anyway - silence or noise misread as speech.
+    """
+    job = make_job()
+    contexts[0].transcribe.return_value = (
+        [make_part(no_speech_prob=0.9)],
+        None,
+    )
+
+    job.process_batch(log, contexts, [chunk(0.5)])
+
+    counters = job.drain_counters()
+    assert counters[TranscriptionJobCounter.NO_SPEECH_PROB_GUARD_FIRED] == 1
+
+
+def test_no_speech_prob_guard_does_not_fire_below_threshold(log, contexts):
+    """A segment's no_speech_prob at or under the threshold is not counted."""
+    job = make_job()
+    contexts[0].transcribe.return_value = (
+        [make_part(no_speech_prob=0.2)],
+        None,
+    )
+
+    job.process_batch(log, contexts, [chunk(0.5)])
+
+    counters = job.drain_counters()
+    assert TranscriptionJobCounter.NO_SPEECH_PROB_GUARD_FIRED not in counters
+
+
+def test_counts_temperature_fallback_when_temperature_is_positive(
+    log, contexts
+):
+    """A segment decoded above temperature 0 is counted.
+
+    faster-whisper only retries at a higher sampling temperature when its own
+    quality checks rejected the greedy result - this counter surfaces that
+    fallback, it does not detect anything new.
+    """
+    job = make_job()
+    contexts[0].transcribe.return_value = ([make_part(temperature=0.4)], None)
+
+    job.process_batch(log, contexts, [chunk(0.5)])
+
+    counters = job.drain_counters()
+    assert counters[TranscriptionJobCounter.TEMPERATURE_FALLBACK] == 1
+
+
+def test_temperature_fallback_does_not_fire_at_zero(log, contexts):
+    """Greedy decoding (temperature 0) is not counted as a fallback."""
+    job = make_job()
+    contexts[0].transcribe.return_value = ([make_part(temperature=0.0)], None)
+
+    job.process_batch(log, contexts, [chunk(0.5)])
+
+    counters = job.drain_counters()
+    assert TranscriptionJobCounter.TEMPERATURE_FALLBACK not in counters
+
+
+def test_repeated_segment_detector_is_wired_into_finalization(log):
+    """
+    A finalized segment that near-verbatim repeats the previously finalized
+    one is counted, via the same self._last_finalized assignment sites the
+    detector is wired against.
+
+    local_agree_dim=1 commits a segment as soon as it appears once, and a
+    sentence-ending word finalizes it immediately - both used here purely to
+    keep this a single-segment-per-batch test, not to exercise LocalAgree
+    itself (that has its own test suite).
+    """
+    job = make_job(local_agree_dim=1, max_buffer_len_sec=5)
+    whisper = MagicMock()
+    vad = MagicMock()
+
+    repeated_text = "the quick brown fox jumps over the lazy dog."
+    part = make_part(words=[make_word(repeated_text, start=0.0, end=0.5)])
+    whisper.transcribe.return_value = ([part], None)
+
+    # First finalization: nothing to compare against yet, so no hit.
+    job.process_batch(log, (whisper, vad), [chunk(0.5)])
+    assert TranscriptionJobCounter.REPEATED_SEGMENT_DETECTED not in (
+        job.drain_counters()
+    )
+
+    # Second finalization repeats the same text almost verbatim.
+    job.process_batch(log, (whisper, vad), [chunk(0.5)])
+    counters = job.drain_counters()
+    assert counters[TranscriptionJobCounter.REPEATED_SEGMENT_DETECTED] == 1

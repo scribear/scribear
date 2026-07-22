@@ -128,6 +128,31 @@ class MetricsRegistry:
             "no_words_total",
             "Executions that transcribed no words from a non-empty buffer",
         )
+        self.compression_ratio_guard_fired_total = Counter(
+            "compression_ratio_guard_fired_total",
+            "Segments where Whisper's compression_ratio exceeded its guard "
+            "threshold, a hallucination risk signal",
+        )
+        self.avg_logprob_guard_fired_total = Counter(
+            "avg_logprob_guard_fired_total",
+            "Segments where Whisper's avg_logprob fell below its guard "
+            "threshold, a hallucination risk signal",
+        )
+        self.no_speech_prob_guard_fired_total = Counter(
+            "no_speech_prob_guard_fired_total",
+            "Segments where Whisper's no_speech_prob exceeded its guard "
+            "threshold, a hallucination risk signal",
+        )
+        self.temperature_fallback_total = Counter(
+            "temperature_fallback_total",
+            "Segments where Whisper fell back to a higher sampling "
+            "temperature, a hallucination risk signal",
+        )
+        self.repeated_segment_detected_total = Counter(
+            "repeated_segment_detected_total",
+            "Finalized segments whose text substantially overlaps the "
+            "previously finalized segment",
+        )
 
         self._worker_counters = {
             TranscriptionJobCounter.BUFFER_OVERFLOW: self.buffer_overflow_total,
@@ -139,6 +164,21 @@ class MetricsRegistry:
             TranscriptionJobCounter.NO_WORDS: self.no_words_total,
             TranscriptionJobCounter.AUDIO_SECONDS_DECODED: (
                 self.asr_audio_seconds_total
+            ),
+            TranscriptionJobCounter.COMPRESSION_RATIO_GUARD_FIRED: (
+                self.compression_ratio_guard_fired_total
+            ),
+            TranscriptionJobCounter.AVG_LOGPROB_GUARD_FIRED: (
+                self.avg_logprob_guard_fired_total
+            ),
+            TranscriptionJobCounter.NO_SPEECH_PROB_GUARD_FIRED: (
+                self.no_speech_prob_guard_fired_total
+            ),
+            TranscriptionJobCounter.TEMPERATURE_FALLBACK: (
+                self.temperature_fallback_total
+            ),
+            TranscriptionJobCounter.REPEATED_SEGMENT_DETECTED: (
+                self.repeated_segment_detected_total
             ),
         }
 

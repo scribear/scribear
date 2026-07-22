@@ -135,6 +135,24 @@ class MetricsController:
                 "decodeDropsTotal": _counter_series(
                     self._metrics.decode_drops_total
                 ),
+                # Whisper's own hallucination-risk signals (B2.3). Firing is
+                # a rate to watch, not a fatal error - the transcript is
+                # still returned either way.
+                "compressionRatioGuardFiredTotal": _counter_series(
+                    self._metrics.compression_ratio_guard_fired_total
+                ),
+                "avgLogprobGuardFiredTotal": _counter_series(
+                    self._metrics.avg_logprob_guard_fired_total
+                ),
+                "noSpeechProbGuardFiredTotal": _counter_series(
+                    self._metrics.no_speech_prob_guard_fired_total
+                ),
+                "temperatureFallbackTotal": _counter_series(
+                    self._metrics.temperature_fallback_total
+                ),
+                "repeatedSegmentDetectedTotal": _counter_series(
+                    self._metrics.repeated_segment_detected_total
+                ),
             },
             "histograms": {
                 "asrSchedulingDelayMs": _histogram_series(

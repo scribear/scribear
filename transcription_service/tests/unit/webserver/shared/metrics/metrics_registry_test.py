@@ -213,6 +213,37 @@ def test_worker_side_counters_are_accumulated():
     assert registry.asr_audio_seconds_total.get(labels) == 8
 
 
+def test_worker_side_quality_guard_counters_are_accumulated():
+    """
+    Test the B2.3 quality-guard deltas fold into monotonic totals the same
+    way the pre-existing worker-side counters do
+    """
+    # Arrange
+    registry = MetricsRegistry()
+    labels = {"provider_key": "whisper"}
+
+    # Act
+    for _ in range(2):
+        registry.record_job_execution(
+            make_observation(
+                counters={
+                    TranscriptionJobCounter.COMPRESSION_RATIO_GUARD_FIRED: 1,
+                    TranscriptionJobCounter.AVG_LOGPROB_GUARD_FIRED: 1,
+                    TranscriptionJobCounter.NO_SPEECH_PROB_GUARD_FIRED: 1,
+                    TranscriptionJobCounter.TEMPERATURE_FALLBACK: 1,
+                    TranscriptionJobCounter.REPEATED_SEGMENT_DETECTED: 1,
+                }
+            )
+        )
+
+    # Assert
+    assert registry.compression_ratio_guard_fired_total.get(labels) == 2
+    assert registry.avg_logprob_guard_fired_total.get(labels) == 2
+    assert registry.no_speech_prob_guard_fired_total.get(labels) == 2
+    assert registry.temperature_fallback_total.get(labels) == 2
+    assert registry.repeated_segment_detected_total.get(labels) == 2
+
+
 def test_unknown_counter_names_are_ignored():
     """
     Test a name the registry does not know does not create a metric

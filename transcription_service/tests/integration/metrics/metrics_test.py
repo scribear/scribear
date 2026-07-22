@@ -215,6 +215,11 @@ def test_reports_identity_and_empty_series_before_any_job(
     assert body["counters"]["vadNoSpeechTotal"] == []
     assert body["counters"]["noWordsTotal"] == []
     assert body["counters"]["asrAudioSecondsTotal"] == []
+    assert body["counters"]["compressionRatioGuardFiredTotal"] == []
+    assert body["counters"]["avgLogprobGuardFiredTotal"] == []
+    assert body["counters"]["noSpeechProbGuardFiredTotal"] == []
+    assert body["counters"]["temperatureFallbackTotal"] == []
+    assert body["counters"]["repeatedSegmentDetectedTotal"] == []
 
 
 @pytest.mark.asyncio

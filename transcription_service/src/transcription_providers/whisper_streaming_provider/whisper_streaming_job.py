@@ -8,6 +8,7 @@ from src.shared.logger import Logger
 from src.shared.utils.audio_decoder import AudioDecoder, TargetFormat
 from src.shared.utils.local_agree import LocalAgree, TranscriptionSegment
 from src.shared.utils.np_circular_buffer import NPCircularBuffer
+from src.shared.utils.repeated_segment_detector import RepeatedSegmentDetector
 from src.shared.utils.silence_filter import RMSSilenceDetection
 from src.shared.utils.worker_pool import JobInterface
 from src.transcription_contexts.faster_whisper_context import WhisperModel
@@ -64,6 +65,18 @@ class WhisperStreamingProviderJob(
 
         self._local_agree = LocalAgree(config.local_agree_dim)
         self._last_finalized = ""
+        self._repeated_segment_detector = RepeatedSegmentDetector()
+
+        # Guard thresholds over Whisper's own quality signals - see
+        # TranscriptionJobCounter for what each field means and why a
+        # threshold crossing is a risk signal, not an error.
+        self._compression_ratio_guard_threshold = (
+            config.compression_ratio_guard_threshold
+        )
+        self._avg_logprob_guard_threshold = config.avg_logprob_guard_threshold
+        self._no_speech_prob_guard_threshold = (
+            config.no_speech_prob_guard_threshold
+        )
 
         # Pure_silence detector:
         self._silence_threshold = config.silence_threshold
@@ -200,6 +213,30 @@ class WhisperStreamingProviderJob(
                     raise RuntimeError(
                         "Expected whisper transcription to have word timestamps"
                     )
+
+                # Whisper's own hallucination-risk signals, discarded until
+                # now. Firing is a rate signal, not a fatal error - the
+                # transcript is still returned either way.
+                if (
+                    part.compression_ratio
+                    > self._compression_ratio_guard_threshold
+                ):
+                    self._counters.inc(
+                        TranscriptionJobCounter.COMPRESSION_RATIO_GUARD_FIRED
+                    )
+                if part.avg_logprob < self._avg_logprob_guard_threshold:
+                    self._counters.inc(
+                        TranscriptionJobCounter.AVG_LOGPROB_GUARD_FIRED
+                    )
+                if part.no_speech_prob > self._no_speech_prob_guard_threshold:
+                    self._counters.inc(
+                        TranscriptionJobCounter.NO_SPEECH_PROB_GUARD_FIRED
+                    )
+                if part.temperature > 0:
+                    self._counters.inc(
+                        TranscriptionJobCounter.TEMPERATURE_FALLBACK
+                    )
+
                 for word in part.words:
                     transcription.append(
                         TranscriptionSegment(
@@ -281,6 +318,19 @@ class WhisperStreamingProviderJob(
         if a.ends is not None and b.ends is not None:
             a.ends.extend(b.ends)
 
+    def _check_repeated_segment(self, text: str) -> None:
+        """
+        Runs a newly finalized segment's text past the repeated-segment
+        detector and counts a hit
+
+        Args:
+            text - Text just assigned to self._last_finalized
+        """
+        if self._repeated_segment_detector.check(text):
+            self._counters.inc(
+                TranscriptionJobCounter.REPEATED_SEGMENT_DETECTED
+            )
+
     def process_batch(
         self,
         log: Logger,
@@ -321,6 +371,7 @@ class WhisperStreamingProviderJob(
 
             if forced_final is not None:
                 self._last_finalized = "".join(forced_final.text)
+                self._check_repeated_segment(self._last_finalized)
             return self._build_result(forced_final, None)
 
         self._local_agree.append_transcription(segments)
@@ -342,12 +393,18 @@ class WhisperStreamingProviderJob(
             self._buffer_offset_samples = end_samples
 
             self._last_finalized = "".join(final.text)
+            if forced_final is None:
+                # Otherwise this value is about to be superseded below by the
+                # combined forced_final+final text - check that one instead,
+                # so a single finalization is not checked twice.
+                self._check_repeated_segment(self._last_finalized)
 
         if forced_final is not None:
             # If forced_final transcription exists, add to beginning of finalized transcription
             self._append_sequence(forced_final, final)
 
             self._last_finalized = "".join(forced_final.text)
+            self._check_repeated_segment(self._last_finalized)
             return self._build_result(forced_final, in_progress)
 
         return self._build_result(final, in_progress)
