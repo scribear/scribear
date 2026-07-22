@@ -584,6 +584,9 @@ export class AdminApiClient {
   cancelSession(sessionUid: string): Promise<null> {
     return this._request('POST', '/sessions/cancel', { sessionUid });
   }
+  uncancelSession(sessionUid: string): Promise<null> {
+    return this._request('POST', '/sessions/uncancel', { sessionUid });
+  }
 
   // ---- Audit ----
   listAudit(limit = 50): Promise<{ items: AuditRow[] }> {

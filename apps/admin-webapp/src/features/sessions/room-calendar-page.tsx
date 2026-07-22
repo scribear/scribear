@@ -9,7 +9,12 @@ import CircularProgress from '@mui/material/CircularProgress';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 
-import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
+import {
+  Link as RouterLink,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom';
 
 import type { Room, Session } from '@scribear/session-manager-schema';
 
@@ -55,9 +60,20 @@ function startOfLocalWeek(d: Date): Date {
   return start;
 }
 
+/** Parses a `?date=YYYY-MM-DD` deep link (e.g. from "View in calendar"). */
+function parseDateParam(value: string | null): Date | null {
+  if (value === null) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [, year, month, day] = match;
+  const date = new Date(Number(year), Number(month) - 1, Number(day));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 export const RoomCalendarPage = () => {
   const { roomUid } = useParams<{ roomUid: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { showError } = useToast();
   const { showUuids } = useSettings();
 
@@ -65,7 +81,9 @@ export const RoomCalendarPage = () => {
   const [loading, setLoading] = useState(true);
   const [misconfigured, setMisconfigured] = useState(false);
   const [view, setView] = useState<ViewMode>('week');
-  const [anchorDate, setAnchorDate] = useState(() => new Date());
+  const [anchorDate, setAnchorDate] = useState(
+    () => parseDateParam(searchParams.get('date')) ?? new Date(),
+  );
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
 

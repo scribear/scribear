@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Room } from '@scribear/session-manager-schema';
 
-import { adminApi } from '#src/lib/admin-api';
 import { RoomPicker } from '#src/features/sessions/room-picker';
+import { adminApi } from '#src/lib/admin-api';
 
 vi.mock('#src/lib/admin-api', () => ({
   adminApi: { listRooms: vi.fn() },

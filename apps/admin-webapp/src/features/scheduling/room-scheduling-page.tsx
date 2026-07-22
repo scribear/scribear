@@ -259,9 +259,26 @@ export const RoomSchedulingPage = () => {
         </Alert>
       )}
 
-      <Typography variant="h5" component="h1" gutterBottom>
-        Scheduling — {room.name}
-      </Typography>
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 2,
+        }}
+      >
+        <Typography variant="h5" component="h1" gutterBottom>
+          Scheduling — {room.name}
+        </Typography>
+        <Button
+          variant="outlined"
+          onClick={() => {
+            void navigate(`/rooms/${room.uid}/calendar`);
+          }}
+        >
+          View calendar
+        </Button>
+      </Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         All times below are shown in this room&apos;s timezone ({room.timezone}
         ).

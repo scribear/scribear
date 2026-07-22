@@ -2,8 +2,13 @@ import { createContext, use } from 'react';
 
 export type ToastSeverity = 'success' | 'error' | 'info' | 'warning';
 
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 export interface ToastApi {
-  showSuccess: (message: string) => void;
+  showSuccess: (message: string, action?: ToastAction) => void;
   showError: (message: string) => void;
   showInfo: (message: string) => void;
 }

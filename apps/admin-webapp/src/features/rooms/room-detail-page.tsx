@@ -468,6 +468,14 @@ export const RoomDetailPage = () => {
           <Button
             variant="outlined"
             onClick={() => {
+              void navigate(`/rooms/${room.uid}/calendar`);
+            }}
+          >
+            Calendar
+          </Button>
+          <Button
+            variant="outlined"
+            onClick={() => {
               void navigate(`/rooms/${room.uid}/scheduling`);
             }}
           >
