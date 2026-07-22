@@ -155,7 +155,7 @@ export const DashboardPage = () => {
       ) : health ? (
         <Grid container spacing={2} sx={{ mb: 3 }}>
           <HealthTile
-            label="BFF"
+            label="BFF (Admin Server)"
             status={health.bff}
             detail={`checked ${new Date(health.checkedAt).toLocaleTimeString()}`}
           />
