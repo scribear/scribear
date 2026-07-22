@@ -1,4 +1,4 @@
-import type { Session } from '@scribear/session-manager-schema';
+import type { Room, Session } from '@scribear/session-manager-schema';
 
 export type SessionColor = 'info' | 'default' | 'success';
 
@@ -42,4 +42,21 @@ export function canEndEarly(session: Session, now: Date): boolean {
   const started = effectiveStart <= now;
   const notEnded = effectiveEnd === null || effectiveEnd > now;
   return session.type !== 'AUTO' && started && notEnded;
+}
+
+/** Above this many selected rooms, the overview switches from a column grid to a grouped list. */
+export const GRID_MAX_COLUMNS = 8;
+
+/**
+ * Small deployments (the first page fits within the grid threshold and
+ * there's no more to page through) default to "show everything". Larger
+ * deployments default to nothing selected — force an explicit, deliberate
+ * choice rather than firing/rendering an unbounded all-rooms query.
+ */
+export function defaultRoomSelection(
+  firstPage: Room[],
+  hasMore: boolean,
+): Room[] {
+  if (!hasMore && firstPage.length <= GRID_MAX_COLUMNS) return firstPage;
+  return [];
 }

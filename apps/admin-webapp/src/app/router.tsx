@@ -13,6 +13,7 @@ import { RoomsListPage } from '#src/features/rooms/rooms-list-page';
 import { RoomSchedulingPage } from '#src/features/scheduling/room-scheduling-page';
 import { RoomCalendarPage } from '#src/features/sessions/room-calendar-page';
 import { SessionDetailPage } from '#src/features/sessions/session-detail-page';
+import { SessionsOverviewPage } from '#src/features/sessions/sessions-overview-page';
 
 export const AppRoutes = () => (
   <Routes>
@@ -29,6 +30,7 @@ export const AppRoutes = () => (
         <Route path="/rooms/:roomUid/calendar" element={<RoomCalendarPage />} />
         <Route path="/devices" element={<DevicesListPage />} />
         <Route path="/devices/:deviceUid" element={<DeviceDetailPage />} />
+        <Route path="/sessions" element={<SessionsOverviewPage />} />
         <Route path="/sessions/:sessionUid" element={<SessionDetailPage />} />
         <Route path="/kiosk-setup" element={<KioskWizardPage />} />
         <Route path="/audit" element={<AuditPage />} />

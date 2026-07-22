@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Session } from '@scribear/session-manager-schema';
+import type { Room, Session } from '@scribear/session-manager-schema';
 
 import {
+  GRID_MAX_COLUMNS,
   canCancel,
   canEndEarly,
   canStartEarly,
+  defaultRoomSelection,
   sessionTypeColor,
 } from '#src/lib/session-rules';
 
@@ -166,5 +168,45 @@ describe('canEndEarly', () => {
       endOverride: '2026-06-03T10:00:00.000Z',
     });
     expect(canEndEarly(session, NOW)).toBe(false);
+  });
+});
+
+function makeRoom(overrides: Partial<Room> = {}): Room {
+  return {
+    uid: 'room-1',
+    name: 'Room 1',
+    timezone: 'America/Chicago',
+    autoSessionEnabled: false,
+    roomScheduleVersion: 1,
+    createdAt: '2026-06-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+describe('defaultRoomSelection', () => {
+  it('returns the full page for a small deployment (no more pages, within threshold)', () => {
+    const rooms = Array.from({ length: 3 }, (_, i) =>
+      makeRoom({ uid: `room-${String(i)}` }),
+    );
+    expect(defaultRoomSelection(rooms, false)).toEqual(rooms);
+  });
+
+  it('returns the full page when the count exactly meets the threshold', () => {
+    const rooms = Array.from({ length: GRID_MAX_COLUMNS }, (_, i) =>
+      makeRoom({ uid: `room-${String(i)}` }),
+    );
+    expect(defaultRoomSelection(rooms, false)).toEqual(rooms);
+  });
+
+  it('returns nothing when there are more pages beyond the first', () => {
+    const rooms = [makeRoom()];
+    expect(defaultRoomSelection(rooms, true)).toEqual([]);
+  });
+
+  it('returns nothing when the first page alone exceeds the grid threshold', () => {
+    const rooms = Array.from({ length: GRID_MAX_COLUMNS + 1 }, (_, i) =>
+      makeRoom({ uid: `room-${String(i)}` }),
+    );
+    expect(defaultRoomSelection(rooms, false)).toEqual([]);
   });
 });

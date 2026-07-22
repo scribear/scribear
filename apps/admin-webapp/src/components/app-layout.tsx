@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import DevicesIcon from '@mui/icons-material/Devices';
 import HistoryIcon from '@mui/icons-material/History';
 import LogoutIcon from '@mui/icons-material/Logout';
@@ -31,6 +32,7 @@ const DRAWER_WIDTH = 232;
 const NAV_ITEMS = [
   { label: 'Dashboard', to: '/', icon: <SpaceDashboardIcon /> },
   { label: 'Rooms', to: '/rooms', icon: <MeetingRoomIcon /> },
+  { label: 'Sessions', to: '/sessions', icon: <CalendarMonthIcon /> },
   { label: 'Devices', to: '/devices', icon: <DevicesIcon /> },
   { label: 'Set up a kiosk', to: '/kiosk-setup', icon: <TabletIcon /> },
   { label: 'Audit log', to: '/audit', icon: <HistoryIcon /> },
