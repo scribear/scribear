@@ -21,6 +21,7 @@ import type { AppDependencies } from '#src/server/dependency-injection/app-depen
 import type { E2eOutcome } from '#src/server/shared/services/node-server-metrics.service.js';
 
 import { AudioFrameChannel } from './events/audio-frame.events.js';
+import { FleetStatusDeltaChannel } from './events/fleet-status-delta.events.js';
 import { LatencyChannel } from './events/latency.events.js';
 import { SessionEndedChannel } from './events/session-ended.events.js';
 import {
@@ -261,6 +262,11 @@ export class TranscriptionOrchestratorService {
     }
     state.status = next;
     this._eventBus.publish(SessionStatusChannel, next, sessionUid);
+    this._eventBus.publish(FleetStatusDeltaChannel, {
+      sessionUid,
+      ...next,
+      at: Date.now(),
+    });
   }
 
   /**

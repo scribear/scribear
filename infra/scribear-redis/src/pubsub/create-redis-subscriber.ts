@@ -67,9 +67,17 @@ export function createRedisSubscriber<
       void redis.unsubscribe(channelKey);
     },
 
-    async disconnect(): Promise<void> {
+    disconnect(): Promise<void> {
       listeners.clear();
-      await redis.quit();
+      // `disconnect()`, not `quit()`: `quit` is an ordinary Redis command, so
+      // if the connection never established (wrong URL, host unreachable) it
+      // sits in the offline queue behind the `subscribe` this class issues on
+      // every construction, waiting on a reconnect loop that retries forever
+      // by default - hanging shutdown on exactly the case a subscriber is
+      // most likely to be torn down in. `disconnect()` is synchronous and
+      // closes the socket immediately, with nothing here worth waiting for.
+      redis.disconnect();
+      return Promise.resolve();
     },
   };
 }

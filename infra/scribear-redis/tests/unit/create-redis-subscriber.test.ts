@@ -13,7 +13,7 @@ const TEST_CHANNEL_DEF = {
 let mockRedisInstance: EventEmitter & {
   subscribe: ReturnType<typeof vi.fn>;
   unsubscribe: ReturnType<typeof vi.fn>;
-  quit: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
 };
 
 vi.mock('ioredis', () => ({
@@ -33,7 +33,7 @@ beforeEach(async () => {
     unsubscribe: vi
       .fn<(channel: string) => Promise<number>>()
       .mockResolvedValue(1),
-    quit: vi.fn<() => Promise<string>>().mockResolvedValue('OK'),
+    disconnect: vi.fn<() => void>(),
   });
 
   vi.resetModules();
@@ -176,7 +176,12 @@ describe('createRedisSubscriber', () => {
     expect(warnSpy).toHaveBeenCalled();
   });
 
-  it('should call redis.quit on disconnect', async () => {
+  it('should call redis.disconnect on disconnect, not the graceful quit', async () => {
+    // `quit` is an ordinary command: if the connection never established, it
+    // queues behind the `subscribe` this class always issues and waits on a
+    // reconnect loop that retries forever by default - hanging shutdown in
+    // exactly the case a subscriber is most likely to be torn down in.
+    //
     // Arrange
     const subscriber = createRedisSubscriber(
       TEST_CHANNEL_DEF,
@@ -187,6 +192,6 @@ describe('createRedisSubscriber', () => {
     await subscriber.disconnect();
 
     // Assert
-    expect(mockRedisInstance.quit).toHaveBeenCalled();
+    expect(mockRedisInstance.disconnect).toHaveBeenCalled();
   });
 });

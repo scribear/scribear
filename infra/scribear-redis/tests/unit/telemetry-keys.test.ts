@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  FLEET_EVENTS_CHANNEL_KEY,
   NODE_HEARTBEAT_MS,
   NODE_INDEX_KEY,
   NODE_TTL_MS,
@@ -20,6 +21,7 @@ const ALL_KEYS = [
   NODE_INDEX_KEY,
   SESSION_INDEX_KEY,
   TRANSCRIPTION_HOST_INDEX_KEY,
+  FLEET_EVENTS_CHANNEL_KEY,
   nodeSnapshotKey('node-a'),
   sessionSnapshotKey('a4f1'),
   sessionRouteKey('a4f1'),

@@ -5,6 +5,7 @@ import type {
   StatusSession,
 } from '@scribear/node-server-schema';
 import {
+  FLEET_EVENTS_CHANNEL_KEY,
   NODE_HEARTBEAT_MS,
   NODE_INDEX_KEY,
   NODE_TTL_MS,
@@ -15,7 +16,9 @@ import {
 } from '@scribear/scribear-redis';
 
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
+import { FleetStatusDeltaChannel } from '#src/server/features/transcription-stream/events/fleet-status-delta.events.js';
 import { RedisTelemetryPublisher } from '#src/server/features/telemetry/redis-telemetry-publisher.service.js';
+import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
 import { type MockLogger, createMockLogger } from '#tests/utils/mock-logger.js';
 
 const NODE_INSTANCE_ID = 'node-a7';
@@ -38,6 +41,7 @@ class FakeRedis {
   /** Resolves the in-flight `exec` when set, so overlap can be exercised. */
   releaseExec: (() => void) | null = null;
   quit = vi.fn(async () => 'OK');
+  publish = vi.fn(async () => 0);
 
   private _handlers = new Map<string, (arg?: unknown) => void>();
   on = vi.fn((event: string, handler: (arg?: unknown) => void) => {
@@ -118,6 +122,7 @@ interface Harness {
   redis: FakeRedis;
   logger: MockLogger;
   sessions: StatusSession[];
+  eventBus: EventBusService;
 }
 
 function buildHarness(): Harness {
@@ -128,14 +133,18 @@ function buildHarness(): Harness {
     process: () => fakeProcess(),
     sessions: () => ({ sessions, truncated: false }),
   } as unknown as AppDependencies['statusSnapshotService'];
+  const eventBus = new EventBusService(
+    logger as unknown as AppDependencies['logger'],
+  );
 
   const publisher = new RedisTelemetryPublisher(
     redis as unknown as AppDependencies['telemetryRedisClient'],
     snapshots,
     { redisUrl: 'redis://redis:6379', nodeInstanceId: NODE_INSTANCE_ID },
     logger as unknown as AppDependencies['logger'],
+    eventBus,
   );
-  return { publisher, redis, logger, sessions };
+  return { publisher, redis, logger, sessions, eventBus };
 }
 
 /** Finds the single command whose first argument is `key`. */
@@ -417,5 +426,75 @@ describe('RedisTelemetryPublisher lifecycle', (it) => {
 
     // Cleanup
     await h.publisher.stop();
+  });
+
+  it('forwards a session status delta to the fleet events channel once started', async () => {
+    // Arrange
+    const h = buildHarness();
+    h.publisher.start();
+
+    // Act
+    h.eventBus.publish(FleetStatusDeltaChannel, {
+      sessionUid: SESSION_UID,
+      transcriptionServiceConnected: true,
+      sourceDeviceConnected: false,
+      at: NOW,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Assert
+    expect(h.redis.publish).toHaveBeenCalledWith(
+      FLEET_EVENTS_CHANNEL_KEY,
+      JSON.stringify({
+        t: 'session',
+        sessionUid: SESSION_UID,
+        transcriptionServiceConnected: true,
+        sourceDeviceConnected: false,
+        at: NOW,
+      }),
+    );
+
+    // Cleanup
+    await h.publisher.stop();
+  });
+
+  it('stops forwarding deltas once stopped', async () => {
+    // Arrange
+    const h = buildHarness();
+    h.publisher.start();
+    await h.publisher.stop();
+
+    // Act
+    h.eventBus.publish(FleetStatusDeltaChannel, {
+      sessionUid: SESSION_UID,
+      transcriptionServiceConnected: true,
+      sourceDeviceConnected: false,
+      at: NOW,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Assert
+    expect(h.redis.publish).not.toHaveBeenCalled();
+  });
+
+  it('never touches Redis for a delta published before start() is called', async () => {
+    // A telemetry-disabled instance never calls start() at all (create-server
+    // only resolves this class behind the REDIS_URL check), so the
+    // orchestrator's publish must be a no-op with nothing listening.
+    //
+    // Arrange
+    const h = buildHarness();
+
+    // Act
+    h.eventBus.publish(FleetStatusDeltaChannel, {
+      sessionUid: SESSION_UID,
+      transcriptionServiceConnected: true,
+      sourceDeviceConnected: false,
+      at: NOW,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Assert
+    expect(h.redis.publish).not.toHaveBeenCalled();
   });
 });

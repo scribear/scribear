@@ -5,6 +5,7 @@ import type {
   StatusSession,
 } from '@scribear/node-server-schema';
 import {
+  FLEET_EVENTS_CHANNEL_KEY,
   NODE_INDEX_KEY,
   NODE_TTL_MS,
   SESSION_INDEX_KEY,
@@ -17,7 +18,9 @@ import {
 
 import createServer from '#src/server/create-server.js';
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
+import { FleetStatusDeltaChannel } from '#src/server/features/transcription-stream/events/fleet-status-delta.events.js';
 import { RedisTelemetryPublisher } from '#src/server/features/telemetry/redis-telemetry-publisher.service.js';
+import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
 import { createMockLogger } from '#tests/utils/mock-logger.js';
 import { buildTestAppConfig } from '#tests/utils/use-server.js';
 
@@ -88,9 +91,13 @@ function fakeSession(): StatusSession {
 describe('Redis telemetry publisher', () => {
   let redis: TelemetryRedisClient;
   let publisher: RedisTelemetryPublisher;
+  let eventBus: EventBusService;
 
   beforeAll(async () => {
     redis = await connectedClient();
+    eventBus = new EventBusService(
+      createMockLogger() as unknown as AppDependencies['logger'],
+    );
     publisher = new RedisTelemetryPublisher(
       redis,
       {
@@ -99,6 +106,7 @@ describe('Redis telemetry publisher', () => {
       } as unknown as AppDependencies['statusSnapshotService'],
       { redisUrl: inject('redisUrl'), nodeInstanceId: NODE_INSTANCE_ID },
       createMockLogger() as unknown as AppDependencies['logger'],
+      eventBus,
     );
     await redis.flushall();
     await publisher.publishOnce();
@@ -166,6 +174,72 @@ describe('Redis telemetry publisher', () => {
       // Assert
       expect(await redis.zscore(SESSION_INDEX_KEY, staleUid)).toBeNull();
       expect(await redis.zscore(SESSION_INDEX_KEY, SESSION_UID)).not.toBeNull();
+    });
+  });
+});
+
+/**
+ * A separate publisher/connection pair, kept independent of the heartbeat
+ * suite above: `start()` runs a live interval and subscribes to the
+ * in-process event bus, which would otherwise interleave with the other
+ * describe block's manual `publishOnce()` calls against the same keys.
+ */
+describe('Redis telemetry publisher — fleet event deltas', () => {
+  let redis: TelemetryRedisClient;
+  let subscriber: TelemetryRedisClient;
+  let publisher: RedisTelemetryPublisher;
+  let eventBus: EventBusService;
+
+  beforeAll(async () => {
+    redis = await connectedClient();
+    subscriber = await connectedClient();
+    eventBus = new EventBusService(
+      createMockLogger() as unknown as AppDependencies['logger'],
+    );
+    publisher = new RedisTelemetryPublisher(
+      redis,
+      {
+        process: () => fakeProcess(),
+        sessions: () => ({ sessions: [], truncated: false }),
+      } as unknown as AppDependencies['statusSnapshotService'],
+      { redisUrl: inject('redisUrl'), nodeInstanceId: 'test-node-deltas' },
+      createMockLogger() as unknown as AppDependencies['logger'],
+      eventBus,
+    );
+    publisher.start();
+  });
+
+  afterAll(async () => {
+    await publisher.stop();
+    await subscriber.quit();
+  });
+
+  describe('delta forwarding', (it) => {
+    it('round-trips a session status delta through real Redis pub/sub', async () => {
+      // Arrange
+      const received = new Promise<string>((resolve) => {
+        subscriber.once('message', (_channel, message: string) =>
+          resolve(message),
+        );
+      });
+      await subscriber.subscribe(FLEET_EVENTS_CHANNEL_KEY);
+
+      // Act
+      eventBus.publish(FleetStatusDeltaChannel, {
+        sessionUid: SESSION_UID,
+        transcriptionServiceConnected: true,
+        sourceDeviceConnected: true,
+        at: Date.now(),
+      });
+
+      // Assert
+      const message = await received;
+      expect(JSON.parse(message)).toMatchObject({
+        t: 'session',
+        sessionUid: SESSION_UID,
+        transcriptionServiceConnected: true,
+        sourceDeviceConnected: true,
+      });
     });
   });
 });

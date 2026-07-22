@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, inject, vi } from 'vitest';
 
 import type {
+  FleetEvent,
   NodeSnapshot,
   ProviderHealth,
   SessionSnapshot,
@@ -8,6 +9,7 @@ import type {
   TranscriptionHostSnapshot,
 } from '@scribear/scribear-redis';
 import {
+  FLEET_EVENTS_CHANNEL_KEY,
   NODE_INDEX_KEY,
   SESSION_INDEX_KEY,
   TRANSCRIPTION_HOST_INDEX_KEY,
@@ -22,6 +24,7 @@ import type { FleetSnapshot } from '#src/server/shared/services/fleet-telemetry.
 import { login, useServer } from '#tests/utils/use-server.js';
 
 const URL = '/api/admin/v1/fleet';
+const STREAM_URL = '/api/admin/v1/fleet/stream';
 
 interface FleetBody {
   ok: boolean;
@@ -69,6 +72,15 @@ describe('Fleet route, telemetry disabled (default: REDIS_URL unset)', () => {
 
       expect(res.statusCode).toBe(401);
     });
+
+    it('requires a session on the stream route too', async () => {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: STREAM_URL,
+      });
+
+      expect(res.statusCode).toBe(401);
+    });
   });
 
   describe('availability', (it) => {
@@ -78,6 +90,17 @@ describe('Fleet route, telemetry disabled (default: REDIS_URL unset)', () => {
       const res = await server.fastify.inject({
         method: 'GET',
         url: URL,
+        headers: { cookie },
+      });
+
+      expect(res.statusCode).toBe(503);
+      expect(res.json<FleetBody>().error?.code).toBe('TELEMETRY_UNAVAILABLE');
+    });
+
+    it('answers 503 TELEMETRY_UNAVAILABLE on the stream route, not a hijacked connection', async () => {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: STREAM_URL,
         headers: { cookie },
       });
 
@@ -279,6 +302,96 @@ describe('Fleet route wired to a real fleet backplane', () => {
           (h) => h.transcriptionHost === staleHost,
         ),
       ).toBe(false);
+    });
+  });
+
+  describe('stream', (it) => {
+    /**
+     * Connects to `/fleet/stream` and resolves the first SSE `data:` frame
+     * once one arrives. `payloadAsStream` is what lets `inject()` resolve as
+     * soon as headers are written (light-my-request's `Response.writeHead`
+     * pushes the payload the moment `hijack()`'d code calls it) rather than
+     * waiting for the response to end, which - by design - it never does.
+     */
+    async function openStream() {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: STREAM_URL,
+        headers: { cookie },
+        payloadAsStream: true,
+      });
+      const stream = res.stream();
+      const frames = new Array<FleetEvent>();
+      let buffer = '';
+      stream.on('data', (chunk: Buffer) => {
+        buffer += chunk.toString('utf8');
+        let boundary;
+        while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+          const frame = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          if (frame.startsWith('data: ')) {
+            frames.push(JSON.parse(frame.slice('data: '.length)) as FleetEvent);
+          }
+        }
+      });
+      return {
+        res,
+        stream,
+        nextFrame: () =>
+          vi.waitFor(() => {
+            const frame = frames.shift();
+            if (frame === undefined) throw new Error('no frame yet');
+            return frame;
+          }),
+      };
+    }
+
+    it('streams a session status delta published on the events channel', async () => {
+      // Arrange
+      const { res, stream, nextFrame } = await openStream();
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toBe('text/event-stream');
+
+      const event: FleetEvent = {
+        t: 'session',
+        sessionUid: '00000000-0000-0000-0000-0000000str3a',
+        transcriptionServiceConnected: true,
+        sourceDeviceConnected: true,
+        at: Date.now(),
+      };
+
+      // Act
+      await redis.publish(FLEET_EVENTS_CHANNEL_KEY, JSON.stringify(event));
+
+      // Assert
+      expect(await nextFrame()).toStrictEqual(event);
+
+      // Cleanup
+      stream.destroy();
+    });
+
+    it('fans one published event out to every connected stream', async () => {
+      // Arrange
+      const first = await openStream();
+      const second = await openStream();
+      const event: FleetEvent = {
+        t: 'session',
+        sessionUid: '00000000-0000-0000-0000-0000000str3b',
+        transcriptionServiceConnected: false,
+        sourceDeviceConnected: false,
+        at: Date.now(),
+      };
+
+      // Act
+      await redis.publish(FLEET_EVENTS_CHANNEL_KEY, JSON.stringify(event));
+
+      // Assert
+      expect(await first.nextFrame()).toStrictEqual(event);
+      expect(await second.nextFrame()).toStrictEqual(event);
+
+      // Cleanup
+      first.stream.destroy();
+      second.stream.destroy();
     });
   });
 });

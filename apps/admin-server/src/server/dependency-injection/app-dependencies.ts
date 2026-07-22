@@ -28,6 +28,7 @@ import type {
   AzureAuthConfig,
   AzureOidcAuthService,
 } from '#src/server/shared/services/azure-oidc-auth.service.js';
+import type { FleetEventsService } from '#src/server/shared/services/fleet-events.service.js';
 import type {
   FleetTelemetryConfig,
   FleetTelemetryService,
@@ -98,6 +99,7 @@ interface AppDependencies extends BaseDependencies {
   // Fleet
   fleetTelemetryConfig: FleetTelemetryConfig;
   fleetTelemetryService: FleetTelemetryService;
+  fleetEventsService: FleetEventsService;
   fleetController: FleetController;
 }
 

@@ -81,6 +81,16 @@ async function createServer(config: AppConfig) {
     await fleetTelemetryService.close();
   });
 
+  // Same lazy-resolve, no-op-if-never-opened shutdown as the fleet telemetry
+  // connection above, for the fleet events subscriber.
+  fastify.addHook('onClose', async () => {
+    const fleetEventsService =
+      dependencyContainer.resolve<AppDependencies['fleetEventsService']>(
+        'fleetEventsService',
+      );
+    await fleetEventsService.close();
+  });
+
   return { logger, fastify };
 }
 

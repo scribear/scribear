@@ -1,5 +1,7 @@
 import { STATUS_MAX_SESSIONS } from '@scribear/node-server-schema';
 import {
+  FLEET_EVENTS_CHANNEL_KEY,
+  type FleetEvent,
   NODE_HEARTBEAT_MS,
   NODE_INDEX_KEY,
   NODE_TTL_MS,
@@ -12,6 +14,8 @@ import {
 } from '@scribear/scribear-redis';
 
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
+import { FleetStatusDeltaChannel } from '#src/server/features/transcription-stream/events/fleet-status-delta.events.js';
+import type { FleetStatusDelta } from '#src/server/features/transcription-stream/events/fleet-status-delta.events.js';
 
 /**
  * Publishes this instance's telemetry to the Redis backplane every heartbeat
@@ -42,10 +46,12 @@ import type { AppDependencies } from '#src/server/dependency-injection/app-depen
 export class RedisTelemetryPublisher {
   private _redis: AppDependencies['telemetryRedisClient'];
   private _snapshots: AppDependencies['statusSnapshotService'];
+  private _eventBus: AppDependencies['eventBusService'];
   private _logger: AppDependencies['logger'];
   private _nodeInstanceId: string;
 
   private _timer: ReturnType<typeof setInterval> | null = null;
+  private _unsubscribeDelta: (() => void) | null = null;
   /**
    * Set while a beat is in flight. A beat that outruns the interval is skipped
    * rather than queued: the next one rewrites the same keys with fresher
@@ -64,11 +70,13 @@ export class RedisTelemetryPublisher {
     statusSnapshotService: AppDependencies['statusSnapshotService'],
     telemetryPublisherConfig: AppDependencies['telemetryPublisherConfig'],
     logger: AppDependencies['logger'],
+    eventBusService: AppDependencies['eventBusService'],
   ) {
     this._redis = telemetryRedisClient;
     this._snapshots = statusSnapshotService;
     this._nodeInstanceId = telemetryPublisherConfig.nodeInstanceId;
     this._logger = logger;
+    this._eventBus = eventBusService;
   }
 
   /**
@@ -109,6 +117,18 @@ export class RedisTelemetryPublisher {
     }, NODE_HEARTBEAT_MS);
     // Do not hold the event loop open on this timer alone.
     this._timer.unref();
+
+    // Sub-second push (B1.7 §2.5): forwards every session status transition
+    // to `scribe:v1:events` as it happens, rather than waiting for the next
+    // heartbeat to carry it. Subscribed only once telemetry is switched on,
+    // same as the heartbeat itself - the orchestrator publishes this
+    // in-process regardless, at no cost, whether or not anyone is listening.
+    this._unsubscribeDelta = this._eventBus.subscribe(
+      FleetStatusDeltaChannel,
+      (delta) => {
+        void this._publishDelta(delta);
+      },
+    );
   }
 
   /**
@@ -121,6 +141,10 @@ export class RedisTelemetryPublisher {
     if (this._timer !== null) {
       clearInterval(this._timer);
       this._timer = null;
+    }
+    if (this._unsubscribeDelta !== null) {
+      this._unsubscribeDelta();
+      this._unsubscribeDelta = null;
     }
     await this._redis.quit().catch(() => {
       // Already disconnected, or never connected. Nothing to close.
@@ -214,6 +238,28 @@ export class RedisTelemetryPublisher {
       }
     } finally {
       this._publishing = false;
+    }
+  }
+
+  /**
+   * Forwards one session status transition to `scribe:v1:events`. A plain
+   * `PUBLISH` on the existing heartbeat connection - no dedicated connection
+   * needed, since only `SUBSCRIBE` puts a connection in a mode that cannot
+   * issue other commands.
+   *
+   * Errors are swallowed like every other Redis call here: a dropped delta
+   * costs a subscriber one heartbeat's worth of staleness at most, never a
+   * session.
+   */
+  private async _publishDelta(delta: FleetStatusDelta): Promise<void> {
+    try {
+      const event: FleetEvent = { t: 'session', ...delta };
+      await this._redis.publish(
+        FLEET_EVENTS_CHANNEL_KEY,
+        JSON.stringify(event),
+      );
+    } catch (err) {
+      this._logger.debug({ err }, 'fleet event publish failed');
     }
   }
 }

@@ -112,3 +112,15 @@ export function transcriptionHostSnapshotKey(
 ): string {
   return `${TELEMETRY_NAMESPACE}:ts:${transcriptionHost}`;
 }
+
+/**
+ * Pub/sub channel for sub-second fleet deltas (B1.7 §2.5), e.g. a session's
+ * connectivity changing between Node Server heartbeats. Unlike every key
+ * above, this is not a snapshot-plus-index: a message here is delivered only
+ * to whoever is subscribed at publish time, with no history and no replay -
+ * it is a push notification that something changed, not a source of truth.
+ * A reader must still fall back to the snapshot/index keys for the current
+ * state (e.g. on first connecting), the same "snapshot-then-deltas" shape
+ * used elsewhere in the fleet view.
+ */
+export const FLEET_EVENTS_CHANNEL_KEY = `${TELEMETRY_NAMESPACE}:events`;

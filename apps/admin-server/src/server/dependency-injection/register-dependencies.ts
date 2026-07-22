@@ -7,7 +7,11 @@ import {
   asValue,
 } from 'awilix';
 
-import { createTelemetryRedisClient } from '@scribear/scribear-redis';
+import {
+  FleetEventsChannel,
+  createRedisSubscriber,
+  createTelemetryRedisClient,
+} from '@scribear/scribear-redis';
 
 import { AdminDbClient } from '#src/db/admin-db-client.js';
 import { AuditController } from '#src/server/features/audit/audit.controller.js';
@@ -23,6 +27,7 @@ import { SchedulingController } from '#src/server/features/scheduling/scheduling
 import { AuditRepository } from '#src/server/shared/repositories/audit.repository.js';
 import { AuditService } from '#src/server/shared/services/audit.service.js';
 import { AzureOidcAuthService } from '#src/server/shared/services/azure-oidc-auth.service.js';
+import { FleetEventsService } from '#src/server/shared/services/fleet-events.service.js';
 import { FleetTelemetryService } from '#src/server/shared/services/fleet-telemetry.service.js';
 import { LocalAuthService } from '#src/server/shared/services/local-auth.service.js';
 import { SessionManagerGatewayService } from '#src/server/shared/services/session-manager-gateway.service.js';
@@ -127,6 +132,26 @@ function registerDependencies(
           fleetTelemetryConfig.redisUrl === ''
             ? null
             : createTelemetryRedisClient(fleetTelemetryConfig.redisUrl),
+          logger,
+        ),
+      { lifetime: Lifetime.SINGLETON },
+    ),
+    // Same null-subscriber pattern as `fleetTelemetryService` above, reusing
+    // the same `REDIS_URL` — one backplane, two halves (snapshot keys, and
+    // this pub/sub channel). Subscribed once, on first resolution, by
+    // `FleetEventsService`'s own constructor rather than here.
+    fleetEventsService: asFunction(
+      (
+        fleetTelemetryConfig: AppDependencies['fleetTelemetryConfig'],
+        logger: AppDependencies['logger'],
+      ) =>
+        new FleetEventsService(
+          fleetTelemetryConfig.redisUrl === ''
+            ? null
+            : createRedisSubscriber(
+                FleetEventsChannel,
+                fleetTelemetryConfig.redisUrl,
+              ),
           logger,
         ),
       { lifetime: Lifetime.SINGLETON },
