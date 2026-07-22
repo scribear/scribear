@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.shared.utils.worker_pool import WorkerSnapshot
+from src.shared.utils.worker_pool import ActiveJob, WorkerSnapshot
 from src.transcription_provider_interface import (
     ProviderHealth,
     ProviderKind,
@@ -34,6 +34,10 @@ WORKER = WorkerSnapshot(
     total_jobs_registered=7,
     context_ids={1, 0},
     alive=True,
+    active_jobs=(
+        ActiveJob(job_id=5, session_uid="session-1", room_uid="room-1"),
+        ActiveJob(job_id=6, session_uid=None, room_uid=None),
+    ),
 )
 
 
@@ -91,6 +95,10 @@ async def test_serializes_envelope_as_camel_case():
             "totalJobsRegistered": 7,
             "contextIds": [0, 1],
             "alive": True,
+            "activeJobs": [
+                {"jobId": 5, "sessionUid": "session-1", "roomUid": "room-1"},
+                {"jobId": 6, "sessionUid": None, "roomUid": None},
+            ],
         }
     ]
 

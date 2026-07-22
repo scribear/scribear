@@ -297,6 +297,8 @@ class WorkerPool:
         period_ms: int,
         job: JobInterface[C, D, R, Conf],
         label: str = "",
+        session_uid: str | None = None,
+        room_uid: str | None = None,
     ) -> JobHandle[D, R, Conf]:
         """
         Registers a new job with WorkerPool
@@ -306,6 +308,10 @@ class WorkerPool:
             period_ms       - Frequency at which job should be run
             job             - Definition of job to register
             label           - Opaque grouping label reported to the job observer
+            session_uid     - Opaque caller session identifier, forwarded verbatim
+                                to WorkerProcessManager.register_job
+            room_uid        - Opaque caller room identifier, forwarded verbatim
+                                to WorkerProcessManager.register_job
 
         Returns:
             JobHandle for registered job
@@ -316,7 +322,7 @@ class WorkerPool:
         """
         process_id, context_ids = self._assign_process(context_tags)
         return self._processes[process_id].register_job(
-            context_ids, period_ms, job, label
+            context_ids, period_ms, job, label, session_uid, room_uid
         )
 
     def shutdown(self):

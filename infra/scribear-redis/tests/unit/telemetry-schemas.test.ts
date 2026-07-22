@@ -11,6 +11,7 @@ import {
   PROVIDER_HEALTH_SCHEMA,
   SESSION_SNAPSHOT_SCHEMA,
   TRANSCRIPTION_HOST_SNAPSHOT_SCHEMA,
+  TRANSCRIPTION_WORKER_SCHEMA,
 } from '#src/index.js';
 
 /**
@@ -34,6 +35,10 @@ const LOCAL_PROVIDER = {
       totalJobsRegistered: 41,
       contextIds: ['faster-whisper', 'silero'],
       alive: true,
+      activeJobs: [
+        { jobId: 12, sessionUid: 'session-1', roomUid: 'room-1' },
+        { jobId: 13, sessionUid: null, roomUid: null },
+      ],
     },
   ],
   endpoint: null,
@@ -103,6 +108,35 @@ describe('provider health schema', () => {
 
     // Assert
     expect(Value.Check(PROVIDER_HEALTH_SCHEMA, unhealthy)).toBe(false);
+  });
+});
+
+describe('transcription worker schema', () => {
+  const WORKER = LOCAL_PROVIDER.owningWorkers[0];
+
+  it('should accept a worker with populated activeJobs', () => {
+    // Assert - one job correlated to a session/room, one with neither known
+    expect(Value.Check(TRANSCRIPTION_WORKER_SCHEMA, WORKER)).toBe(true);
+  });
+
+  it('should accept a worker with no active jobs', () => {
+    // Assert
+    expect(
+      Value.Check(TRANSCRIPTION_WORKER_SCHEMA, { ...WORKER, activeJobs: [] }),
+    ).toBe(true);
+  });
+
+  it('should reject activeJobs missing a required field', () => {
+    // roomUid dropped rather than null: a field this service stopped sending
+    // must fail validation here, not read as a legitimate absence.
+    //
+    // Assert
+    expect(
+      Value.Check(TRANSCRIPTION_WORKER_SCHEMA, {
+        ...WORKER,
+        activeJobs: [{ jobId: 1, sessionUid: null }],
+      }),
+    ).toBe(false);
   });
 });
 

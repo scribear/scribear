@@ -236,9 +236,35 @@ def test_register_job_no_context_picks_lowest_utilization(
     # Assert
     mock_wpm_instances[0].register_job.assert_not_called()
     mock_wpm_instances[1].register_job.assert_called_once_with(
-        (), period_ms, job, ""
+        (), period_ms, job, "", None, None
     )
     mock_wpm_instances[2].register_job.assert_not_called()
+
+
+def test_register_job_forwards_session_and_room_uid(
+    pool: WorkerPool, mock_wpm_instances: list[MagicMock]
+):
+    """
+    Test that session_uid/room_uid are forwarded verbatim to the chosen
+    worker's register_job, the same opaque values create_session accepted
+    """
+    # Arrange
+    period_ms = 1000
+    job = MagicMock(spec=JobInterface)
+
+    mock_wpm_instances[0].utilization = 0.0
+    mock_wpm_instances[1].utilization = 0.5
+    mock_wpm_instances[2].utilization = 0.5
+
+    # Act
+    pool.register_job(
+        (), period_ms, job, session_uid="session-1", room_uid="room-1"
+    )
+
+    # Assert
+    mock_wpm_instances[0].register_job.assert_called_once_with(
+        (), period_ms, job, "", "session-1", "room-1"
+    )
 
 
 def test_register_job_routes_to_worker_owning_required_tag(
@@ -271,7 +297,7 @@ def test_register_job_routes_to_worker_owning_required_tag(
     mock_wpm_instances[0].register_job.assert_not_called()
     mock_wpm_instances[1].register_job.assert_not_called()
     mock_wpm_instances[2].register_job.assert_called_once_with(
-        (0,), period_ms, job, ""
+        (0,), period_ms, job, "", None, None
     )
 
 
@@ -296,7 +322,7 @@ def test_register_job_picks_lowest_utilization_among_owning_workers(
     # Assert
     mock_wpm_instances[0].register_job.assert_not_called()
     mock_wpm_instances[1].register_job.assert_called_once_with(
-        (CTX_LOGGER,), period_ms, job, ""
+        (CTX_LOGGER,), period_ms, job, "", None, None
     )
     mock_wpm_instances[2].register_job.assert_not_called()
 
@@ -336,7 +362,7 @@ def test_register_job_with_multiple_tags_needs_all_on_same_worker(
     mock_wpm_instances[0].register_job.assert_not_called()
     mock_wpm_instances[1].register_job.assert_not_called()
     mock_wpm_instances[2].register_job.assert_called_once_with(
-        (CTX_CONTEXT, CTX_LOGGER), period_ms, job, ""
+        (CTX_CONTEXT, CTX_LOGGER), period_ms, job, "", None, None
     )
 
 
@@ -403,6 +429,7 @@ def _set_worker_load(
         total_jobs_registered=1,
         context_ids=instance.context_ids,
         alive=alive,
+        active_jobs=(),
     )
 
 

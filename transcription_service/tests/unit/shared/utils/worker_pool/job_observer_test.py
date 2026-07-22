@@ -10,6 +10,7 @@ import pytest_asyncio
 
 from src.shared.logger import ContextLogger
 from src.shared.utils.worker_pool import (
+    ActiveJob,
     JobExecutionObservation,
     WorkerProcessManager,
 )
@@ -158,11 +159,48 @@ async def test_snapshot_tracks_live_and_total_jobs(
     assert snapshot.total_jobs_registered == 2
     assert snapshot.context_ids == set()
     assert 0 <= snapshot.utilization <= 1
+    assert len(snapshot.active_jobs) == 2
 
     first.deregister()
     snapshot = wpm.snapshot()
     assert snapshot.live_job_count == 1
     assert snapshot.total_jobs_registered == 2
+    assert len(snapshot.active_jobs) == 1
+
+
+@pytest.mark.asyncio
+async def test_snapshot_correlates_active_jobs_to_session_and_room_uid(
+    observed_wpm: tuple[WorkerProcessManager, list[JobExecutionObservation]],
+):
+    """
+    Test active_jobs carries the session_uid/room_uid a job was registered
+    with, defaults to None when omitted, and drops the entry on
+    deregistration - the same lifetime rule _job_labels already follows
+    """
+    # Arrange
+    wpm, _ = observed_wpm
+
+    # Act
+    with_uids = wpm.register_job(
+        (), JOB_PERIOD_MS, SumJob(), session_uid="session-1", room_uid="room-1"
+    )
+    without_uids = wpm.register_job((), JOB_PERIOD_MS, SumJob())
+
+    # Assert - both present, correlated to their own job id
+    snapshot = wpm.snapshot()
+    assert set(snapshot.active_jobs) == {
+        ActiveJob(
+            job_id=with_uids.job_id, session_uid="session-1", room_uid="room-1"
+        ),
+        ActiveJob(job_id=without_uids.job_id, session_uid=None, room_uid=None),
+    }
+
+    # Assert - deregistering one leaves only the other
+    with_uids.deregister()
+    snapshot = wpm.snapshot()
+    assert snapshot.active_jobs == (
+        ActiveJob(job_id=without_uids.job_id, session_uid=None, room_uid=None),
+    )
 
 
 @pytest.mark.asyncio

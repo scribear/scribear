@@ -72,6 +72,8 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
                 provider.config.job_period_ms,
                 LumenGraniteProviderJob(provider.config),
                 provider.provider_key,
+                session_uid=self.session_uid,
+                room_uid=self.room_uid,
             )
             self._job.on(self._job.JobResultEvent, self._handle_job_result)
 

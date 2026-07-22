@@ -45,7 +45,12 @@ class DebugProvider(TranscriptionProviderInterface):
             self.room_uid = room_uid
 
             self._job = provider.worker_pool.register_job(
-                (), 1000, DebugProviderJob(self._config), provider.provider_key
+                (),
+                1000,
+                DebugProviderJob(self._config),
+                provider.provider_key,
+                session_uid=self.session_uid,
+                room_uid=self.room_uid,
             )
 
             self._job.on(self._job.JobResultEvent, self._handle_job_result)

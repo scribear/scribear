@@ -4,6 +4,24 @@ import type { Static } from 'typebox';
 import { SNAPSHOT_ENVELOPE_PROPERTIES } from './snapshot-envelope.schema.js';
 
 /**
+ * One job a worker is actively running, correlated to the opaque session/room
+ * identifiers node-server sent when it opened the stream.
+ *
+ * Either uid is null when the caller supplied none (an older node-server
+ * peer, or a session opened before the CONFIG message carried them) - mirrors
+ * `ActiveJob` in transcription service, not omitted, for the same
+ * fixed-shape reasoning as the rest of this file.
+ */
+const ACTIVE_JOB_SCHEMA = Type.Object({
+  jobId: Type.Integer(),
+  sessionUid: Type.Union([Type.String(), Type.Null()]),
+  roomUid: Type.Union([Type.String(), Type.Null()]),
+});
+
+/** One job a worker is actively running. @see {@link ACTIVE_JOB_SCHEMA} */
+export type ActiveJob = Static<typeof ACTIVE_JOB_SCHEMA>;
+
+/**
  * One worker process on a Transcription Service host.
  *
  * This restates, in TypeScript, the shape `serialize_worker` produces in
@@ -31,6 +49,10 @@ export const TRANSCRIPTION_WORKER_SCHEMA = Type.Object({
   alive: Type.Boolean({
     description:
       'False once the OS process is gone. A worker that dies after startup is otherwise invisible - jobs already registered to it neither return nor raise (B1.3).',
+  }),
+  activeJobs: Type.Array(ACTIVE_JOB_SCHEMA, {
+    description:
+      'Jobs currently registered to this worker, correlated to the session/room that opened each - what lets an operator trace a saturated worker back to who is saturating it, beyond the aggregate liveJobCount.',
   }),
 });
 

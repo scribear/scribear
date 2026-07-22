@@ -44,6 +44,7 @@ def _snapshot(
         total_jobs_registered=live_job_count,
         context_ids={0, 1},
         alive=True,
+        active_jobs=(),
     )
 
 

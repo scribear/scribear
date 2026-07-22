@@ -22,6 +22,7 @@ def snapshot(
         total_jobs_registered=0,
         context_ids=set(),
         alive=alive,
+        active_jobs=(),
     )
 
 

@@ -40,15 +40,27 @@ SESSION_CONFIG = DebugSessionConfig(sample_rate=48_000, num_channels=1)
 
 
 @pytest_asyncio.fixture
-async def debug_provider_session():
+async def debug_provider_worker_pool():
     """
-    Creates a new transcription session for each test and cleans up after test
+    Creates the WorkerPool underlying debug_provider_session, exposed
+    separately so tests can inspect its snapshots
     """
     logger = MagicMock(spec=logging.Logger)
     logger.level = 10
 
     worker_pool = WorkerPool(ContextLogger(logger), 1, [])
-    provider = DebugProvider(None, MagicMock(spec=Logger), worker_pool, "debug")
+    yield worker_pool
+    worker_pool.shutdown()
+
+
+@pytest_asyncio.fixture
+async def debug_provider_session(debug_provider_worker_pool: WorkerPool):
+    """
+    Creates a new transcription session for each test and cleans up after test
+    """
+    provider = DebugProvider(
+        None, MagicMock(spec=Logger), debug_provider_worker_pool, "debug"
+    )
     session = provider.create_session(
         SESSION_CONFIG, "session-1", "room-1", MagicMock(spec=Logger)
     )
@@ -57,7 +69,6 @@ async def debug_provider_session():
 
     session.end_session()
     provider.cleanup_provider()
-    worker_pool.shutdown()
 
 
 def test_debug_provider_stores_session_and_room_uid(
@@ -69,6 +80,24 @@ def test_debug_provider_stores_session_and_room_uid(
     # Assert
     assert debug_provider_session.session_uid == "session-1"
     assert debug_provider_session.room_uid == "room-1"
+
+
+def test_debug_provider_registers_job_correlated_to_session_and_room_uid(
+    # pylint: disable=unused-argument
+    debug_provider_session: TranscriptionSessionInterface,
+    debug_provider_worker_pool: WorkerPool,
+):
+    """
+    Test the session's job is correlated to session_uid/room_uid in the pool's
+    worker snapshots - what makes /providers/health show it as an ActiveJob
+    """
+    # Act
+    (snapshot,) = debug_provider_worker_pool.worker_snapshots()
+
+    # Assert
+    assert len(snapshot.active_jobs) == 1
+    assert snapshot.active_jobs[0].session_uid == "session-1"
+    assert snapshot.active_jobs[0].room_uid == "room-1"
 
 
 @pytest.mark.timeout(2)

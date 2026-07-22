@@ -76,6 +76,8 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
                 self._provider.config.job_period_ms,
                 WhisperStreamingProviderJob(self._provider.config),
                 self._provider.provider_key,
+                session_uid=self.session_uid,
+                room_uid=self.room_uid,
             )
             self._job.on(self._job.JobResultEvent, self._handle_job_result)
 

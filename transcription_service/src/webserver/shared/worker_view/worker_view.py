@@ -37,4 +37,16 @@ def serialize_worker(snapshot: WorkerSnapshot) -> dict[str, Any]:
         # A worker that dies after startup is otherwise invisible: jobs already
         # registered to it never return and never raise. See B1.3.
         "alive": snapshot.alive,
+        # Per-job correlation to the caller's own session/room identifiers, so
+        # an operator can see what a worker is actively processing rather than
+        # only the aggregate liveJobCount. Opaque to this service; forwarded
+        # verbatim from register_job (B1.7 follow-up, part 2).
+        "activeJobs": [
+            {
+                "jobId": job.job_id,
+                "sessionUid": job.session_uid,
+                "roomUid": job.room_uid,
+            }
+            for job in snapshot.active_jobs
+        ],
     }

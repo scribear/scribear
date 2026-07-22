@@ -221,6 +221,24 @@ class _RollingUtilization:
 
 
 @dataclass(frozen=True)
+class ActiveJob:
+    """
+    One job currently registered to a worker, correlated to the caller's own
+    identifiers for it
+
+    session_uid/room_uid are opaque to this layer - accepted from
+    `register_job` and reported back verbatim - so that `/providers/health`
+    can show which session/room a worker is actively processing rather than
+    only the aggregate `live_job_count`. Either is None when the caller
+    supplied none (e.g. an older node-server peer).
+    """
+
+    job_id: int
+    session_uid: str | None
+    room_uid: str | None
+
+
+@dataclass(frozen=True)
 class WorkerSnapshot:
     """
     Point-in-time view of one worker, safe to read from a request handler
@@ -235,6 +253,7 @@ class WorkerSnapshot:
     total_jobs_registered: int
     context_ids: set[int]
     alive: bool
+    active_jobs: tuple[ActiveJob, ...]
 
 
 def is_saturated(snapshot: WorkerSnapshot) -> bool:
@@ -427,6 +446,12 @@ class WorkerProcessManager:
             total_jobs_registered=self.total_jobs_registered,
             context_ids=self.context_ids,
             alive=self.alive,
+            active_jobs=tuple(
+                ActiveJob(
+                    job_id, *self._job_correlation.get(job_id, (None, None))
+                )
+                for job_id in self._registered_job_handles
+            ),
         )
 
     def __init__(
@@ -464,6 +489,11 @@ class WorkerProcessManager:
         self._context_defs = context_defs
         self._registered_job_handles: dict[int, JobHandle[Any, Any, Any]] = {}
         self._job_labels: dict[int, str] = {}
+        # Caller-supplied session/room identifiers per job, reported on
+        # /providers/health via ActiveJob. Kept only while the job lives -
+        # same lifetime rule as _job_labels - so it cannot grow with the
+        # number of sessions the process has ever served.
+        self._job_correlation: dict[int, tuple[str | None, str | None]] = {}
 
         # Signals the result-poller thread to stop. Set during wait_shutdown.
         self._stopping = threading.Event()
@@ -637,6 +667,8 @@ class WorkerProcessManager:
         period_ms: int,
         job: JobInterface[C, D, R, Conf],
         label: str = "",
+        session_uid: str | None = None,
+        room_uid: str | None = None,
     ) -> JobHandle[D, R, Conf]:
         """
         Registers a new job with WorkerProcess
@@ -646,6 +678,11 @@ class WorkerProcessManager:
             period_ms       - Frequency at which job should be run
             job             - Definition of job to register
             label           - Opaque grouping label reported to the job observer
+            session_uid     - Opaque caller session identifier reported on
+                                /providers/health via ActiveJob, None if the
+                                caller supplied none
+            room_uid        - Opaque caller room identifier reported alongside
+                                session_uid
 
         Returns:
             JobHandle for registered job
@@ -676,12 +713,14 @@ class WorkerProcessManager:
             # Kept only while the job lives, so the label map cannot grow with
             # the number of sessions the process has ever served.
             self._job_labels.pop(job_id, None)
+            self._job_correlation.pop(job_id, None)
 
         job_handle = JobHandle[D, R, Conf](
             self._worker_id, job_id, _queue_data, _update_config, _deregister
         )
         self._registered_job_handles[job_id] = job_handle
         self._job_labels[job_id] = label
+        self._job_correlation[job_id] = (session_uid, room_uid)
         return job_handle
 
     def send_terminate(self):

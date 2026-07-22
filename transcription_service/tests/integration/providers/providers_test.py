@@ -281,6 +281,44 @@ def test_reports_a_context_free_provider_as_ok(test_client: TestClient):
     assert debug["activeSessions"] == 0
 
 
+def test_reports_active_job_correlated_to_session_and_room_uid(
+    test_client: TestClient,
+):
+    """
+    Test a live session's session_uid/room_uid surface as an ActiveJob on the
+    worker holding its job - the correlation an operator needs to trace a
+    saturated worker back to the session/room causing it (B1.7 follow-up,
+    part 2 of 2)
+    """
+    # Act
+    with test_client.websocket_connect(
+        "/transcription_stream/debug"
+    ) as websocket:
+        websocket.send_json({"type": "auth", "api_key": API_KEY})
+        websocket.send_json(
+            {
+                "type": "config",
+                "config": {"sample_rate": 16000, "num_channels": 1},
+                "session_uid": "session-1",
+                "room_uid": "room-1",
+            }
+        )
+        # start_session() emits synchronously within config handling, so
+        # receiving it proves the session (and its job registration) exists
+        # server-side before the health read below.
+        websocket.receive_json()
+
+        body = _health(test_client)
+
+    # Assert
+    active_jobs = [
+        job for worker in body["workers"] for job in worker["activeJobs"]
+    ]
+    assert len(active_jobs) == 1
+    assert active_jobs[0]["sessionUid"] == "session-1"
+    assert active_jobs[0]["roomUid"] == "room-1"
+
+
 def test_counts_invalid_provider_key_rejects(test_client: TestClient):
     """
     Test a stream opened against an unknown provider key is counted

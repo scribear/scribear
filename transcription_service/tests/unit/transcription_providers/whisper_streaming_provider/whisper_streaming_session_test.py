@@ -1,7 +1,7 @@
 """
 Unit tests for WhisperStreamingProvider.create_session's session_uid/room_uid
-storage (Part 1 of the monitoring dashboard plan - stored only, unused
-elsewhere until Part 2).
+storage (Part 1 of the monitoring dashboard plan) and their forwarding to
+register_job, which is what surfaces them on /providers/health (Part 2).
 """
 
 from unittest.mock import MagicMock
@@ -82,3 +82,21 @@ def test_create_session_defaults_to_none_when_absent(
     # Assert
     assert session.session_uid is None
     assert session.room_uid is None
+
+
+def test_create_session_forwards_session_and_room_uid_to_register_job(
+    provider: WhisperStreamingProvider,
+    mock_logger: MagicMock,
+    mock_worker_pool: MagicMock,
+):
+    """
+    session_uid/room_uid reach worker_pool.register_job, which is what makes
+    them show up as an ActiveJob on /providers/health
+    """
+    # Act
+    provider.create_session("unused_config", "session-1", "room-1", mock_logger)
+
+    # Assert
+    _, kwargs = mock_worker_pool.register_job.call_args
+    assert kwargs["session_uid"] == "session-1"
+    assert kwargs["room_uid"] == "room-1"

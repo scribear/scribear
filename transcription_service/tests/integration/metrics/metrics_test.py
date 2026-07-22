@@ -184,6 +184,7 @@ def test_reports_workers_and_capacity(test_client: TestClient):
         assert worker["liveJobCount"] == 0
         assert worker["totalJobsRegistered"] == 0
         assert worker["contextIds"] == []
+        assert worker["activeJobs"] == []
 
 
 def test_reports_identity_and_empty_series_before_any_job(
