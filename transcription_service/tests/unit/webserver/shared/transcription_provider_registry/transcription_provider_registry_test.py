@@ -339,12 +339,16 @@ def test_valid_start_session(
     session_logger = MagicMock(spec=Logger)
 
     # Act
-    _ = provider_registry.create_session(provider_key, config, session_logger)
+    _ = provider_registry.create_session(
+        provider_key, config, "session-1", "room-1", session_logger
+    )
 
     # Assert
     mock_provider_instances[
         mock_provider_idx
-    ].create_session.assert_called_once_with(config, session_logger)
+    ].create_session.assert_called_once_with(
+        config, "session-1", "room-1", session_logger
+    )
 
 
 def test_invalid_start_session(
@@ -361,7 +365,7 @@ def test_invalid_start_session(
     # Act / Assert
     with pytest.raises(TranscriptionClientError):
         _ = provider_registry.create_session(
-            "NOT_A_REAL_PROVIDER", config, session_logger
+            "NOT_A_REAL_PROVIDER", config, None, None, session_logger
         )
 
 
@@ -475,7 +479,7 @@ async def test_counts_invalid_provider_key_rejects(
     for _ in range(3):
         with pytest.raises(TranscriptionClientError):
             provider_registry.create_session(
-                "NOT_A_REAL_PROVIDER", "config", session_logger
+                "NOT_A_REAL_PROVIDER", "config", None, None, session_logger
             )
     report = await provider_registry.providers_health()
 
@@ -496,7 +500,9 @@ async def test_valid_provider_key_does_not_count_as_a_reject(
     session_logger = MagicMock(spec=Logger)
 
     # Act
-    provider_registry.create_session("debug_0", "config", session_logger)
+    provider_registry.create_session(
+        "debug_0", "config", None, None, session_logger
+    )
     report = await provider_registry.providers_health()
 
     # Assert

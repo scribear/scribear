@@ -158,6 +158,7 @@ export type UpstreamState =
 /** One live session, as published by the owning node-server instance. */
 export interface SessionSnapshot {
   sessionUid: string;
+  roomUid: string | null;
   providerKey: string;
   sourceCount: number;
   subscriberCount: number;

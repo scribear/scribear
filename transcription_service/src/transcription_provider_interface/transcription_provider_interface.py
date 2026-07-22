@@ -45,7 +45,11 @@ class TranscriptionProviderInterface(ABC):
 
     @abstractmethod
     def create_session(
-        self, session_config: object, logger: Logger
+        self,
+        session_config: object,
+        session_uid: str | None,
+        room_uid: str | None,
+        logger: Logger,
     ) -> TranscriptionSessionInterface:
         """
         Called when a transcription session is requested
@@ -59,6 +63,11 @@ class TranscriptionProviderInterface(ABC):
 
         Args:
             session_config  - Session configuration object unique to transcription provider
+            session_uid     - Opaque session identifier from the caller, if
+                                known. Not validated or used for anything
+                                beyond storage on the returned session.
+            room_uid        - Opaque room identifier from the caller, if
+                                known. Same handling as session_uid.
             logger          - Application logger for session to use
 
         Returns:

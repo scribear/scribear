@@ -21,11 +21,13 @@ import { NodeServerMetricsService } from '#src/server/shared/services/node-serve
 import { createMockLogger } from '#tests/utils/mock-logger.js';
 
 const SESSION_UID = '00000000-0000-0000-0000-000000000abc';
+const ROOM_UID = '00000000-0000-0000-0000-000000000def';
 const PROVIDER_KEY = 'debug';
 
 function fakeSession(overrides: Partial<Session> = {}): Session {
   return {
     uid: SESSION_UID,
+    roomUid: ROOM_UID,
     transcriptionProviderId: PROVIDER_KEY,
     transcriptionStreamConfig: { sample_rate: 48000, num_channels: 1 },
     sessionConfigVersion: 1,
@@ -154,6 +156,8 @@ describe('TranscriptionOrchestratorService', () => {
         expect.objectContaining({
           type: 'config',
           config: { sample_rate: 48000, num_channels: 1 },
+          session_uid: SESSION_UID,
+          room_uid: ROOM_UID,
         }),
       );
     });

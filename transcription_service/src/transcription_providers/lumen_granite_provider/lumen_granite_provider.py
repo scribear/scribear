@@ -53,10 +53,19 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
         Transcription session interface for LumenGraniteProvider.
         """
 
-        def __init__(self, provider: "LumenGraniteProvider", logger: Logger):
+        def __init__(
+            self,
+            provider: "LumenGraniteProvider",
+            logger: Logger,
+            session_uid: str | None,
+            room_uid: str | None,
+        ):
             super().__init__()
             self._log = logger
             self._provider = provider
+            # Opaque; stored for a future consumer (Part 2), not read here.
+            self.session_uid = session_uid
+            self.room_uid = room_uid
 
             self._job = provider.worker_pool.register_job(
                 (),  # no context - remote endpoint does the work
@@ -109,8 +118,15 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
         self._probe_cache: tuple[float, bool, float | None, str | None] | None
         self._probe_cache = None
 
-    def create_session(self, session_config: object, logger: Logger):
-        return self._LumenGraniteSession(self, logger)
+    def create_session(
+        self,
+        session_config: object,
+        session_uid: str | None,
+        room_uid: str | None,
+        logger: Logger,
+    ):
+        del session_config  # per-session config is ignored; see module docstring
+        return self._LumenGraniteSession(self, logger, session_uid, room_uid)
 
     async def _probe_endpoint(self) -> tuple[bool, float | None, str | None]:
         """

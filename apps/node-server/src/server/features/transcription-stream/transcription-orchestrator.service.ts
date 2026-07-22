@@ -69,6 +69,7 @@ export type SessionConfigPollFactory = (
  */
 export interface SessionSnapshot {
   sessionUid: string;
+  roomUid: string | null;
   providerKey: string;
   sourceCount: number;
   pendingChunkCount: number;
@@ -86,6 +87,8 @@ interface SessionState {
    * current config and this can legitimately disagree.
    */
   providerKey: string;
+  /** Room this session belongs to, if known. Same rationale as `providerKey`. */
+  roomUid: string | null;
   upstream: UpstreamClient;
   longPoll: SessionConfigPoll;
   audioUnsubscribe: () => void;
@@ -233,6 +236,7 @@ export class TranscriptionOrchestratorService {
       if (sessions.length >= limit) break;
       sessions.push({
         sessionUid,
+        roomUid: state.roomUid,
         providerKey: state.providerKey,
         sourceCount: state.sourceCount,
         pendingChunkCount: state.pendingChunks.size,
@@ -380,6 +384,7 @@ export class TranscriptionOrchestratorService {
     const state: SessionState = {
       sourceCount: 0,
       providerKey: initial.transcriptionProviderId,
+      roomUid: initial.roomUid,
       upstream,
       longPoll,
       audioUnsubscribe: () => {
@@ -445,6 +450,8 @@ export class TranscriptionOrchestratorService {
       // Trusted by Session Manager when the session was created; the
       // upstream provider validates its own config schema on receipt.
       config: initial.transcriptionStreamConfig as never,
+      session_uid: sessionUid,
+      room_uid: initial.roomUid,
     });
 
     state.audioUnsubscribe = this._eventBus.subscribe(

@@ -55,11 +55,18 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
         """
 
         def __init__(
-            self, provider: "WhisperStreamingProvider", logger: Logger
+            self,
+            provider: "WhisperStreamingProvider",
+            logger: Logger,
+            session_uid: str | None,
+            room_uid: str | None,
         ):
             super().__init__()
             self._log = logger
             self._provider = provider
+            # Opaque; stored for a future consumer (Part 2), not read here.
+            self.session_uid = session_uid
+            self.room_uid = room_uid
 
             self._job = provider.worker_pool.register_job(
                 (
@@ -125,8 +132,19 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
         self.worker_pool = worker_pool
         self.provider_key = provider_key
 
-    def create_session(self, session_config: object, logger: Logger):
-        return self._WhisperStreamingSession(self, logger)
+    def create_session(
+        self,
+        session_config: object,
+        session_uid: str | None,
+        room_uid: str | None,
+        logger: Logger,
+    ):
+        # Session config was already unused before session_uid/room_uid
+        # existed; accepted for interface parity only.
+        del session_config
+        return self._WhisperStreamingSession(
+            self, logger, session_uid, room_uid
+        )
 
     async def describe_health(self):
         """

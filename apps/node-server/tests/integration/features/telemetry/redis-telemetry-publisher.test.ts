@@ -18,8 +18,8 @@ import {
 
 import createServer from '#src/server/create-server.js';
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
-import { FleetStatusDeltaChannel } from '#src/server/features/transcription-stream/events/fleet-status-delta.events.js';
 import { RedisTelemetryPublisher } from '#src/server/features/telemetry/redis-telemetry-publisher.service.js';
+import { FleetStatusDeltaChannel } from '#src/server/features/transcription-stream/events/fleet-status-delta.events.js';
 import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
 import { createMockLogger } from '#tests/utils/mock-logger.js';
 import { buildTestAppConfig } from '#tests/utils/use-server.js';
@@ -27,6 +27,7 @@ import { buildTestAppConfig } from '#tests/utils/use-server.js';
 const NODE_INSTANCE_ID = 'test-node-a';
 const WIRED_INSTANCE_ID = 'test-node-wired';
 const SESSION_UID = '00000000-0000-0000-0000-0000000b1700';
+const ROOM_UID = '00000000-0000-0000-0000-0000000b00f1';
 const PROCESS_UID = '00000000-0000-0000-0000-0000000000ff';
 
 /**
@@ -68,6 +69,7 @@ function fakeProcess(): StatusProcess {
 function fakeSession(): StatusSession {
   return {
     sessionUid: SESSION_UID,
+    roomUid: ROOM_UID,
     providerKey: 'debug',
     sourceCount: 1,
     subscriberCount: 2,

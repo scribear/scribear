@@ -6,10 +6,12 @@ import { NodeServerMetricsService } from '#src/server/shared/services/node-serve
 import { StatusSnapshotService } from '#src/server/shared/services/status-snapshot.service.js';
 
 const SESSION_UID = '00000000-0000-0000-0000-000000000abc';
+const ROOM_UID = '00000000-0000-0000-0000-000000000def';
 
 function gauges(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
   return {
     sessionUid: SESSION_UID,
+    roomUid: ROOM_UID,
     providerKey: 'whisper',
     sourceCount: 1,
     pendingChunkCount: 3,

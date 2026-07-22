@@ -112,7 +112,12 @@ class TranscriptionStreamController(WebsocketHandler):
 
         self._is_authenticated = True
 
-    def _config(self, session_config: object):
+    def _config(
+        self,
+        session_config: object,
+        session_uid: str | None,
+        room_uid: str | None,
+    ):
         """
         Handle the config client message. Constructs the per-connection
         TranscriptionStreamService once auth has completed and a config has
@@ -127,6 +132,8 @@ class TranscriptionStreamController(WebsocketHandler):
             self._provider_registry,
             self._provider_key,
             session_config,
+            session_uid,
+            room_uid,
         )
         service.on(
             service.TranscriptionResultEvent, self._handle_transcription_result
@@ -175,7 +182,11 @@ class TranscriptionStreamController(WebsocketHandler):
             case ClientMessageTypes.AUTH:
                 self._auth(parsed_message.api_key)
             case ClientMessageTypes.CONFIG:
-                self._config(parsed_message.config)
+                self._config(
+                    parsed_message.config,
+                    parsed_message.session_uid,
+                    parsed_message.room_uid,
+                )
 
     async def _handle_binary_message(self, message: bytes):
         """

@@ -272,7 +272,12 @@ class TranscriptionProviderRegistry:
         )
 
     def create_session(
-        self, provider_key: str, session_config: Any, logger: Logger
+        self,
+        provider_key: str,
+        session_config: Any,
+        session_uid: str | None,
+        room_uid: str | None,
+        logger: Logger,
     ) -> TranscriptionSessionInterface:
         """
         Gets the initialized transcription provider instance with the given
@@ -281,6 +286,9 @@ class TranscriptionProviderRegistry:
         Args:
             provider_key    - Transcription Provider key of provider to get
             session_config  - Session configuration provided by client
+            session_uid     - Opaque session identifier from the caller, if
+                                known
+            room_uid        - Opaque room identifier from the caller, if known
             logger          - Application logger for session to use
 
         Returns:
@@ -294,7 +302,9 @@ class TranscriptionProviderRegistry:
             raise TranscriptionClientError("Invalid Provider Key")
 
         provider = self._providers[provider_key]
-        return provider.create_session(session_config, logger)
+        return provider.create_session(
+            session_config, session_uid, room_uid, logger
+        )
 
     def shutdown(self):
         """

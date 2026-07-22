@@ -166,6 +166,13 @@ const SessionCard = ({ session, status, event }: FleetRow) => {
               </Typography>
               <Chip size="small" label={status} color={STATUS_COLOR[status]} />
             </Stack>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: 'block', fontFamily: 'monospace' }}
+            >
+              room: {session.roomUid ?? 'no room'}
+            </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
               {session.providerKey}
             </Typography>

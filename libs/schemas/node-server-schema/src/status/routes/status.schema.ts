@@ -107,6 +107,9 @@ const LATENCY_ARRAY_DESCRIPTION =
 export const STATUS_SESSION_SCHEMA = Type.Object(
   {
     sessionUid: Type.String({ format: 'uuid' }),
+    // Optional so a session record produced before this field existed still
+    // validates, and nullable because a session's room is not always known.
+    roomUid: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     providerKey: Type.String({
       description:
         'Transcription provider this session’s upstream was opened against, as configured when the session was created. Operator-chosen free text on the Transcription Service side, so it is reported verbatim and never parsed; it is what joins a room to the provider health reported for it (B1.7 §11).',

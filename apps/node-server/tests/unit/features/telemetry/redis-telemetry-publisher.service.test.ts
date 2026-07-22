@@ -16,14 +16,15 @@ import {
 } from '@scribear/scribear-redis';
 
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
-import { FleetStatusDeltaChannel } from '#src/server/features/transcription-stream/events/fleet-status-delta.events.js';
 import { RedisTelemetryPublisher } from '#src/server/features/telemetry/redis-telemetry-publisher.service.js';
+import { FleetStatusDeltaChannel } from '#src/server/features/transcription-stream/events/fleet-status-delta.events.js';
 import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
 import { type MockLogger, createMockLogger } from '#tests/utils/mock-logger.js';
 
 const NODE_INSTANCE_ID = 'node-a7';
 const PROCESS_UID = '00000000-0000-0000-0000-0000000000ff';
 const SESSION_UID = '00000000-0000-0000-0000-000000000abc';
+const ROOM_UID = '00000000-0000-0000-0000-000000000def';
 const NOW = 1_800_000_000_000;
 
 /** One command as issued against the pipeline, for readable assertions. */
@@ -107,6 +108,7 @@ function fakeProcess(): StatusProcess {
 function fakeSession(): StatusSession {
   return {
     sessionUid: SESSION_UID,
+    roomUid: ROOM_UID,
     providerKey: 'whisper',
     sourceCount: 1,
     subscriberCount: 43,

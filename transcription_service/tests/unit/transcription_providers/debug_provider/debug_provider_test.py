@@ -49,13 +49,26 @@ async def debug_provider_session():
 
     worker_pool = WorkerPool(ContextLogger(logger), 1, [])
     provider = DebugProvider(None, MagicMock(spec=Logger), worker_pool, "debug")
-    session = provider.create_session(SESSION_CONFIG, MagicMock(spec=Logger))
+    session = provider.create_session(
+        SESSION_CONFIG, "session-1", "room-1", MagicMock(spec=Logger)
+    )
 
     yield session
 
     session.end_session()
     provider.cleanup_provider()
     worker_pool.shutdown()
+
+
+def test_debug_provider_stores_session_and_room_uid(
+    debug_provider_session: TranscriptionSessionInterface,
+):
+    """
+    Test that create_session's session_uid/room_uid land on the session
+    """
+    # Assert
+    assert debug_provider_session.session_uid == "session-1"
+    assert debug_provider_session.room_uid == "room-1"
 
 
 @pytest.mark.timeout(2)

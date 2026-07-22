@@ -65,9 +65,19 @@ INIT_TIMEOUT_SEC = 0.1
 PROVIDER_UID = "TEST_PROVIDER_UID"
 API_KEY = "secret-test-key-12345"
 SESSION_CONFIG = "SESSION_CONFIG"
+SESSION_UID = "session-1"
+ROOM_UID = "room-1"
 
 VALID_AUTH_MESSAGE = json.dumps({"type": "auth", "api_key": API_KEY})
 VALID_CONFIG_MESSAGE = json.dumps({"type": "config", "config": SESSION_CONFIG})
+VALID_CONFIG_MESSAGE_WITH_UIDS = json.dumps(
+    {
+        "type": "config",
+        "config": SESSION_CONFIG,
+        "session_uid": SESSION_UID,
+        "room_uid": ROOM_UID,
+    }
+)
 
 
 class MockTranscriptionSession(TranscriptionSessionInterface):
@@ -273,9 +283,33 @@ async def test_controller_handles_valid_config_message_after_authentication(
     # Act
     await controller._handle_text_message(VALID_CONFIG_MESSAGE)
 
+    # Assert - an older node server that sends no session_uid/room_uid still
+    # opens a session; the registry sees them as None.
+    mock_provider_registry.create_session.assert_called_once_with(
+        PROVIDER_UID, SESSION_CONFIG, None, None, mock_child_logger
+    )
+
+
+@pytest.mark.asyncio
+async def test_controller_forwards_session_and_room_uid_from_config_message(
+    controller: TranscriptionStreamController,
+    mock_auth_service: MagicMock,
+    mock_child_logger: MagicMock,
+    mock_provider_registry: MagicMock,
+):
+    """
+    Test that session_uid/room_uid on the config message reach the registry
+    """
+    # Arrange
+    mock_auth_service.is_authenticated.return_value = True
+    await controller._handle_text_message(VALID_AUTH_MESSAGE)
+
+    # Act
+    await controller._handle_text_message(VALID_CONFIG_MESSAGE_WITH_UIDS)
+
     # Assert
     mock_provider_registry.create_session.assert_called_once_with(
-        PROVIDER_UID, SESSION_CONFIG, mock_child_logger
+        PROVIDER_UID, SESSION_CONFIG, SESSION_UID, ROOM_UID, mock_child_logger
     )
 
 

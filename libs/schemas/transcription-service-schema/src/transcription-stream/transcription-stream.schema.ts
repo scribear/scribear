@@ -31,6 +31,10 @@ const TRANSCRIPTION_STREAM_SCHEMA = {
     Type.Object({
       type: Type.Literal(TranscriptionStreamClientMessageType.CONFIG),
       config: TranscriptionProviderConfigSchema,
+      // Identifies which session/room this connection belongs to. Optional
+      // so a transcription service that predates this field still validates.
+      session_uid: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+      room_uid: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     }),
   ]),
   allowServerBinaryMessage: false,

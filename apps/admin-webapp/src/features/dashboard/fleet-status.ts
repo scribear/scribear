@@ -3,12 +3,11 @@ import { useMemo } from 'react';
 import type { SessionSnapshot, SessionStatusEvent } from '#src/lib/admin-api';
 
 /**
- * `SessionSnapshot` carries no `roomUid` — node-server's telemetry is
- * per-session, not per-room, and a session has no durable link back to the
- * room that opened it (`PLAN-fleet-and-testaudio.md` §B.4's `RoomTelemetry` /
- * `roomUid` grouping predates the real B1.7 schema and doesn't exist on the
- * wire). The grid below is therefore session-centric: one card per
- * `sessionUid`, not per room.
+ * `SessionSnapshot.roomUid` is opaque telemetry, not a link to room-management
+ * data (`PLAN-fleet-and-testaudio.md` §B.4's `RoomTelemetry` grouping predates
+ * the real B1.7 schema and doesn't exist on the wire). The grid below is
+ * therefore still session-centric: one card per `sessionUid`, not per room -
+ * `roomUid` is surfaced and searchable on the card, not used to group it.
  */
 export type FleetStatus = 'good' | 'warn' | 'crit' | 'idle';
 
@@ -105,7 +104,9 @@ export function useFilteredSessions(
           (!filter.status?.length || filter.status.includes(r.status)) &&
           (!filter.providerKey ||
             r.session.providerKey === filter.providerKey) &&
-          (!t || r.session.sessionUid.toLowerCase().includes(t)),
+          (!t ||
+            r.session.sessionUid.toLowerCase().includes(t) ||
+            (r.session.roomUid?.toLowerCase().includes(t) ?? false)),
       )
       .sort(
         (a, b) =>

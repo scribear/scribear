@@ -33,11 +33,16 @@ class DebugProvider(TranscriptionProviderInterface):
             provider: "DebugProvider",
             logger: Logger,
             config: DebugSessionConfig,
+            session_uid: str | None,
+            room_uid: str | None,
         ):
             super().__init__()
             self._logger = logger
             self._config = config
             self._provider = provider
+            # Opaque; stored for a future consumer (Part 2), not read here.
+            self.session_uid = session_uid
+            self.room_uid = room_uid
 
             self._job = provider.worker_pool.register_job(
                 (), 1000, DebugProviderJob(self._config), provider.provider_key
@@ -107,9 +112,15 @@ class DebugProvider(TranscriptionProviderInterface):
         self.worker_pool = worker_pool
         self.provider_key = provider_key
 
-    def create_session(self, session_config: object, logger: Logger):
+    def create_session(
+        self,
+        session_config: object,
+        session_uid: str | None,
+        room_uid: str | None,
+        logger: Logger,
+    ):
         config = debug_session_config_adapter.validate_python(session_config)
-        return self._DebugSession(self, logger, config)
+        return self._DebugSession(self, logger, config, session_uid, room_uid)
 
     def cleanup_provider(self):
         pass
