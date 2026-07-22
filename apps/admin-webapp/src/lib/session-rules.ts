@@ -60,3 +60,36 @@ export function defaultRoomSelection(
   if (!hasMore && firstPage.length <= GRID_MAX_COLUMNS) return firstPage;
   return [];
 }
+
+export interface HourRangePreset {
+  label: string;
+  startHour: number;
+  endHour: number;
+}
+
+const DEFAULT_HOUR_RANGE: HourRangePreset = {
+  label: '8am–6pm',
+  startHour: 8,
+  endHour: 18,
+};
+
+/**
+ * Cycled by a single button on the calendar pages. Business hours first
+ * (closest to the grid's old fixed 7am-22:00 default), then the full day —
+ * add more presets here if a third granularity is ever needed, the cycling
+ * logic doesn't care how many there are.
+ */
+export const HOUR_RANGE_PRESETS: HourRangePreset[] = [
+  DEFAULT_HOUR_RANGE,
+  { label: '24h', startHour: 0, endHour: 24 },
+];
+
+/** Pure so the wraparound is unit-testable without mounting a component. */
+export function nextHourRangeIndex(currentIndex: number): number {
+  return (currentIndex + 1) % HOUR_RANGE_PRESETS.length;
+}
+
+/** `HOUR_RANGE_PRESETS[index]`, falling back to the default preset if `index` is out of range. */
+export function hourRangeAt(index: number): HourRangePreset {
+  return HOUR_RANGE_PRESETS[index] ?? DEFAULT_HOUR_RANGE;
+}

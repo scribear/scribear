@@ -4,10 +4,12 @@ import type { Room, Session } from '@scribear/session-manager-schema';
 
 import {
   GRID_MAX_COLUMNS,
+  HOUR_RANGE_PRESETS,
   canCancel,
   canEndEarly,
   canStartEarly,
   defaultRoomSelection,
+  nextHourRangeIndex,
   sessionTypeColor,
 } from '#src/lib/session-rules';
 
@@ -208,5 +210,23 @@ describe('defaultRoomSelection', () => {
       makeRoom({ uid: `room-${String(i)}` }),
     );
     expect(defaultRoomSelection(rooms, false)).toEqual([]);
+  });
+});
+
+describe('nextHourRangeIndex', () => {
+  it('advances to the next preset', () => {
+    expect(nextHourRangeIndex(0)).toBe(1);
+  });
+
+  it('wraps back to the first preset after the last', () => {
+    expect(nextHourRangeIndex(HOUR_RANGE_PRESETS.length - 1)).toBe(0);
+  });
+
+  it('cycles through every preset and back to the start', () => {
+    let index = 0;
+    for (let i = 0; i < HOUR_RANGE_PRESETS.length; i++) {
+      index = nextHourRangeIndex(index);
+    }
+    expect(index).toBe(0);
   });
 });

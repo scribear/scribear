@@ -21,6 +21,7 @@ import type { Room, Session } from '@scribear/session-manager-schema';
 import { NameWithUid } from '#src/components/name-with-uid';
 import { adminApi } from '#src/lib/admin-api';
 import { isApiErrorCode } from '#src/lib/api-error';
+import { hourRangeAt, nextHourRangeIndex } from '#src/lib/session-rules';
 import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
 
@@ -32,6 +33,7 @@ import {
   type CalendarColumn,
   SessionCalendarGrid,
 } from './session-calendar-grid';
+import { isOutsideHourWindow } from './session-calendar-grid.utils';
 
 type ViewMode = 'week' | 'day';
 
@@ -86,6 +88,7 @@ export const RoomCalendarPage = () => {
   );
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [hourRangeIndex, setHourRangeIndex] = useState(0);
 
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [windowDialogOpen, setWindowDialogOpen] = useState(false);
@@ -95,6 +98,10 @@ export const RoomCalendarPage = () => {
     view === 'day' ? startOfLocalDay(anchorDate) : startOfLocalWeek(anchorDate);
   const rangeDays = view === 'day' ? 1 : 7;
   const rangeEnd = new Date(rangeStart.getTime() + rangeDays * MS_PER_DAY);
+  const hourRange = hourRangeAt(hourRangeIndex);
+  const sessionsOutsideHours = sessions.filter((s) =>
+    isOutsideHourWindow(s, hourRange.startHour, hourRange.endHour),
+  ).length;
 
   const loadSessions = () => {
     if (roomUid === undefined) return;
@@ -302,12 +309,34 @@ export const RoomCalendarPage = () => {
           {rangeStart.toLocaleDateString()} –{' '}
           {new Date(rangeEnd.getTime() - MS_PER_DAY).toLocaleDateString()}
         </Typography>
+        <Button
+          size="small"
+          variant="outlined"
+          sx={{ ml: 'auto' }}
+          onClick={() => {
+            setHourRangeIndex((i) => nextHourRangeIndex(i));
+          }}
+        >
+          {hourRange.label}
+        </Button>
       </Stack>
 
       {isBeyondHorizon && (
         <Alert severity="info" sx={{ mb: 2 }}>
           Sessions are only materialized up to {MATERIALIZATION_HORIZON_DAYS}{' '}
           days out — this view may look sparse or empty beyond that point.
+        </Alert>
+      )}
+
+      {sessionsOutsideHours > 0 && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {sessionsOutsideHours}{' '}
+          {sessionsOutsideHours === 1 ? 'session' : 'sessions'} in this range{' '}
+          {sessionsOutsideHours === 1 ? 'falls' : 'fall'} outside the visible{' '}
+          {hourRange.label} window and{' '}
+          {sessionsOutsideHours === 1 ? "isn't" : "aren't"} fully shown below —
+          switch the hour range button above to see{' '}
+          {sessionsOutsideHours === 1 ? 'it' : 'them'}.
         </Alert>
       )}
 
@@ -354,6 +383,8 @@ export const RoomCalendarPage = () => {
               ? (columns[0]?.key ?? '')
               : localDateKey(new Date(s.effectiveStart))
           }
+          dayStartHour={hourRange.startHour}
+          dayEndHour={hourRange.endHour}
           onSessionClick={(s) => {
             void navigate(`/sessions/${s.uid}`);
           }}

@@ -18,7 +18,12 @@ import type { Session } from '@scribear/session-manager-schema';
 
 import { adminApi } from '#src/lib/admin-api';
 import { isApiErrorCode } from '#src/lib/api-error';
-import { GRID_MAX_COLUMNS, defaultRoomSelection } from '#src/lib/session-rules';
+import {
+  GRID_MAX_COLUMNS,
+  defaultRoomSelection,
+  hourRangeAt,
+  nextHourRangeIndex,
+} from '#src/lib/session-rules';
 import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
 import { useSelectedRooms } from '#src/lib/use-selected-rooms';
@@ -29,6 +34,7 @@ import {
   type CalendarColumn,
   SessionCalendarGrid,
 } from './session-calendar-grid';
+import { isOutsideHourWindow } from './session-calendar-grid.utils';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -49,6 +55,7 @@ export const SessionsOverviewPage = () => {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [misconfigured, setMisconfigured] = useState(false);
+  const [hourRangeIndex, setHourRangeIndex] = useState(0);
 
   const rangeStart = startOfLocalDay(anchorDate);
   const rangeEnd = new Date(rangeStart.getTime() + MS_PER_DAY);
@@ -56,6 +63,14 @@ export const SessionsOverviewPage = () => {
   const selectedRoomsKey = selectedRoomUids.join(',');
   const rangeStartMs = rangeStart.getTime();
   const rangeEndMs = rangeEnd.getTime();
+  const hourRange = hourRangeAt(hourRangeIndex);
+  const isGridMode =
+    selectedRooms.length > 0 && selectedRooms.length <= GRID_MAX_COLUMNS;
+  const sessionsOutsideHours = isGridMode
+    ? sessions.filter((s) =>
+        isOutsideHourWindow(s, hourRange.startHour, hourRange.endHour),
+      ).length
+    : 0;
 
   // On first load with no persisted selection, default to "show everything"
   // for small deployments, or nothing for large ones (§4.5) — run once.
@@ -192,7 +207,31 @@ export const SessionsOverviewPage = () => {
         <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
           {rangeStart.toLocaleDateString()}
         </Typography>
+        {isGridMode && (
+          <Button
+            size="small"
+            variant="outlined"
+            sx={{ ml: 'auto' }}
+            onClick={() => {
+              setHourRangeIndex((i) => nextHourRangeIndex(i));
+            }}
+          >
+            {hourRange.label}
+          </Button>
+        )}
       </Stack>
+
+      {sessionsOutsideHours > 0 && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {sessionsOutsideHours}{' '}
+          {sessionsOutsideHours === 1 ? 'session' : 'sessions'} today{' '}
+          {sessionsOutsideHours === 1 ? 'falls' : 'fall'} outside the visible{' '}
+          {hourRange.label} window and{' '}
+          {sessionsOutsideHours === 1 ? "isn't" : "aren't"} fully shown below —
+          switch the hour range button above to see{' '}
+          {sessionsOutsideHours === 1 ? 'it' : 'them'}.
+        </Alert>
+      )}
 
       {selectedRooms.length === 0 ? (
         <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
@@ -204,11 +243,13 @@ export const SessionsOverviewPage = () => {
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
           <CircularProgress size={28} />
         </Box>
-      ) : selectedRooms.length <= GRID_MAX_COLUMNS ? (
+      ) : isGridMode ? (
         <SessionCalendarGrid
           columns={columns}
           sessions={sessions}
           getColumnKeyForSession={(s) => s.roomUid}
+          dayStartHour={hourRange.startHour}
+          dayEndHour={hourRange.endHour}
           onSessionClick={(s) => {
             void navigate(`/sessions/${s.uid}`);
           }}

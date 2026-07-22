@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import type { Session } from '@scribear/session-manager-schema';
 
-import { computeBlockPosition } from '#src/features/sessions/session-calendar-grid.utils';
+import {
+  computeBlockPosition,
+  isOutsideHourWindow,
+} from '#src/features/sessions/session-calendar-grid.utils';
 
 /**
  * ISO instant for 2026-06-03 at the given local hour:minute, built from
@@ -93,5 +96,55 @@ describe('computeBlockPosition', () => {
     const pos = computeBlockPosition(session, 7, 22);
     expect(pos).not.toBeNull();
     expect(pos?.topPct).toBeCloseTo((2 / 15) * 100);
+  });
+});
+
+describe('isOutsideHourWindow', () => {
+  it('returns false for a session fully within the window', () => {
+    const session = makeSession({
+      scheduledStartTime: localTimeIso(9),
+      scheduledEndTime: localTimeIso(10),
+    });
+    expect(isOutsideHourWindow(session, 7, 22)).toBe(false);
+  });
+
+  it('returns true for a session entirely outside the window', () => {
+    const session = makeSession({
+      scheduledStartTime: localTimeIso(1),
+      scheduledEndTime: localTimeIso(2),
+    });
+    expect(isOutsideHourWindow(session, 7, 22)).toBe(true);
+  });
+
+  it('returns true for a session starting before the window (clipped)', () => {
+    const session = makeSession({
+      scheduledStartTime: localTimeIso(5),
+      scheduledEndTime: localTimeIso(8),
+    });
+    expect(isOutsideHourWindow(session, 7, 22)).toBe(true);
+  });
+
+  it('returns true for a session ending after the window (clipped)', () => {
+    const session = makeSession({
+      scheduledStartTime: localTimeIso(21),
+      scheduledEndTime: localTimeIso(23),
+    });
+    expect(isOutsideHourWindow(session, 7, 22)).toBe(true);
+  });
+
+  it('returns false for an open-ended session that starts within the window', () => {
+    const session = makeSession({
+      scheduledStartTime: localTimeIso(20),
+      scheduledEndTime: null,
+    });
+    expect(isOutsideHourWindow(session, 7, 22)).toBe(false);
+  });
+
+  it('returns false for anything under the 24h window', () => {
+    const session = makeSession({
+      scheduledStartTime: localTimeIso(1),
+      scheduledEndTime: localTimeIso(2),
+    });
+    expect(isOutsideHourWindow(session, 0, 24)).toBe(false);
   });
 });
