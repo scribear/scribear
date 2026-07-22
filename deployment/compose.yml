@@ -101,6 +101,10 @@ services:
       NODE_SERVER_BASE_URL: http://node-server:80
       TRANSCRIPTION_SERVICE_BASE_URL: http://transcription-service:80
       HEALTH_CHECK_TIMEOUT_SEC: ${ADMIN_HEALTH_TIMEOUT_SEC:-3}
+      # Fleet telemetry (B1.7 §2.5). Empty disables GET /api/admin/v1/fleet
+      # (503 TELEMETRY_UNAVAILABLE) without affecting the /health rollup
+      # above, which is a separate, always-on data path.
+      REDIS_URL: ${ADMIN_REDIS_URL:-}
       ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET}
       ADMIN_LOCAL_CREDENTIALS: ${ADMIN_LOCAL_CREDENTIALS}
       DB_HOST: scribear-db

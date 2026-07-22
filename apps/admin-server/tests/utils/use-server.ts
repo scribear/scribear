@@ -26,6 +26,7 @@ export interface TestAppConfigOverrides {
   rateLimitConfig?: Partial<AppConfig['rateLimitConfig']>;
   dbClientConfig?: Partial<AppConfig['dbClientConfig']>;
   healthCheckerConfig?: Partial<AppConfig['healthCheckerConfig']>;
+  fleetTelemetryConfig?: Partial<AppConfig['fleetTelemetryConfig']>;
   cookieSecret?: string;
 }
 
@@ -98,6 +99,12 @@ export function buildTestAppConfig(
       ...overrides.healthCheckerConfig,
     },
     dbClientConfig: { ...dbConfig, ...overrides.dbClientConfig },
+    // Disabled by default, like a deployment that predates B1.7 — tests that
+    // exercise the fleet backplane pass the real container's URL explicitly.
+    fleetTelemetryConfig: {
+      redisUrl: '',
+      ...overrides.fleetTelemetryConfig,
+    },
     cookieSecret: overrides.cookieSecret ?? TEST_COOKIE_SECRET,
   } as unknown as AppConfig;
 }

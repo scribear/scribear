@@ -8,6 +8,7 @@ import type { AdminDbClientConfig } from '#src/db/admin-db-client.js';
 import type { HealthCheckerConfig } from '#src/server/features/health/health.service.js';
 import type { RateLimitConfig } from '#src/server/plugins/rate-limit.plugin.js';
 import type { AzureAuthConfig } from '#src/server/shared/services/azure-oidc-auth.service.js';
+import type { FleetTelemetryConfig } from '#src/server/shared/services/fleet-telemetry.service.js';
 import type { LocalAuthConfig } from '#src/server/shared/services/local-auth.service.js';
 import type { SessionManagerGatewayConfig } from '#src/server/shared/services/session-manager-gateway.service.js';
 import type { SessionConfig } from '#src/server/shared/services/session.service.js';
@@ -33,6 +34,11 @@ const CONFIG_SCHEMA = Type.Object({
   // Per-component, and the components are checked concurrently, so this is
   // also the worst case for the whole rollup. Kept short: an admin is waiting.
   HEALTH_CHECK_TIMEOUT_SEC: Type.Integer({ minimum: 1, default: 3 }),
+
+  // Fleet telemetry backplane (B1.7 §2.5). Defaulted, unlike the URLs above:
+  // an unset value means this deployment predates B1.7 or has not opted in,
+  // and /fleet answers 503 rather than the BFF failing to boot.
+  REDIS_URL: Type.String({ default: '' }),
 
   // Session cookie signing + lifetimes
   ADMIN_SESSION_SECRET: Type.String({ minLength: 32 }),
@@ -109,6 +115,15 @@ export class AppConfig {
         },
       ],
     };
+  }
+
+  /**
+   * Fleet telemetry backplane (B1.7 §2.5). Off unless `REDIS_URL` is set —
+   * `FleetTelemetryService` opens no connection and `/fleet` answers 503
+   * `TELEMETRY_UNAVAILABLE` when it is empty.
+   */
+  get fleetTelemetryConfig(): FleetTelemetryConfig {
+    return { redisUrl: this._env.REDIS_URL };
   }
 
   get sessionManagerGatewayConfig(): SessionManagerGatewayConfig {

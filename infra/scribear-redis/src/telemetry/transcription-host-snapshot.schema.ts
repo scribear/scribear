@@ -1,4 +1,5 @@
 import { Type } from 'typebox';
+import type { Static } from 'typebox';
 
 import { SNAPSHOT_ENVELOPE_PROPERTIES } from './snapshot-envelope.schema.js';
 
@@ -32,6 +33,9 @@ export const TRANSCRIPTION_WORKER_SCHEMA = Type.Object({
       'False once the OS process is gone. A worker that dies after startup is otherwise invisible - jobs already registered to it neither return nor raise (B1.3).',
   }),
 });
+
+/** One worker process. @see {@link TRANSCRIPTION_WORKER_SCHEMA} */
+export type TranscriptionWorker = Static<typeof TRANSCRIPTION_WORKER_SCHEMA>;
 
 /**
  * Health of one configured transcription provider on one host.
@@ -82,6 +86,9 @@ export const PROVIDER_HEALTH_SCHEMA = Type.Object({
   }),
 });
 
+/** Health of one provider on one host. @see {@link PROVIDER_HEALTH_SCHEMA} */
+export type ProviderHealth = Static<typeof PROVIDER_HEALTH_SCHEMA>;
+
 /**
  * One Transcription Service host as published to the backplane: its entire
  * `GET /providers/health` body plus the snapshot envelope.
@@ -120,3 +127,11 @@ export const TRANSCRIPTION_HOST_SNAPSHOT_SCHEMA = Type.Object({
     description: 'Keyed by configured provider key, verbatim.',
   }),
 });
+
+/**
+ * One Transcription Service host's published record.
+ * @see {@link TRANSCRIPTION_HOST_SNAPSHOT_SCHEMA}
+ */
+export type TranscriptionHostSnapshot = Static<
+  typeof TRANSCRIPTION_HOST_SNAPSHOT_SCHEMA
+>;
