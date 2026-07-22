@@ -114,6 +114,31 @@ export function transcriptionHostSnapshotKey(
 }
 
 /**
+ * Index of sessions whose audio-level stats (B2.1) have been published
+ * recently.
+ *
+ * Member is `sessionUid`, score is the publish time. A distinct index from
+ * `SESSION_INDEX_KEY`: that one is populated by Node Server from its own
+ * session snapshots, this one by Transcription Service from
+ * `RedisSessionAudioPublisher`, and the two publishers do not coordinate.
+ */
+export const TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY = `${TELEMETRY_NAMESPACE}:transcription-sessions-audio:index`;
+
+/**
+ * One live session's most recent audio-level metering readout, written by
+ * whichever Transcription Service worker most recently processed audio for
+ * it.
+ *
+ * Value is a `SessionAudioSnapshot`. Deliberately a distinct key family from
+ * `sessionSnapshotKey` (owned by Node Server, a different payload) even
+ * though both are keyed by the same `sessionUid` - see
+ * `session-audio-snapshot.schema.ts`.
+ */
+export function transcriptionSessionAudioKey(sessionUid: string): string {
+  return `${TELEMETRY_NAMESPACE}:audio:${sessionUid}`;
+}
+
+/**
  * Pub/sub channel for sub-second fleet deltas (B1.7 §2.5), e.g. a session's
  * connectivity changing between Node Server heartbeats. Unlike every key
  * above, this is not a snapshot-plus-index: a message here is delivered only

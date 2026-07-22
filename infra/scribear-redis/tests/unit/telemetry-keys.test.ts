@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  AUDIO_STATS_MIN_PUBLISH_INTERVAL_MS,
+  AUDIO_STATS_TTL_MS,
   FLEET_EVENTS_CHANNEL_KEY,
   NODE_HEARTBEAT_MS,
   NODE_INDEX_KEY,
@@ -10,10 +12,12 @@ import {
   TRANSCRIPTION_HOST_HEARTBEAT_MS,
   TRANSCRIPTION_HOST_INDEX_KEY,
   TRANSCRIPTION_HOST_TTL_MS,
+  TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
   nodeSnapshotKey,
   sessionRouteKey,
   sessionSnapshotKey,
   transcriptionHostSnapshotKey,
+  transcriptionSessionAudioKey,
 } from '#src/index.js';
 
 /** Every key family, with a representative key for the parameterised ones. */
@@ -21,11 +25,13 @@ const ALL_KEYS = [
   NODE_INDEX_KEY,
   SESSION_INDEX_KEY,
   TRANSCRIPTION_HOST_INDEX_KEY,
+  TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
   FLEET_EVENTS_CHANNEL_KEY,
   nodeSnapshotKey('node-a'),
   sessionSnapshotKey('a4f1'),
   sessionRouteKey('a4f1'),
   transcriptionHostSnapshotKey('gpu-1'),
+  transcriptionSessionAudioKey('a4f1'),
 ];
 
 describe('telemetry key layout', () => {
@@ -55,11 +61,13 @@ describe('telemetry key layout', () => {
       sessionSnapshotKey(''),
       sessionRouteKey(''),
       transcriptionHostSnapshotKey(''),
+      transcriptionSessionAudioKey(''),
     ];
     const indexKeys = [
       NODE_INDEX_KEY,
       SESSION_INDEX_KEY,
       TRANSCRIPTION_HOST_INDEX_KEY,
+      TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
     ];
 
     // Assert
@@ -78,6 +86,9 @@ describe('telemetry key layout', () => {
     expect(nodeSnapshotKey('one')).not.toBe(nodeSnapshotKey('two'));
     expect(transcriptionHostSnapshotKey('one')).not.toBe(
       transcriptionHostSnapshotKey('two'),
+    );
+    expect(transcriptionSessionAudioKey('one')).not.toBe(
+      transcriptionSessionAudioKey('two'),
     );
   });
 
@@ -98,6 +109,9 @@ describe('telemetry timing', () => {
     expect(
       TRANSCRIPTION_HOST_TTL_MS / TRANSCRIPTION_HOST_HEARTBEAT_MS,
     ).toBeGreaterThanOrEqual(3);
+    expect(
+      AUDIO_STATS_TTL_MS / AUDIO_STATS_MIN_PUBLISH_INTERVAL_MS,
+    ).toBeGreaterThanOrEqual(3);
   });
 
   it('should keep every interval positive', () => {
@@ -107,6 +121,8 @@ describe('telemetry timing', () => {
       NODE_TTL_MS,
       TRANSCRIPTION_HOST_HEARTBEAT_MS,
       TRANSCRIPTION_HOST_TTL_MS,
+      AUDIO_STATS_MIN_PUBLISH_INTERVAL_MS,
+      AUDIO_STATS_TTL_MS,
     ]) {
       expect(ms).toBeGreaterThan(0);
     }

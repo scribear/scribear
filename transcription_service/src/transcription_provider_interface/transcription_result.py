@@ -4,6 +4,8 @@ Defines TranscriptionResult data class
 
 from dataclasses import dataclass, field
 
+from src.shared.utils.audio_meter import AudioLevelStats
+
 from .transcription_sequence import TranscriptionSequence
 
 
@@ -40,3 +42,10 @@ class TranscriptionResult:
     # chunk ids.
     final_chunk_ids: list[str] = field(default_factory=list)
     in_progress_chunk_ids: list[str] = field(default_factory=list)
+
+    # Audio-level meter readout (B2.1) - Whisper-provider-specific, computed
+    # inside the worker process and carried out on the result the same way
+    # final_chunk_ids/in_progress_chunk_ids are. None for providers that
+    # don't meter audio (debug, lumen_granite) and for Whisper itself until
+    # its meter's rolling window has received its first samples.
+    audio_stats: AudioLevelStats | None = None

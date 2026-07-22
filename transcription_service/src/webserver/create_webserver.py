@@ -13,6 +13,7 @@ from .features.metrics import metrics_router
 from .features.probes import probes_router
 from .features.providers import providers_router
 from .features.telemetry import (
+    RedisSessionAudioPublisher,
     RedisTelemetryPublisher,
     create_telemetry_redis_client,
 )
@@ -54,6 +55,23 @@ def create_webserver(config: Config, logger: Logger):
         provider_registry, process_identity
     )
 
+    # Process-singleton, shared by every /transcription_stream connection -
+    # not one per connection. Unlike the host-level publisher above this has
+    # no beat to start (it is push-based, triggered by results arriving), so
+    # it can be constructed here rather than inside the lifespan hook; the
+    # `redis.asyncio` client it holds does not connect until its first
+    # command, so nothing here needs a running event loop yet either. Off
+    # entirely when no backplane is configured, same as the host publisher.
+    audio_publisher = (
+        RedisSessionAudioPublisher(
+            create_telemetry_redis_client(config.redis_url),
+            logger,
+            config.transcription_host_id,
+        )
+        if config.redis_url
+        else None
+    )
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         """
@@ -89,6 +107,9 @@ def create_webserver(config: Config, logger: Logger):
         if telemetry_publisher is not None:
             await telemetry_publisher.stop()
 
+        if audio_publisher is not None:
+            await audio_publisher.aclose()
+
         # Cleanup the provider registry (worker pool, providers) on app exit
         provider_registry.shutdown()
 
@@ -107,7 +128,12 @@ def create_webserver(config: Config, logger: Logger):
     )
     app.include_router(
         transcription_stream_router(
-            config, logger, auth_service, provider_registry, metrics_registry
+            config,
+            logger,
+            auth_service,
+            provider_registry,
+            metrics_registry,
+            audio_publisher,
         )
     )
 

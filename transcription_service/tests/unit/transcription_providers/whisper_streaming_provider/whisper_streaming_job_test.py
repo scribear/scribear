@@ -6,7 +6,17 @@ time maps to, and ledger pruning) without invoking the Whisper model.
 
 # pylint: disable=protected-access
 
-from src.transcription_provider_interface import TranscriptionSequence
+import io
+import logging
+from unittest.mock import MagicMock
+
+import numpy as np
+import soundfile as sf
+
+from src.transcription_provider_interface import (
+    AudioChunkPayload,
+    TranscriptionSequence,
+)
 from src.transcription_providers.whisper_streaming_provider.whisper_streaming_config import (
     WhisperStreamingProviderConfig,
 )
@@ -102,3 +112,38 @@ def test_build_result_without_timestamps_yields_no_chunk_ids():
 
     assert not result.final_chunk_ids
     assert not result.in_progress_chunk_ids
+
+
+def _wav_chunk(seconds: float, chunk_id: str = "a") -> AudioChunkPayload:
+    """Wrap `seconds` of silence as a mono 16-bit WAV chunk payload."""
+    samples = np.zeros(int(SAMPLE_RATE * seconds), dtype=np.float32)
+    buf = io.BytesIO()
+    sf.write(buf, samples, SAMPLE_RATE, format="WAV", subtype="PCM_16")
+    return AudioChunkPayload(chunk_id=chunk_id, audio_bytes=buf.getvalue())
+
+
+def test_build_result_has_no_audio_stats_before_any_audio_decoded():
+    """The meter has not seen any samples yet, so audio_stats stays None."""
+    job = make_job()
+    job._chunk_ledger = _one_second_ledger()
+
+    result = job._build_result(None, None)
+
+    assert result.audio_stats is None
+
+
+def test_process_batch_populates_audio_stats():
+    """
+    TranscriptionResult.audio_stats is populated after process_batch runs on
+    real (minimally-synthesized) audio - the meter fed the same decoded
+    samples _decode_audio already appends to the transcription buffer with.
+    """
+    job = make_job()
+    log = MagicMock(spec=logging.Logger)
+    whisper = MagicMock()
+    whisper.transcribe.return_value = ([], None)
+
+    result = job.process_batch(log, (whisper, MagicMock()), [_wav_chunk(0.5)])
+
+    assert result.audio_stats is not None
+    assert result.audio_stats.silence is True  # the chunk is silence

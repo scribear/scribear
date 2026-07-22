@@ -7,8 +7,10 @@ import {
 } from '@scribear/node-server-schema';
 
 import {
+  AUDIO_LEVEL_STATS_SCHEMA,
   NODE_SNAPSHOT_SCHEMA,
   PROVIDER_HEALTH_SCHEMA,
+  SESSION_AUDIO_SNAPSHOT_SCHEMA,
   SESSION_SNAPSHOT_SCHEMA,
   TRANSCRIPTION_HOST_SNAPSHOT_SCHEMA,
   TRANSCRIPTION_WORKER_SCHEMA,
@@ -176,6 +178,82 @@ describe('transcription host snapshot schema', () => {
         without(HOST_SNAPSHOT, 'updatedAt'),
       ),
     ).toBe(false);
+  });
+});
+
+describe('session audio snapshot schema', () => {
+  /**
+   * A record exactly as `RedisSessionAudioPublisher` publishes one, nulls and
+   * all. Kept literal rather than built from a helper, for the same reason
+   * `HOST_SNAPSHOT` is: its job is to fail if the publisher's shape and this
+   * schema ever diverge.
+   */
+  const SESSION_AUDIO = {
+    rmsDbfs: -18.4,
+    peakDbfs: -6.2,
+    clippingPct: 0,
+    silence: false,
+    noiseFloorDbfs: -42.1,
+    sessionUid: 'session-1',
+    roomUid: 'room-1',
+    transcriptionHost: 'gpu-1',
+    updatedAt: 1_731_970_000_123,
+  };
+
+  it('should accept a full session audio snapshot', () => {
+    // Assert
+    expect(Value.Check(SESSION_AUDIO_SNAPSHOT_SCHEMA, SESSION_AUDIO)).toBe(
+      true,
+    );
+  });
+
+  it('should reject a snapshot with a null transcriptionHost', () => {
+    // Assert - every host publishes under its own transcription_host_id
+    // (config-derived, defaults to hostname), so there is no case where a
+    // publish happens without one, unlike roomUid.
+    expect(
+      Value.Check(SESSION_AUDIO_SNAPSHOT_SCHEMA, {
+        ...SESSION_AUDIO,
+        transcriptionHost: null,
+      }),
+    ).toBe(false);
+  });
+
+  it('should accept a snapshot with no roomUid', () => {
+    // Assert - an older node-server peer, or a session opened before the
+    // CONFIG message carried it.
+    expect(
+      Value.Check(SESSION_AUDIO_SNAPSHOT_SCHEMA, {
+        ...SESSION_AUDIO,
+        roomUid: null,
+      }),
+    ).toBe(true);
+  });
+
+  it('should reject a snapshot missing a stats field', () => {
+    // Assert
+    expect(
+      Value.Check(
+        SESSION_AUDIO_SNAPSHOT_SCHEMA,
+        without(SESSION_AUDIO, 'silence'),
+      ),
+    ).toBe(false);
+  });
+
+  it('should reject a stats-only payload with no envelope', () => {
+    // Assert - AUDIO_LEVEL_STATS_SCHEMA alone accepts just the meter fields.
+    const { rmsDbfs, peakDbfs, clippingPct, silence, noiseFloorDbfs } =
+      SESSION_AUDIO;
+    const statsOnly = {
+      rmsDbfs,
+      peakDbfs,
+      clippingPct,
+      silence,
+      noiseFloorDbfs,
+    };
+
+    expect(Value.Check(AUDIO_LEVEL_STATS_SCHEMA, statsOnly)).toBe(true);
+    expect(Value.Check(SESSION_AUDIO_SNAPSHOT_SCHEMA, statsOnly)).toBe(false);
   });
 });
 

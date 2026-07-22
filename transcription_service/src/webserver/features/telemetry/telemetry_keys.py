@@ -63,3 +63,43 @@ def transcription_host_snapshot_key(transcription_host: str) -> str:
     namespace.
     """
     return f"{TELEMETRY_NAMESPACE}:ts:{transcription_host}"
+
+
+# How often a session's audio-level stats may be republished, in seconds.
+#
+# Provisional - matches node-server's per-session heartbeat cadence
+# (NODE_HEARTBEAT_MS) as a starting point, not independently validated for
+# this payload. There is no existing budget in this repo for how often an
+# audio-level readout needs to refresh; revisit if write volume (this is a
+# per-session key, not per-host) or staleness becomes a real problem.
+AUDIO_STATS_MIN_PUBLISH_INTERVAL_SEC = 2.0
+
+# Expiry on a session's audio-stats key, in milliseconds.
+#
+# Same "five heartbeats" rule as TRANSCRIPTION_HOST_TTL_MS: tolerates four
+# consecutive missed publishes before a live session's audio stats age out of
+# the dashboard, while a session that actually closed disappears within
+# seconds.
+AUDIO_STATS_TTL_MS = int(AUDIO_STATS_MIN_PUBLISH_INTERVAL_SEC * 1000) * 5
+
+# Index of sessions whose audio stats have been published recently. Member is
+# the session_uid, score is the publish time in epoch milliseconds.
+TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY = (
+    f"{TELEMETRY_NAMESPACE}:transcription-sessions-audio:index"
+)
+
+
+def transcription_session_audio_key(session_uid: str) -> str:
+    """
+    Builds the snapshot key for one live session's audio-level stats
+
+    Args:
+        session_uid - Opaque session identifier the caller supplied
+
+    Returns:
+        `scribe:v1:audio:{sessionUid}` - deliberately a distinct key family
+        from node-server's `scribe:v1:session:{sessionUid}` (owned by
+        node-server, a different payload), even though both are keyed by the
+        same session_uid.
+    """
+    return f"{TELEMETRY_NAMESPACE}:audio:{session_uid}"

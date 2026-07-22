@@ -20,6 +20,7 @@ from src.transcription_provider_interface import (
     TranscriptionClientError,
     TranscriptionResult,
 )
+from src.webserver.features.telemetry import RedisSessionAudioPublisher
 from src.webserver.shared.auth_service import AuthService
 from src.webserver.shared.metrics import MetricsRegistry
 from src.webserver.shared.transcription_provider_registry import (
@@ -62,6 +63,7 @@ class TranscriptionStreamController(WebsocketHandler):
         metrics_registry: MetricsRegistry,
         provider_key: str,
         ws: WebSocket,
+        audio_publisher: RedisSessionAudioPublisher | None = None,
     ):
         """
         Args:
@@ -72,6 +74,9 @@ class TranscriptionStreamController(WebsocketHandler):
             metrics_registry    - Process-singleton telemetry store
             provider_key        - Provider key requested by websocket
             ws                  - Websocket to manage
+            audio_publisher      - Process-singleton publisher of per-session
+                                     audio-level stats, or None when no
+                                     telemetry backplane is configured
         """
         super().__init__(logger, ws)
 
@@ -79,9 +84,12 @@ class TranscriptionStreamController(WebsocketHandler):
         self._provider_registry = provider_registry
         self._metrics_registry = metrics_registry
         self._provider_key = provider_key
+        self._audio_publisher = audio_publisher
 
         self._service: TranscriptionStreamService | None = None
         self._is_authenticated = False
+        self._session_uid: str | None = None
+        self._room_uid: str | None = None
         self._timeout_task = asyncio.create_task(
             self._init_timeout(config.ws_init_timeout_sec)
         )
@@ -127,6 +135,9 @@ class TranscriptionStreamController(WebsocketHandler):
             self.close(1008, "Unexpected Config Message")
             return
 
+        self._session_uid = session_uid
+        self._room_uid = room_uid
+
         service = TranscriptionStreamService(
             self._logger,
             self._provider_registry,
@@ -138,6 +149,7 @@ class TranscriptionStreamController(WebsocketHandler):
         service.on(
             service.TranscriptionResultEvent, self._handle_transcription_result
         )
+        service.on(service.TranscriptionResultEvent, self._handle_audio_stats)
         service.on(service.TranscriptionErrorEvent, self._handle_error)
         service.start()
         self._service = service
@@ -170,6 +182,23 @@ class TranscriptionStreamController(WebsocketHandler):
                 final_chunk_ids=result.final_chunk_ids or None,
                 in_progress_chunk_ids=result.in_progress_chunk_ids or None,
             )
+        )
+
+    def _handle_audio_stats(self, result: TranscriptionResult):
+        """
+        Forward a result's audio-level stats to the fleet telemetry backplane
+
+        A second listener on the same event `_handle_transcription_result`
+        subscribes to, kept separate rather than folded into that handler:
+        WS-serialization and telemetry-publishing are independent concerns
+        that happen to react to the same event, matching this codebase's
+        existing separation between a join (`ProviderHealthSnapshotService`)
+        and its publisher.
+        """
+        if self._audio_publisher is None or result.audio_stats is None:
+            return
+        self._audio_publisher.publish(
+            self._session_uid, self._room_uid, result.audio_stats
         )
 
     async def _handle_text_message(self, message: str):
@@ -221,6 +250,8 @@ class TranscriptionStreamController(WebsocketHandler):
         self._timeout_task.cancel()
         if self._service is not None:
             self._service.close()
+        if self._audio_publisher is not None:
+            self._audio_publisher.forget(self._session_uid)
 
         self._logger.info(
             "Websocket closed", context={"code": code, "reason": reason}

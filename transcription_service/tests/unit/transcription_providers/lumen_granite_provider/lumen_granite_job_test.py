@@ -147,6 +147,22 @@ def test_window_resets_after_commit(log, mocker):
     assert result.in_progress_chunk_ids == ["second"]
 
 
+def test_audio_stats_is_not_populated(log, mocker):
+    """
+    audio_stats is Whisper-provider-specific (B2.1); lumen_granite never sets
+    it, so it stays at TranscriptionResult's default of None.
+    """
+    mocker.patch(
+        POST_TARGET,
+        return_value=fake_response(json_body={"text": "hello world"}),
+    )
+    job = LumenGraniteProviderJob(make_config())
+
+    result = job.process_batch(log, (), [chunk(2.0, "c1")])
+
+    assert result.audio_stats is None
+
+
 def test_bad_audio_raises_client_error(log, mocker):
     """A sample-rate mismatch surfaces as a client error, not a crash."""
     mocker.patch(POST_TARGET)

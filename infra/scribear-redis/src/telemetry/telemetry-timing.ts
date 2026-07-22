@@ -43,3 +43,19 @@ export const TRANSCRIPTION_HOST_HEARTBEAT_MS = 5000;
 
 /** Expiry on Transcription Service host keys. */
 export const TRANSCRIPTION_HOST_TTL_MS = 5 * TRANSCRIPTION_HOST_HEARTBEAT_MS;
+
+/**
+ * Minimum interval between audio-level stats (B2.1) publishes for the same
+ * session.
+ *
+ * Provisional - matches NODE_HEARTBEAT_MS as a starting point, not
+ * independently validated for this payload. Unlike the periods above this is
+ * not a beat: `RedisSessionAudioPublisher` is push-based, triggered by
+ * results arriving rather than a timer, so this is a per-session throttle
+ * (the minimum gap between writes) rather than a fixed schedule. Revisit if
+ * write volume or staleness becomes a real problem.
+ */
+export const AUDIO_STATS_MIN_PUBLISH_INTERVAL_MS = 2000;
+
+/** Expiry on session audio-stats keys. */
+export const AUDIO_STATS_TTL_MS = 5 * AUDIO_STATS_MIN_PUBLISH_INTERVAL_MS;

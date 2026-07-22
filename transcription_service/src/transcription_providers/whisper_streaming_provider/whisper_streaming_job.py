@@ -6,10 +6,10 @@ import numpy as np
 
 from src.shared.logger import Logger
 from src.shared.utils.audio_decoder import AudioDecoder, TargetFormat
+from src.shared.utils.audio_meter import AudioMeter
 from src.shared.utils.local_agree import LocalAgree, TranscriptionSegment
 from src.shared.utils.np_circular_buffer import NPCircularBuffer
 from src.shared.utils.repeated_segment_detector import RepeatedSegmentDetector
-from src.shared.utils.silence_filter import RMSSilenceDetection
 from src.shared.utils.worker_pool import JobInterface
 from src.transcription_contexts.faster_whisper_context import WhisperModel
 from src.transcription_contexts.silero_vad_context import SileroVadModelType
@@ -78,12 +78,18 @@ class WhisperStreamingProviderJob(
             config.no_speech_prob_guard_threshold
         )
 
-        # Pure_silence detector:
+        # Pure-silence threshold, handed straight to
+        # whisper.transcribe(hallucination_silence_threshold=...) below.
         self._silence_threshold = config.silence_threshold
-        self._silence_detector = RMSSilenceDetection(
-            sample_rate=SAMPLE_RATE,
-            default_silence_threshold=self._silence_threshold,
-            mix_to_mono=True,
+
+        # Independent 10s-wall-clock audio-level meter (B2.1) - RMS/peak
+        # dBFS, clipping, silence, noise floor. Deliberately its own window,
+        # not self._buffer: that buffer's size and purge schedule are driven
+        # by transcription progress (max_buffer_len_sec, force-finalization),
+        # not wall-clock time, so it cannot answer "what does the last 10s of
+        # audio look like".
+        self._meter = AudioMeter(
+            sample_rate=SAMPLE_RATE, silence_threshold=self._silence_threshold
         )
 
         # Silero_VAD detector config:
@@ -119,6 +125,7 @@ class WhisperStreamingProviderJob(
                 }
             )
             extra = self._buffer.append(samples)
+            self._meter.append(samples)
             self._total_decoded_samples += num_samples
             self._counters.inc(
                 TranscriptionJobCounter.AUDIO_SECONDS_DECODED,
@@ -300,6 +307,7 @@ class WhisperStreamingProviderJob(
             in_progress_chunk_ids=self._extract_chunk_ids_for_time(
                 in_progress_end_time
             ),
+            audio_stats=self._meter.snapshot(),
         )
 
     def _append_sequence(
