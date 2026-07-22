@@ -32,10 +32,13 @@ import { useNavigate } from 'react-router-dom';
 import type { Device } from '@scribear/session-manager-schema';
 
 import { ActivationCodeDisplay } from '#src/components/activation-code-display';
+import { NameWithUid } from '#src/components/name-with-uid';
 import type { RegisterDeviceResult } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
+import { useRoomNameLookup } from '#src/lib/use-room-name-lookup';
 
 const PAGE_LIMIT = 25;
 
@@ -155,6 +158,8 @@ const RegisterDeviceDialog = ({
 export const DevicesListPage = () => {
   const navigate = useNavigate();
   const { showError } = useToast();
+  const { showUuids } = useSettings();
+  const roomNames = useRoomNameLookup();
   const [devices, setDevices] = useState<Device[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -241,6 +246,13 @@ export const DevicesListPage = () => {
 
   const handleRegistered = () => {
     load({ append: false });
+  };
+
+  const renderRoomCell = (roomUid: string | null) => {
+    if (roomUid === null) return 'Unassigned';
+    const name = roomNames.get(roomUid);
+    if (name === undefined) return roomUid;
+    return <NameWithUid name={name} uid={roomUid} showUid={showUuids} />;
   };
 
   return (
@@ -354,7 +366,11 @@ export const DevicesListPage = () => {
                 >
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {device.name}
+                      <NameWithUid
+                        name={device.name}
+                        uid={device.uid}
+                        showUid={showUuids}
+                      />
                       {device.isSource === true && (
                         <Chip
                           size="small"
@@ -391,7 +407,7 @@ export const DevicesListPage = () => {
                       />
                     </Tooltip>
                   </TableCell>
-                  <TableCell>{device.roomUid ?? 'Unassigned'}</TableCell>
+                  <TableCell>{renderRoomCell(device.roomUid)}</TableCell>
                   <TableCell>
                     {new Date(device.createdAt).toLocaleString()}
                   </TableCell>

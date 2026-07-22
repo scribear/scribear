@@ -11,10 +11,12 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Divider from '@mui/material/Divider';
 import Drawer from '@mui/material/Drawer';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
+import Switch from '@mui/material/Switch';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 
@@ -22,6 +24,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 
 import { HealthIndicator } from '#src/components/health-indicator';
 import { useAuth } from '#src/features/auth/auth-context';
+import { useSettings } from '#src/lib/settings-context';
 
 const DRAWER_WIDTH = 232;
 
@@ -39,6 +42,7 @@ const NAV_ITEMS = [
  */
 export const AppLayout = () => {
   const { identity, logout } = useAuth();
+  const { showUuids, setShowUuids } = useSettings();
   const [signingOut, setSigningOut] = useState(false);
 
   const handleSignOut = () => {
@@ -59,6 +63,20 @@ export const AppLayout = () => {
             ScribeAR Admin
           </Typography>
           <HealthIndicator />
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                color="default"
+                checked={showUuids}
+                onChange={(_e, checked) => {
+                  setShowUuids(checked);
+                }}
+              />
+            }
+            label="Show UUIDs"
+            sx={{ color: 'inherit', mr: 0 }}
+          />
           <Typography variant="body2" sx={{ opacity: 0.85 }}>
             {identity?.displayName ?? ''}
           </Typography>
