@@ -5,6 +5,7 @@ import {
 } from '@scribear/base-fastify-server';
 import type { Json } from '@scribear/scribear-db';
 import {
+  CANCEL_SESSION_SCHEMA,
   CREATE_AUTO_SESSION_WINDOW_SCHEMA,
   CREATE_ON_DEMAND_SESSION_SCHEMA,
   CREATE_SCHEDULE_SCHEMA,
@@ -20,6 +21,7 @@ import {
   MY_SCHEDULE_SCHEMA,
   SESSION_CONFIG_STREAM_SCHEMA,
   START_SESSION_EARLY_SCHEMA,
+  UNCANCEL_SESSION_SCHEMA,
   UPDATE_AUTO_SESSION_WINDOW_SCHEMA,
   UPDATE_ROOM_SCHEDULE_CONFIG_SCHEMA,
   UPDATE_SCHEDULE_SCHEMA,
@@ -476,6 +478,61 @@ export class ScheduleManagementController {
       throw HttpError.unprocessable(
         'SESSION_NOT_ACTIVE',
         'Session is not currently active.',
+      );
+
+    res.code(200).send(this._mapSession(result));
+  }
+
+  async cancelSession(
+    req: BaseFastifyRequest<typeof CANCEL_SESSION_SCHEMA>,
+    res: BaseFastifyReply<typeof CANCEL_SESSION_SCHEMA>,
+  ) {
+    const result = await this._scheduleService.cancelSession(
+      req.body.sessionUid,
+      new Date(),
+    );
+
+    if (result === 'NOT_FOUND')
+      throw HttpError.notFound('SESSION_NOT_FOUND', 'Session not found.');
+    if (result === 'SESSION_NOT_SCHEDULED_TYPE')
+      throw HttpError.unprocessable(
+        'SESSION_NOT_SCHEDULED_TYPE',
+        'Only SCHEDULED sessions can be canceled.',
+      );
+    if (result === 'SESSION_ALREADY_CANCELED')
+      throw HttpError.unprocessable(
+        'SESSION_ALREADY_CANCELED',
+        'Session is already canceled.',
+      );
+    if (result === 'SESSION_NOT_UPCOMING')
+      throw HttpError.unprocessable(
+        'SESSION_NOT_UPCOMING',
+        'Only upcoming sessions can be canceled.',
+      );
+
+    res.code(200).send(this._mapSession(result));
+  }
+
+  async uncancelSession(
+    req: BaseFastifyRequest<typeof UNCANCEL_SESSION_SCHEMA>,
+    res: BaseFastifyReply<typeof UNCANCEL_SESSION_SCHEMA>,
+  ) {
+    const result = await this._scheduleService.uncancelSession(
+      req.body.sessionUid,
+      new Date(),
+    );
+
+    if (result === 'NOT_FOUND')
+      throw HttpError.notFound('SESSION_NOT_FOUND', 'Session not found.');
+    if (result === 'SESSION_NOT_CANCELED')
+      throw HttpError.unprocessable(
+        'SESSION_NOT_CANCELED',
+        'Session is not canceled.',
+      );
+    if (result === 'SLOT_NO_LONGER_AVAILABLE')
+      throw HttpError.conflict(
+        'SLOT_NO_LONGER_AVAILABLE',
+        'Another session now occupies this time range.',
       );
 
     res.code(200).send(this._mapSession(result));

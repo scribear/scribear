@@ -61,6 +61,45 @@ describe('ScheduleManagementRepository', () => {
     return Number(row.room_schedule_version);
   }
 
+  /**
+   * Inserts a `SCHEDULED` session row backed by a real schedule (the
+   * `sessions_type_fields_valid` check constraint requires a non-null
+   * `scheduled_session_uid` for `SCHEDULED` rows).
+   */
+  async function insertScheduledSession(
+    roomUid: string,
+    startIso: string,
+    endIso: string,
+  ) {
+    const schedule = await insertSchedule({
+      roomUid,
+      name: 'S',
+      activeStart: new Date('2024-01-01T00:00:00Z'),
+      localStartTime: '09:00:00',
+      localEndTime: '10:00:00',
+      frequency: 'ONCE',
+      daysOfWeek: null,
+      transcriptionProviderId: 'whisper',
+      transcriptionStreamConfig: {},
+      activeEnd: null,
+      joinCodeScopes: [],
+    });
+    return dbContext.db
+      .insertInto('sessions')
+      .values({
+        room_uid: roomUid,
+        name: 'Scheduled',
+        type: 'SCHEDULED',
+        scheduled_session_uid: schedule.uid,
+        scheduled_start_time: new Date(startIso),
+        scheduled_end_time: new Date(endIso),
+        transcription_provider_id: 'whisper',
+        transcription_stream_config: {},
+      })
+      .returning(['uid', 'session_config_version'])
+      .executeTakeFirstOrThrow();
+  }
+
   describe('lockRoom', (it) => {
     it('returns the room identity, timezone, and auto-session master switch', async () => {
       // Arrange
@@ -1567,6 +1606,172 @@ describe('ScheduleManagementRepository', () => {
         .where('room_uid', '=', roomUid)
         .execute();
       expect(rows).toHaveLength(0);
+    });
+  });
+
+  describe('cancelSession', (it) => {
+    it('sets canceled_at and bumps session_config_version', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom();
+      const session = await insertScheduledSession(
+        roomUid,
+        '2024-06-01T10:00:00Z',
+        '2024-06-01T11:00:00Z',
+      );
+      const now = new Date('2024-05-30T00:00:00Z');
+
+      // Act
+      const result = await repository.cancelSession(
+        repository.db,
+        session.uid,
+        now,
+      );
+
+      // Assert
+      expect(result?.canceledAt).toEqual(now);
+      expect(result?.sessionConfigVersion).toBe(
+        Number(session.session_config_version) + 1,
+      );
+    });
+
+    it('returns null when called a second time on the same uid', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom();
+      const session = await insertScheduledSession(
+        roomUid,
+        '2024-06-01T10:00:00Z',
+        '2024-06-01T11:00:00Z',
+      );
+      const now = new Date('2024-05-30T00:00:00Z');
+      await repository.cancelSession(repository.db, session.uid, now);
+
+      // Act
+      const result = await repository.cancelSession(
+        repository.db,
+        session.uid,
+        now,
+      );
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('frees the slot in the sessions_no_overlap exclusion constraint', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom();
+      const start = new Date('2024-06-01T10:00:00Z');
+      const end = new Date('2024-06-01T11:00:00Z');
+      const session = await insertScheduledSession(
+        roomUid,
+        start.toISOString(),
+        end.toISOString(),
+      );
+      await repository.cancelSession(
+        repository.db,
+        session.uid,
+        new Date('2024-05-30T00:00:00Z'),
+      );
+
+      // Act / Assert - inserting a second session in the identical interval
+      // must not trip the (now-canceled row's) exclusion constraint.
+      await expect(
+        dbContext.db
+          .insertInto('sessions')
+          .values({
+            room_uid: roomUid,
+            name: 'Replacement',
+            type: 'ON_DEMAND',
+            scheduled_start_time: start,
+            scheduled_end_time: end,
+            transcription_provider_id: 'whisper',
+            transcription_stream_config: {},
+          })
+          .execute(),
+      ).resolves.not.toThrow();
+    });
+  });
+
+  describe('uncancelSession', (it) => {
+    it('clears canceled_at and bumps session_config_version', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom();
+      const session = await insertScheduledSession(
+        roomUid,
+        '2024-06-01T10:00:00Z',
+        '2024-06-01T11:00:00Z',
+      );
+      const canceled = await repository.cancelSession(
+        repository.db,
+        session.uid,
+        new Date('2024-05-30T00:00:00Z'),
+      );
+
+      // Act
+      const result = await repository.uncancelSession(
+        repository.db,
+        session.uid,
+      );
+
+      // Assert
+      expect(result?.canceledAt).toBeNull();
+      expect(result?.sessionConfigVersion).toBe(
+        (canceled?.sessionConfigVersion ?? 0) + 1,
+      );
+    });
+
+    it('returns null when the session was never canceled', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom();
+      const session = await insertScheduledSession(
+        roomUid,
+        '2024-06-01T10:00:00Z',
+        '2024-06-01T11:00:00Z',
+      );
+
+      // Act
+      const result = await repository.uncancelSession(
+        repository.db,
+        session.uid,
+      );
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('throws a pg exclusion-violation error when another session now occupies the freed slot', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom();
+      const start = new Date('2024-06-01T10:00:00Z');
+      const end = new Date('2024-06-01T11:00:00Z');
+      const session = await insertScheduledSession(
+        roomUid,
+        start.toISOString(),
+        end.toISOString(),
+      );
+      await repository.cancelSession(
+        repository.db,
+        session.uid,
+        new Date('2024-05-30T00:00:00Z'),
+      );
+      // The exclusion constraint's narrowed WHERE clause now permits this,
+      // since the original occurrence is canceled.
+      await dbContext.db
+        .insertInto('sessions')
+        .values({
+          room_uid: roomUid,
+          name: 'Replacement',
+          type: 'ON_DEMAND',
+          scheduled_start_time: start,
+          scheduled_end_time: end,
+          transcription_provider_id: 'whisper',
+          transcription_stream_config: {},
+        })
+        .execute();
+
+      // Act / Assert
+      await expect(
+        repository.uncancelSession(repository.db, session.uid),
+      ).rejects.toMatchObject({ code: '23P01' });
     });
   });
 });

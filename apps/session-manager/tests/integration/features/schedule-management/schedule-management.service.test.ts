@@ -1158,6 +1158,44 @@ describe('ScheduleManagementService', () => {
       // Assert
       expect(result).toBe('ANOTHER_SESSION_ACTIVE');
     });
+
+    it('§2.4 audit: does not treat a canceled session as active', async () => {
+      // Arrange - a canceled ON_DEMAND session whose effective interval now
+      // covers `now` (avoids the scheduled_session_uid FK; canceled_at is
+      // set directly since only SCHEDULED sessions go through cancelSession
+      // in practice, but the repository-level exclusion doesn't key on type).
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-03T10:00:00Z');
+      await dbContext.db
+        .insertInto('sessions')
+        .values({
+          room_uid: roomUid,
+          name: 'Canceled but time-wise active',
+          type: 'ON_DEMAND',
+          scheduled_start_time: new Date('2024-06-03T09:00:00Z'),
+          scheduled_end_time: new Date('2024-06-03T11:00:00Z'),
+          canceled_at: new Date('2024-06-01T00:00:00Z'),
+          transcription_provider_id: 'whisper',
+          transcription_stream_config: {},
+        })
+        .execute();
+
+      // Act
+      const result = await service.createOnDemandSession(
+        {
+          roomUid,
+          name: 'Not blocked',
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+
+      // Assert - the canceled session must not count as "another active session".
+      expect(result).not.toBe('ANOTHER_SESSION_ACTIVE');
+      expect(result).not.toBe('ROOM_NOT_FOUND');
+    });
   });
 
   describe('startSessionEarly', (it) => {
@@ -1307,6 +1345,70 @@ describe('ScheduleManagementService', () => {
       // Assert
       expect(result).toBe('SESSION_IS_AUTO');
     });
+
+    it('§2.4 audit: a canceled session does not count as the next upcoming session', async () => {
+      // Arrange - a canceled ON_DEMAND session upcoming before a real one.
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-03T08:00:00Z');
+      await dbContext.db
+        .insertInto('sessions')
+        .values({
+          room_uid: roomUid,
+          name: 'Canceled',
+          type: 'ON_DEMAND',
+          scheduled_start_time: new Date('2024-06-03T09:00:00Z'),
+          scheduled_end_time: new Date('2024-06-03T10:00:00Z'),
+          canceled_at: new Date('2024-06-01T00:00:00Z'),
+          transcription_provider_id: 'whisper',
+          transcription_stream_config: {},
+        })
+        .execute();
+      const [realNextRow] = await dbContext.db
+        .insertInto('sessions')
+        .values({
+          room_uid: roomUid,
+          name: 'Real next',
+          type: 'ON_DEMAND',
+          scheduled_start_time: new Date('2024-06-03T11:00:00Z'),
+          scheduled_end_time: new Date('2024-06-03T12:00:00Z'),
+          transcription_provider_id: 'whisper',
+          transcription_stream_config: {},
+        })
+        .returning('uid')
+        .execute();
+
+      // Act - the real (non-canceled) next session should be startable early.
+      const result = await service.startSessionEarly(realNextRow!.uid, now);
+
+      // Assert
+      expect(result).not.toBe('NOT_NEXT_UPCOMING');
+    });
+
+    it('§2.4 audit: a canceled session cannot itself be started early', async () => {
+      // Arrange - the only upcoming session in the room is canceled.
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-03T08:00:00Z');
+      const [canceledRow] = await dbContext.db
+        .insertInto('sessions')
+        .values({
+          room_uid: roomUid,
+          name: 'Canceled',
+          type: 'ON_DEMAND',
+          scheduled_start_time: new Date('2024-06-03T09:00:00Z'),
+          scheduled_end_time: new Date('2024-06-03T10:00:00Z'),
+          canceled_at: new Date('2024-06-01T00:00:00Z'),
+          transcription_provider_id: 'whisper',
+          transcription_stream_config: {},
+        })
+        .returning('uid')
+        .execute();
+
+      // Act
+      const result = await service.startSessionEarly(canceledRow!.uid, now);
+
+      // Assert - not treated as "the next upcoming session" (there is none).
+      expect(result).toBe('NOT_NEXT_UPCOMING');
+    });
   });
 
   describe('endSessionEarly', (it) => {
@@ -1449,6 +1551,295 @@ describe('ScheduleManagementService', () => {
 
       // Assert
       expect(result).toBe('SESSION_IS_AUTO');
+    });
+  });
+
+  describe('cancelSession', (it) => {
+    /**
+     * Creates a WEEKLY MON schedule and returns the uid of its one
+     * materialized SCHEDULED session. `now` must be a Sunday so the next
+     * Monday occurrence falls within the 7-day materialization horizon.
+     */
+    async function insertUpcomingScheduledSession(roomUid: string, now: Date) {
+      await service.createSchedule(
+        {
+          roomUid,
+          name: 'Standup',
+          activeStart: new Date(now.getTime() + 1),
+          activeEnd: null,
+          localStartTime: '14:00:00',
+          localEndTime: '15:00:00',
+          frequency: 'WEEKLY',
+          daysOfWeek: ['MON'],
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+      const sessions = await listSessionsForRoom(roomUid);
+      const scheduled = sessions.find((s) => s.type === 'SCHEDULED');
+      if (!scheduled) {
+        throw new Error('expected a materialized SCHEDULED session');
+      }
+      return scheduled;
+    }
+
+    it('cancels an upcoming SCHEDULED session and returns it with canceledAt set', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-02T12:00:00Z'); // Sun
+      const scheduled = await insertUpcomingScheduledSession(roomUid, now);
+
+      // Act
+      const result = await service.cancelSession(scheduled.uid, now);
+
+      // Assert
+      expect(result).not.toBe('NOT_FOUND');
+      expect(result).not.toBe('SESSION_NOT_SCHEDULED_TYPE');
+      expect(result).not.toBe('SESSION_ALREADY_CANCELED');
+      expect(result).not.toBe('SESSION_NOT_UPCOMING');
+      const canceled = result as Exclude<
+        typeof result,
+        | 'NOT_FOUND'
+        | 'SESSION_NOT_SCHEDULED_TYPE'
+        | 'SESSION_ALREADY_CANCELED'
+        | 'SESSION_NOT_UPCOMING'
+      >;
+      expect(canceled.canceledAt).toEqual(now);
+    });
+
+    it('returns NOT_FOUND for a missing uid', async () => {
+      // Arrange / Act
+      const result = await service.cancelSession(NULL_UUID, new Date());
+
+      // Assert
+      expect(result).toBe('NOT_FOUND');
+    });
+
+    it('returns SESSION_NOT_SCHEDULED_TYPE for an AUTO session', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom('UTC', true);
+      const now = new Date('2024-06-03T08:00:00Z');
+      const [row] = await dbContext.db
+        .insertInto('sessions')
+        .values({
+          room_uid: roomUid,
+          name: 'Auto',
+          type: 'AUTO',
+          scheduled_start_time: new Date('2024-06-03T09:00:00Z'),
+          scheduled_end_time: new Date('2024-06-03T10:00:00Z'),
+          transcription_provider_id: 'whisper',
+          transcription_stream_config: {},
+        })
+        .returning('uid')
+        .execute();
+
+      // Act
+      const result = await service.cancelSession(row!.uid, now);
+
+      // Assert
+      expect(result).toBe('SESSION_NOT_SCHEDULED_TYPE');
+    });
+
+    it('returns SESSION_NOT_SCHEDULED_TYPE for an ON_DEMAND session', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-03T08:00:00Z');
+      const [row] = await dbContext.db
+        .insertInto('sessions')
+        .values({
+          room_uid: roomUid,
+          name: 'On-demand',
+          type: 'ON_DEMAND',
+          scheduled_start_time: new Date('2024-06-03T09:00:00Z'),
+          scheduled_end_time: new Date('2024-06-03T10:00:00Z'),
+          transcription_provider_id: 'whisper',
+          transcription_stream_config: {},
+        })
+        .returning('uid')
+        .execute();
+
+      // Act
+      const result = await service.cancelSession(row!.uid, now);
+
+      // Assert
+      expect(result).toBe('SESSION_NOT_SCHEDULED_TYPE');
+    });
+
+    it('returns SESSION_ALREADY_CANCELED when the session is already canceled', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-02T12:00:00Z'); // Sun
+      const scheduled = await insertUpcomingScheduledSession(roomUid, now);
+      await service.cancelSession(scheduled.uid, now);
+
+      // Act
+      const result = await service.cancelSession(scheduled.uid, now);
+
+      // Assert
+      expect(result).toBe('SESSION_ALREADY_CANCELED');
+    });
+
+    it('returns SESSION_NOT_UPCOMING for a session that has already started', async () => {
+      // Arrange - a SCHEDULED session whose start has already passed.
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-02T12:00:00Z'); // Sun
+      const scheduled = await insertUpcomingScheduledSession(roomUid, now);
+      const afterItStarted = new Date(
+        scheduled.scheduled_start_time.getTime() + 1000,
+      );
+
+      // Act
+      const result = await service.cancelSession(scheduled.uid, afterItStarted);
+
+      // Assert
+      expect(result).toBe('SESSION_NOT_UPCOMING');
+    });
+
+    it('materializes an AUTO session into the freed slot when covered by an active auto window', async () => {
+      // Arrange - a SCHEDULED session fully covered by an active auto window.
+      const { uid: roomUid } = await insertRoom('UTC', true);
+      const now = new Date('2024-06-02T12:00:00Z'); // Sun
+      const scheduled = await insertUpcomingScheduledSession(roomUid, now);
+      await service.createAutoSessionWindow(
+        {
+          roomUid,
+          localStartTime: '00:00:00',
+          localEndTime: '23:59:59',
+          daysOfWeek: ['MON'],
+          activeStart: now,
+          activeEnd: null,
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+
+      // Act
+      const result = await service.cancelSession(scheduled.uid, now);
+
+      // Assert - the canceled SCHEDULED session's slot now hosts an AUTO one.
+      expect(result).not.toBe('NOT_FOUND');
+      expect(result).not.toBe('SESSION_NOT_SCHEDULED_TYPE');
+      expect(result).not.toBe('SESSION_ALREADY_CANCELED');
+      expect(result).not.toBe('SESSION_NOT_UPCOMING');
+      // With the canceled session excluded as a reconciler blocker, the AUTO
+      // materializer produces one continuous slot spanning the whole window
+      // rather than two slots split around the (formerly) blocking session -
+      // assert the AUTO slot covers the canceled session's original time,
+      // not that it starts at exactly the same instant.
+      const autos = (await listSessionsForRoom(roomUid)).filter(
+        (s) => s.type === 'AUTO',
+      );
+      expect(
+        autos.some(
+          (s) =>
+            s.scheduled_start_time.getTime() <=
+              scheduled.scheduled_start_time.getTime() &&
+            (s.scheduled_end_time === null ||
+              s.scheduled_end_time.getTime() >=
+                scheduled.scheduled_end_time!.getTime()),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  describe('uncancelSession', (it) => {
+    async function insertUpcomingScheduledSession(roomUid: string, now: Date) {
+      await service.createSchedule(
+        {
+          roomUid,
+          name: 'Standup',
+          activeStart: new Date(now.getTime() + 1),
+          activeEnd: null,
+          localStartTime: '14:00:00',
+          localEndTime: '15:00:00',
+          frequency: 'WEEKLY',
+          daysOfWeek: ['MON'],
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+      const sessions = await listSessionsForRoom(roomUid);
+      const scheduled = sessions.find((s) => s.type === 'SCHEDULED');
+      if (!scheduled) {
+        throw new Error('expected a materialized SCHEDULED session');
+      }
+      return scheduled;
+    }
+
+    it('clears canceledAt on a previously-canceled session', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-02T12:00:00Z'); // Sun
+      const scheduled = await insertUpcomingScheduledSession(roomUid, now);
+      await service.cancelSession(scheduled.uid, now);
+
+      // Act
+      const result = await service.uncancelSession(scheduled.uid, now);
+
+      // Assert
+      expect(result).not.toBe('NOT_FOUND');
+      expect(result).not.toBe('SESSION_NOT_CANCELED');
+      expect(result).not.toBe('SLOT_NO_LONGER_AVAILABLE');
+      const uncanceled = result as Exclude<
+        typeof result,
+        'NOT_FOUND' | 'SESSION_NOT_CANCELED' | 'SLOT_NO_LONGER_AVAILABLE'
+      >;
+      expect(uncanceled.canceledAt).toBeNull();
+    });
+
+    it('returns NOT_FOUND for a missing uid', async () => {
+      // Arrange / Act
+      const result = await service.uncancelSession(NULL_UUID, new Date());
+
+      // Assert
+      expect(result).toBe('NOT_FOUND');
+    });
+
+    it('returns SESSION_NOT_CANCELED for a session that was never canceled', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-02T12:00:00Z'); // Sun
+      const scheduled = await insertUpcomingScheduledSession(roomUid, now);
+
+      // Act
+      const result = await service.uncancelSession(scheduled.uid, now);
+
+      // Assert
+      expect(result).toBe('SESSION_NOT_CANCELED');
+    });
+
+    it('returns SLOT_NO_LONGER_AVAILABLE when another session now occupies the freed slot', async () => {
+      // Arrange - cancel a SCHEDULED session, then create an on-demand
+      // session in the identical time range (permitted once the exclusion
+      // constraint's narrowed WHERE clause excludes the canceled row).
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-02T12:00:00Z'); // Sun
+      const scheduled = await insertUpcomingScheduledSession(roomUid, now);
+      await service.cancelSession(scheduled.uid, now);
+      await dbContext.db
+        .insertInto('sessions')
+        .values({
+          room_uid: roomUid,
+          name: 'Replacement',
+          type: 'ON_DEMAND',
+          scheduled_start_time: scheduled.scheduled_start_time,
+          scheduled_end_time: scheduled.scheduled_end_time,
+          transcription_provider_id: 'whisper',
+          transcription_stream_config: {},
+        })
+        .execute();
+
+      // Act
+      const result = await service.uncancelSession(scheduled.uid, now);
+
+      // Assert
+      expect(result).toBe('SLOT_NO_LONGER_AVAILABLE');
     });
   });
 
@@ -1880,6 +2271,51 @@ describe('ScheduleManagementService', () => {
       // Assert
       expect(active).toBeNull();
       expect(upcoming.map((s) => s.name)).toEqual(['Upcoming']);
+    });
+
+    it('§2.4 audit: excludes a canceled session from both active and upcoming', async () => {
+      // Arrange - a canceled session that would otherwise be "active", and one
+      // that would otherwise be "upcoming". Devices polling my-schedule must
+      // never be told about either.
+      const now = new Date('2024-06-01T12:00:00Z');
+      const upTo = new Date('2024-06-01T18:00:00Z');
+      const { uid: roomUid } = await insertRoom('UTC');
+      await dbContext.db
+        .insertInto('sessions')
+        .values([
+          {
+            room_uid: roomUid,
+            name: 'Canceled active',
+            type: 'ON_DEMAND',
+            scheduled_start_time: new Date('2024-06-01T11:00:00Z'),
+            scheduled_end_time: new Date('2024-06-01T13:00:00Z'),
+            canceled_at: new Date('2024-05-30T00:00:00Z'),
+            transcription_provider_id: 'whisper',
+            transcription_stream_config: {},
+          },
+          {
+            room_uid: roomUid,
+            name: 'Canceled upcoming',
+            type: 'ON_DEMAND',
+            scheduled_start_time: new Date('2024-06-01T14:00:00Z'),
+            scheduled_end_time: new Date('2024-06-01T15:00:00Z'),
+            canceled_at: new Date('2024-05-30T00:00:00Z'),
+            transcription_provider_id: 'whisper',
+            transcription_stream_config: {},
+          },
+        ])
+        .execute();
+
+      // Act
+      const { active, upcoming } = await service.listActiveAndUpcomingSessions(
+        roomUid,
+        now,
+        upTo,
+      );
+
+      // Assert
+      expect(active).toBeNull();
+      expect(upcoming).toEqual([]);
     });
   });
 

@@ -18,8 +18,11 @@ import {
   RoomScheduleVersionBumpedChannel,
   SessionConfigVersionBumpedChannel,
 } from '#src/server/shared/events/schedule-management.events.js';
+import { isPgExclusionViolation } from '#src/server/shared/pg-errors.js';
 
 import { reconcileAutoSessions } from './utils/auto-session-reconciler.js';
+import { assertCancelable, assertUncancelable } from './utils/cancellation.js';
+import type { CancelEligibility } from './utils/cancellation.js';
 import { detectConflict } from './utils/conflict-detector.js';
 import { buildScheduledSessionRow } from './utils/occurrence-to-session.js';
 import { materializeSchedule } from './utils/schedule-materializer.js';
@@ -1063,6 +1066,107 @@ export class ScheduleManagementService {
       await this._finalizeRoomWrite(trx, session.roomUid, now, collector);
 
       const updated = await this._repo.findSessionByUid(trx, session.uid);
+      return updated ?? ('NOT_FOUND' as const);
+    });
+  }
+
+  /**
+   * Cancels a single upcoming `SCHEDULED` session occurrence by setting
+   * `canceled_at = now`, without affecting its parent schedule or any other
+   * occurrence. `AUTO` and `ON_DEMAND` sessions, already-canceled sessions,
+   * and sessions that have already started are rejected (see
+   * `assertCancelable`). The freed slot is reconciled into `AUTO` sessions
+   * where covered by an active window, mirroring `endSessionEarly`.
+   * @param uid The session to cancel.
+   * @param now The reference instant; becomes `canceled_at`.
+   * @returns The updated session, or an error code.
+   */
+  async cancelSession(
+    uid: string,
+    now: Date,
+  ): Promise<Session | 'NOT_FOUND' | Exclude<CancelEligibility, 'OK'>> {
+    return this._runWithEvents(async (trx, collector) => {
+      const session = await this._repo.findSessionByUid(trx, uid);
+      if (!session) return 'NOT_FOUND' as const;
+
+      const eligibility = assertCancelable(session, now);
+      if (eligibility !== 'OK') return eligibility;
+
+      const room = await this._repo.lockRoom(trx, session.roomUid);
+      if (!room) return 'NOT_FOUND' as const;
+
+      await this._repo.setSessionsConstraintsDeferred(trx);
+
+      const canceled = await this._repo.cancelSession(trx, uid, now);
+      // Lost a race with another cancel between findSessionByUid and here.
+      if (!canceled) return 'SESSION_ALREADY_CANCELED' as const;
+      collector.sessionBumps.set(canceled.uid, canceled.sessionConfigVersion);
+
+      const windowEnd = addDays(now, MATERIALIZATION_WINDOW_DAYS);
+      await reconcileAutoSessions(
+        trx,
+        this._repo,
+        session.roomUid,
+        room.timezone,
+        now,
+        windowEnd,
+        MIN_AUTO_SESSION_DURATION_SECONDS,
+        room.autoSessionEnabled,
+        collector.sessionBumps,
+      );
+
+      await this._finalizeRoomWrite(trx, session.roomUid, now, collector);
+
+      const updated = await this._repo.findSessionByUid(trx, uid);
+      return updated ?? ('NOT_FOUND' as const);
+    });
+  }
+
+  /**
+   * Reverses a `cancelSession` call ("Undo") by clearing `canceled_at`.
+   * Re-admits the row to the narrowed `sessions_no_overlap` exclusion
+   * constraint (§2.3/§3.2) — if another session now occupies the freed slot
+   * (e.g. an AUTO session backfilled it), this returns
+   * `'SLOT_NO_LONGER_AVAILABLE'` rather than corrupting the schedule.
+   * @param uid The session to uncancel.
+   * @param now The reference instant; used only for `_finalizeRoomWrite`.
+   * @returns The updated session, or an error code.
+   */
+  async uncancelSession(
+    uid: string,
+    now: Date,
+  ): Promise<
+    Session | 'NOT_FOUND' | 'SESSION_NOT_CANCELED' | 'SLOT_NO_LONGER_AVAILABLE'
+  > {
+    return this._runWithEvents(async (trx, collector) => {
+      const session = await this._repo.findSessionByUid(trx, uid);
+      if (!session) return 'NOT_FOUND' as const;
+
+      const eligibility = assertUncancelable(session);
+      if (eligibility !== 'OK') return eligibility;
+
+      const room = await this._repo.lockRoom(trx, session.roomUid);
+      if (!room) return 'NOT_FOUND' as const;
+
+      let uncanceled;
+      try {
+        uncanceled = await this._repo.uncancelSession(trx, uid);
+      } catch (e) {
+        if (isPgExclusionViolation(e)) {
+          return 'SLOT_NO_LONGER_AVAILABLE' as const;
+        }
+        throw e;
+      }
+      // Lost a race with another uncancel between findSessionByUid and here.
+      if (!uncanceled) return 'SESSION_NOT_CANCELED' as const;
+      collector.sessionBumps.set(
+        uncanceled.uid,
+        uncanceled.sessionConfigVersion,
+      );
+
+      await this._finalizeRoomWrite(trx, session.roomUid, now, collector);
+
+      const updated = await this._repo.findSessionByUid(trx, uid);
       return updated ?? ('NOT_FOUND' as const);
     });
   }

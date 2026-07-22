@@ -54,6 +54,8 @@ export * from './schedule-management/routes/list-sessions.schema.js';
 export * from './schedule-management/routes/create-on-demand-session.schema.js';
 export * from './schedule-management/routes/start-session-early.schema.js';
 export * from './schedule-management/routes/end-session-early.schema.js';
+export * from './schedule-management/routes/cancel-session.schema.js';
+export * from './schedule-management/routes/uncancel-session.schema.js';
 export * from './schedule-management/routes/session-config-stream.schema.js';
 
 export * from './session-auth/entities/session-token-payload.schema.js';

@@ -1,5 +1,7 @@
 import type { BaseFastifyInstance } from '@scribear/base-fastify-server';
 import {
+  CANCEL_SESSION_ROUTE,
+  CANCEL_SESSION_SCHEMA,
   CREATE_AUTO_SESSION_WINDOW_ROUTE,
   CREATE_AUTO_SESSION_WINDOW_SCHEMA,
   CREATE_ON_DEMAND_SESSION_ROUTE,
@@ -30,6 +32,8 @@ import {
   SESSION_CONFIG_STREAM_SCHEMA,
   START_SESSION_EARLY_ROUTE,
   START_SESSION_EARLY_SCHEMA,
+  UNCANCEL_SESSION_ROUTE,
+  UNCANCEL_SESSION_SCHEMA,
   UPDATE_AUTO_SESSION_WINDOW_ROUTE,
   UPDATE_AUTO_SESSION_WINDOW_SCHEMA,
   UPDATE_ROOM_SCHEDULE_CONFIG_ROUTE,
@@ -182,6 +186,20 @@ export function scheduleManagementRouter(fastify: BaseFastifyInstance) {
     schema: END_SESSION_EARLY_SCHEMA,
     preHandler: adminApiKeyHook,
     handler: resolveHandler('scheduleManagementController', 'endSessionEarly'),
+  });
+
+  fastify.route({
+    ...CANCEL_SESSION_ROUTE,
+    schema: CANCEL_SESSION_SCHEMA,
+    preHandler: adminApiKeyHook,
+    handler: resolveHandler('scheduleManagementController', 'cancelSession'),
+  });
+
+  fastify.route({
+    ...UNCANCEL_SESSION_ROUTE,
+    schema: UNCANCEL_SESSION_SCHEMA,
+    preHandler: adminApiKeyHook,
+    handler: resolveHandler('scheduleManagementController', 'uncancelSession'),
   });
 
   // Long-poll endpoints

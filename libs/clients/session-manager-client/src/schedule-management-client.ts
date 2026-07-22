@@ -1,6 +1,8 @@
 import { createEndpointClient } from '@scribear/base-api-client';
 import { createLongPollClient } from '@scribear/base-long-poll-client';
 import {
+  CANCEL_SESSION_ROUTE,
+  CANCEL_SESSION_SCHEMA,
   CREATE_AUTO_SESSION_WINDOW_ROUTE,
   CREATE_AUTO_SESSION_WINDOW_SCHEMA,
   CREATE_ON_DEMAND_SESSION_ROUTE,
@@ -31,6 +33,8 @@ import {
   SESSION_CONFIG_STREAM_SCHEMA,
   START_SESSION_EARLY_ROUTE,
   START_SESSION_EARLY_SCHEMA,
+  UNCANCEL_SESSION_ROUTE,
+  UNCANCEL_SESSION_SCHEMA,
   UPDATE_AUTO_SESSION_WINDOW_ROUTE,
   UPDATE_AUTO_SESSION_WINDOW_SCHEMA,
   UPDATE_ROOM_SCHEDULE_CONFIG_ROUTE,
@@ -126,6 +130,16 @@ function createScheduleManagementClient(baseUrl: string) {
     endSessionEarly: createEndpointClient(
       END_SESSION_EARLY_SCHEMA,
       END_SESSION_EARLY_ROUTE,
+      baseUrl,
+    ),
+    cancelSession: createEndpointClient(
+      CANCEL_SESSION_SCHEMA,
+      CANCEL_SESSION_ROUTE,
+      baseUrl,
+    ),
+    uncancelSession: createEndpointClient(
+      UNCANCEL_SESSION_SCHEMA,
+      UNCANCEL_SESSION_ROUTE,
       baseUrl,
     ),
     sessionConfigStream: createLongPollClient(

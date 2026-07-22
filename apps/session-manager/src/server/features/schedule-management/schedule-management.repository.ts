@@ -838,6 +838,8 @@ export class ScheduleManagementRepository {
    * Returns SCHEDULED and ON_DEMAND sessions whose effective interval overlaps
    * `[range.from, range.to)`. Auto sessions are excluded - this is the input
    * the auto-session reconciler uses to figure out where the gaps are.
+   * Canceled sessions are excluded too: canceling a SCHEDULED occurrence must
+   * free its slot for AUTO backfill, not continue blocking it (§2.4).
    */
   async findNonAutoSessionsInRange(
     db: DBOrTrx,
@@ -859,6 +861,7 @@ export class ScheduleManagementRepository {
           eb(effectiveEnd, '>', range.from),
         ]),
       )
+      .where('canceled_at', 'is', null)
       .orderBy(effectiveStart, 'asc')
       .execute();
     return rows.map(mapSession);
@@ -870,7 +873,8 @@ export class ScheduleManagementRepository {
    * none. Used to compute an on-demand session's `scheduled_end_time` (both at
    * creation and when realigning around schedule changes). AUTO sessions are
    * excluded; they are reconciled separately and never bound an on-demand's
-   * end.
+   * end. Canceled sessions are excluded too — a canceled occurrence must not
+   * shorten a new on-demand session's end time (§2.4).
    */
   async findNextNonAutoSessionStart(
     db: DBOrTrx,
@@ -884,6 +888,7 @@ export class ScheduleManagementRepository {
       .where('room_uid', '=', roomUid)
       .where('type', 'in', ['SCHEDULED', 'ON_DEMAND'])
       .where(effectiveStart, '>', after)
+      .where('canceled_at', 'is', null)
       .orderBy(effectiveStart, 'asc')
       .limit(1)
       .executeTakeFirst();
@@ -912,6 +917,8 @@ export class ScheduleManagementRepository {
    * Returns the room's next upcoming session of any type (smallest
    * `effective_start > now`), or `undefined` if none. Used to validate the
    * "target is the next upcoming" precondition for `start-session-early`.
+   * Canceled sessions are excluded — a canceled occurrence must not block a
+   * real session from being started early (§2.4).
    */
   async findNextUpcomingSession(
     db: DBOrTrx,
@@ -924,6 +931,7 @@ export class ScheduleManagementRepository {
       .select(SESSION_COLUMNS)
       .where('room_uid', '=', roomUid)
       .where(effectiveStart, '>', now)
+      .where('canceled_at', 'is', null)
       .orderBy(effectiveStart, 'asc')
       .limit(1)
       .executeTakeFirst();
@@ -997,6 +1005,8 @@ export class ScheduleManagementRepository {
    * OR null)) followed by upcoming sessions whose effective start is in
    * `(now, upTo]`. Returned as a flat list ordered by effective start; the
    * service splits the at-most-one active row from the upcoming tail.
+   * Canceled sessions are excluded — devices must never be told about a
+   * canceled session via `my-schedule` (§2.4).
    */
   async listActiveAndUpcomingSessions(
     db: DBOrTrx,
@@ -1025,6 +1035,7 @@ export class ScheduleManagementRepository {
           ]),
         ]),
       )
+      .where('canceled_at', 'is', null)
       .orderBy(effectiveStart, 'asc')
       .execute();
     return rows.map(mapSession);
@@ -1119,6 +1130,53 @@ export class ScheduleManagementRepository {
       .returning('session_config_version')
       .executeTakeFirstOrThrow();
     return Number(row.session_config_version);
+  }
+
+  /**
+   * Sets `canceled_at` and bumps `session_config_version`. Guarded on
+   * `canceled_at IS NULL` so a double-cancel is a detectable no-op (returns
+   * `null`) rather than silently re-stamping the timestamp.
+   * @returns The updated session, or `null` if it was already canceled.
+   */
+  async cancelSession(
+    db: DBOrTrx,
+    uid: string,
+    now: Date,
+  ): Promise<Session | null> {
+    const row = await db
+      .updateTable('sessions')
+      .set({
+        canceled_at: now,
+        session_config_version: sql<string>`session_config_version + 1`,
+      })
+      .where('uid', '=', uid)
+      .where('canceled_at', 'is', null)
+      .returning(SESSION_COLUMNS)
+      .executeTakeFirst();
+    return row ? mapSession(row) : null;
+  }
+
+  /**
+   * Clears `canceled_at` and bumps `session_config_version`. Guarded on
+   * `canceled_at IS NOT NULL` so uncanceling a never-canceled session is a
+   * detectable no-op (returns `null`). Re-admits the row to the narrowed
+   * `sessions_no_overlap` exclusion constraint (§2.3) — if another session
+   * now occupies the freed slot, this throws a `pg` `DatabaseError` with
+   * code `23P01`; callers should check with `isPgExclusionViolation`.
+   * @returns The updated session, or `null` if it was not canceled.
+   */
+  async uncancelSession(db: DBOrTrx, uid: string): Promise<Session | null> {
+    const row = await db
+      .updateTable('sessions')
+      .set({
+        canceled_at: null,
+        session_config_version: sql<string>`session_config_version + 1`,
+      })
+      .where('uid', '=', uid)
+      .where('canceled_at', 'is not', null)
+      .returning(SESSION_COLUMNS)
+      .executeTakeFirst();
+    return row ? mapSession(row) : null;
   }
 
   /**
@@ -1250,7 +1308,10 @@ export class ScheduleManagementRepository {
       .where(effectiveStart, '<=', now)
       .where((eb) =>
         eb.or([eb(effectiveEnd, 'is', null), eb(effectiveEnd, '>', now)]),
-      );
+      )
+      // A canceled session's row is kept (not deleted, §2.1) but must never
+      // count as "occupying" the room once time catches up to its slot.
+      .where('canceled_at', 'is', null);
     if (type !== undefined) {
       q = q.where('type', '=', type);
     }
