@@ -211,7 +211,7 @@ export default defineConfig([
     // Disable strict type checking rules for test files
     // There's no real point in making sure JSON outputs are a certain type
     // When the test file is about to check it.
-    files: ['**/*.test.ts'],
+    files: ['**/*.test.{ts,tsx}'],
     rules: {
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/no-unsafe-member-access': 'off',
