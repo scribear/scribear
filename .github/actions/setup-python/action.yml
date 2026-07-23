@@ -11,8 +11,21 @@ runs:
     - name: Set up Git repository
       uses: actions/checkout@v4
 
+    # Pinned to an exact version rather than a floating major: setup-uv stopped
+    # publishing moving major tags at v8.0.0, so `@v8` does not resolve.
+    #
+    # On v5, passing `python-version` also created and activated a venv at the
+    # workspace root and exported VIRTUAL_ENV to it. Every step here runs uv
+    # from transcription_service, whose project environment is
+    # transcription_service/.venv, so uv discarded that VIRTUAL_ENV and warned
+    # on every invocation. Nothing broke - `uv run` resolves the project
+    # environment - but the stray root venv was a trap for any step that ran a
+    # bare `python`/`pytest`, and uv's own suggested remedy (`--active`) would
+    # have pointed the build at the empty root venv. From v6 on, python-version
+    # only sets UV_PYTHON, and creating a venv needs `activate-environment`,
+    # which we do not want.
     - name: Install uv
-      uses: astral-sh/setup-uv@v5
+      uses: astral-sh/setup-uv@v8.3.2
       with:
         enable-cache: true
         cache-dependency-glob: "transcription_service/uv.lock"
