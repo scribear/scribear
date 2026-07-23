@@ -52,7 +52,7 @@
     "vite": "7.3.6",
     "vite-tsconfig-paths": "6.1.1",
     "vitest": "4.1.10",
-    "vitest-mock-extended": "3.1.0"
+    "vitest-mock-extended": "5.1.0"
   },
   "overrides": {
     "protobufjs": "7.6.5",
