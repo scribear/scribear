@@ -28,6 +28,28 @@ NS_PER_MS = 10**6
 NS_PER_SEC = 10**9
 
 
+def _drain_counters(job: JobInterface[Any, Any, Any, Any], log: Logger):
+    """
+    Collects the counters a job accumulated during one execution
+
+    Args:
+        job     - Job that just executed
+        log     - Application logger
+
+    Returns:
+        Counter name to per-execution delta, empty if the job reports none
+
+    Counters are out-of-band bookkeeping, so a job with a broken override must
+    not lose the result it just produced. Failures are logged and swallowed.
+    """
+    try:
+        return job.drain_counters()
+    # pylint: disable=broad-exception-caught
+    except Exception as error:
+        log.error(f"Job counter drain failed: {error}")
+        return {}
+
+
 class _JobState(IntEnum):
     """
     Represents the current state of a job
@@ -285,8 +307,16 @@ class WorkerProcess:
                     start_execute_time_ns=start_execute_time_ns,
                     complete_time_ns=time.perf_counter_ns(),
                 )
+                # Drained on the failure path too: a counter incremented
+                # immediately before the raise - audio-too-fast is exactly
+                # that - would otherwise never leave the worker.
                 self._result_queue.put(
-                    JobExecutionResult(job_id, JobException(error, stats))
+                    JobExecutionResult(
+                        job_id,
+                        JobException(
+                            error, stats, _drain_counters(entry.job, log)
+                        ),
+                    )
                 )
                 entry.state = _JobState.ERRORED
                 return
@@ -298,7 +328,10 @@ class WorkerProcess:
                 complete_time_ns=time.perf_counter_ns(),
             )
             self._result_queue.put(
-                JobExecutionResult(job_id, JobSuccess(result, stats))
+                JobExecutionResult(
+                    job_id,
+                    JobSuccess(result, stats, _drain_counters(entry.job, log)),
+                )
             )
 
             if not seg.has_trailing_config:

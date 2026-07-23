@@ -33,16 +33,31 @@ class DebugProvider(TranscriptionProviderInterface):
             provider: "DebugProvider",
             logger: Logger,
             config: DebugSessionConfig,
+            session_uid: str | None,
+            room_uid: str | None,
         ):
             super().__init__()
             self._logger = logger
             self._config = config
+            self._provider = provider
+            # Opaque; stored for a future consumer (Part 2), not read here.
+            self.session_uid = session_uid
+            self.room_uid = room_uid
 
             self._job = provider.worker_pool.register_job(
-                (), 1000, DebugProviderJob(self._config)
+                (),
+                1000,
+                DebugProviderJob(self._config),
+                provider.provider_key,
+                session_uid=self.session_uid,
+                room_uid=self.room_uid,
             )
 
             self._job.on(self._job.JobResultEvent, self._handle_job_result)
+
+            # Last, so a registration that raises above never counts a session
+            # that did not open.
+            provider.session_started()
 
         def _handle_job_result(self, result: JobSuccess[float] | JobException):
             """
@@ -89,16 +104,28 @@ class DebugProvider(TranscriptionProviderInterface):
         def end_session(self):
             super().end_session()
             self._job.deregister()
+            self._provider.session_ended()
 
     def __init__(
-        self, provider_config: object, logger: Logger, worker_pool: WorkerPool
+        self,
+        provider_config: object,
+        logger: Logger,
+        worker_pool: WorkerPool,
+        provider_key: str,
     ):
         self._log = logger
         self.worker_pool = worker_pool
+        self.provider_key = provider_key
 
-    def create_session(self, session_config: object, logger: Logger):
+    def create_session(
+        self,
+        session_config: object,
+        session_uid: str | None,
+        room_uid: str | None,
+        logger: Logger,
+    ):
         config = debug_session_config_adapter.validate_python(session_config)
-        return self._DebugSession(self, logger, config)
+        return self._DebugSession(self, logger, config, session_uid, room_uid)
 
     def cleanup_provider(self):
         pass

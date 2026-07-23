@@ -18,6 +18,10 @@ inputs:
     description: "Optional newline-delimited tags to publish instead of the default metadata tags."
     required: false
     default: ""
+  build_args:
+    description: "Optional newline-delimited --build-arg values (KEY=value) passed to every build step."
+    required: false
+    default: ""
   dockerhub_username:
     description: "DockerHub username."
     required: true
@@ -119,6 +123,7 @@ runs:
         context: ${{ inputs.build_context }}
         file: ${{ inputs.dockerfile }}
         platforms: "linux/amd64"
+        build-args: ${{ inputs.build_args }}
         # Cache now lives on GHCR (GITHUB_TOKEN auth, no DockerHub pull limits).
         # DockerHub cache reads remain during the migration so the first post-switch
         # builds stay warm; drop them once the GHCR cache is populated.
@@ -158,6 +163,7 @@ runs:
         file: ${{ inputs.dockerfile }}
         platforms: "linux/amd64"
         # platforms: "linux/amd64,linux/arm64"
+        build-args: ${{ inputs.build_args }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: |

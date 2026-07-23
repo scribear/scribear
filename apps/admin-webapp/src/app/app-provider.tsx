@@ -11,6 +11,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { MainErrorFallback } from '#src/components/main-error-fallback';
 import { BASE_THEME } from '#src/config/base-theme';
 import { AuthProvider } from '#src/features/auth/auth-provider';
+import { SettingsProvider } from '#src/lib/settings-provider';
 import { ToastProvider } from '#src/lib/toast-provider';
 
 // Served under /admin/ in production; import.meta.env.BASE_URL is '/admin/'.
@@ -26,9 +27,11 @@ export const AppProvider = ({ children }: React.PropsWithChildren) => {
       <CssBaseline />
       <ErrorBoundary FallbackComponent={MainErrorFallback}>
         <ToastProvider>
-          <BrowserRouter basename={BASENAME}>
-            <AuthProvider>{children}</AuthProvider>
-          </BrowserRouter>
+          <SettingsProvider>
+            <BrowserRouter basename={BASENAME}>
+              <AuthProvider>{children}</AuthProvider>
+            </BrowserRouter>
+          </SettingsProvider>
         </ToastProvider>
       </ErrorBoundary>
     </ThemeProvider>

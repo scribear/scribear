@@ -31,6 +31,7 @@ export interface TranscriptionStreamServiceOptions {
   sessionUid: string;
   eventBusService: AppDependencies['eventBusService'];
   transcriptionOrchestratorService: AppDependencies['transcriptionOrchestratorService'];
+  nodeServerMetricsService: AppDependencies['nodeServerMetricsService'];
 }
 
 /**
@@ -55,6 +56,13 @@ export class TranscriptionStreamService extends EventEmitter<TranscriptionStream
   private _unsubscribeSessionEnded: (() => void) | null = null;
   private _orchestratorUnregister: (() => void) | null = null;
   private _closed = false;
+  private _metrics: AppDependencies['nodeServerMetricsService'];
+  /**
+   * Whether this connection is currently counted as a subscriber. Guards the
+   * decrement, since `_cleanup` is idempotent and also runs on connections
+   * that closed before they ever subscribed.
+   */
+  private _counted = false;
 
   constructor(options: TranscriptionStreamServiceOptions) {
     super();
@@ -63,6 +71,7 @@ export class TranscriptionStreamService extends EventEmitter<TranscriptionStream
     this._eventBusService = options.eventBusService;
     this._transcriptionOrchestratorService =
       options.transcriptionOrchestratorService;
+    this._metrics = options.nodeServerMetricsService;
   }
 
   /**
@@ -90,6 +99,13 @@ export class TranscriptionStreamService extends EventEmitter<TranscriptionStream
       }
       this._orchestratorUnregister = unregister;
     }
+
+    // Counted here rather than in the constructor: a connection only costs
+    // fan-out once it is actually subscribed, and the early return above bails
+    // before this point. Both roles count - receive-only clients are what make
+    // a large room expensive (N4), and the orchestrator never sees them.
+    this._metrics.recordConnectionOpen(this._sessionUid);
+    this._counted = true;
 
     this._unsubscribeTranscripts = this._eventBusService.subscribe(
       TranscriptChannel,
@@ -186,6 +202,10 @@ export class TranscriptionStreamService extends EventEmitter<TranscriptionStream
 
   private _cleanup(): void {
     this._closed = true;
+    if (this._counted) {
+      this._metrics.recordConnectionClose(this._sessionUid);
+      this._counted = false;
+    }
     this._unsubscribeTranscripts?.();
     this._unsubscribeTranscripts = null;
     this._unsubscribeLatency?.();

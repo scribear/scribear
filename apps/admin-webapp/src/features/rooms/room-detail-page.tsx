@@ -34,9 +34,11 @@ import { useNavigate, useParams } from 'react-router-dom';
 import type { Device, Room } from '@scribear/session-manager-schema';
 
 import { ConfirmDialog } from '#src/components/confirm-dialog';
+import { NameWithUid } from '#src/components/name-with-uid';
 import type { RoomDetail } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError } from '#src/lib/api-error';
+import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
 
 interface RenameRoomDialogProps {
@@ -271,6 +273,7 @@ export const RoomDetailPage = () => {
   const { roomUid } = useParams<{ roomUid: string }>();
   const navigate = useNavigate();
   const { showSuccess, showError } = useToast();
+  const { showUuids } = useSettings();
 
   const [detail, setDetail] = useState<RoomDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -459,7 +462,7 @@ export const RoomDetailPage = () => {
         }}
       >
         <Typography variant="h5" component="h1">
-          {room.name}
+          <NameWithUid name={room.name} uid={room.uid} showUid={showUuids} />
         </Typography>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button
@@ -565,7 +568,13 @@ export const RoomDetailPage = () => {
             ) : (
               devices.map((device) => (
                 <TableRow key={device.uid}>
-                  <TableCell>{device.name}</TableCell>
+                  <TableCell>
+                    <NameWithUid
+                      name={device.name}
+                      uid={device.uid}
+                      showUid={showUuids}
+                    />
+                  </TableCell>
                   <TableCell>
                     <Chip
                       size="small"

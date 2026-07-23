@@ -37,7 +37,7 @@ describe('Device Management Routes', () => {
   }): string {
     const setCookie = res.headers['set-cookie'];
     const raw = (Array.isArray(setCookie) ? setCookie[0] : setCookie) ?? '';
-    const nameValue = `${raw}`.split(';')[0]!;
+    const nameValue = String(raw).split(';')[0]!;
     return nameValue.slice(nameValue.indexOf('=') + 1);
   }
 
@@ -221,7 +221,7 @@ describe('Device Management Routes', () => {
       // Act - second page
       const secondRes = await server.fastify.inject({
         method: 'GET',
-        url: `${BASE}/list-devices?limit=2&cursor=${firstBody.nextCursor}`,
+        url: `${BASE}/list-devices?limit=2&cursor=${firstBody.nextCursor!}`,
         headers: { authorization: ADMIN_HEADER },
       });
 
@@ -396,6 +396,56 @@ describe('Device Management Routes', () => {
       expect(res.json<{ code: string }>().code).toBe(
         'WOULD_LEAVE_ROOM_WITHOUT_SOURCE',
       );
+    });
+  });
+
+  describe('device presence (B1.6)', (it) => {
+    async function listDevices() {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${BASE}/list-devices`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+      return res.json<{
+        items: { uid: string; lastSeenAt: string | null; online: boolean }[];
+      }>().items;
+    }
+
+    it('reports a never-seen device as offline with a null timestamp', async () => {
+      // Arrange - registered but never activated, so it has never made a
+      // device-authenticated request.
+      await registerDevice('Never Seen');
+
+      // Act
+      const devices = await listDevices();
+
+      // Assert
+      expect(devices[0]?.lastSeenAt).toBeNull();
+      expect(devices[0]?.online).toBe(false);
+    });
+
+    it('stamps last-seen on any device-authenticated request', async () => {
+      // Arrange - the stamp lives in the device-token hook rather than in a
+      // single handler, so get-my-device is enough to prove the whole
+      // device-authenticated surface is covered.
+      const { activationCode } = await registerDevice('Seen');
+      const activation = await activateDevice(activationCode);
+      const token = extractDeviceToken(activation);
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${BASE}/get-my-device`,
+        headers: { cookie: `DEVICE_TOKEN=${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+
+      // Assert - the write is fire-and-forget, so it may land just after the
+      // response.
+      await expect
+        .poll(async () => (await listDevices())[0]?.online)
+        .toBe(true);
+      expect((await listDevices())[0]?.lastSeenAt).not.toBeNull();
     });
   });
 

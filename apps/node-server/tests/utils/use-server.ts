@@ -6,10 +6,18 @@ import type {
   AppConfig,
   BaseConfig,
   SessionManagerClientConfig,
+  TelemetryPublisherConfig,
   TranscriptionServiceClientConfig,
 } from '#src/app-config/app-config.js';
 import createServer from '#src/server/create-server.js';
+import type { ServiceAuthConfig } from '#src/server/shared/services/service-auth.service.js';
 import type { SessionTokenConfig } from '#src/server/shared/services/session-token.service.js';
+
+/**
+ * Inbound service API key the test server accepts on internal service routes.
+ * Exported so auth tests can present it (and mutate nothing else).
+ */
+export const TEST_SERVICE_API_KEY = 'test-node-server-service-key';
 
 interface ServerCtx {
   fastify: Awaited<ReturnType<typeof createServer>>['fastify'];
@@ -22,9 +30,11 @@ interface ServerCtx {
  */
 export interface TestAppConfigOverrides {
   baseConfig?: Partial<BaseConfig>;
+  serviceAuthConfig?: Partial<ServiceAuthConfig>;
   sessionTokenConfig?: Partial<SessionTokenConfig>;
   sessionManagerClientConfig?: Partial<SessionManagerClientConfig>;
   transcriptionServiceClientConfig?: Partial<TranscriptionServiceClientConfig>;
+  telemetryPublisherConfig?: Partial<TelemetryPublisherConfig>;
 }
 
 /**
@@ -54,6 +64,10 @@ export function buildTestAppConfig(
       host: '127.0.0.1',
       ...overrides.baseConfig,
     },
+    serviceAuthConfig: {
+      serviceApiKey: TEST_SERVICE_API_KEY,
+      ...overrides.serviceAuthConfig,
+    },
     sessionTokenConfig: {
       signingKey: sessionTokenSigningKey,
       ...overrides.sessionTokenConfig,
@@ -67,6 +81,14 @@ export function buildTestAppConfig(
       baseUrl: transcriptionServiceBaseUrl,
       apiKey: transcriptionApiKey,
       ...overrides.transcriptionServiceClientConfig,
+    },
+    // Off by default: an integration suite has no Redis, and a publisher that
+    // retried against one for the length of the run would log an outage into
+    // every test's output.
+    telemetryPublisherConfig: {
+      redisUrl: '',
+      nodeInstanceId: 'test-node-instance',
+      ...overrides.telemetryPublisherConfig,
     },
   } as unknown as AppConfig;
 }

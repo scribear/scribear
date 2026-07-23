@@ -9,18 +9,26 @@ import { adminApi } from '#src/lib/admin-api';
 
 const POLL_MS = 30_000;
 
+/**
+ * Worst-of across every reported component.
+ *
+ * Derived from the list rather than from named fields, so a component added
+ * server-side is accounted for here automatically. The previous version
+ * hardcoded three names and would have reported "Healthy" while a newly-added
+ * dependency was down.
+ */
 function overall(report: HealthReport | null): {
   color: 'success' | 'warning' | 'error' | 'default';
   label: string;
 } {
   if (!report) return { color: 'default', label: 'Unknown' };
-  const ok =
-    report.bff === 'ok' &&
-    report.database === 'ok' &&
-    report.sessionManager === 'ok';
-  if (ok) return { color: 'success', label: 'Healthy' };
-  if (report.sessionManager === 'unreachable' || report.database === 'fail')
-    return { color: 'error', label: 'Degraded' };
+
+  const statuses = [report.bff, ...report.components.map((c) => c.status)];
+  if (statuses.every((s) => s === 'ok'))
+    return { color: 'success', label: 'Healthy' };
+  // 'fail' and 'unreachable' are hard down; 'degraded' is working-but-impaired.
+  if (statuses.some((s) => s === 'fail' || s === 'unreachable'))
+    return { color: 'error', label: 'Down' };
   return { color: 'warning', label: 'Degraded' };
 }
 
@@ -52,7 +60,12 @@ export const HealthIndicator = () => {
 
   const { color, label } = overall(report);
   const tip = report
-    ? `BFF: ${report.bff} · DB: ${report.database} · Session Manager: ${report.sessionManager} (${String(report.sessionManagerLatencyMs)}ms)`
+    ? [
+        `BFF: ${report.bff}`,
+        ...report.components.map(
+          (c) => `${c.name}: ${c.status} (${String(c.latencyMs)}ms)`,
+        ),
+      ].join(' · ')
     : 'Health unknown';
 
   return (

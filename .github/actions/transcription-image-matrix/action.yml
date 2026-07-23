@@ -1,0 +1,60 @@
+name: "Transcription Image Matrix"
+description: "Builds the docker-build job matrix for transcription-service: the CPU image plus one entry per CUDA variant declared in transcription_service/cuda-variants.json."
+outputs:
+  matrix:
+    description: "JSON object with an `include` array, for use as `strategy.matrix: ${{ fromJSON(...) }}`."
+    value: ${{ steps.build.outputs.matrix }}
+runs:
+  using: "composite"
+  steps:
+    # Generated rather than hard-coded in each workflow so adding a CUDA version
+    # is a one-line edit to cuda-variants.json, and so python-ci and python-cd
+    # cannot drift apart on which images exist. Each variant is a separate image
+    # (transcription-service-<device>) rather than a separate tag, because a
+    # deployment already selects between them with TRANSCRIPTION_DEVICE, and
+    # because per-image build caches then stay independent.
+    - name: Build image matrix
+      id: build
+      shell: bash
+      run: |
+        python3 <<'PY'
+        import json
+        import os
+        from pathlib import Path
+
+        variants = json.loads(
+            Path("transcription_service/cuda-variants.json").read_text(encoding="utf-8")
+        )
+
+        devices = [variant["device"] for variant in variants]
+        duplicates = {device for device in devices if devices.count(device) > 1}
+        if duplicates:
+            raise SystemExit(
+                f"Duplicate device names in cuda-variants.json: {', '.join(sorted(duplicates))}. "
+                "Each entry becomes an image name, so they must be unique."
+            )
+
+        def entry(image_suffix: str, dockerfile: str, build_args: str) -> dict[str, str]:
+            return {
+                "image_name": f"scribear/transcription-service-{image_suffix}",
+                "build_context": "transcription_service",
+                "dockerfile": f"transcription_service/{dockerfile}",
+                "version_file": "transcription_service/pyproject.toml",
+                "build_args": build_args,
+            }
+
+        include = [entry("cpu", "Dockerfile_CPU", "")]
+        include += [
+            entry(
+                variant["device"],
+                "Dockerfile_CUDA",
+                f"CUDA_BASE_IMAGE={variant['base_image']}",
+            )
+            for variant in variants
+        ]
+
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output_file:
+            output_file.write("matrix=" + json.dumps({"include": include}) + "\n")
+
+        print(f"{len(include)} images: {', '.join(item['image_name'] for item in include)}")
+        PY

@@ -11,7 +11,12 @@ import type {
 import type { AuditController } from '#src/server/features/audit/audit.controller.js';
 import type { AuthController } from '#src/server/features/auth/auth.controller.js';
 import type { DevicesController } from '#src/server/features/devices/devices.controller.js';
+import type { FleetController } from '#src/server/features/fleet/fleet.controller.js';
 import type { HealthController } from '#src/server/features/health/health.controller.js';
+import type {
+  HealthCheckerConfig,
+  HealthCheckerService,
+} from '#src/server/features/health/health.service.js';
 import type { LivenessController } from '#src/server/features/probes/liveness.controller.js';
 import type { ReadinessController } from '#src/server/features/probes/readiness.controller.js';
 import type { RoomsController } from '#src/server/features/rooms/rooms.controller.js';
@@ -23,6 +28,11 @@ import type {
   AzureAuthConfig,
   AzureOidcAuthService,
 } from '#src/server/shared/services/azure-oidc-auth.service.js';
+import type { FleetEventsService } from '#src/server/shared/services/fleet-events.service.js';
+import type {
+  FleetTelemetryConfig,
+  FleetTelemetryService,
+} from '#src/server/shared/services/fleet-telemetry.service.js';
 import type {
   LocalAuthConfig,
   LocalAuthService,
@@ -70,6 +80,8 @@ interface AppDependencies extends BaseDependencies {
   authController: AuthController;
 
   // Health
+  healthCheckerConfig: HealthCheckerConfig;
+  healthCheckerService: HealthCheckerService;
   healthController: HealthController;
 
   // Rooms
@@ -83,6 +95,12 @@ interface AppDependencies extends BaseDependencies {
 
   // Audit
   auditController: AuditController;
+
+  // Fleet
+  fleetTelemetryConfig: FleetTelemetryConfig;
+  fleetTelemetryService: FleetTelemetryService;
+  fleetEventsService: FleetEventsService;
+  fleetController: FleetController;
 }
 
 /**

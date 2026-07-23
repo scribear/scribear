@@ -24,6 +24,7 @@ import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
 import { useNavigate } from 'react-router-dom';
@@ -31,10 +32,13 @@ import { useNavigate } from 'react-router-dom';
 import type { Device } from '@scribear/session-manager-schema';
 
 import { ActivationCodeDisplay } from '#src/components/activation-code-display';
+import { NameWithUid } from '#src/components/name-with-uid';
 import type { RegisterDeviceResult } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
+import { useRoomNameLookup } from '#src/lib/use-room-name-lookup';
 
 const PAGE_LIMIT = 25;
 
@@ -154,6 +158,8 @@ const RegisterDeviceDialog = ({
 export const DevicesListPage = () => {
   const navigate = useNavigate();
   const { showError } = useToast();
+  const { showUuids } = useSettings();
+  const roomNames = useRoomNameLookup();
   const [devices, setDevices] = useState<Device[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -242,6 +248,13 @@ export const DevicesListPage = () => {
     load({ append: false });
   };
 
+  const renderRoomCell = (roomUid: string | null) => {
+    if (roomUid === null) return 'Unassigned';
+    const name = roomNames.get(roomUid);
+    if (name === undefined) return roomUid;
+    return <NameWithUid name={name} uid={roomUid} showUid={showUuids} />;
+  };
+
   return (
     <Box>
       <Box
@@ -321,6 +334,7 @@ export const DevicesListPage = () => {
             <TableRow>
               <TableCell>Name</TableCell>
               <TableCell>Status</TableCell>
+              <TableCell>Presence</TableCell>
               <TableCell>Room</TableCell>
               <TableCell>Created</TableCell>
             </TableRow>
@@ -328,13 +342,13 @@ export const DevicesListPage = () => {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                   <CircularProgress size={28} />
                 </TableCell>
               </TableRow>
             ) : devices.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                   <Typography color="text.secondary">
                     No devices found.
                   </Typography>
@@ -352,7 +366,11 @@ export const DevicesListPage = () => {
                 >
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {device.name}
+                      <NameWithUid
+                        name={device.name}
+                        uid={device.uid}
+                        showUid={showUuids}
+                      />
                       {device.isSource === true && (
                         <Chip
                           size="small"
@@ -370,7 +388,26 @@ export const DevicesListPage = () => {
                       color={device.active ? 'success' : 'warning'}
                     />
                   </TableCell>
-                  <TableCell>{device.roomUid ?? 'Unassigned'}</TableCell>
+                  <TableCell>
+                    {/* Distinct from Status: a device can be activated and
+                        still be unplugged. `online` is derived server-side so
+                        every view agrees on the cutoff. */}
+                    <Tooltip
+                      title={
+                        device.lastSeenAt === null
+                          ? 'Never seen'
+                          : `Last seen ${new Date(device.lastSeenAt).toLocaleString()}`
+                      }
+                    >
+                      <Chip
+                        size="small"
+                        label={device.online ? 'Online' : 'Offline'}
+                        color={device.online ? 'success' : 'default'}
+                        variant="outlined"
+                      />
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell>{renderRoomCell(device.roomUid)}</TableCell>
                   <TableCell>
                     {new Date(device.createdAt).toLocaleString()}
                   </TableCell>

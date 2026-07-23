@@ -22,6 +22,14 @@ class WhisperStreamingProviderConfig(BaseModel):
     vad_neg_threshold: Optional[float] = None
     silence_threshold: float = 0.01
 
+    # Guard thresholds over Whisper's own quality signals (see
+    # TranscriptionJobCounter). Configurable rather than hardcoded so a
+    # maintainer can retune them from observed false-positive/negative rates
+    # without a code change.
+    compression_ratio_guard_threshold: float = 2.4
+    avg_logprob_guard_threshold: float = -1.0
+    no_speech_prob_guard_threshold: float = 0.6
+
 
 whisper_streaming_config_adapter = TypeAdapter[WhisperStreamingProviderConfig](
     WhisperStreamingProviderConfig

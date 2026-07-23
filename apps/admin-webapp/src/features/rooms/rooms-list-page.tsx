@@ -29,8 +29,10 @@ import { useNavigate } from 'react-router-dom';
 
 import type { Device, Room } from '@scribear/session-manager-schema';
 
+import { NameWithUid } from '#src/components/name-with-uid';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError } from '#src/lib/api-error';
+import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
 
 const DEFAULT_TIMEZONE = 'America/Chicago';
@@ -198,6 +200,7 @@ const CreateRoomDialog = ({ onClose, onCreated }: CreateRoomDialogProps) => {
 export const RoomsListPage = () => {
   const navigate = useNavigate();
   const { showError } = useToast();
+  const { showUuids } = useSettings();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [search, setSearch] = useState('');
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -361,7 +364,13 @@ export const RoomsListPage = () => {
                   }}
                   sx={{ cursor: 'pointer' }}
                 >
-                  <TableCell>{room.name}</TableCell>
+                  <TableCell>
+                    <NameWithUid
+                      name={room.name}
+                      uid={room.uid}
+                      showUid={showUuids}
+                    />
+                  </TableCell>
                   <TableCell>{room.timezone}</TableCell>
                   <TableCell>
                     <Chip

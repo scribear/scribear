@@ -71,6 +71,11 @@ services:
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_SERVICE_API_KEY: ${NODE_SERVER_KEY}
       SESSION_TOKEN_SIGNING_KEY: ${JWT_SECRET}
+      # Device presence (B1.6). The TTL must comfortably exceed the schedule
+      # long-poll cycle plus the write interval, or a healthy device flips
+      # offline between two writes.
+      DEVICE_LAST_SEEN_WRITE_INTERVAL_SEC: ${DEVICE_LAST_SEEN_WRITE_SEC:-60}
+      DEVICE_ONLINE_TTL_SEC: ${DEVICE_ONLINE_TTL_SEC:-180}
       DB_HOST: scribear-db
       DB_PORT: "5432"
       DB_NAME: ${DB_NAME}
@@ -91,6 +96,15 @@ services:
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
+      # Health rollup (B1.5). Only the unauthenticated readiness probes of
+      # these services are read; no keys are involved.
+      NODE_SERVER_BASE_URL: http://node-server:80
+      TRANSCRIPTION_SERVICE_BASE_URL: http://transcription-service:80
+      HEALTH_CHECK_TIMEOUT_SEC: ${ADMIN_HEALTH_TIMEOUT_SEC:-3}
+      # Fleet telemetry (B1.7 §2.5). Empty disables GET /api/admin/v1/fleet
+      # (503 TELEMETRY_UNAVAILABLE) without affecting the /health rollup
+      # above, which is a separate, always-on data path.
+      REDIS_URL: ${ADMIN_REDIS_URL:-}
       ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET}
       ADMIN_LOCAL_CREDENTIALS: ${ADMIN_LOCAL_CREDENTIALS}
       DB_HOST: scribear-db
@@ -114,11 +128,19 @@ services:
       - "80"
     environment:
       LOG_LEVEL: ${NODE_SERVER_LOG_LEVEL:-info}
+      NODE_SERVER_SERVICE_API_KEY: ${NODE_SERVER_SERVICE_KEY}
       SESSION_TOKEN_SIGNING_KEY: ${JWT_SECRET}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
       SESSION_MANAGER_SERVICE_API_KEY: ${NODE_SERVER_KEY}
       TRANSCRIPTION_SERVICE_BASE_URL: http://transcription-service:80
       TRANSCRIPTION_SERVICE_API_KEY: ${TRANSCRIPTION_API_KEY}
+      # Fleet telemetry publishing (B1.7). Empty switches it off, which is the
+      # default in .env.example: publishing is what puts this instance's rooms
+      # in the dashboard, and nothing else depends on it. `NODE_INSTANCE_ID` is
+      # left unset deliberately - it defaults to the hostname, which compose
+      # sets to the container name, so scaling this service gives each replica
+      # a distinct identity with no further configuration.
+      REDIS_URL: ${NODE_SERVER_REDIS_URL:-}
     depends_on:
       transcription-service:
         condition: service_healthy
@@ -146,6 +168,46 @@ services:
       timeout: 5s
       retries: 5
 
+  # Telemetry backplane for the fleet dashboard (B1.7).
+  #
+  # Every publisher and reader is gated on its own REDIS_URL, all of which are
+  # unset by default, so today this container runs and nothing talks to it. It
+  # is here ahead of them because the alternative - introducing shared
+  # infrastructure in the same change that starts depending on it - makes a
+  # telemetry bug and a deployment bug look identical.
+  #
+  # Nothing in the transcription path touches it. Losing Redis costs the
+  # dashboard its cross-instance view and costs sessions nothing.
+  #
+  # No persistence, deliberately: every key is a snapshot its publisher
+  # rewrites within seconds under a TTL of the same order, so a restart
+  # repopulates faster than an operator can notice, while an RDB or AOF would
+  # only restore state that is stale by construction - and would restore rooms
+  # that no longer exist.
+  redis:
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/scribear-redis:${IMAGE_TAG:-latest}
+    command:
+      [
+        "redis-server",
+        "--requirepass",
+        "${REDIS_PASSWORD}",
+        "--save",
+        "",
+        "--appendonly",
+        "no",
+      ]
+    environment:
+      # Read by the image's healthcheck, which authenticates before PINGing.
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    # Not published to the host, unlike scribear-db: nothing outside the
+    # backend network has any reason to reach it, and its contents are the
+    # whole fleet's operational state.
+    expose:
+      - "6379"
+    networks:
+      - backend
+    restart: unless-stopped
+
   transcription-service:
     image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/transcription-service-${TRANSCRIPTION_DEVICE:-cpu}:${IMAGE_TAG:-latest}
     deploy:
@@ -161,12 +223,78 @@ services:
       LOG_LEVEL: ${TRANSCRIPTION_LOG_LEVEL:-info}
       API_KEY: ${TRANSCRIPTION_API_KEY}
       WS_INIT_TIMEOUT_SEC: ${TRANSCRIPTION_WS_INIT_TIMEOUT_SEC:-2.5}
+      # Read-only key for /metrics/status. Empty leaves the route unregistered.
+      # In-cluster only; it is not exposed through nginx.
+      METRICS_API_KEY: ${TRANSCRIPTION_METRICS_KEY:-}
       # Optional upstream secret for remote/OpenAI-like providers that read their
       # key from an env var named by provider_config.json's "api_key_env". Empty
       # by default and ignored by local-model providers, so it is safe to leave unset.
       TRANSCRIPTION_PROVIDER_API_KEY: ${TRANSCRIPTION_PROVIDER_API_KEY:-}
+      # Fleet telemetry publishing (B1.7). Empty switches it off, which is the
+      # default in .env.example: publishing is what puts this host's provider
+      # health in the dashboard's fleet view, and nothing else depends on it.
+      # TRANSCRIPTION_HOST_ID is left unset deliberately - it defaults to the
+      # hostname, which compose sets to the container name, so scaling this
+      # service gives each replica a distinct identity with no configuration.
+      REDIS_URL: ${TRANSCRIPTION_REDIS_URL:-}
     volumes:
       - ${PROVIDER_CONFIG_PATH:-./provider_config.json}:/app/provider_config.json:ro
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # Monitoring
+  #
+  # Black-box sidecar: polls the other services' probe and status endpoints,
+  # folds them into metrics, and evaluates alert rules. It does not modify the
+  # monitored services, so it can be removed from this file with no other edits.
+  #
+  # It no longer mounts the Docker socket. Until B1.2 it read container logs to
+  # infer metrics from log text, which meant root-equivalent host access; every
+  # one of those signals now comes from an authed endpoint instead.
+  monitoring-sidecar:
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/monitoring-sidecar:${IMAGE_TAG:-latest}
+    expose:
+      - "80"
+    environment:
+      LOG_LEVEL: ${MONITORING_LOG_LEVEL:-info}
+      # Must match job_period_ms in provider_config.json; it is the denominator
+      # of the derived period-utilization series. It does not affect RTF, which
+      # transcription-service measures for itself.
+      TRANSCRIPTION_JOB_PERIOD_MS: ${MONITORING_JOB_PERIOD_MS:-1000}
+      NODE_SERVER_BASE_URL: http://node-server:80
+      SESSION_MANAGER_BASE_URL: http://session-manager:80
+      ADMIN_SERVER_BASE_URL: http://admin-server:80
+      TRANSCRIPTION_SERVICE_BASE_URL: http://transcription-service:80
+      # Reads node-server's authed status endpoint (B1.1). Must match the key
+      # node-server is given above; empty disables status polling and leaves
+      # the connection, upstream and auth metrics empty.
+      NODE_SERVER_SERVICE_API_KEY: ${NODE_SERVER_SERVICE_KEY}
+      NODE_STATUS_INTERVAL_SEC: ${MONITORING_NODE_STATUS_INTERVAL_SEC:-10}
+      # Reads transcription-service's authed metrics endpoint (B1.2). Must
+      # match the key that service is given above; empty disables the poll.
+      TRANSCRIPTION_SERVICE_METRICS_KEY: ${TRANSCRIPTION_METRICS_KEY:-}
+      TRANSCRIPTION_METRICS_INTERVAL_SEC: ${MONITORING_TRANSCRIPTION_METRICS_INTERVAL_SEC:-10}
+      PROBE_INTERVAL_SEC: ${MONITORING_PROBE_INTERVAL_SEC:-10}
+      ALERT_RATE_WINDOW_SEC: ${MONITORING_ALERT_WINDOW_SEC:-120}
+      ALERT_UPSTREAM_CHURN_COUNT: ${MONITORING_ALERT_CHURN_COUNT:-3}
+      # Synthetic canary (A2). Empty disables it entirely, which is the
+      # default: the canary needs a registered device, and until one exists
+      # there is nothing to authenticate as. The one-time device registration
+      # is documented in apps/monitoring-sidecar/.env.example.
+      #
+      # The canary streams synthetic audio into whatever session is active in
+      # its device's room, so that device MUST belong to a dedicated canary
+      # room. Pointing it at a real teaching room would inject fixture speech
+      # into a live lecture's captions.
+      CANARY_DEVICE_TOKEN: ${MONITORING_CANARY_DEVICE_TOKEN:-}
+      CANARY_INTERVAL_SEC: ${MONITORING_CANARY_INTERVAL_SEC:-300}
+      CANARY_RUN_DURATION_SEC: ${MONITORING_CANARY_RUN_SEC:-40}
+      # Must match sample_rate / num_channels in the canary session's
+      # transcriptionStreamConfig; the transcription service rejects audio
+      # whose WAV header disagrees rather than resampling it.
+      CANARY_SAMPLE_RATE: ${MONITORING_CANARY_SAMPLE_RATE:-16000}
+      CANARY_CHANNELS: ${MONITORING_CANARY_CHANNELS:-1}
     networks:
       - backend
     restart: unless-stopped

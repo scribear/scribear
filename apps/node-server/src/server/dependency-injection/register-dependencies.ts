@@ -8,6 +8,7 @@ import {
 } from 'awilix';
 
 import { LongPollClient } from '@scribear/base-long-poll-client';
+import { createTelemetryRedisClient } from '@scribear/scribear-redis';
 import { createSessionManagerClient } from '@scribear/session-manager-client';
 import {
   SESSION_CONFIG_STREAM_ROUTE,
@@ -17,13 +18,18 @@ import { createTranscriptionServiceClient } from '@scribear/transcription-servic
 
 import { LivenessController } from '#src/server/features/probes/liveness.controller.js';
 import { ReadinessController } from '#src/server/features/probes/readiness.controller.js';
+import { StatusController } from '#src/server/features/status/status.controller.js';
+import { RedisTelemetryPublisher } from '#src/server/features/telemetry/redis-telemetry-publisher.service.js';
 import {
   type SessionConfigPollFactory,
   TranscriptionOrchestratorService,
 } from '#src/server/features/transcription-stream/transcription-orchestrator.service.js';
 import { TranscriptionStreamController } from '#src/server/features/transcription-stream/transcription-stream.controller.js';
 import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
+import { NodeServerMetricsService } from '#src/server/shared/services/node-server-metrics.service.js';
+import { ServiceAuthService } from '#src/server/shared/services/service-auth.service.js';
 import { SessionTokenService } from '#src/server/shared/services/session-token.service.js';
+import { StatusSnapshotService } from '#src/server/shared/services/status-snapshot.service.js';
 
 import type { AppConfig, AppDependencies } from './app-dependencies.js';
 
@@ -38,17 +44,30 @@ function registerDependencies(
   dependencyContainer.register({
     // Config values
     baseConfig: asValue(config.baseConfig),
+    serviceAuthConfig: asValue(config.serviceAuthConfig),
     sessionTokenConfig: asValue(config.sessionTokenConfig),
     sessionManagerClientConfig: asValue(config.sessionManagerClientConfig),
     transcriptionServiceClientConfig: asValue(
       config.transcriptionServiceClientConfig,
     ),
+    telemetryPublisherConfig: asValue(config.telemetryPublisherConfig),
 
     // Shared services
+    serviceAuthService: asClass(ServiceAuthService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
     sessionTokenService: asClass(SessionTokenService, {
       lifetime: Lifetime.SINGLETON,
     }),
     eventBusService: asClass(EventBusService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    // Singleton so counters survive individual connections; the signals it
+    // collects originate in both request-scoped and singleton objects.
+    nodeServerMetricsService: asClass(NodeServerMetricsService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    statusSnapshotService: asClass(StatusSnapshotService, {
       lifetime: Lifetime.SINGLETON,
     }),
 
@@ -70,6 +89,16 @@ function registerDependencies(
         createTranscriptionServiceClient(
           transcriptionServiceClientConfig.baseUrl,
         ),
+      { lifetime: Lifetime.SINGLETON },
+    ),
+
+    // Connects on resolution, so this is deliberately only reachable through
+    // the publisher below, which `createServer` resolves solely when a Redis
+    // URL is configured. An instance with telemetry switched off opens no
+    // connection at all rather than one that retries forever.
+    telemetryRedisClient: asFunction(
+      (telemetryPublisherConfig: AppDependencies['telemetryPublisherConfig']) =>
+        createTelemetryRedisClient(telemetryPublisherConfig.redisUrl),
       { lifetime: Lifetime.SINGLETON },
     ),
 
@@ -101,6 +130,16 @@ function registerDependencies(
     }),
     readinessController: asClass(ReadinessController, {
       lifetime: Lifetime.SCOPED,
+    }),
+
+    // Status
+    statusController: asClass(StatusController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+
+    // Telemetry
+    redisTelemetryPublisher: asClass(RedisTelemetryPublisher, {
+      lifetime: Lifetime.SINGLETON,
     }),
 
     // Transcription stream

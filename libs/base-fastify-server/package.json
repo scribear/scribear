@@ -1,6 +1,6 @@
 {
   "name": "@scribear/base-fastify-server",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "",
   "author": "scribear",
   "main": "dist/src/index.js",

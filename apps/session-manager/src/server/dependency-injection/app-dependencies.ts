@@ -27,6 +27,10 @@ import type { DeviceAuthRepository } from '#src/server/shared/repositories/devic
 import type { AdminAuthConfig } from '#src/server/shared/services/admin-auth.service.js';
 import type { AdminAuthService } from '#src/server/shared/services/admin-auth.service.js';
 import type { DeviceAuthService } from '#src/server/shared/services/device-auth.service.js';
+import type {
+  DevicePresenceConfig,
+  DevicePresenceService,
+} from '#src/server/shared/services/device-presence.service.js';
 import type { EventBusService } from '#src/server/shared/services/event-bus.service.js';
 import type { HashService } from '#src/server/shared/services/hash.service.js';
 import type {
@@ -58,6 +62,8 @@ interface AppDependencies extends BaseDependencies {
   adminAuthService: AdminAuthService;
   serviceAuthService: ServiceAuthService;
   deviceAuthService: DeviceAuthService;
+  devicePresenceConfig: DevicePresenceConfig;
+  devicePresenceService: DevicePresenceService;
   sessionTokenService: SessionTokenService;
   eventBusService: EventBusService;
 

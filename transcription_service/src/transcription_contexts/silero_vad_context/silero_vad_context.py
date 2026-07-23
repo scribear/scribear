@@ -8,7 +8,10 @@ import torch
 from pydantic import BaseModel, TypeAdapter
 
 from src.shared.logger import Logger
-from src.shared.utils.silence_filter import SilenceFiltering
+from src.shared.utils.silence_filter import (
+    IncrementalVadStream,
+    SilenceFiltering,
+)
 from src.shared.utils.worker_pool import JobContextInterface
 
 
@@ -27,13 +30,39 @@ class SileroVADService:
         self._get_speech_timestamps = get_speech_timestamps
         self._sample_rate = sample_rate
 
+    def create_stream(self) -> IncrementalVadStream:
+        """
+        Creates a per-session VAD stream over this shared model.
+
+        Streaming callers should use this rather than detect_speech_ranges
+        below: a stream scores each 512-sample window once and caches its
+        probability, where detect_speech_ranges rescans the caller's entire
+        buffer every time it is called. For a 30s buffer scored every 500ms
+        that is 3.5ms per call against 69.7ms. See incremental_vad.py for the
+        measurements, and for why moving this model to a GPU makes it slower
+        rather than faster.
+
+        Each stream owns its own Silero state, so several may share one model.
+        They are not thread-safe with respect to one another: the state is
+        swapped into the shared model for the duration of a call, which assumes
+        the single-threaded worker process this runs in.
+        """
+        return IncrementalVadStream(
+            self._model, self._get_speech_timestamps, self._sample_rate
+        )
+
     def detect_speech_ranges(
         self,
         buffer_samples: Any,
         threshold: float,
         neg_threshold: float | None = None,
     ) -> List[Tuple[int, int]]:
-        """Detects speech segments in the audio buffer."""
+        """
+        Detects speech segments in the audio buffer, scoring all of it.
+
+        One-shot path, kept for callers holding a complete recording. Streaming
+        callers want create_stream() instead - see the note there.
+        """
         silence_filter = SilenceFiltering(
             buffer_samples,
             self._sample_rate,
@@ -56,6 +85,20 @@ class SileroVadContextConfig(BaseModel):
     repo_or_dir: str = "snakers4/silero-vad"
     model_name: str = "silero_vad"
     use_onnx: bool = False
+    # Leave this on "cpu". Silero is a streaming model whose 512-sample steps
+    # are sequentially dependent, so a GPU cannot overlap them: measured on an
+    # RTX 5070 Ti, a 30s buffer took 128.1ms on CUDA against 74.5ms on one CPU
+    # thread, and 0.17ms per step against 0.08ms. Nor is the window size
+    # adjustable to amortise the launch overhead - Silero v5 accepts 512
+    # samples at 16kHz and rejects everything else.
+    #
+    # "cuda" is additionally broken today and fails quietly: SilenceFiltering
+    # builds its input tensor on the CPU, so a GPU-resident model raises inside
+    # TorchScript, the handler turns that into "no speech", and the job
+    # transcribes nothing while looking healthy.
+    #
+    # incremental_vad.py has the full measurements, including the two batching
+    # designs that could make a GPU worthwhile and what each would cost.
     device: str = "cpu"
 
 

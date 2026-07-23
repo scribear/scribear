@@ -32,6 +32,11 @@ dependencies = [
 
     # Multi process management
     "multiprocess==0.70.18",
+
+    # Fleet telemetry backplane (B1.7). Optional at runtime - nothing is
+    # imported unless REDIS_URL is set - but not an optional dependency, since
+    # a deployment that turns publishing on must not have to reinstall to get it.
+    "redis==8.0.1",
 ]
 
 [project.optional-dependencies]
@@ -72,11 +77,24 @@ silero-vad-cpu = ["torch==2.9.1", "torchaudio==2.9.1"]
 [tool.uv]
 package = true
 
+# silero-vad and silero-vad-cpu ask for the same torch version from different
+# indexes, and a single universal resolution can only hold one of them. Declaring
+# the extras conflicting gives each its own resolution. Without this, uv resolves
+# both together, the explicit pytorch-cpu index below wins for both, and the CUDA
+# image silently gets a CPU-only torch - so the Silero VAD context cannot run on
+# the GPU no matter how it is configured.
+#
+# The two extras are never installed together: the CPU image and `make sync_cpu`
+# use silero-vad-cpu, the CUDA images and `make sync` use silero-vad.
+conflicts = [[{ extra = "silero-vad" }, { extra = "silero-vad-cpu" }]]
+
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
+# silero-vad deliberately has no source mapping: it resolves from PyPI, whose
+# Linux torch wheels are the CUDA build (and pull the nvidia-* runtime packages).
 [tool.uv.sources]
 torch = [{ index = "pytorch-cpu", extra = "silero-vad-cpu" }]
 torchaudio = [{ index = "pytorch-cpu", extra = "silero-vad-cpu" }]

@@ -3,7 +3,10 @@ import {
   decodeAudioFrame,
 } from '@scribear/audio-frame-protocol';
 import type { LongPollClient } from '@scribear/base-long-poll-client';
-import type { WebSocketClient } from '@scribear/base-websocket-client';
+import type {
+  ConnectionState,
+  WebSocketClient,
+} from '@scribear/base-websocket-client';
 import { LatencyKind } from '@scribear/node-server-schema';
 import {
   type SESSION_CONFIG_STREAM_SCHEMA,
@@ -15,8 +18,10 @@ import {
 } from '@scribear/transcription-service-schema';
 
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
+import type { E2eOutcome } from '#src/server/shared/services/node-server-metrics.service.js';
 
 import { AudioFrameChannel } from './events/audio-frame.events.js';
+import { FleetStatusDeltaChannel } from './events/fleet-status-delta.events.js';
 import { LatencyChannel } from './events/latency.events.js';
 import { SessionEndedChannel } from './events/session-ended.events.js';
 import {
@@ -58,8 +63,32 @@ export type SessionConfigPollFactory = (
   sessionUid: string,
 ) => SessionConfigPoll;
 
+/**
+ * Live, per-session gauges reported by the status endpoint. Counters live in
+ * `NodeServerMetricsService`; these are values only the orchestrator holds.
+ */
+export interface SessionSnapshot {
+  sessionUid: string;
+  roomUid: string | null;
+  providerKey: string;
+  sourceCount: number;
+  pendingChunkCount: number;
+  upstreamState: ConnectionState;
+  upstreamRetryAttempt: number;
+}
+
 interface SessionState {
   sourceCount: number;
+  /**
+   * Provider the upstream was opened against. Read from the session's initial
+   * config and kept, rather than re-read from the long-poll on demand, because
+   * it is the provider actually in use: a later config change does not move a
+   * live upstream (see the note in the `longPoll.on('data')` handler), so the
+   * current config and this can legitimately disagree.
+   */
+  providerKey: string;
+  /** Room this session belongs to, if known. Same rationale as `providerKey`. */
+  roomUid: string | null;
   upstream: UpstreamClient;
   longPoll: SessionConfigPoll;
   audioUnsubscribe: () => void;
@@ -117,6 +146,7 @@ export class TranscriptionOrchestratorService {
   private _transcriptionServiceClient: AppDependencies['transcriptionServiceClient'];
   private _sessionConfigPollFactory: SessionConfigPollFactory;
   private _transcriptionApiKey: string;
+  private _metrics: AppDependencies['nodeServerMetricsService'];
 
   constructor(
     logger: AppDependencies['logger'],
@@ -124,12 +154,14 @@ export class TranscriptionOrchestratorService {
     transcriptionServiceClient: AppDependencies['transcriptionServiceClient'],
     sessionConfigPollFactory: SessionConfigPollFactory,
     transcriptionServiceClientConfig: AppDependencies['transcriptionServiceClientConfig'],
+    nodeServerMetricsService: AppDependencies['nodeServerMetricsService'],
   ) {
     this._logger = logger;
     this._eventBus = eventBusService;
     this._transcriptionServiceClient = transcriptionServiceClient;
     this._sessionConfigPollFactory = sessionConfigPollFactory;
     this._transcriptionApiKey = transcriptionServiceClientConfig.apiKey;
+    this._metrics = nodeServerMetricsService;
   }
 
   /**
@@ -182,6 +214,40 @@ export class TranscriptionOrchestratorService {
   }
 
   /**
+   * Point-in-time gauges for each active session, for the status endpoint.
+   *
+   * Deliberately restates the fields rather than embedding the
+   * {@link SessionStatusMessage} that `getStatus` returns: that message is part
+   * of the client-facing WebSocket contract, and coupling an operator-facing
+   * telemetry schema to it would mean neither could change independently.
+   *
+   * `limit` is applied here rather than by the caller so a large fleet of
+   * sessions never materializes an array we intend to discard. The boolean
+   * reports whether it bit.
+   *
+   * @param limit Maximum number of sessions to return.
+   */
+  sessionSnapshots(limit: number): {
+    sessions: SessionSnapshot[];
+    truncated: boolean;
+  } {
+    const sessions: SessionSnapshot[] = [];
+    for (const [sessionUid, state] of this._sessions) {
+      if (sessions.length >= limit) break;
+      sessions.push({
+        sessionUid,
+        roomUid: state.roomUid,
+        providerKey: state.providerKey,
+        sourceCount: state.sourceCount,
+        pendingChunkCount: state.pendingChunks.size,
+        upstreamState: state.upstream.state,
+        upstreamRetryAttempt: state.upstream.attempt,
+      });
+    }
+    return { sessions, truncated: this._sessions.size > sessions.length };
+  }
+
+  /**
    * Recompute a session's status from its current state, comparing against
    * the last-published snapshot. Publishes only on transitions so subscribers
    * never see redundant identical messages back-to-back.
@@ -200,6 +266,11 @@ export class TranscriptionOrchestratorService {
     }
     state.status = next;
     this._eventBus.publish(SessionStatusChannel, next, sessionUid);
+    this._eventBus.publish(FleetStatusDeltaChannel, {
+      sessionUid,
+      ...next,
+      at: Date.now(),
+    });
   }
 
   /**
@@ -207,6 +278,7 @@ export class TranscriptionOrchestratorService {
    * first if the per-session cap is reached.
    */
   private _recordPending(
+    sessionUid: string,
     state: SessionState,
     chunkId: string,
     sentAt: number | null,
@@ -215,6 +287,14 @@ export class TranscriptionOrchestratorService {
     if (state.pendingChunks.size >= MAX_PENDING_CHUNKS) {
       const oldest = state.pendingChunks.keys().next().value;
       if (oldest !== undefined) state.pendingChunks.delete(oldest);
+      // Sustained eviction means latency correlation is silently degrading:
+      // any transcript for an evicted frame can no longer be matched. Warn
+      // rather than debug - hitting a 2000-frame cap is not routine.
+      this._metrics.recordPendingChunkEviction();
+      this._logger.warn(
+        { sessionUid, cap: MAX_PENDING_CHUNKS },
+        'pending-chunk map at cap; evicting oldest',
+      );
     }
     state.pendingChunks.set(chunkId, { recvMono, sentAt });
   }
@@ -241,16 +321,42 @@ export class TranscriptionOrchestratorService {
     const id = chunkIds[0];
     if (id === undefined) return;
     const entry = state.pendingChunks.get(id);
-    if (entry === undefined) return;
+    if (entry === undefined) {
+      // The frame was evicted at the cap or already pruned by an earlier
+      // final. Counted because it is the downstream symptom of N3.
+      this._metrics.recordLatencyUnmatchedChunk();
+      return;
+    }
 
     const pipelineMs = performance.now() - entry.recvMono;
     let e2eMs: number | null = null;
+    let e2eOutcome: E2eOutcome = 'unavailable';
     if (entry.sentAt !== null) {
       const candidate = Date.now() - entry.sentAt;
       // A negative end-to-end time means the source clock is still ahead of
       // ours despite sync; report null rather than a nonsensical number.
       e2eMs = candidate >= 0 ? candidate : null;
+      e2eOutcome = candidate >= 0 ? 'ok' : 'negative';
+      if (candidate < 0) {
+        // Debug, not warn: under real skew this fires on every chunk (S5).
+        // The counter carries the rate; this line is for diagnosing one case.
+        this._logger.debug(
+          { sessionUid, skewMs: candidate },
+          'discarding negative end-to-end latency; source clock ahead',
+        );
+      }
     }
+    // Aggregated here rather than in the per-connection stream service: this
+    // runs once per correlated transcript, whereas that runs once per
+    // subscribed connection and would multiply-count every sample by the room
+    // size (B1.4).
+    this._metrics.recordLatencySample({
+      sessionUid,
+      kind,
+      pipelineMs,
+      e2eMs,
+      e2eOutcome,
+    });
 
     this._eventBus.publish(
       LatencyChannel,
@@ -277,6 +383,8 @@ export class TranscriptionOrchestratorService {
 
     const state: SessionState = {
       sourceCount: 0,
+      providerKey: initial.transcriptionProviderId,
+      roomUid: initial.roomUid,
       upstream,
       longPoll,
       audioUnsubscribe: () => {
@@ -317,8 +425,18 @@ export class TranscriptionOrchestratorService {
     // Republish status on every upstream transition. The session is removed
     // from the map before teardown, so terminate-driven state changes don't
     // accidentally re-publish stale state.
-    upstream.on('stateChange', () => {
+    upstream.on('stateChange', (to, from) => {
       if (this._sessions.get(sessionUid) !== state) return;
+      this._metrics.recordUpstreamStateChange(from, to);
+      // Observability: this is the only externally-visible trace of upstream
+      // churn. A healthy session logs this a handful of times (IDLE ->
+      // CONNECTING -> HANDSHAKING -> OPEN); a flapping upstream cycles through
+      // WAITING_RETRY repeatedly, which is the BUG.txt signature the monitoring
+      // sidecar alerts on. Info level so it survives the default LOG_LEVEL.
+      this._logger.info(
+        { sessionUid, from, to },
+        'upstream transcription state change',
+      );
       this._setStatus(sessionUid, state);
     });
 
@@ -332,6 +450,8 @@ export class TranscriptionOrchestratorService {
       // Trusted by Session Manager when the session was created; the
       // upstream provider validates its own config schema on receipt.
       config: initial.transcriptionStreamConfig as never,
+      session_uid: sessionUid,
+      room_uid: initial.roomUid,
     });
 
     state.audioUnsubscribe = this._eventBus.subscribe(
@@ -344,6 +464,7 @@ export class TranscriptionOrchestratorService {
           const decoded = decodeAudioFrame(frame);
           if (decoded.chunkId !== null) {
             this._recordPending(
+              sessionUid,
               state,
               decoded.chunkId,
               decoded.sentAt,
@@ -352,6 +473,7 @@ export class TranscriptionOrchestratorService {
           }
         } catch (err) {
           if (err instanceof AudioFrameError) {
+            this._metrics.recordDecodeDrop();
             this._logger.warn(
               { err: err.message, sessionUid },
               'dropping malformed audio frame',

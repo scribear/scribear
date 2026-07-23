@@ -37,10 +37,14 @@ const TEST_TRANSCRIPTION_API_KEY = 'test-transcription-api-key';
 
 const TRANSCRIPTION_PORT = 80;
 
+const REDIS_PORT = 6379;
+const REDIS_PASSWORD = 'test';
+
 let network: StartedNetwork | undefined;
 let dbContainer: StartedTestContainer | undefined;
 let sessionManagerContainer: StartedTestContainer | undefined;
 let transcriptionContainer: StartedTestContainer | undefined;
+let redisContainer: StartedTestContainer | undefined;
 
 export async function setup({
   provide,
@@ -188,6 +192,21 @@ export async function setup({
     transcriptionContainer.getMappedPort(TRANSCRIPTION_PORT);
   const transcriptionServiceBaseUrl = `http://${transcriptionHost}:${transcriptionPort.toString()}`;
 
+  // 4. Start Redis for the telemetry backplane (B1.7). The stock image, not
+  // `infra/scribear-redis`'s: that image is the deployment's redis-server plus
+  // a healthcheck, and building it here would test the Dockerfile rather than
+  // the publisher.
+  redisContainer = await new GenericContainer('redis:8-alpine')
+    .withCommand(['redis-server', '--requirepass', REDIS_PASSWORD])
+    .withExposedPorts(REDIS_PORT)
+    .withWaitStrategy(Wait.forLogMessage('Ready to accept connections'))
+    .start();
+
+  const redisUrl = `redis://:${REDIS_PASSWORD}@${redisContainer.getHost()}:${String(
+    redisContainer.getMappedPort(REDIS_PORT),
+  )}`;
+
+  provide('redisUrl', redisUrl);
   provide('sessionManagerBaseUrl', sessionManagerBaseUrl);
   provide('transcriptionServiceBaseUrl', transcriptionServiceBaseUrl);
   provide('adminApiKey', TEST_ADMIN_API_KEY);
@@ -197,6 +216,9 @@ export async function setup({
 }
 
 export async function teardown() {
+  if (redisContainer !== undefined) {
+    await redisContainer.stop();
+  }
   if (transcriptionContainer !== undefined) {
     await transcriptionContainer.stop();
   }

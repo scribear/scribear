@@ -26,7 +26,15 @@ API_KEY = "TEST_KEY"
 TIMEOUT_SEC = 1
 
 AUDIO_DIR = path.normpath(
-    path.join(__file__, "..", "..", "..", "..", "..", "test_audio_files/chords")
+    path.join(
+        __file__,
+        "..",
+        "..",
+        "..",
+        "..",
+        "..",
+        "test_audio_files/musical_chords",
+    )
 )
 
 
@@ -48,6 +56,10 @@ def mock_config():
     mock = MagicMock(spec=Config)
 
     mock.api_key = API_KEY
+    # Telemetry publishing off: a MagicMock's `redis_url` is otherwise a truthy
+    # mock, which sends the lifespan into opening a Redis connection to a
+    # nonsense URL and hangs startup.
+    mock.redis_url = ""
     mock.ws_init_timeout_sec = TIMEOUT_SEC
     mock.provider_config.num_workers = 2
     mock.provider_config.contexts = []
@@ -145,6 +157,37 @@ async def test_transcription_stream_accepts_valid_auth_config(
             "final_chunk_ids": None,
             "in_progress_chunk_ids": None,
         }
+
+
+@pytest.mark.timeout(3)
+@pytest.mark.asyncio
+async def test_transcription_stream_accepts_config_with_session_and_room_uid(
+    test_client: TestClient,
+):
+    """
+    A config message carrying session_uid/room_uid (as a current node server
+    sends) is accepted the same as one without - the fields are stored, not
+    validated against anything that could reject the connection.
+    """
+    # Arrange / Act / Assert
+    with test_client.websocket_connect(
+        "/transcription_stream/debug"
+    ) as websocket:
+        websocket.send_json({"type": "auth", "api_key": API_KEY})
+        websocket.send_json(
+            {
+                "type": "config",
+                "config": {"sample_rate": 16000, "num_channels": 1},
+                "session_uid": "session-1",
+                "room_uid": "room-1",
+            }
+        )
+
+        # Allow async loop to run
+        await asyncio.sleep(1)
+
+        received = websocket.receive_json()
+        assert received["type"] == "transcript"
 
 
 @pytest.mark.timeout(5)

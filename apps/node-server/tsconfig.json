@@ -37,6 +37,9 @@
     },
     {
       "path": "../../infra/scribear-db"
+    },
+    {
+      "path": "../../infra/scribear-redis"
     }
   ]
 }
