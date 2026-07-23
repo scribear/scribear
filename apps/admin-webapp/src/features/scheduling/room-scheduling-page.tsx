@@ -1,4 +1,9 @@
-import { type SyntheticEvent, useEffect, useState } from 'react';
+import {
+  type SyntheticEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 
 import AddIcon from '@mui/icons-material/Add';
 import Alert from '@mui/material/Alert';
@@ -976,10 +981,14 @@ export const RoomSchedulingPage = () => {
 
   const [onDemandOpen, setOnDemandOpen] = useState(false);
 
-  const rangeFrom = new Date().toISOString();
-  const rangeTo = new Date(
-    Date.now() + RANGE_DAYS * 24 * 60 * 60 * 1000,
-  ).toISOString();
+  // Fixed once per mount: computing "now" directly during render would make
+  // the range drift on every re-render (impure render, flagged by
+  // react-hooks/purity and @eslint-react/purity).
+  const [rangeFrom, rangeTo] = useMemo(() => {
+    const from = new Date();
+    const to = new Date(from.getTime() + RANGE_DAYS * 24 * 60 * 60 * 1000);
+    return [from.toISOString(), to.toISOString()];
+  }, []);
 
   const loadSchedules = () => {
     if (roomUid === undefined) return;
@@ -1020,8 +1029,11 @@ export const RoomSchedulingPage = () => {
   useEffect(() => {
     const alive = { current: true };
     if (roomUid === undefined) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect, @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
     setLoading(true);
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
     setSchedulesLoading(true);
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
     setWindowsLoading(true);
     adminApi
       .roomDetail(roomUid)
@@ -1072,7 +1084,7 @@ export const RoomSchedulingPage = () => {
     return () => {
       alive.current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [roomUid]);
 
   const handleToggleAuto = (_e: SyntheticEvent, checked: boolean) => {

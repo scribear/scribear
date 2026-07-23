@@ -384,6 +384,7 @@ export const KioskWizardPage = () => {
   useEffect(() => {
     if (roomChoice !== 'existing' || existingRooms.length > 0) return;
     const alive = { current: true };
+    // eslint-disable-next-line react-hooks/set-state-in-effect, @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
     setExistingRoomsLoading(true);
     adminApi
       .listRooms({ limit: 200 })
@@ -404,7 +405,7 @@ export const KioskWizardPage = () => {
     return () => {
       alive.current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [roomChoice]);
 
   const handleCreateRoom = () => {

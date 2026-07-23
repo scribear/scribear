@@ -131,7 +131,7 @@ export const DashboardPage = () => {
     return () => {
       alive.current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, []);
 
   return (

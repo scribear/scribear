@@ -213,6 +213,7 @@ export const DevicesListPage = () => {
 
   useEffect(() => {
     const alive = { current: true };
+    // eslint-disable-next-line react-hooks/set-state-in-effect, @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
     setLoading(true);
     adminApi
       .listDevices(buildQuery())
@@ -236,7 +237,7 @@ export const DevicesListPage = () => {
     return () => {
       alive.current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [search, statusFilter, roomFilter]);
 
   const handleLoadMore = () => {

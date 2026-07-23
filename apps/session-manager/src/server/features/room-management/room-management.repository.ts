@@ -76,7 +76,7 @@ export class RoomManagementRepository {
       .where('uid', '=', roomUid)
       .executeTakeFirst();
 
-    return row ? mapRoom(row as RoomRow) : undefined;
+    return row ? mapRoom(row) : undefined;
   }
 
   /**
@@ -105,7 +105,7 @@ export class RoomManagementRepository {
         'auto_session_enabled',
         'room_schedule_version',
         'created_at',
-      ]) as BaseRoomQuery;
+      ]);
 
     return search !== null
       ? this._listBySimilarity(base, search, cursor, limit)
@@ -215,7 +215,7 @@ export class RoomManagementRepository {
     timezone: string;
     autoSessionEnabled: boolean;
   }) {
-    const row = (await this._dbClient.db
+    const row = await this._dbClient.db
       .insertInto('rooms')
       .values({
         name: data.name,
@@ -230,7 +230,7 @@ export class RoomManagementRepository {
         'room_schedule_version',
         'created_at',
       ])
-      .executeTakeFirstOrThrow()) as RoomRow;
+      .executeTakeFirstOrThrow();
 
     return mapRoom(row);
   }
@@ -271,7 +271,7 @@ export class RoomManagementRepository {
       ])
       .executeTakeFirst();
 
-    return row ? mapRoom(row as RoomRow) : undefined;
+    return row ? mapRoom(row) : undefined;
   }
 
   /**
