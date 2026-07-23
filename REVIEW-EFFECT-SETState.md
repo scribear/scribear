@@ -1,8 +1,9 @@
 # REVIEW-EFFECT-SETState.md
 
 Sites flagged by the new `react-hooks/set-state-in-effect` / `@eslint-react/set-state-in-effect`
-rules (new in `eslint-plugin-react-hooks` 7.1 and `@eslint-react/eslint-plugin` 5, surfaced by the
-ESLint 9→10 / eslint-react 2→5 dependency-bump PR). All 18 sites below are in `admin-webapp`.
+rules (new in `eslint-plugin-react-hooks` 7.1 and `@eslint-react/eslint-plugin` 5, surfaced by
+[PR #144](https://github.com/scribear/scribear/pull/144), the ESLint 9→10 / eslint-react 2→5
+dependency bump). All 18 sites below are in `admin-webapp`.
 
 17 of the 18 are the same "loading flag" data-fetching idiom:
 
