@@ -428,13 +428,12 @@ describe('AdminApiClient', () => {
       });
     });
 
-    it('surprising case: a 200 response with an unparseable body is still thrown as an ApiError, not returned', async () => {
+    it('maps a 200 response with an unparseable body to a distinct INVALID_RESPONSE ApiError', async () => {
       // Arrange: `_request` treats `res.ok && json?.ok` as the only success
       // path. A 200 whose body fails to parse as JSON falls through to the
-      // error branch with the generic UNKNOWN code, at the *original* 200
-      // status — i.e. a malformed-but-otherwise-successful response reads
-      // exactly like a real server error to every caller. Documented here
-      // since it's easy to assume any 2xx short-circuits to success.
+      // error branch, but gets its own INVALID_RESPONSE code (rather than the
+      // generic UNKNOWN used for a declared backend error) so callers can
+      // tell "the server sent 2xx but garbage" apart from a real error.
       fetchMock.mockResolvedValue(unparseableResponse(200));
 
       // Act
@@ -442,7 +441,28 @@ describe('AdminApiClient', () => {
 
       // Assert
       await expect(promise).rejects.toMatchObject({
-        code: 'UNKNOWN',
+        code: 'INVALID_RESPONSE',
+        status: 200,
+      });
+    });
+
+    it('maps a 200 response with an ok:false envelope to INVALID_RESPONSE rather than passing the envelope error through', async () => {
+      // Arrange: a 2xx status paired with a declared `ok: false` envelope
+      // never happens in the real BFF contract, but if it did, it should read
+      // as an unexpected-response bug, not a trustworthy declared error.
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, {
+          ok: false,
+          error: { code: 'ROOM_NOT_FOUND', message: 'No such room.' },
+        }),
+      );
+
+      // Act
+      const promise = client.health();
+
+      // Assert
+      await expect(promise).rejects.toMatchObject({
+        code: 'INVALID_RESPONSE',
         status: 200,
       });
     });
