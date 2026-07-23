@@ -4,7 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scribear_transcription_service"
-version = "0.0.0"
+# Kept in step with the npm workspace packages by hand — changesets does not
+# manage this file (see RELEASING.md, "Version sources"). CI tags the published
+# image `v<version>` from here, so letting it drift would tag
+# transcription-service v0.0.0 in a release where every other image is v0.2.0.
+version = "0.2.0"
 authors = [{ name = "scribear" }]
 description = "ScribeAR Server backend transcription service"
 requires-python = ">=3.12"

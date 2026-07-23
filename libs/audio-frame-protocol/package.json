@@ -1,6 +1,6 @@
 {
   "name": "@scribear/audio-frame-protocol",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Versioned, self-describing binary framing for source audio (SAFP)",
   "author": "scribear",
   "main": "dist/src/index.js",

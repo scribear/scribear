@@ -12,10 +12,42 @@ lists every key the current `compose.yml` understands.
 
 ---
 
-## Monitoring & fleet dashboard release
+## 0.2.0 — monitoring & fleet dashboard
 
-Adds the admin fleet dashboard, the monitoring sidecar, and a Redis telemetry
-backplane.
+Adds the admin fleet dashboard, the monitoring sidecar, a Redis telemetry
+backplane, and the admin console's Config Check page.
+
+Every image moves from `0.1.0` to `0.2.0` together — the npm packages are a
+changesets `fixed` group, and `transcription_service/pyproject.toml` is kept in
+step by hand. Two changes in this release are breaking (see *Breaking changes*
+below); they are a minor bump rather than a major one because the project is
+pre-1.0, where `1.0.0` is reserved for declaring the API stable.
+
+### Optional: tell the Config Check what this deployment is
+
+New in this release: **Admin → Config Check** reports the deployment's
+configuration posture — placeholder secrets, missing login methods, a telemetry
+backplane that nothing publishes to, containers that never came up.
+
+Severity depends on what the deployment *is*: a placeholder password is
+unremarkable on a laptop and a compromise in production. Set `DEPLOYMENT_ENV` so
+the page judges against the right standard.
+
+```dotenv
+# development | staging | production
+DEPLOYMENT_ENV=production
+```
+
+Leaving it unset infers `production` unless admin-server was started with
+`--dev`. That is the deliberate direction: an existing deployment that never
+sets it is judged strictly rather than reassured. The variable is reporting-only
+— nothing behaves differently — and an unrecognized value is reported by the
+check itself rather than blocking startup.
+
+Every finding also carries the severity it *would* have in production, so a
+staging deployment can be checked for promotion-readiness without changing
+anything. The page never displays a secret value, only whether each is set and
+how long it is.
 
 ### What breaks if you upgrade without reading this
 
