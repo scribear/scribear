@@ -34,6 +34,16 @@ describe('assertNotPlaceholderKey', (it) => {
     }).toThrow();
   });
 
+  // Compose substitutes a blank string for an unset variable, so this is the
+  // shape an .env predating a newly required key arrives in. It has to throw:
+  // an empty configured key compares equal to the empty string a caller
+  // presents as `Authorization: Bearer `, making the guard an auth bypass.
+  it('throws when the key is empty', () => {
+    expect(() => {
+      assertNotPlaceholderKey('', 'NODE_SERVER_SERVICE_API_KEY');
+    }).toThrow();
+  });
+
   it('does not throw for a real key', () => {
     expect(() => {
       assertNotPlaceholderKey(

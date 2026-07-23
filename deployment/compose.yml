@@ -128,7 +128,12 @@ services:
       - "80"
     environment:
       LOG_LEVEL: ${NODE_SERVER_LOG_LEVEL:-info}
-      NODE_SERVER_SERVICE_API_KEY: ${NODE_SERVER_SERVICE_KEY}
+      # `:?` deliberately: this is a new required secret as of B1.1, so an .env
+      # carried over from before it would otherwise substitute a blank string
+      # here, and a blank inbound key authenticates any caller that sends
+      # `Authorization: Bearer `. Failing interpolation stops the whole stack
+      # before a single container starts.
+      NODE_SERVER_SERVICE_API_KEY: ${NODE_SERVER_SERVICE_KEY:?NODE_SERVER_SERVICE_KEY is unset. Your .env predates the monitoring/fleet release - read deployment/UPGRADING.md (or the wiki Deployment page) and add the new keys before starting.}
       SESSION_TOKEN_SIGNING_KEY: ${JWT_SECRET}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
       SESSION_MANAGER_SERVICE_API_KEY: ${NODE_SERVER_KEY}
@@ -186,11 +191,18 @@ services:
   # that no longer exist.
   redis:
     image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/scribear-redis:${IMAGE_TAG:-latest}
+    # `:?` deliberately, and on the `--requirepass` argument rather than only
+    # on the environment below: `redis-server --requirepass ""` is not a
+    # password-protected server that rejects logins, it is an *open* server
+    # that accepts every unauthenticated command. An .env carried over from
+    # before this release has no REDIS_PASSWORD at all, so without this guard
+    # the upgrade would silently stand up an unauthenticated Redis holding the
+    # whole fleet's operational state.
     command:
       [
         "redis-server",
         "--requirepass",
-        "${REDIS_PASSWORD}",
+        "${REDIS_PASSWORD:?REDIS_PASSWORD is unset. Your .env predates the monitoring/fleet release - read deployment/UPGRADING.md (or the wiki Deployment page) and add the new keys before starting.}",
         "--save",
         "",
         "--appendonly",
@@ -198,7 +210,7 @@ services:
       ]
     environment:
       # Read by the image's healthcheck, which authenticates before PINGing.
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is unset. Your .env predates the monitoring/fleet release - read deployment/UPGRADING.md (or the wiki Deployment page) and add the new keys before starting.}
     # Not published to the host, unlike scribear-db: nothing outside the
     # backend network has any reason to reach it, and its contents are the
     # whole fleet's operational state.
@@ -269,7 +281,7 @@ services:
       # Reads node-server's authed status endpoint (B1.1). Must match the key
       # node-server is given above; empty disables status polling and leaves
       # the connection, upstream and auth metrics empty.
-      NODE_SERVER_SERVICE_API_KEY: ${NODE_SERVER_SERVICE_KEY}
+      NODE_SERVER_SERVICE_API_KEY: ${NODE_SERVER_SERVICE_KEY:?NODE_SERVER_SERVICE_KEY is unset. Your .env predates the monitoring/fleet release - read deployment/UPGRADING.md (or the wiki Deployment page) and add the new keys before starting.}
       NODE_STATUS_INTERVAL_SEC: ${MONITORING_NODE_STATUS_INTERVAL_SEC:-10}
       # Reads transcription-service's authed metrics endpoint (B1.2). Must
       # match the key that service is given above; empty disables the poll.
