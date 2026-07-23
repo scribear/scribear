@@ -55,6 +55,7 @@
     "vitest-mock-extended": "3.1.0"
   },
   "overrides": {
-    "protobufjs": "7.6.5"
+    "protobufjs": "7.6.5",
+    "shell-quote": "1.9.0"
   }
 }

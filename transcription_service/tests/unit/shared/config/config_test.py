@@ -28,8 +28,7 @@ API_KEY = "SOME_KEY"
 METRICS_API_KEY = "SOME_METRICS_KEY"
 WS_INIT_TIMEOUT_SEC = 0.5
 
-valid_env: Callable[[str], str] = (
-    lambda provider_config_path: f"""
+valid_env: Callable[[str], str] = lambda provider_config_path: f"""
 LOG_LEVEL={LOG_LEVEL}
 PORT={PORT}
 HOST={HOST}
@@ -37,7 +36,6 @@ API_KEY={API_KEY}
 WS_INIT_TIMEOUT_SEC={WS_INIT_TIMEOUT_SEC}
 PROVIDER_CONFIG_PATH={provider_config_path}
 """
-)
 
 NUM_WORKERS = 2
 CONTEXT_0 = JobContextConfigSchema(
