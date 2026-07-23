@@ -19,7 +19,7 @@ backplane, and the admin console's Config Check page.
 
 Every image moves from `0.1.0` to `0.2.0` together — the npm packages are a
 changesets `fixed` group, and `transcription_service/pyproject.toml` is kept in
-step by hand. Two changes in this release are breaking (see *Breaking changes*
+step by hand. Two changes in this release are breaking (see _Breaking changes_
 below); they are a minor bump rather than a major one because the project is
 pre-1.0, where `1.0.0` is reserved for declaring the API stable.
 
@@ -29,7 +29,7 @@ New in this release: **Admin → Config Check** reports the deployment's
 configuration posture — placeholder secrets, missing login methods, a telemetry
 backplane that nothing publishes to, containers that never came up.
 
-Severity depends on what the deployment *is*: a placeholder password is
+Severity depends on what the deployment _is_: a placeholder password is
 unremarkable on a laptop and a compromise in production. Set `DEPLOYMENT_ENV` so
 the page judges against the right standard.
 
@@ -44,7 +44,7 @@ sets it is judged strictly rather than reassured. The variable is reporting-only
 — nothing behaves differently — and an unrecognized value is reported by the
 check itself rather than blocking startup.
 
-Every finding also carries the severity it *would* have in production, so a
+Every finding also carries the severity it _would_ have in production, so a
 staging deployment can be checked for promotion-readiness without changing
 anything. The page never displays a secret value, only whether each is set and
 how long it is.
@@ -60,7 +60,7 @@ unset. Your .env predates the monitoring/fleet release - read deployment/UPGRADI
 (or the wiki Deployment page) and add the new keys before starting.
 ```
 
-That is deliberate. Both new secrets fail *open* rather than closed if left
+That is deliberate. Both new secrets fail _open_ rather than closed if left
 blank, so the compose file refuses to interpolate them rather than let the
 stack come up in that state:
 
@@ -68,17 +68,24 @@ stack come up in that state:
   routes accept any caller that sends a bare `Authorization: Bearer ` header —
   the empty configured key matches the empty presented key.
 - An empty `REDIS_PASSWORD` does not produce a locked-down Redis. `redis-server
-  --requirepass ""` is an *open* server that accepts every unauthenticated
+--requirepass ""` is an _open_ server that accepts every unauthenticated
   command, and it would be holding the whole fleet's operational state.
 
-The services enforce the same rule independently of Compose: node-server and
-session-manager now refuse to boot on an empty or `CHANGEME` service key, so
-Kubernetes or hand-rolled `docker run` deployments fail loudly too.
+The services enforce the same rule independently of Compose: node-server,
+session-manager and transcription-service now refuse to boot on an empty or
+`CHANGEME` key, so Kubernetes or hand-rolled `docker run` deployments fail
+loudly too. The placeholder test matches `CHANGEME` as a substring, so the
+example values that carry a length-rule suffix —
+`CHANGEME-JWT-must-be-at-least-32-characters-long` and friends — are caught as
+well. **If any secret in your `.env` still contains `CHANGEME`, that service
+will now refuse to start.** That is the intended behaviour, but it will surface
+on upgrade rather than at leisure, so check before you pull.
 
 ### Required `.env` additions
 
-Two new keys, both mandatory. Generate a distinct high-entropy value for each —
-for example `openssl rand -hex 32`.
+Two new keys, both mandatory. Everything else this release adds is optional and
+defaulted — see _Complete `.env` delta_ below for the full picture. Generate a
+distinct high-entropy value for each — for example `openssl rand -hex 32`.
 
 ```dotenv
 # Inbound service-to-service auth for the node server's internal observability
@@ -96,10 +103,10 @@ Two services join the stack. Both are pulled from the same registry and tag as
 everything else, and CI publishes them alongside the existing images, so no
 registry or tag changes are needed.
 
-| Service | Image | Notes |
-| --- | --- | --- |
-| `redis` | `scribear-redis` | Telemetry backplane. Not published to the host; `backend` network only. No persistence — every key is a short-TTL snapshot its publisher rewrites within seconds. |
-| `monitoring-sidecar` | `monitoring-sidecar` | Black-box poller. No longer mounts the Docker socket — the log-ingestion path it needed that for was removed in B1.2. |
+| Service              | Image                | Notes                                                                                                                                                             |
+| -------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `redis`              | `scribear-redis`     | Telemetry backplane. Not published to the host; `backend` network only. No persistence — every key is a short-TTL snapshot its publisher rewrites within seconds. |
+| `monitoring-sidecar` | `monitoring-sidecar` | Black-box poller. No longer mounts the Docker socket — the log-ingestion path it needed that for was removed in B1.2.                                             |
 
 Nothing in the transcription path reads or writes Redis. Losing it costs the
 dashboard its cross-instance view and costs live sessions nothing.
@@ -132,7 +139,7 @@ unaffected either way.
 ### Optional: monitoring sidecar metrics
 
 The sidecar polls two authenticated endpoints. Each is independently disabled
-when its key is blank, and a blank key is a *silent* degradation — the sidecar
+when its key is blank, and a blank key is a _silent_ degradation — the sidecar
 runs, the affected metric series are simply empty. The log parsers that used to
 infer these signals were retired when the endpoints landed, so there is no
 fallback source.
@@ -159,6 +166,51 @@ steps are in [`../apps/monitoring-sidecar/.env.example`](../apps/monitoring-side
 - **The admin health rollup now covers every service**, so its response shape
   changed. Re-check any external consumer of `/api/admin/v1/health`.
 
+### Optional: automatic image updates (watchtower)
+
+`watchtower` polls the registry and recreates any container whose tag now points
+at a newer digest. It is in `compose.yml` behind the `autoupdate` profile, so it
+does **not** start unless you ask for it:
+
+```dotenv
+COMPOSE_PROFILES=autoupdate
+WATCHTOWER_POLL_INTERVAL=1800
+```
+
+Then `docker compose up -d` as usual — no `-f` flags.
+
+On staging, where `IMAGE_TAG=staging` and every push republishes it, this is
+what makes the box continuously deployed with nobody logging in. **Think before
+production.** Recreating a container ends every WebSocket it was serving, so an
+update to `node-server` or `transcription-service` drops the sessions they are
+carrying — captions stop mid-sentence and the kiosk has to reconnect. It is also
+unattended: with `IMAGE_TAG=latest`, a merge to `main` deploys itself, at
+whatever hour it happens to land. Production generally wants a chosen moment.
+
+It also mounts the Docker socket, which is root-equivalent on the host. The
+monitoring sidecar gave up exactly that mount in B1.2; enabling this profile
+puts one back, in a container whose job is to pull images and restart things.
+
+`WATCHTOWER_SCOPE` is empty by default, which means watchtower updates **every
+container on the host**, including any unrelated to ScribeAR. On a dedicated box
+that is usually what you want. To narrow it, set a name and label the containers
+to include:
+
+```dotenv
+WATCHTOWER_SCOPE=scribear
+```
+
+```yaml
+# compose.override.yml — repeat per service you want auto-updated
+services:
+  node-server:
+    labels:
+      com.centurylinklabs.watchtower.scope: scribear
+```
+
+`WATCHTOWER_CLEANUP` is on unconditionally: without it the superseded image
+layers are never reclaimed and a box polling every 30 minutes fills its disk.
+
 ### New optional tuning knobs
 
 All defaulted; the stack behaves identically if you ignore them. See
@@ -166,6 +218,52 @@ All defaulted; the stack behaves identically if you ignore them. See
 (`DEVICE_ONLINE_TTL_SEC`, `DEVICE_LAST_SEEN_WRITE_SEC`), the health-rollup
 timeout (`ADMIN_HEALTH_TIMEOUT_SEC`), and the sidecar's poll intervals and alert
 thresholds (`MONITORING_*`).
+
+### Complete `.env` delta
+
+Everything `compose.yml` reads that a pre-0.2.0 `.env` does not have. Only the
+first two are required; the rest have working defaults and can be added when you
+want the feature.
+
+| Key                                                   | Needed?      | What it is for                                                                           |
+| ----------------------------------------------------- | ------------ | ---------------------------------------------------------------------------------------- |
+| `NODE_SERVER_SERVICE_KEY`                             | **Required** | Inbound service auth on node-server. Stack will not start without it.                    |
+| `REDIS_PASSWORD`                                      | **Required** | Telemetry backplane password. Stack will not start without it.                           |
+| `DEPLOYMENT_ENV`                                      | Recommended  | Which standard the Config Check judges against. Unset infers `production`.               |
+| `ADMIN_REDIS_URL`                                     | Optional     | Lets the admin console read the fleet view. Unset ⇒ `/fleet` answers 503.                |
+| `NODE_SERVER_REDIS_URL`                               | Optional     | Lets node-server publish telemetry. Unset ⇒ absent from the dashboard.                   |
+| `TRANSCRIPTION_REDIS_URL`                             | Optional     | Same, for transcription-service.                                                         |
+| `TRANSCRIPTION_METRICS_KEY`                           | Optional     | Read-only key for `/metrics/status`. Unset ⇒ sidecar's transcription metrics stay empty. |
+| `COMPOSE_PROFILES`                                    | Optional     | `autoupdate` switches on watchtower.                                                     |
+| `WATCHTOWER_POLL_INTERVAL`, `WATCHTOWER_SCOPE`        | Optional     | Only read when that profile is on.                                                       |
+| `ADMIN_HEALTH_TIMEOUT_SEC`                            | Optional     | Per-component timeout for the health rollup (default 3).                                 |
+| `DEVICE_ONLINE_TTL_SEC`, `DEVICE_LAST_SEEN_WRITE_SEC` | Optional     | Device presence tuning (defaults 180 / 60).                                              |
+| `MONITORING_*`                                        | Optional     | Sidecar poll intervals, alert thresholds, canary. All defaulted.                         |
+
+Nothing was removed: every key a 0.1.x `.env` already had is still read. `ORIGIN`
+is not referenced by `compose.yml` and never was — it is read by the helper
+scripts in this directory (`create-room.sh`, `register-device.sh`,
+`create-session.sh`), so keep it.
+
+### Moving a host off a hand-edited `compose.yml`
+
+If a deployment forked `compose.yml` to add something locally, it will not pick
+up any of the above by pulling. Move it back onto the tracked file:
+
+1. `diff` your host's `compose.yml` against the tracked one for the release you
+   forked from — `git show <tag>:deployment/compose.yml` — so you know exactly
+   what is local. It is usually less than it feels like.
+2. Anything that is now upstream (watchtower is, as of this release) needs no
+   action beyond the `.env` keys above.
+3. Put whatever genuinely remains in `deployment/compose.override.yml`. Compose
+   loads that automatically next to `compose.yml`, with no `-f` flags, and it is
+   gitignored. Only the keys you restate are overridden.
+4. Replace the host's `compose.yml` with the tracked one and `docker compose
+config` to confirm the merged result before `up -d`.
+
+The point is that the host stops carrying a fork that silently misses every
+later change — which is how a deployment ends up several releases behind on
+exactly the settings it most needs.
 
 ### `TRANSCRIPTION_DEVICE` gained a value
 
