@@ -27,6 +27,7 @@ export interface TestAppConfigOverrides {
   dbClientConfig?: Partial<AppConfig['dbClientConfig']>;
   healthCheckerConfig?: Partial<AppConfig['healthCheckerConfig']>;
   fleetTelemetryConfig?: Partial<AppConfig['fleetTelemetryConfig']>;
+  configCheckConfig?: Partial<AppConfig['configCheckConfig']>;
   cookieSecret?: string;
 }
 
@@ -104,6 +105,24 @@ export function buildTestAppConfig(
     fleetTelemetryConfig: {
       redisUrl: '',
       ...overrides.fleetTelemetryConfig,
+    },
+    // A deployment with nothing wrong with it, so a test that cares about a
+    // finding can spoil exactly one thing and assert on it. `declaredEnv` is
+    // explicit rather than inferred because `isDevelopment` is true above,
+    // which would otherwise make every test a development-severity test.
+    configCheckConfig: {
+      declaredEnv: 'production',
+      isDevelopment: false,
+      adminApiKey: TEST_ADMIN_KEY,
+      adminSessionSecret: TEST_COOKIE_SECRET,
+      adminLocalCredentials: TEST_LOCAL_CREDENTIALS,
+      dbPassword: 'test-db-password',
+      redisUrl: 'redis://:test-redis-password@redis.test:6379',
+      azureTenantId: 'test-tenant',
+      azureClientId: 'test-client',
+      azureClientSecret: 'test-client-secret',
+      allowedGroup: 'test-admins',
+      ...overrides.configCheckConfig,
     },
     cookieSecret: overrides.cookieSecret ?? TEST_COOKIE_SECRET,
   } as unknown as AppConfig;

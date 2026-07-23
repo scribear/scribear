@@ -82,13 +82,13 @@ describe('resolveEnvironment', () => {
     // Reported rather than fatal: a typo here must not be able to stop
     // admin-server from booting.
     it('falls back to the inferred environment and flags itself', () => {
-      expect(resolveEnvironment({ ...CLEAN, declaredEnv: 'prod' })).toStrictEqual(
-        {
-          environment: 'production',
-          environmentSource: 'inferred',
-          declaredButInvalid: true,
-        },
-      );
+      expect(
+        resolveEnvironment({ ...CLEAN, declaredEnv: 'prod' }),
+      ).toStrictEqual({
+        environment: 'production',
+        environmentSource: 'inferred',
+        declaredButInvalid: true,
+      });
     });
 
     it('produces a finding', () => {
@@ -271,7 +271,10 @@ describe('evaluateStaticChecks', () => {
 
       expect(all.length).toBeGreaterThan(0);
       for (const f of all) {
-        expect(f.remediation, `finding ${f.id} has no remediation`).toBeTruthy();
+        expect(
+          f.remediation,
+          `finding ${f.id} has no remediation`,
+        ).toBeTruthy();
       }
     });
   });

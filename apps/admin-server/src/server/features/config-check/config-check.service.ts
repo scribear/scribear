@@ -264,7 +264,11 @@ export function evaluateStaticChecks(
           detail: `${describeSecret(check.value)}. Anyone who has read the repository knows this value.`,
           remediation: `Set ${check.variable} in deployment/.env to a high-entropy secret, e.g. \`openssl rand -hex 32\`.`,
         },
-        { development: 'advisory', staging: 'critical', production: 'critical' },
+        {
+          development: 'advisory',
+          staging: 'critical',
+          production: 'critical',
+        },
         env,
       ),
     );
@@ -289,7 +293,11 @@ export function evaluateStaticChecks(
           remediation:
             'Set ADMIN_LOCAL_CREDENTIALS in deployment/.env to "<username> <strong password>".',
         },
-        { development: 'advisory', staging: 'critical', production: 'critical' },
+        {
+          development: 'advisory',
+          staging: 'critical',
+          production: 'critical',
+        },
         env,
       ),
     );
@@ -308,7 +316,11 @@ export function evaluateStaticChecks(
           remediation:
             'Set ADMIN_LOCAL_CREDENTIALS, or configure AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET.',
         },
-        { development: 'critical', staging: 'critical', production: 'critical' },
+        {
+          development: 'critical',
+          staging: 'critical',
+          production: 'critical',
+        },
         env,
       ),
     );
@@ -493,7 +505,11 @@ export class ConfigCheckService {
             remediation:
               'Set NODE_SERVER_REDIS_URL and TRANSCRIPTION_REDIS_URL in deployment/.env and restart those services — see deployment/UPGRADING.md.',
           },
-          { development: 'advisory', staging: 'warning', production: 'warning' },
+          {
+            development: 'advisory',
+            staging: 'warning',
+            production: 'warning',
+          },
           env,
         ),
       ];
@@ -509,7 +525,11 @@ export class ConfigCheckService {
             remediation:
               'Check that the redis service is running and that ADMIN_REDIS_URL host, port and password match REDIS_PASSWORD in deployment/.env.',
           },
-          { development: 'warning', staging: 'critical', production: 'critical' },
+          {
+            development: 'warning',
+            staging: 'critical',
+            production: 'critical',
+          },
           env,
         ),
       ];

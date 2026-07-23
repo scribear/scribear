@@ -247,7 +247,11 @@ export interface TranscriptionWorker {
   totalJobsRegistered: number;
   contextIds: string[];
   alive: boolean;
-  activeJobs: { jobId: number; sessionUid: string | null; roomUid: string | null }[];
+  activeJobs: {
+    jobId: number;
+    sessionUid: string | null;
+    roomUid: string | null;
+  }[];
 }
 
 /** Fields that don't apply to a provider's `kind` are `null`, never omitted. */
