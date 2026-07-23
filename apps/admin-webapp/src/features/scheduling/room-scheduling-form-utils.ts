@@ -22,6 +22,17 @@ export function sameStringArray(
   return sa.every((v, i) => v === sb[i]);
 }
 
+/** `sameStringArray`, but `null` is only equal to `null` (never to an empty
+ * array) — for the one field, `ScheduleDialog`'s `daysOfWeek`, that can be
+ * absent entirely rather than just empty. */
+export function sameDaysOfWeek(
+  a: readonly string[] | null,
+  b: readonly string[] | null,
+): boolean {
+  if (a === null || b === null) return a === b;
+  return sameStringArray(a, b);
+}
+
 /** The schedule dialog's fully-resolved next-state values: validation and
  * JSON-parsing of the raw form have already happened in the caller. */
 export interface ResolvedScheduleFields {
@@ -40,15 +51,6 @@ export interface ResolvedScheduleFields {
 /**
  * Diffs the resolved next-state fields against the loaded schedule and
  * returns only the changed ones, for a PATCH-shaped update body.
- *
- * NOTE (locked-in current behavior, not "fixed" here): `daysOfWeek` below is
- * compared with a plain `JSON.stringify` — order-sensitive — while
- * `joinCodeScopes` a few lines down (and the auto-window dialog's own
- * `daysOfWeek`, see `diffAutoWindowUpdate`) use the order-insensitive
- * `sameStringArray`. A same-set-but-reordered `daysOfWeek` is therefore
- * treated as "changed" here, unlike everywhere else in this file. Whether
- * that asymmetry is intended is unclear; it is preserved as-is rather than
- * "fixed" as part of a test-coverage pass.
  */
 export function diffScheduleUpdate(
   schedule: SessionSchedule,
@@ -67,9 +69,7 @@ export function diffScheduleUpdate(
     body.localEndTime = next.localEndTime;
   }
   if (next.frequency !== schedule.frequency) body.frequency = next.frequency;
-  if (
-    JSON.stringify(next.daysOfWeek) !== JSON.stringify(schedule.daysOfWeek)
-  ) {
+  if (!sameDaysOfWeek(next.daysOfWeek, schedule.daysOfWeek)) {
     body.daysOfWeek = next.daysOfWeek;
   }
   if (!sameStringArray(next.joinCodeScopes, schedule.joinCodeScopes)) {

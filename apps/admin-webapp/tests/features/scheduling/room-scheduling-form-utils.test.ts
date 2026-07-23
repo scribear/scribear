@@ -3,6 +3,7 @@ import { describe, expect } from 'vitest';
 import {
   diffAutoWindowUpdate,
   diffScheduleUpdate,
+  sameDaysOfWeek,
   sameStringArray,
 } from '#src/features/scheduling/room-scheduling-form-utils';
 import type { DayOfWeek, SessionScope } from '#src/lib/admin-api';
@@ -55,6 +56,27 @@ describe('sameStringArray', (it) => {
     // Assert
     expect(sameStringArray(['MON'], ['MON', 'TUE'])).toBe(false);
     expect(sameStringArray(['MON'], ['TUE'])).toBe(false);
+  });
+});
+
+describe('sameDaysOfWeek', (it) => {
+  it('is true for the same elements regardless of order, like sameStringArray', () => {
+    // Assert
+    expect(sameDaysOfWeek(['MON', 'WED', 'FRI'], ['FRI', 'MON', 'WED'])).toBe(
+      true,
+    );
+  });
+
+  it('is true when both sides are null', () => {
+    // Assert
+    expect(sameDaysOfWeek(null, null)).toBe(true);
+  });
+
+  it('is false when one side is null and the other is an array, even an empty one', () => {
+    // Assert
+    expect(sameDaysOfWeek(null, [])).toBe(false);
+    expect(sameDaysOfWeek([], null)).toBe(false);
+    expect(sameDaysOfWeek(null, ['MON'])).toBe(false);
   });
 });
 
@@ -257,30 +279,47 @@ describe('diffScheduleUpdate', (it) => {
     expect(body).toEqual({ name: 'Renamed', localEndTime: '12:00' });
   });
 
-  it(
-    // LOCKED-IN AMBIGUITY: daysOfWeek is diffed with a plain JSON.stringify
-    // comparison (order-sensitive), unlike joinCodeScopes just above it in
-    // the same function (and unlike the auto-window dialog's own daysOfWeek,
-    // see diffAutoWindowUpdate below), both of which use the order-insensitive
-    // sameStringArray. Whether a same-set-but-reordered daysOfWeek "counts" as
-    // a user edit is not something this test suite decides — it locks in the
-    // current behavior (treated as changed) rather than picking a side.
-    'treats a same-set-but-reordered daysOfWeek as changed (order-sensitive, unlike joinCodeScopes)',
-    () => {
-      // Arrange
-      const schedule = buildSchedule({ daysOfWeek: ['MON', 'WED', 'FRI'] });
-      const next = {
-        ...resolvedFromSchedule(schedule),
-        daysOfWeek: ['FRI', 'MON', 'WED'] as DayOfWeek[],
-      };
+  it('treats a same-set-but-reordered daysOfWeek as unchanged (order-insensitive, consistent with joinCodeScopes)', () => {
+    // Arrange
+    const schedule = buildSchedule({ daysOfWeek: ['MON', 'WED', 'FRI'] });
+    const next = {
+      ...resolvedFromSchedule(schedule),
+      daysOfWeek: ['FRI', 'MON', 'WED'] as DayOfWeek[],
+    };
 
-      // Act
-      const body = diffScheduleUpdate(schedule, next);
+    // Act
+    const body = diffScheduleUpdate(schedule, next);
 
-      // Assert
-      expect(body).toEqual({ daysOfWeek: ['FRI', 'MON', 'WED'] });
-    },
-  );
+    // Assert
+    expect(body).toEqual({});
+  });
+
+  it('treats a null daysOfWeek as unchanged against a null next value', () => {
+    // Arrange
+    const schedule = buildSchedule({ daysOfWeek: null });
+    const next = { ...resolvedFromSchedule(schedule), daysOfWeek: null };
+
+    // Act
+    const body = diffScheduleUpdate(schedule, next);
+
+    // Assert
+    expect(body).toEqual({});
+  });
+
+  it('treats null vs. an actual daysOfWeek array as changed, not equivalent to empty', () => {
+    // Arrange
+    const schedule = buildSchedule({ daysOfWeek: null });
+    const next = {
+      ...resolvedFromSchedule(schedule),
+      daysOfWeek: ['MON'] as DayOfWeek[],
+    };
+
+    // Act
+    const body = diffScheduleUpdate(schedule, next);
+
+    // Assert
+    expect(body).toEqual({ daysOfWeek: ['MON'] });
+  });
 
   it('treats a same-set-but-reordered joinCodeScopes as unchanged (order-insensitive)', () => {
     // Arrange
