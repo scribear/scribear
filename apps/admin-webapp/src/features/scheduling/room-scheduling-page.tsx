@@ -14,6 +14,7 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import FormControl from '@mui/material/FormControl';
 import FormControlLabel from '@mui/material/FormControlLabel';
+import FormHelperText from '@mui/material/FormHelperText';
 import Grid from '@mui/material/Grid';
 import InputLabel from '@mui/material/InputLabel';
 import ListItemText from '@mui/material/ListItemText';
@@ -115,6 +116,8 @@ interface MultiSelectFieldProps<T extends string> {
   value: T[];
   onChange: (value: T[]) => void;
   disabled: boolean;
+  error?: boolean;
+  helperText?: string;
 }
 
 function MultiSelectField<T extends string>({
@@ -123,10 +126,13 @@ function MultiSelectField<T extends string>({
   value,
   onChange,
   disabled,
+  error = false,
+  helperText,
 }: MultiSelectFieldProps<T>) {
   const labelId = `multiselect-${label.replace(/\s+/g, '-').toLowerCase()}`;
+  const helperId = `${labelId}-helper`;
   return (
-    <FormControl fullWidth margin="normal" disabled={disabled}>
+    <FormControl fullWidth margin="normal" disabled={disabled} error={error}>
       <InputLabel id={labelId}>{label}</InputLabel>
       <Select<T[]>
         labelId={labelId}
@@ -138,6 +144,7 @@ function MultiSelectField<T extends string>({
           onChange(typeof v === 'string' ? (v.split(',') as T[]) : v);
         }}
         renderValue={(selected) => selected.join(', ')}
+        {...(helperText ? { 'aria-describedby': helperId } : {})}
       >
         {options.map((opt) => (
           <MenuItem key={opt} value={opt}>
@@ -146,6 +153,7 @@ function MultiSelectField<T extends string>({
           </MenuItem>
         ))}
       </Select>
+      {helperText && <FormHelperText id={helperId}>{helperText}</FormHelperText>}
     </FormControl>
   );
 }
@@ -238,12 +246,14 @@ const ScheduleDialog = ({
         },
   );
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [daysError, setDaysError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [misconfigured, setMisconfigured] = useState(false);
 
   const handleSubmit = () => {
     setJsonError(null);
     if (form.frequency !== 'ONCE' && form.daysOfWeek.length === 0) {
+      setDaysError(true);
       showError('Select at least one day of week for a recurring schedule.');
       return;
     }
@@ -393,8 +403,15 @@ const ScheduleDialog = ({
           value={form.daysOfWeek}
           onChange={(v) => {
             setForm((f) => ({ ...f, daysOfWeek: v }));
+            setDaysError(false);
           }}
           disabled={form.frequency === 'ONCE'}
+          error={daysError}
+          helperText={
+            daysError
+              ? 'Select at least one day of week for a recurring schedule.'
+              : ''
+          }
         />
         <Stack direction="row" spacing={2}>
           <TextField
@@ -556,12 +573,14 @@ const AutoWindowDialog = ({
         },
   );
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [daysError, setDaysError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [misconfigured, setMisconfigured] = useState(false);
 
   const handleSubmit = () => {
     setJsonError(null);
     if (form.daysOfWeek.length === 0) {
+      setDaysError(true);
       showError('Select at least one day of week.');
       return;
     }
@@ -702,8 +721,11 @@ const AutoWindowDialog = ({
           value={form.daysOfWeek}
           onChange={(v) => {
             setForm((f) => ({ ...f, daysOfWeek: v }));
+            setDaysError(false);
           }}
           disabled={false}
+          error={daysError}
+          helperText={daysError ? 'Select at least one day of week.' : ''}
         />
         <TextField
           label="Active start"
@@ -1104,7 +1126,7 @@ export const RoomSchedulingPage = () => {
   if (loading && room === null) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-        <CircularProgress />
+        <CircularProgress aria-label="Loading room" />
       </Box>
     );
   }
@@ -1210,7 +1232,7 @@ export const RoomSchedulingPage = () => {
             {schedulesLoading ? (
               <TableRow>
                 <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                  <CircularProgress size={28} />
+                  <CircularProgress size={28} aria-label="Loading schedules" />
                 </TableCell>
               </TableRow>
             ) : schedules.length === 0 ? (
@@ -1318,7 +1340,10 @@ export const RoomSchedulingPage = () => {
             {windowsLoading ? (
               <TableRow>
                 <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
-                  <CircularProgress size={28} />
+                  <CircularProgress
+                    size={28}
+                    aria-label="Loading auto-session windows"
+                  />
                 </TableCell>
               </TableRow>
             ) : windows.length === 0 ? (

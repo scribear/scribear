@@ -243,7 +243,7 @@ const RoomStep = ({
           </FormControl>
           {existingRoomsLoading && (
             <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-              <CircularProgress size={24} />
+              <CircularProgress size={24} aria-label="Loading rooms" />
             </Box>
           )}
           {!existingRoomsLoading && existingRooms.length === 0 && (
@@ -297,7 +297,7 @@ const VerifyStep = ({ deviceUid, roomUid, deviceActive }: VerifyStepProps) => {
 
   return (
     <Stack spacing={2} alignItems="center" sx={{ py: 4 }}>
-      <CircularProgress />
+      <CircularProgress aria-label="Waiting for the kiosk to activate" />
       <Typography color="text.secondary">
         Waiting for the kiosk to activate…
       </Typography>
@@ -501,12 +501,30 @@ export const KioskWizardPage = () => {
       </Typography>
 
       <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
-        {STEPS.map((label) => (
+        {STEPS.map((label, index) => (
           <Step key={label}>
-            <StepLabel>{label}</StepLabel>
+            <StepLabel aria-current={index === activeStep ? 'step' : undefined}>
+              {label}
+            </StepLabel>
           </Step>
         ))}
       </Stepper>
+      {/* Plain StepLabel (no StepButton) never gets aria-current from MUI, and
+          the step change is otherwise silent to a screen reader — announce it
+          explicitly. */}
+      <Typography
+        aria-live="polite"
+        sx={{
+          position: 'absolute',
+          width: 1,
+          height: 1,
+          overflow: 'hidden',
+          clip: 'rect(0 0 0 0)',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {`Step ${String(activeStep + 1)} of ${String(STEPS.length)}: ${STEPS[activeStep] ?? ''}`}
+      </Typography>
 
       <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
         {activeStep === 0 && (

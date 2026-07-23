@@ -156,10 +156,11 @@ describe('ScheduleStep', () => {
         screen.getByRole('button', { name: /create schedule/i }),
       );
 
-      // Assert
+      // Assert: shown both as a toast and as a persistent inline error tied
+      // to the day-toggle group (WCAG 3.3.1 — not just a transient toast).
       expect(
-        await screen.findByText(/pick at least one day of the week/i),
-      ).toBeInTheDocument();
+        await screen.findAllByText(/pick at least one day of the week/i),
+      ).toHaveLength(2);
       expect(adminApi.createSchedule).not.toHaveBeenCalled();
     });
 

@@ -121,32 +121,57 @@ function emptyWindowForm(): WindowFormState {
 }
 
 interface DayTogglesProps {
+  idPrefix: string;
   value: DayOfWeek[];
   onChange: (days: DayOfWeek[]) => void;
   disabled: boolean;
+  error?: boolean;
 }
 
-const DayToggles = ({ value, onChange, disabled }: DayTogglesProps) => (
-  <Box>
-    <Typography variant="body2" color="text.secondary" gutterBottom>
-      Days
-    </Typography>
-    <ToggleButtonGroup
-      value={value}
-      onChange={(_e, next: DayOfWeek[]) => {
-        onChange(next);
-      }}
-      disabled={disabled}
-      size="small"
-    >
-      {DAY_TOGGLES.map((d) => (
-        <ToggleButton key={d.value} value={d.value} aria-label={d.name}>
-          {d.letter}
-        </ToggleButton>
-      ))}
-    </ToggleButtonGroup>
-  </Box>
-);
+const DayToggles = ({
+  idPrefix,
+  value,
+  onChange,
+  disabled,
+  error = false,
+}: DayTogglesProps) => {
+  const labelId = `${idPrefix}-days-label`;
+  const errorId = `${idPrefix}-days-error`;
+  return (
+    <Box>
+      <Typography
+        id={labelId}
+        variant="body2"
+        color={error ? 'error' : 'text.secondary'}
+        gutterBottom
+      >
+        Days
+      </Typography>
+      <ToggleButtonGroup
+        value={value}
+        onChange={(_e, next: DayOfWeek[]) => {
+          onChange(next);
+        }}
+        disabled={disabled}
+        size="small"
+        aria-labelledby={labelId}
+        aria-invalid={error || undefined}
+        aria-describedby={error ? errorId : undefined}
+      >
+        {DAY_TOGGLES.map((d) => (
+          <ToggleButton key={d.value} value={d.value} aria-label={d.name}>
+            {d.letter}
+          </ToggleButton>
+        ))}
+      </ToggleButtonGroup>
+      {error && (
+        <Typography id={errorId} variant="caption" color="error" display="block">
+          Pick at least one day of the week.
+        </Typography>
+      )}
+    </Box>
+  );
+};
 
 interface TimeRangeFieldsProps {
   form: CommonFormState;
@@ -352,6 +377,7 @@ export const ScheduleStep = ({
   const [windowForm, setWindowForm] =
     useState<WindowFormState>(emptyWindowForm);
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [daysError, setDaysError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [misconfigured, setMisconfigured] = useState(false);
 
@@ -426,6 +452,7 @@ export const ScheduleStep = ({
       scheduleForm.frequency !== 'ONCE' &&
       scheduleForm.daysOfWeek.length === 0
     ) {
+      setDaysError(true);
       showError('Pick at least one day of the week.');
       return;
     }
@@ -480,6 +507,7 @@ export const ScheduleStep = ({
     setJsonError(null);
 
     if (windowForm.daysOfWeek.length === 0) {
+      setDaysError(true);
       showError('Pick at least one day of the week.');
       return;
     }
@@ -577,7 +605,10 @@ export const ScheduleStep = ({
 
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-          <CircularProgress size={24} />
+          <CircularProgress
+            size={24}
+            aria-label="Loading this room's schedule"
+          />
         </Box>
       ) : (
         hasExisting && (
@@ -605,6 +636,7 @@ export const ScheduleStep = ({
         onChange={(e) => {
           setMode(e.target.value as Mode);
           setJsonError(null);
+          setDaysError(false);
         }}
       >
         <FormControlLabel
@@ -655,11 +687,14 @@ export const ScheduleStep = ({
           />
           <Box>
             <DayToggles
+              idPrefix="kiosk-schedule"
               value={scheduleForm.daysOfWeek}
               onChange={(days) => {
                 patchSchedule({ daysOfWeek: days });
+                setDaysError(false);
               }}
               disabled={scheduleForm.frequency === 'ONCE'}
+              error={daysError}
             />
             {scheduleForm.frequency === 'ONCE' && (
               <Typography variant="caption" color="text.secondary">
@@ -720,11 +755,14 @@ export const ScheduleStep = ({
       {mode === 'auto' && (
         <Stack spacing={2}>
           <DayToggles
+            idPrefix="kiosk-window"
             value={windowForm.daysOfWeek}
             onChange={(days) => {
               patchWindow({ daysOfWeek: days });
+              setDaysError(false);
             }}
             disabled={false}
+            error={daysError}
           />
           <TimeRangeFields
             form={windowForm}

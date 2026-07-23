@@ -61,7 +61,18 @@ export const ToastProvider = ({ children }: React.PropsWithChildren) => {
           severity={state.severity}
           variant="filled"
           onClose={handleClose}
-          sx={{ width: '100%' }}
+          sx={{
+            width: '100%',
+            // MUI's default filled-variant text color (white) on these two
+            // severities' `main` falls below the WCAG AA 4.5:1 minimum for
+            // normal text (info ~3.86:1, warning ~3.11:1) — override just
+            // enough to clear it without touching the shared theme palette
+            // used elsewhere (buttons, chips, standard-variant Alerts).
+            ...(state.severity === 'info' && { bgcolor: 'info.dark' }),
+            ...(state.severity === 'warning' && {
+              color: 'rgba(0, 0, 0, 0.87)',
+            }),
+          }}
         >
           {state.message}
         </Alert>

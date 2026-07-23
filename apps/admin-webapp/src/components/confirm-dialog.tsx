@@ -28,10 +28,18 @@ export const ConfirmDialog = ({
   onClose,
 }: ConfirmDialogProps) => {
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="xs"
+      fullWidth
+      aria-describedby="confirm-dialog-description"
+    >
       <DialogTitle>{title}</DialogTitle>
       <DialogContent>
-        <DialogContentText>{message}</DialogContentText>
+        <DialogContentText id="confirm-dialog-description">
+          {message}
+        </DialogContentText>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={loading}>
