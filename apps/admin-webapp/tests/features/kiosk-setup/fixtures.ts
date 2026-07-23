@@ -1,10 +1,25 @@
 import type {
   AutoSessionWindow,
+  Device,
   Room,
   SessionSchedule,
 } from '@scribear/session-manager-schema';
 
 import type { RoomDetail } from '#src/lib/admin-api';
+
+export function buildDevice(overrides: Partial<Device> = {}): Device {
+  return {
+    uid: 'device-1',
+    name: 'Kiosk 1',
+    active: false,
+    roomUid: null,
+    isSource: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    lastSeenAt: null,
+    online: false,
+    ...overrides,
+  };
+}
 
 export function buildRoom(overrides: Partial<Room> = {}): Room {
   return {
