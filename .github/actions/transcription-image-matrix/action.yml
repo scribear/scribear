@@ -2,7 +2,8 @@ name: "Transcription Image Matrix"
 description: "Builds the docker-build job matrix for transcription-service: the CPU image plus one entry per CUDA variant declared in transcription_service/cuda-variants.json."
 outputs:
   matrix:
-    description: "JSON object with an `include` array, for use as `strategy.matrix: ${{ fromJSON(...) }}`."
+    # No ${{ }} in this text: GitHub evaluates descriptions as expressions.
+    description: "JSON object with an `include` array, for use as a strategy.matrix via fromJSON."
     value: ${{ steps.build.outputs.matrix }}
 runs:
   using: "composite"
