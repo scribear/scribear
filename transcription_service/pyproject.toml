@@ -63,8 +63,8 @@ dev = [
 
     # Code linting and formatting
     "black==26.5.1",
-    "isort==7.0.0",
-    "pylint==4.0.0",
+    "isort==8.0.1",
+    "pylint==4.0.6",
 
     # Type hinting
     "multiprocess-stubs==0.1.0",
