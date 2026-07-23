@@ -55,6 +55,8 @@ import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
 
+import { diffAutoWindowUpdate, diffScheduleUpdate } from './room-scheduling-form-utils';
+
 const DAYS_OF_WEEK: readonly DayOfWeek[] = [
   'SUN',
   'MON',
@@ -105,13 +107,6 @@ function isoToLocalInput(iso: string): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   const year = String(d.getFullYear());
   return `${year}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function sameStringArray(a: readonly string[], b: readonly string[]): boolean {
-  if (a.length !== b.length) return false;
-  const sa = [...a].sort();
-  const sb = [...b].sort();
-  return sa.every((v, i) => v === sb[i]);
 }
 
 interface MultiSelectFieldProps<T extends string> {
@@ -316,38 +311,21 @@ const ScheduleDialog = ({
           setSubmitting(false);
         });
     } else {
-      const body: UpdateScheduleBody = { scheduleUid: schedule.uid };
-      if (form.name !== schedule.name) body.name = form.name;
-      if (activeStartIso !== schedule.activeStart) {
-        body.activeStart = activeStartIso;
-      }
-      if (activeEndIso !== schedule.activeEnd) body.activeEnd = activeEndIso;
-      if (form.localStartTime !== schedule.localStartTime.slice(0, 5)) {
-        body.localStartTime = form.localStartTime;
-      }
-      if (form.localEndTime !== schedule.localEndTime.slice(0, 5)) {
-        body.localEndTime = form.localEndTime;
-      }
-      if (form.frequency !== schedule.frequency)
-        body.frequency = form.frequency;
-      if (JSON.stringify(daysOfWeek) !== JSON.stringify(schedule.daysOfWeek)) {
-        body.daysOfWeek = daysOfWeek;
-      }
-      if (!sameStringArray(form.joinCodeScopes, schedule.joinCodeScopes)) {
-        body.joinCodeScopes = form.joinCodeScopes;
-      }
-      if (
-        form.transcriptionProviderId !==
-        (schedule.transcriptionProviderId ?? '')
-      ) {
-        body.transcriptionProviderId = form.transcriptionProviderId;
-      }
-      if (
-        JSON.stringify(transcriptionStreamConfig) !==
-        JSON.stringify(schedule.transcriptionStreamConfig ?? {})
-      ) {
-        body.transcriptionStreamConfig = transcriptionStreamConfig;
-      }
+      const body: UpdateScheduleBody = {
+        scheduleUid: schedule.uid,
+        ...diffScheduleUpdate(schedule, {
+          name: form.name,
+          activeStart: activeStartIso,
+          activeEnd: activeEndIso,
+          localStartTime: form.localStartTime,
+          localEndTime: form.localEndTime,
+          frequency: form.frequency,
+          daysOfWeek,
+          joinCodeScopes: form.joinCodeScopes,
+          transcriptionProviderId: form.transcriptionProviderId,
+          transcriptionStreamConfig,
+        }),
+      };
       adminApi
         .updateSchedule(body)
         .then(() => {
@@ -648,32 +626,19 @@ const AutoWindowDialog = ({
           setSubmitting(false);
         });
     } else {
-      const body: UpdateAutoWindowBody = { windowUid: autoWindow.uid };
-      if (form.localStartTime !== autoWindow.localStartTime.slice(0, 5)) {
-        body.localStartTime = form.localStartTime;
-      }
-      if (form.localEndTime !== autoWindow.localEndTime.slice(0, 5)) {
-        body.localEndTime = form.localEndTime;
-      }
-      if (!sameStringArray(form.daysOfWeek, autoWindow.daysOfWeek)) {
-        body.daysOfWeek = form.daysOfWeek;
-      }
-      if (activeStartIso !== autoWindow.activeStart) {
-        body.activeStart = activeStartIso;
-      }
-      if (activeEndIso !== autoWindow.activeEnd) body.activeEnd = activeEndIso;
-      if (!sameStringArray(form.joinCodeScopes, autoWindow.joinCodeScopes)) {
-        body.joinCodeScopes = form.joinCodeScopes;
-      }
-      if (form.transcriptionProviderId !== autoWindow.transcriptionProviderId) {
-        body.transcriptionProviderId = form.transcriptionProviderId;
-      }
-      if (
-        JSON.stringify(transcriptionStreamConfig) !==
-        JSON.stringify(autoWindow.transcriptionStreamConfig)
-      ) {
-        body.transcriptionStreamConfig = transcriptionStreamConfig;
-      }
+      const body: UpdateAutoWindowBody = {
+        windowUid: autoWindow.uid,
+        ...diffAutoWindowUpdate(autoWindow, {
+          localStartTime: form.localStartTime,
+          localEndTime: form.localEndTime,
+          daysOfWeek: form.daysOfWeek,
+          activeStart: activeStartIso,
+          activeEnd: activeEndIso,
+          joinCodeScopes: form.joinCodeScopes,
+          transcriptionProviderId: form.transcriptionProviderId,
+          transcriptionStreamConfig,
+        }),
+      };
       adminApi
         .updateAutoWindow(body)
         .then(() => {
