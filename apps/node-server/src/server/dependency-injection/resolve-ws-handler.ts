@@ -18,9 +18,7 @@ function resolveWsHandler<
   M extends keyof AppDependencies[C],
 >(controller: C, method: M): AppDependencies[C][M] {
   const wrapper = async (socket: WebSocket, req: FastifyRequest) => {
-    const routeController = req.diScope.resolve(
-      controller,
-    ) as AppDependencies[C];
+    const routeController = req.diScope.resolve(controller);
 
     if (
       !(method in routeController) ||

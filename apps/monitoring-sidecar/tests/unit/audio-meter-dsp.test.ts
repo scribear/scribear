@@ -215,11 +215,11 @@ describe('level measurement', (it) => {
     const core = newCore();
 
     // Act — one loud burst, then a long quiet stretch.
-    let index = feed(core, 0.2, sine(1, 1000));
+    const index = feed(core, 0.2, sine(1, 1000));
     const duringBurst = core.read();
     feed(core, 1.5, sine(amplitudeForRmsDb(-40), 1000), index);
     const withinHold = core.read();
-    index = feed(core, 3, sine(amplitudeForRmsDb(-40), 1000), index);
+    feed(core, 3, sine(amplitudeForRmsDb(-40), 1000), index);
     const afterHold = core.read();
 
     // Assert

@@ -175,7 +175,7 @@ const AddDeviceDialog = ({
     return () => {
       alive.current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, []);
 
   const handleSubmit = () => {
@@ -313,6 +313,7 @@ export const RoomDetailPage = () => {
   useEffect(() => {
     const alive = { current: true };
     if (roomUid === undefined) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect, @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
     setLoading(true);
     adminApi
       .roomDetail(roomUid)
@@ -340,7 +341,7 @@ export const RoomDetailPage = () => {
     return () => {
       alive.current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [roomUid]);
 
   const handleSetSource = (deviceUid: string) => {

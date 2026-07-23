@@ -84,7 +84,7 @@ const CreateRoomDialog = ({ onClose, onCreated }: CreateRoomDialogProps) => {
     return () => {
       alive.current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, []);
 
   const handleSubmit = () => {
@@ -244,6 +244,7 @@ export const RoomsListPage = () => {
 
   useEffect(() => {
     const alive = { current: true };
+    // eslint-disable-next-line react-hooks/set-state-in-effect, @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
     setLoading(true);
     const query: { search?: string; limit: number } = { limit: PAGE_LIMIT };
     if (search !== '') query.search = search;
@@ -274,7 +275,7 @@ export const RoomsListPage = () => {
     return () => {
       alive.current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [search]);
 
   const handleLoadMore = () => {

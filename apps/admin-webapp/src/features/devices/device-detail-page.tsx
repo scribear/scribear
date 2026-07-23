@@ -168,8 +168,11 @@ export const DeviceDetailPage = () => {
   useEffect(() => {
     if (deviceUid === undefined) return;
     const alive = { current: true };
+    // eslint-disable-next-line react-hooks/set-state-in-effect, @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
     setLoading(true);
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
     setNotFound(false);
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
     setMisconfigured(false);
     adminApi
       .getDevice(deviceUid)
@@ -192,12 +195,13 @@ export const DeviceDetailPage = () => {
     return () => {
       alive.current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [deviceUid]);
 
   const roomUid = device?.roomUid ?? null;
   useEffect(() => {
     if (roomUid === null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect, @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
       setRoom(null);
       return;
     }

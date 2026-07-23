@@ -470,6 +470,7 @@ export const ScheduleStep = ({
       from: new Date().toISOString(),
       to: new Date(Date.now() + RANGE_DAYS * 86_400_000).toISOString(),
     };
+    // eslint-disable-next-line react-hooks/set-state-in-effect, @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
     setLoading(true);
     Promise.all([
       adminApi.listSchedules(range),
@@ -500,7 +501,7 @@ export const ScheduleStep = ({
     return () => {
       alive.current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [roomUid]);
 
   const patchSchedule = (patch: Partial<CommonFormState>) => {

@@ -38,7 +38,7 @@ vi.mock('isomorphic-ws', () => {
 
     constructor(url: string) {
       this.url = url;
-      mockWsInstances.push(this as unknown as MockWsInstance);
+      mockWsInstances.push(this);
     }
   }
   return { default: MockWebSocket };

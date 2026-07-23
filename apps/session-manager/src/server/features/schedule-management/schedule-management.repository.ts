@@ -1125,7 +1125,7 @@ export class ScheduleManagementRepository {
     }
 
     const rows = await q.orderBy('active_start', 'asc').execute();
-    return rows.map((r) => mapSchedule(r as ScheduleRow));
+    return rows.map((r) => mapSchedule(r));
   }
 
   /**
@@ -1148,7 +1148,7 @@ export class ScheduleManagementRepository {
       )
       .orderBy('active_start', 'asc')
       .execute();
-    return rows.map((r) => mapSchedule(r as ScheduleRow));
+    return rows.map((r) => mapSchedule(r));
   }
 
   /** Deletes future (effective_start > now) sessions for a schedule. */
