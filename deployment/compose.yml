@@ -76,8 +76,11 @@ services:
       # offline between two writes.
       DEVICE_LAST_SEEN_WRITE_INTERVAL_SEC: ${DEVICE_LAST_SEEN_WRITE_SEC:-60}
       DEVICE_ONLINE_TTL_SEC: ${DEVICE_ONLINE_TTL_SEC:-180}
-      DB_HOST: scribear-db
-      DB_PORT: "5432"
+      # Defaulted to the bundled container. Point them at a managed Postgres
+      # to run the database outside this stack - see deployment/UPGRADING.md,
+      # which also covers removing the bundled service and its depends_on.
+      DB_HOST: ${DB_HOST:-scribear-db}
+      DB_PORT: ${DB_PORT:-5432}
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
@@ -96,6 +99,13 @@ services:
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
+      # Which standard the admin console's Config Check judges this deployment
+      # against. Not `:?`-guarded, unlike the secrets below: it changes how
+      # findings are *reported*, never how anything behaves, so it must not be
+      # able to stop a stack from starting. Unset infers production, which is
+      # the strict direction - a deployment that predates this variable gets
+      # judged strictly rather than reassured.
+      DEPLOYMENT_ENV: ${DEPLOYMENT_ENV:-}
       # Health rollup (B1.5). Only the unauthenticated readiness probes of
       # these services are read; no keys are involved.
       NODE_SERVER_BASE_URL: http://node-server:80
@@ -107,8 +117,11 @@ services:
       REDIS_URL: ${ADMIN_REDIS_URL:-}
       ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET}
       ADMIN_LOCAL_CREDENTIALS: ${ADMIN_LOCAL_CREDENTIALS}
-      DB_HOST: scribear-db
-      DB_PORT: "5432"
+      # Defaulted to the bundled container. Point them at a managed Postgres
+      # to run the database outside this stack - see deployment/UPGRADING.md,
+      # which also covers removing the bundled service and its depends_on.
+      DB_HOST: ${DB_HOST:-scribear-db}
+      DB_PORT: ${DB_PORT:-5432}
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
@@ -128,7 +141,12 @@ services:
       - "80"
     environment:
       LOG_LEVEL: ${NODE_SERVER_LOG_LEVEL:-info}
-      NODE_SERVER_SERVICE_API_KEY: ${NODE_SERVER_SERVICE_KEY}
+      # `:?` deliberately: this is a new required secret as of B1.1, so an .env
+      # carried over from before it would otherwise substitute a blank string
+      # here, and a blank inbound key authenticates any caller that sends
+      # `Authorization: Bearer `. Failing interpolation stops the whole stack
+      # before a single container starts.
+      NODE_SERVER_SERVICE_API_KEY: ${NODE_SERVER_SERVICE_KEY:?NODE_SERVER_SERVICE_KEY is unset. Your .env predates the monitoring/fleet release - read deployment/UPGRADING.md (or the wiki Deployment page) and add the new keys before starting.}
       SESSION_TOKEN_SIGNING_KEY: ${JWT_SECRET}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
       SESSION_MANAGER_SERVICE_API_KEY: ${NODE_SERVER_KEY}
@@ -157,8 +175,19 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql
+    # Loopback only. Every service in the stack reaches Postgres over the
+    # `backend` network by hostname, and run-migrator.sh runs inside a
+    # container on that same network, so nothing needs this published at all -
+    # it is here for `psql` from the host. Bound to 127.0.0.1 because
+    # `"5432:5432"` binds every interface the host has, which on a public box
+    # means Postgres is exposed to the internet behind nothing but DB_PASSWORD.
+    #
+    # Note that a host firewall is NOT a substitute: Docker's DNAT rules are
+    # traversed before ufw's INPUT chain, so `ufw deny 5432` looks applied and
+    # leaves the port reachable. Filtering a published port means the
+    # DOCKER-USER chain. Binding the interface avoids the whole question.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     networks:
       - backend
     restart: unless-stopped
@@ -186,11 +215,18 @@ services:
   # that no longer exist.
   redis:
     image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/scribear-redis:${IMAGE_TAG:-latest}
+    # `:?` deliberately, and on the `--requirepass` argument rather than only
+    # on the environment below: `redis-server --requirepass ""` is not a
+    # password-protected server that rejects logins, it is an *open* server
+    # that accepts every unauthenticated command. An .env carried over from
+    # before this release has no REDIS_PASSWORD at all, so without this guard
+    # the upgrade would silently stand up an unauthenticated Redis holding the
+    # whole fleet's operational state.
     command:
       [
         "redis-server",
         "--requirepass",
-        "${REDIS_PASSWORD}",
+        "${REDIS_PASSWORD:?REDIS_PASSWORD is unset. Your .env predates the monitoring/fleet release - read deployment/UPGRADING.md (or the wiki Deployment page) and add the new keys before starting.}",
         "--save",
         "",
         "--appendonly",
@@ -198,7 +234,7 @@ services:
       ]
     environment:
       # Read by the image's healthcheck, which authenticates before PINGing.
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is unset. Your .env predates the monitoring/fleet release - read deployment/UPGRADING.md (or the wiki Deployment page) and add the new keys before starting.}
     # Not published to the host, unlike scribear-db: nothing outside the
     # backend network has any reason to reach it, and its contents are the
     # whole fleet's operational state.
@@ -269,7 +305,7 @@ services:
       # Reads node-server's authed status endpoint (B1.1). Must match the key
       # node-server is given above; empty disables status polling and leaves
       # the connection, upstream and auth metrics empty.
-      NODE_SERVER_SERVICE_API_KEY: ${NODE_SERVER_SERVICE_KEY}
+      NODE_SERVER_SERVICE_API_KEY: ${NODE_SERVER_SERVICE_KEY:?NODE_SERVER_SERVICE_KEY is unset. Your .env predates the monitoring/fleet release - read deployment/UPGRADING.md (or the wiki Deployment page) and add the new keys before starting.}
       NODE_STATUS_INTERVAL_SEC: ${MONITORING_NODE_STATUS_INTERVAL_SEC:-10}
       # Reads transcription-service's authed metrics endpoint (B1.2). Must
       # match the key that service is given above; empty disables the poll.
@@ -297,6 +333,46 @@ services:
       CANARY_CHANNELS: ${MONITORING_CANARY_CHANNELS:-1}
     networks:
       - backend
+    restart: unless-stopped
+
+  # Automatic image updates.
+  #
+  # Polls the registry and recreates any container whose tag now points at a
+  # newer digest. On staging, where IMAGE_TAG=staging and every push to the
+  # staging branch republishes it, this is what makes the box continuously
+  # deployed without anyone logging in.
+  #
+  # OFF BY DEFAULT, via the profile: `docker compose up -d` does not start it
+  # unless COMPOSE_PROFILES=autoupdate is set. Recreating a container ends every
+  # WebSocket it was serving, so an update to node-server or
+  # transcription-service drops the live sessions they are carrying - captions
+  # simply stop mid-sentence and the kiosk has to reconnect. That is a fair
+  # trade on staging and a poor one during a lecture, and it is unattended: with
+  # IMAGE_TAG=latest a merge to main would deploy itself. Production wants a
+  # chosen moment, so opting in is a per-deployment decision rather than a
+  # default.
+  #
+  # Note also that this mounts the Docker socket, which is root-equivalent on
+  # the host. The monitoring sidecar gave up exactly that mount in B1.2; this
+  # reintroduces one to the stack, in a container whose whole job is to pull
+  # images and restart things. Weigh it as such.
+  watchtower:
+    profiles:
+      - autoupdate
+    image: ${WATCHTOWER_IMAGE:-nickfedor/watchtower:latest}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHTOWER_POLL_INTERVAL: ${WATCHTOWER_POLL_INTERVAL:-1800}
+      # Without this the superseded image layers are never reclaimed, and a box
+      # polling every 30 minutes fills its disk with images nothing references.
+      WATCHTOWER_CLEANUP: "true"
+      # Empty means "every container on this host", including any that have
+      # nothing to do with ScribeAR. Set a scope and label the containers that
+      # should be updated to narrow it - see deployment/UPGRADING.md.
+      WATCHTOWER_SCOPE: ${WATCHTOWER_SCOPE:-}
+    # No network: it talks to the Docker socket and the registry, never to
+    # another service in this stack.
     restart: unless-stopped
 
 networks:

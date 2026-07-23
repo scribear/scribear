@@ -10,6 +10,11 @@ import type {
 } from '#src/db/admin-db-client.js';
 import type { AuditController } from '#src/server/features/audit/audit.controller.js';
 import type { AuthController } from '#src/server/features/auth/auth.controller.js';
+import type { ConfigCheckController } from '#src/server/features/config-check/config-check.controller.js';
+import type {
+  ConfigCheckConfig,
+  ConfigCheckService,
+} from '#src/server/features/config-check/config-check.service.js';
 import type { DevicesController } from '#src/server/features/devices/devices.controller.js';
 import type { FleetController } from '#src/server/features/fleet/fleet.controller.js';
 import type { HealthController } from '#src/server/features/health/health.controller.js';
@@ -83,6 +88,11 @@ interface AppDependencies extends BaseDependencies {
   healthCheckerConfig: HealthCheckerConfig;
   healthCheckerService: HealthCheckerService;
   healthController: HealthController;
+
+  // Config check
+  configCheckConfig: ConfigCheckConfig;
+  configCheckService: ConfigCheckService;
+  configCheckController: ConfigCheckController;
 
   // Rooms
   roomsController: RoomsController;

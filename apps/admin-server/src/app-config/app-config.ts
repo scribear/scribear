@@ -5,6 +5,7 @@ import type { Static } from 'typebox';
 import { LogLevel } from '@scribear/base-fastify-server';
 
 import type { AdminDbClientConfig } from '#src/db/admin-db-client.js';
+import type { ConfigCheckConfig } from '#src/server/features/config-check/config-check.service.js';
 import type { HealthCheckerConfig } from '#src/server/features/health/health.service.js';
 import type { RateLimitConfig } from '#src/server/plugins/rate-limit.plugin.js';
 import type { AzureAuthConfig } from '#src/server/shared/services/azure-oidc-auth.service.js';
@@ -20,6 +21,15 @@ const CONFIG_SCHEMA = Type.Object({
   LOG_LEVEL: Type.Enum(LogLevel),
   PORT: Type.Integer({ minimum: 0, maximum: 65_535 }),
   HOST: Type.String(),
+
+  // Which standard the Config Check judges this deployment against:
+  // development, staging or production. Deliberately a plain string with an
+  // empty default rather than an enum, so that adding it cannot stop an
+  // existing deployment from booting and a typo is reported by the check
+  // itself instead of by a boot failure. Unset infers production unless the
+  // server was started with --dev; see `resolveEnvironment` for why the
+  // asymmetry is the safe direction.
+  DEPLOYMENT_ENV: Type.String({ default: '' }),
 
   // Session Manager gateway
   ADMIN_API_KEY: Type.String({ minLength: 1 }),
@@ -124,6 +134,30 @@ export class AppConfig {
    */
   get fleetTelemetryConfig(): FleetTelemetryConfig {
     return { redisUrl: this._env.REDIS_URL };
+  }
+
+  /**
+   * Inputs for the Config Check (admin console → Config Check).
+   *
+   * Secret values are handed over because classifying them requires them; the
+   * service turns each into a classification and never returns one. Gathered
+   * here so that `ConfigCheckService` reads no environment of its own and can
+   * be constructed directly in tests.
+   */
+  get configCheckConfig(): ConfigCheckConfig {
+    return {
+      declaredEnv: this._env.DEPLOYMENT_ENV,
+      isDevelopment: this._isDevelopment,
+      adminApiKey: this._env.ADMIN_API_KEY,
+      adminSessionSecret: this._env.ADMIN_SESSION_SECRET,
+      adminLocalCredentials: this._env.ADMIN_LOCAL_CREDENTIALS,
+      dbPassword: this._env.DB_PASSWORD,
+      redisUrl: this._env.REDIS_URL,
+      azureTenantId: this._env.AZURE_TENANT_ID,
+      azureClientId: this._env.AZURE_CLIENT_ID,
+      azureClientSecret: this._env.AZURE_CLIENT_SECRET,
+      allowedGroup: this._env.ADMIN_ALLOWED_GROUP,
+    };
   }
 
   get sessionManagerGatewayConfig(): SessionManagerGatewayConfig {

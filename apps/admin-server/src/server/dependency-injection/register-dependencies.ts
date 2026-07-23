@@ -16,6 +16,8 @@ import {
 import { AdminDbClient } from '#src/db/admin-db-client.js';
 import { AuditController } from '#src/server/features/audit/audit.controller.js';
 import { AuthController } from '#src/server/features/auth/auth.controller.js';
+import { ConfigCheckController } from '#src/server/features/config-check/config-check.controller.js';
+import { ConfigCheckService } from '#src/server/features/config-check/config-check.service.js';
 import { DevicesController } from '#src/server/features/devices/devices.controller.js';
 import { FleetController } from '#src/server/features/fleet/fleet.controller.js';
 import { HealthController } from '#src/server/features/health/health.controller.js';
@@ -96,6 +98,17 @@ function registerDependencies(
       lifetime: Lifetime.SINGLETON,
     }),
     healthController: asClass(HealthController, { lifetime: Lifetime.SCOPED }),
+
+    // Config check. Depends on fleetTelemetryService and healthCheckerService
+    // rather than re-probing: everything it needs about the backplane and the
+    // other containers is already observable through those two.
+    configCheckConfig: asValue(config.configCheckConfig),
+    configCheckService: asClass(ConfigCheckService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    configCheckController: asClass(ConfigCheckController, {
+      lifetime: Lifetime.SCOPED,
+    }),
 
     // Rooms
     roomsController: asClass(RoomsController, { lifetime: Lifetime.SCOPED }),

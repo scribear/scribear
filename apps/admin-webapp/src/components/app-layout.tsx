@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import DevicesIcon from '@mui/icons-material/Devices';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
 import HistoryIcon from '@mui/icons-material/History';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MeetingRoomIcon from '@mui/icons-material/MeetingRoom';
@@ -34,6 +35,7 @@ const NAV_ITEMS = [
   { label: 'Devices', to: '/devices', icon: <DevicesIcon /> },
   { label: 'Set up a kiosk', to: '/kiosk-setup', icon: <TabletIcon /> },
   { label: 'Audit log', to: '/audit', icon: <HistoryIcon /> },
+  { label: 'Config Check', to: '/config-check', icon: <FactCheckIcon /> },
 ];
 
 /**

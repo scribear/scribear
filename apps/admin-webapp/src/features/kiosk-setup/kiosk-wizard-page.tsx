@@ -26,6 +26,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import type { Room } from '@scribear/session-manager-schema';
 
 import { ActivationCodeDisplay } from '#src/components/activation-code-display';
+import { ScheduleStep } from '#src/features/kiosk-setup/schedule-step';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
@@ -306,8 +307,8 @@ const VerifyStep = ({ deviceUid, roomUid, deviceActive }: VerifyStepProps) => {
 
 /**
  * Guided kiosk setup: register a device, attach it to a room (new or
- * existing), skip schedule configuration for now, then poll until the kiosk
- * has activated using the code.
+ * existing), optionally give the room a recurring schedule, then poll until
+ * the kiosk has activated using the code.
  */
 export const KioskWizardPage = () => {
   const { showSuccess, showError } = useToast();
@@ -332,6 +333,9 @@ export const KioskWizardPage = () => {
   const [roomUid, setRoomUid] = useState<string | null>(null);
   const [roomSubmitting, setRoomSubmitting] = useState(false);
   const [roomMisconfigured, setRoomMisconfigured] = useState(false);
+
+  // Step 2: schedule
+  const [schedulesCreated, setSchedulesCreated] = useState(0);
 
   // Step 3: verify
   const [deviceActive, setDeviceActive] = useState(false);
@@ -478,6 +482,11 @@ export const KioskWizardPage = () => {
     (activeStep === 1 && roomUid !== null) ||
     activeStep === 2;
 
+  // The room step either creates a room with `newRoomTimezone` or attaches to
+  // one already listed in `existingRooms`, so one of the two always resolves.
+  const roomTimezone =
+    existingRooms.find((r) => r.uid === roomUid)?.timezone ?? newRoomTimezone;
+
   const handleNext = () => {
     setActiveStep((s) => Math.min(s + 1, STEPS.length - 1));
   };
@@ -535,11 +544,13 @@ export const KioskWizardPage = () => {
           />
         )}
         {activeStep === 2 && (
-          <Stack spacing={2} alignItems="flex-start">
-            <Typography color="text.secondary">
-              Schedules can be configured later from the room page.
-            </Typography>
-          </Stack>
+          <ScheduleStep
+            roomUid={roomUid}
+            roomTimezone={roomTimezone}
+            onCreated={() => {
+              setSchedulesCreated((n) => n + 1);
+            }}
+          />
         )}
         {activeStep === 3 && (
           <VerifyStep
@@ -560,7 +571,7 @@ export const KioskWizardPage = () => {
             onClick={handleNext}
             disabled={!canGoNext}
           >
-            {activeStep === 2 ? 'Skip' : 'Next'}
+            {activeStep === 2 && schedulesCreated === 0 ? 'Skip' : 'Next'}
           </Button>
         )}
       </Stack>

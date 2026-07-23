@@ -34,6 +34,31 @@ describe('assertNotPlaceholderKey', (it) => {
     }).toThrow();
   });
 
+  // These are the .env.example stubs whose suffix exists only to satisfy a
+  // minimum-length rule, so they are precisely the ones an operator is most
+  // likely to keep verbatim — and precisely the ones an equality check on
+  // 'CHANGEME' would wave through.
+  it.each([
+    'CHANGEME-JWT-must-be-at-least-32-characters-long',
+    'CHANGEME-admin-session-secret-at-least-32-characters',
+    'engrit CHANGEME',
+    'changeme',
+  ])('throws when the key merely contains the placeholder: %s', (value) => {
+    expect(() => {
+      assertNotPlaceholderKey(value, 'SESSION_TOKEN_SIGNING_KEY');
+    }).toThrow();
+  });
+
+  // Compose substitutes a blank string for an unset variable, so this is the
+  // shape an .env predating a newly required key arrives in. It has to throw:
+  // an empty configured key compares equal to the empty string a caller
+  // presents as `Authorization: Bearer `, making the guard an auth bypass.
+  it('throws when the key is empty', () => {
+    expect(() => {
+      assertNotPlaceholderKey('', 'ADMIN_API_KEY');
+    }).toThrow();
+  });
+
   it('does not throw for a real key', () => {
     expect(() => {
       assertNotPlaceholderKey('a-real-high-entropy-secret', 'ADMIN_API_KEY');

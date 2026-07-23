@@ -1,6 +1,6 @@
 {
   "name": "@scribear/monitoring-sidecar",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Black-box monitoring sidecar for ScribeAR: parses the other services' JSON logs into metrics, polls their probes, evaluates alert rules, and serves a JSON snapshot plus Prometheus text.",
   "author": "scribear",
   "main": "dist/src/index.js",
