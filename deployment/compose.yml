@@ -76,8 +76,11 @@ services:
       # offline between two writes.
       DEVICE_LAST_SEEN_WRITE_INTERVAL_SEC: ${DEVICE_LAST_SEEN_WRITE_SEC:-60}
       DEVICE_ONLINE_TTL_SEC: ${DEVICE_ONLINE_TTL_SEC:-180}
-      DB_HOST: scribear-db
-      DB_PORT: "5432"
+      # Defaulted to the bundled container. Point them at a managed Postgres
+      # to run the database outside this stack - see deployment/UPGRADING.md,
+      # which also covers removing the bundled service and its depends_on.
+      DB_HOST: ${DB_HOST:-scribear-db}
+      DB_PORT: ${DB_PORT:-5432}
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
@@ -114,8 +117,11 @@ services:
       REDIS_URL: ${ADMIN_REDIS_URL:-}
       ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET}
       ADMIN_LOCAL_CREDENTIALS: ${ADMIN_LOCAL_CREDENTIALS}
-      DB_HOST: scribear-db
-      DB_PORT: "5432"
+      # Defaulted to the bundled container. Point them at a managed Postgres
+      # to run the database outside this stack - see deployment/UPGRADING.md,
+      # which also covers removing the bundled service and its depends_on.
+      DB_HOST: ${DB_HOST:-scribear-db}
+      DB_PORT: ${DB_PORT:-5432}
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
@@ -169,8 +175,19 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql
+    # Loopback only. Every service in the stack reaches Postgres over the
+    # `backend` network by hostname, and run-migrator.sh runs inside a
+    # container on that same network, so nothing needs this published at all -
+    # it is here for `psql` from the host. Bound to 127.0.0.1 because
+    # `"5432:5432"` binds every interface the host has, which on a public box
+    # means Postgres is exposed to the internet behind nothing but DB_PASSWORD.
+    #
+    # Note that a host firewall is NOT a substitute: Docker's DNAT rules are
+    # traversed before ufw's INPUT chain, so `ufw deny 5432` looks applied and
+    # leaves the port reachable. Filtering a published port means the
+    # DOCKER-USER chain. Binding the interface avoids the whole question.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     networks:
       - backend
     restart: unless-stopped

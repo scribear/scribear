@@ -211,6 +211,116 @@ services:
 `WATCHTOWER_CLEANUP` is on unconditionally: without it the superseded image
 layers are never reclaimed and a box polling every 30 minutes fills its disk.
 
+### Postgres is no longer published on every interface
+
+`scribear-db` published `5432:5432`, which binds **every interface the host
+has** — on a public box that is Postgres exposed to the internet behind nothing
+but `DB_PASSWORD`. It is now `127.0.0.1:5432:5432`.
+
+Nothing in the stack is affected: services reach Postgres over the `backend`
+network by hostname, and `run-migrator.sh` runs inside a container on that same
+network. Only `psql` from the host itself still works — which is what the
+publish was for. If you were connecting from another machine, that now needs a
+deliberate choice (see below), and it is worth checking your access logs for who
+else was.
+
+> A host firewall is **not** a substitute here. Docker's DNAT rules are
+> traversed before ufw's `INPUT` chain, so `ufw deny 5432` appears to apply and
+> leaves the port reachable. Filtering a published Docker port means a
+> `DOCKER-USER` rule. Binding the interface avoids the question.
+
+### Running Postgres or Redis outside the stack
+
+Production may want a managed or separately-administered database and cache
+rather than the bundled containers. Both are supported; the split is that
+**`.env` says where they are** and **`compose.override.yml` removes the bundled
+services**.
+
+#### Redis (easier — nothing depends on it)
+
+Every consumer already takes a full URL, so pointing them elsewhere is `.env`
+only:
+
+```dotenv
+REDIS_PASSWORD=<the external server's password>
+ADMIN_REDIS_URL=redis://:<password>@redis.example.edu:6379
+NODE_SERVER_REDIS_URL=redis://:<password>@redis.example.edu:6379
+TRANSCRIPTION_REDIS_URL=redis://:<password>@redis.example.edu:6379
+```
+
+Then stop running the bundled one — `deployment/compose.override.yml`:
+
+```yaml
+services:
+  redis: !reset null
+```
+
+> **Keep `REDIS_PASSWORD` set even though the container is gone.** Compose
+> interpolates the base file _before_ merging the override, so the `${VAR:?}`
+> guard on the removed service still fires and `docker compose up` aborts
+> without it. Setting it to the external server's password — the same value used
+> in the URLs above — keeps it honest rather than a dummy.
+
+Use `rediss://` if the external server expects TLS.
+
+#### Postgres
+
+`DB_HOST` and `DB_PORT` are now read from `.env` (defaulting to the bundled
+container), so the connection itself is configuration:
+
+```dotenv
+DB_HOST=pg.example.edu
+DB_PORT=5432
+DB_NAME=scribear
+DB_USER=scribear
+DB_PASSWORD=<managed instance password>
+```
+
+Removing the bundled service needs one more step than Redis, because
+`session-manager` and `admin-server` both `depends_on` it. Compose rejects a
+`depends_on` pointing at a service that no longer exists —
+
+```
+service "admin-server" depends on undefined service "scribear-db": invalid compose project
+```
+
+— so the override has to replace those too:
+
+```yaml
+services:
+  scribear-db: !reset null
+
+  session-manager:
+    depends_on: !override {}
+
+  admin-server:
+    # Keep the session-manager dependency; only drop the database one.
+    depends_on: !override
+      session-manager:
+        condition: service_healthy
+```
+
+`!reset` and `!override` need Compose v2.24+ (`docker compose version`).
+
+Verify the merged result before starting anything:
+
+```
+docker compose config | grep -E 'DB_HOST|REDIS_URL'
+docker compose config --services      # scribear-db and redis should be absent
+```
+
+**Migrations.** `run-migrator.sh` targets the `scribear-db` container over the
+compose network, so it does not work against an external instance. Run the
+migrations from a checkout against your instance directly, or adapt the script's
+connection settings — see `infra/scribear-db`.
+
+**Networking.** The services must be able to reach the external hosts from
+inside their containers, which is a different question from whether the _host_
+can. Check firewall rules and any egress restriction on the Docker networks.
+`scribear-db`'s healthcheck no longer gates startup once the service is removed,
+so a wrong `DB_HOST` surfaces as a service that starts and then fails its own
+readiness rather than as a container that never starts.
+
 ### New optional tuning knobs
 
 All defaulted; the stack behaves identically if you ignore them. See
