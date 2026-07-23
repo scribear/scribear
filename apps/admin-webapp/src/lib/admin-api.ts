@@ -123,6 +123,38 @@ export interface Paginated<T> {
   nextCursor: string | null;
 }
 
+// ---- Config check ----
+// Mirrors `ConfigCheckReport` in
+// apps/admin-server/src/server/features/config-check/config-check.service.ts.
+
+/** Kept loose so a severity added server-side renders rather than breaking the
+ *  build — same reasoning as `HealthComponent.status`. */
+export type CheckSeverity = 'critical' | 'warning' | 'advisory' | 'ok';
+
+export interface ConfigFinding {
+  id: string;
+  category: string;
+  title: string;
+  /** Severity in the environment that was checked. */
+  severity: CheckSeverity;
+  /** What the same finding would be in production. Equal to `severity` when
+   *  the checked environment is production. */
+  productionSeverity: CheckSeverity;
+  /** Never contains a secret value — the server reports classifications. */
+  detail: string;
+  remediation?: string;
+}
+
+export interface ConfigCheckReport {
+  environment: 'development' | 'staging' | 'production';
+  environmentSource: 'explicit' | 'inferred';
+  findings: ConfigFinding[];
+  summary: Record<CheckSeverity, number>;
+  /** Findings that are critical in production, whatever they are here. */
+  blockingForProduction: number;
+  checkedAt: string;
+}
+
 // ---- Fleet telemetry (B1.7 §2.5) ----
 // Mirrors `FleetSnapshot` in
 // apps/admin-server/src/server/shared/services/fleet-telemetry.service.ts and
@@ -416,6 +448,11 @@ export class AdminApiClient {
   // ---- Health ----
   health(): Promise<HealthReport> {
     return this._request('GET', '/health');
+  }
+
+  // ---- Config check ----
+  configCheck(): Promise<ConfigCheckReport> {
+    return this._request('GET', '/config-check');
   }
 
   // ---- Fleet telemetry ----

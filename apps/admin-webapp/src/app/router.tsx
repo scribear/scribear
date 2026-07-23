@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from '#src/components/app-layout';
 import { RequireAuth } from '#src/components/require-auth';
 import { AuditPage } from '#src/features/audit/audit-page';
+import { ConfigCheckPage } from '#src/features/config-check/config-check-page';
 import { LoginPage } from '#src/features/auth/login-page';
 import { DashboardPage } from '#src/features/dashboard/dashboard-page';
 import { DeviceDetailPage } from '#src/features/devices/device-detail-page';
@@ -30,6 +31,7 @@ export const AppRoutes = () => (
         <Route path="/sessions/:sessionUid" element={<SessionDetailPage />} />
         <Route path="/kiosk-setup" element={<KioskWizardPage />} />
         <Route path="/audit" element={<AuditPage />} />
+        <Route path="/config-check" element={<ConfigCheckPage />} />
       </Route>
     </Route>
     <Route path="*" element={<Navigate to="/" replace />} />

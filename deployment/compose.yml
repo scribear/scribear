@@ -96,6 +96,13 @@ services:
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
+      # Which standard the admin console's Config Check judges this deployment
+      # against. Not `:?`-guarded, unlike the secrets below: it changes how
+      # findings are *reported*, never how anything behaves, so it must not be
+      # able to stop a stack from starting. Unset infers production, which is
+      # the strict direction - a deployment that predates this variable gets
+      # judged strictly rather than reassured.
+      DEPLOYMENT_ENV: ${DEPLOYMENT_ENV:-}
       # Health rollup (B1.5). Only the unauthenticated readiness probes of
       # these services are read; no keys are involved.
       NODE_SERVER_BASE_URL: http://node-server:80
