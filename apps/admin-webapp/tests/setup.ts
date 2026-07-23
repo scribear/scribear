@@ -9,4 +9,8 @@ import '@testing-library/jest-dom/vitest';
 // component test file leaks its DOM into the next test in the same file.
 afterEach(() => {
   cleanup();
+  // SettingsProvider (now part of renderWithProviders) persists the
+  // "Show UUIDs" preference to localStorage; clear it so one test's toggle
+  // doesn't leak into the next.
+  localStorage.clear();
 });
