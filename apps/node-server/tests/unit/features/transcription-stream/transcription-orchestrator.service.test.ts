@@ -17,14 +17,17 @@ import {
   TranscriptionOrchestratorService,
 } from '#src/server/features/transcription-stream/transcription-orchestrator.service.js';
 import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
+import { NodeServerMetricsService } from '#src/server/shared/services/node-server-metrics.service.js';
 import { createMockLogger } from '#tests/utils/mock-logger.js';
 
 const SESSION_UID = '00000000-0000-0000-0000-000000000abc';
+const ROOM_UID = '00000000-0000-0000-0000-000000000def';
 const PROVIDER_KEY = 'debug';
 
 function fakeSession(overrides: Partial<Session> = {}): Session {
   return {
     uid: SESSION_UID,
+    roomUid: ROOM_UID,
     transcriptionProviderId: PROVIDER_KEY,
     transcriptionStreamConfig: { sample_rate: 48000, num_channels: 1 },
     sessionConfigVersion: 1,
@@ -55,7 +58,7 @@ class FakeUpstream extends EventEmitter {
   });
   send = vi.fn();
   sendBinary = vi.fn();
-  terminate = vi.fn((_code: number, _reason: string) => {
+  terminate = vi.fn(() => {
     const prev = this.state;
     this.state = 'CLOSED';
     this.emit('stateChange', 'CLOSED', prev);
@@ -75,6 +78,7 @@ interface Harness {
   upstream: FakeUpstream;
   poolFactory: ReturnType<typeof vi.fn>;
   transcriptionStreamFactory: ReturnType<typeof vi.fn>;
+  metrics: NodeServerMetricsService;
 }
 
 function makeHarness(
@@ -97,12 +101,14 @@ function makeHarness(
     typeof TranscriptionOrchestratorService
   >[2];
 
+  const metrics = new NodeServerMetricsService();
   const orchestrator = new TranscriptionOrchestratorService(
     logger as never,
     bus,
     transcriptionServiceClient,
     poolFactory,
     { baseUrl: 'http://x', apiKey: 'tx-key' },
+    metrics,
   );
 
   return {
@@ -112,6 +118,7 @@ function makeHarness(
     upstream,
     poolFactory,
     transcriptionStreamFactory,
+    metrics,
   };
 }
 
@@ -149,6 +156,8 @@ describe('TranscriptionOrchestratorService', () => {
         expect.objectContaining({
           type: 'config',
           config: { sample_rate: 48000, num_channels: 1 },
+          session_uid: SESSION_UID,
+          room_uid: ROOM_UID,
         }),
       );
     });
@@ -292,6 +301,9 @@ describe('TranscriptionOrchestratorService', () => {
 
       // Assert
       expect(h.upstream.sendBinary).not.toHaveBeenCalled();
+      // U2: the drop is what the monitoring sidecar alerts on, so a frame
+      // that forwarded nothing and counted nothing would be invisible.
+      expect(h.metrics.snapshot().decodeDropsTotal).toBe(1);
     });
 
     it('correlates an echoed chunk id into a latency sample', async () => {
@@ -322,6 +334,16 @@ describe('TranscriptionOrchestratorService', () => {
       expect(samples[0]?.kind).toBe(LatencyKind.FINAL);
       expect(typeof samples[0]?.pipelineMs).toBe('number');
       expect(samples[0]?.e2eMs).toBeGreaterThanOrEqual(0);
+
+      // B1.4: the same sample is aggregated server-side, so a room's latency
+      // is visible without a client watching it. Aggregated here rather than in
+      // the per-connection stream service, which would count it once per
+      // subscriber.
+      const series = h.metrics
+        .snapshot()
+        .latency.find((s) => s.measure === 'pipeline' && s.kind === 'final');
+      expect(series?.sampleCount).toBe(1);
+      expect(series?.p95).toBeCloseTo(samples[0]?.pipelineMs ?? -1, 6);
     });
 
     it('emits no latency sample for a transcript with no matching chunk id', async () => {
@@ -449,6 +471,89 @@ describe('TranscriptionOrchestratorService', () => {
         transcriptionServiceConnected: true,
         sourceDeviceConnected: true,
       });
+    });
+  });
+});
+
+describe('TranscriptionOrchestratorService telemetry (B1.1)', () => {
+  let h: Harness;
+
+  beforeEach(() => {
+    h = makeHarness();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe('upstream churn', (it) => {
+    it('counts a retry cycle as churn but a clean connect as none', async () => {
+      // Arrange
+      await registerAndDrain(h, SESSION_UID);
+
+      // Act - a clean connect, then the BUG.txt signature: a flap.
+      h.upstream.setOpen();
+      h.upstream.emit('stateChange', 'WAITING_RETRY', 'OPEN');
+      h.upstream.emit('stateChange', 'CONNECTING', 'WAITING_RETRY');
+
+      // Assert - N1 must not fire on the healthy sequence alone.
+      const snapshot = h.metrics.snapshot();
+      expect(snapshot.upstreamChurnTotal).toBe(1);
+      expect(snapshot.upstreamStateTransitions).toContainEqual({
+        from: 'CONNECTING',
+        to: 'OPEN',
+        count: 1,
+      });
+      expect(snapshot.upstreamStateTransitions).toContainEqual({
+        from: 'OPEN',
+        to: 'WAITING_RETRY',
+        count: 1,
+      });
+    });
+  });
+
+  describe('latency correlation', (it) => {
+    it('records a negative end-to-end time as skew rather than a sample', async () => {
+      // Arrange - a source whose clock is 10s ahead of ours (S5).
+      await registerAndDrain(h, SESSION_UID);
+      const chunkId = 'chunk-skewed';
+      const frame = Buffer.from(
+        encodeAudioFrame(
+          { chunkId, sentAt: Date.now() + 10_000 },
+          new Uint8Array([1, 2, 3]),
+        ),
+      );
+
+      // Act
+      h.bus.publish(AudioFrameChannel, frame, SESSION_UID);
+      h.upstream.emit('message', {
+        final: { text: ['hi'], starts: null, ends: null },
+        in_progress: null,
+        final_chunk_ids: [chunkId],
+      });
+
+      // Assert - the sample still counts (it has a valid pipelineMs); only
+      // the e2e figure is classed as skew. S5 is the ratio of the two.
+      const snapshot = h.metrics.snapshot();
+      expect(snapshot.latencyE2eNegativeTotal).toBe(1);
+      expect(snapshot.latencySamplesTotal).toBe(1);
+    });
+
+    it('counts a transcript for an unknown chunk as unmatched', async () => {
+      // Arrange
+      await registerAndDrain(h, SESSION_UID);
+
+      // Act - a transcript referencing a chunk that was never recorded.
+      h.upstream.emit('message', {
+        final: { text: ['hi'], starts: null, ends: null },
+        in_progress: null,
+        final_chunk_ids: ['never-seen'],
+      });
+
+      // Assert - N3's downstream symptom: correlation silently stops.
+      const snapshot = h.metrics.snapshot();
+      expect(snapshot.latencyUnmatchedChunkTotal).toBe(1);
+      expect(snapshot.latencySamplesTotal).toBe(0);
     });
   });
 });

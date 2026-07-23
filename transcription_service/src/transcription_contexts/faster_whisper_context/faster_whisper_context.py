@@ -2,7 +2,7 @@
 Defines FasterWhisperContext for using faster whisper in WorkerProcess and WorkerPool
 """
 
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from faster_whisper import WhisperModel
 from pydantic import BaseModel, TypeAdapter
@@ -18,6 +18,11 @@ class FasterWhisperContextConfig(BaseModel):
 
     model: str
     device: Literal["cuda"] | Literal["cpu"]
+    # Passed straight through to faster_whisper.WhisperModel; leave unset to
+    # use faster-whisper's device-based default. Some CTranslate2 checkpoints
+    # (e.g. CrisperWhisper's faster-whisper release) recommend "float32" for
+    # accurate word timestamps.
+    compute_type: Optional[str] = None
 
 
 faster_whisper_context_config_adapter = TypeAdapter[FasterWhisperContextConfig](
@@ -40,7 +45,12 @@ class FasterWhisperContext(JobContextInterface[WhisperModel]):
         log.info(
             f"Creating {self._config.model} whisper model using device: {self._config.device}"
         )
-        return WhisperModel(self._config.model, device=self._config.device)
+        kwargs = {}
+        if self._config.compute_type is not None:
+            kwargs["compute_type"] = self._config.compute_type
+        return WhisperModel(
+            self._config.model, device=self._config.device, **kwargs
+        )
 
     def destroy(self, log: Logger, context: WhisperModel) -> None:
         log.info("Destroying whisper model")

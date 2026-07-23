@@ -5,8 +5,10 @@ import type { Static } from 'typebox';
 import { LogLevel } from '@scribear/base-fastify-server';
 
 import type { AdminDbClientConfig } from '#src/db/admin-db-client.js';
+import type { HealthCheckerConfig } from '#src/server/features/health/health.service.js';
 import type { RateLimitConfig } from '#src/server/plugins/rate-limit.plugin.js';
 import type { AzureAuthConfig } from '#src/server/shared/services/azure-oidc-auth.service.js';
+import type { FleetTelemetryConfig } from '#src/server/shared/services/fleet-telemetry.service.js';
 import type { LocalAuthConfig } from '#src/server/shared/services/local-auth.service.js';
 import type { SessionManagerGatewayConfig } from '#src/server/shared/services/session-manager-gateway.service.js';
 import type { SessionConfig } from '#src/server/shared/services/session.service.js';
@@ -22,6 +24,21 @@ const CONFIG_SCHEMA = Type.Object({
   // Session Manager gateway
   ADMIN_API_KEY: Type.String({ minLength: 1 }),
   SESSION_MANAGER_BASE_URL: Type.String({ minLength: 1 }),
+
+  // Health rollup (B1.5). In-cluster base URLs of the services the admin
+  // console reports on; only their unauthenticated readiness probes are read.
+  NODE_SERVER_BASE_URL: Type.String({ default: 'http://node-server:80' }),
+  TRANSCRIPTION_SERVICE_BASE_URL: Type.String({
+    default: 'http://transcription-service:80',
+  }),
+  // Per-component, and the components are checked concurrently, so this is
+  // also the worst case for the whole rollup. Kept short: an admin is waiting.
+  HEALTH_CHECK_TIMEOUT_SEC: Type.Integer({ minimum: 1, default: 3 }),
+
+  // Fleet telemetry backplane (B1.7 §2.5). Defaulted, unlike the URLs above:
+  // an unset value means this deployment predates B1.7 or has not opted in,
+  // and /fleet answers 503 rather than the BFF failing to boot.
+  REDIS_URL: Type.String({ default: '' }),
 
   // Session cookie signing + lifetimes
   ADMIN_SESSION_SECRET: Type.String({ minLength: 32 }),
@@ -76,6 +93,37 @@ export class AppConfig {
       port: this._env.PORT,
       host: this._env.HOST,
     };
+  }
+
+  get healthCheckerConfig(): HealthCheckerConfig {
+    return {
+      timeoutMs: this._env.HEALTH_CHECK_TIMEOUT_SEC * SECOND_MS,
+      targets: [
+        {
+          name: 'session-manager',
+          readinessUrl: `${this._env.SESSION_MANAGER_BASE_URL}/api/session-manager/v1/probes/readiness`,
+        },
+        {
+          name: 'node-server',
+          readinessUrl: `${this._env.NODE_SERVER_BASE_URL}/api/node-server/v1/probes/readiness`,
+        },
+        {
+          // transcription-service mounts its probes at the root, with no
+          // /api/<service>/v1 prefix, unlike every Node service.
+          name: 'transcription-service',
+          readinessUrl: `${this._env.TRANSCRIPTION_SERVICE_BASE_URL}/probes/readiness`,
+        },
+      ],
+    };
+  }
+
+  /**
+   * Fleet telemetry backplane (B1.7 §2.5). Off unless `REDIS_URL` is set —
+   * `FleetTelemetryService` opens no connection and `/fleet` answers 503
+   * `TELEMETRY_UNAVAILABLE` when it is empty.
+   */
+  get fleetTelemetryConfig(): FleetTelemetryConfig {
+    return { redisUrl: this._env.REDIS_URL };
   }
 
   get sessionManagerGatewayConfig(): SessionManagerGatewayConfig {

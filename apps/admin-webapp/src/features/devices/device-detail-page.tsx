@@ -19,13 +19,15 @@ import Typography from '@mui/material/Typography';
 
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
 
-import type { Device } from '@scribear/session-manager-schema';
+import type { Device, Room } from '@scribear/session-manager-schema';
 
 import { ActivationCodeDisplay } from '#src/components/activation-code-display';
 import { ConfirmDialog } from '#src/components/confirm-dialog';
+import { NameWithUid } from '#src/components/name-with-uid';
 import type { ReregisterDeviceResult } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -146,8 +148,10 @@ export const DeviceDetailPage = () => {
   const { deviceUid } = useParams<{ deviceUid: string }>();
   const navigate = useNavigate();
   const { showSuccess, showError } = useToast();
+  const { showUuids } = useSettings();
 
   const [device, setDevice] = useState<Device | null>(null);
+  const [room, setRoom] = useState<Room | null>(null);
   const [loading, setLoading] = useState(true);
   const [misconfigured, setMisconfigured] = useState(false);
   const [notFound, setNotFound] = useState(false);
@@ -190,6 +194,26 @@ export const DeviceDetailPage = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceUid]);
+
+  const roomUid = device?.roomUid ?? null;
+  useEffect(() => {
+    if (roomUid === null) {
+      setRoom(null);
+      return;
+    }
+    const alive = { current: true };
+    adminApi
+      .getRoom(roomUid)
+      .then((r) => {
+        if (alive.current) setRoom(r);
+      })
+      .catch(() => {
+        // Non-critical: falls back to showing the raw room uid.
+      });
+    return () => {
+      alive.current = false;
+    };
+  }, [roomUid]);
 
   const handleDelete = () => {
     if (deviceUid === undefined) return;
@@ -257,7 +281,7 @@ export const DeviceDetailPage = () => {
   return (
     <Box>
       <Typography variant="h5" component="h1" gutterBottom>
-        {device.name}
+        <NameWithUid name={device.name} uid={device.uid} showUid={showUuids} />
       </Typography>
 
       <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
@@ -297,7 +321,15 @@ export const DeviceDetailPage = () => {
               <Typography>Unassigned</Typography>
             ) : (
               <Link component={RouterLink} to={`/rooms/${device.roomUid}`}>
-                {device.roomUid}
+                {room === null ? (
+                  device.roomUid
+                ) : (
+                  <NameWithUid
+                    name={room.name}
+                    uid={device.roomUid}
+                    showUid={showUuids}
+                  />
+                )}
               </Link>
             )}
           </Box>

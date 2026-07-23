@@ -1175,7 +1175,7 @@ describe('Schedule Management Routes', () => {
     ): Promise<void> {
       const eventBus = server.fastify.diContainer.resolve(
         'eventBusService',
-      ) as unknown as { _channels: Map<string, Set<unknown>> };
+      ) as unknown as Record<'_channels', Map<string, Set<unknown>>>;
       const start = Date.now();
       while (Date.now() - start < timeoutMs) {
         const subs = eventBus._channels.get(channelKey);
@@ -1204,7 +1204,7 @@ describe('Schedule Management Routes', () => {
       // version.
       const longPoll = server.fastify.inject({
         method: 'GET',
-        url: `${SCHEDULE_BASE}/my-schedule?sinceVersion=${initialVersion}`,
+        url: `${SCHEDULE_BASE}/my-schedule?sinceVersion=${initialVersion.toString()}`,
         headers: { cookie: `DEVICE_TOKEN=${token}` },
       });
       await waitForSubscriber(`room-schedule-version-bumped:${roomUid}`);
@@ -1248,17 +1248,18 @@ describe('Schedule Management Routes', () => {
         },
       });
       expect(create.statusCode).toBe(201);
-      const session = create.json<{ uid: string; sessionConfigVersion: number }>();
+      const session = create.json<{
+        uid: string;
+        sessionConfigVersion: number;
+      }>();
 
       // Act - start the long-poll, wait for subscription, end the session.
       const longPoll = server.fastify.inject({
         method: 'GET',
-        url: `${SCHEDULE_BASE}/session-config-stream/${session.uid}?sinceVersion=${session.sessionConfigVersion}`,
+        url: `${SCHEDULE_BASE}/session-config-stream/${session.uid}?sinceVersion=${session.sessionConfigVersion.toString()}`,
         headers: { authorization: SERVICE_HEADER },
       });
-      await waitForSubscriber(
-        `session-config-version-bumped:${session.uid}`,
-      );
+      await waitForSubscriber(`session-config-version-bumped:${session.uid}`);
       const startMs = Date.now();
       const end = await server.fastify.inject({
         method: 'POST',
@@ -1295,7 +1296,7 @@ describe('Schedule Management Routes', () => {
       // Act - long-poll Room A, mutate Room B; A must NOT resolve.
       const longPollA = server.fastify.inject({
         method: 'GET',
-        url: `${SCHEDULE_BASE}/my-schedule?sinceVersion=${initialAVersion}`,
+        url: `${SCHEDULE_BASE}/my-schedule?sinceVersion=${initialAVersion.toString()}`,
         headers: { cookie: `DEVICE_TOKEN=${roomA.token}` },
       });
       await waitForSubscriber(`room-schedule-version-bumped:${roomA.roomUid}`);
@@ -1311,7 +1312,11 @@ describe('Schedule Management Routes', () => {
       // key.
       const winner = await Promise.race([
         longPollA.then(() => 'longpoll' as const),
-        new Promise<'timer'>((r) => setTimeout(() => r('timer'), 200)),
+        new Promise<'timer'>((r) => {
+          setTimeout(() => {
+            r('timer');
+          }, 200);
+        }),
       ]);
 
       // Assert - A is still hanging.
@@ -1340,13 +1345,13 @@ describe('Schedule Management Routes', () => {
         .roomScheduleVersion;
       const eventBus = server.fastify.diContainer.resolve(
         'eventBusService',
-      ) as unknown as { _channels: Map<string, Set<unknown>> };
+      ) as unknown as Record<'_channels', Map<string, Set<unknown>>>;
       const channelKey = `room-schedule-version-bumped:${roomUid}`;
 
       // Act - long-poll, wait for subscription, mutate, await resolution.
       const longPoll = server.fastify.inject({
         method: 'GET',
-        url: `${SCHEDULE_BASE}/my-schedule?sinceVersion=${initialVersion}`,
+        url: `${SCHEDULE_BASE}/my-schedule?sinceVersion=${initialVersion.toString()}`,
         headers: { cookie: `DEVICE_TOKEN=${token}` },
       });
       await waitForSubscriber(channelKey);

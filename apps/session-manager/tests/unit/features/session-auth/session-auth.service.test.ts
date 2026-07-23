@@ -143,11 +143,7 @@ describe('SessionAuthService', () => {
       expect(result).not.toBe('SESSION_NOT_FOUND');
       expect(result).not.toBe('DEVICE_NOT_IN_SESSION_ROOM');
       expect(result).not.toBe('JOIN_CODE_SCOPES_EMPTY');
-      if (
-        typeof result === 'string' ||
-        result === undefined ||
-        result === null
-      ) {
+      if (typeof result === 'string') {
         throw new Error('expected codes object');
       }
       expect(result.current.joinCode).toMatch(/^[A-Z0-9]{8}$/);

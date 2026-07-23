@@ -852,7 +852,9 @@ describe('ScheduleManagementController', () => {
   describe('listSchedules', (it) => {
     it('returns 200 with serialized items on success', async () => {
       // Arrange
-      mockScheduleService.listSchedulesForRoom.mockResolvedValue([mockSchedule]);
+      mockScheduleService.listSchedulesForRoom.mockResolvedValue([
+        mockSchedule,
+      ]);
 
       // Act
       await controller.listSchedules(
@@ -875,7 +877,9 @@ describe('ScheduleManagementController', () => {
 
     it("throws 404 when service returns 'ROOM_NOT_FOUND'", async () => {
       // Arrange
-      mockScheduleService.listSchedulesForRoom.mockResolvedValue('ROOM_NOT_FOUND');
+      mockScheduleService.listSchedulesForRoom.mockResolvedValue(
+        'ROOM_NOT_FOUND',
+      );
 
       // Act + Assert
       await expect(

@@ -75,6 +75,11 @@ export interface CreateOnDemandSessionBody {
 
 const BASE = '/api/admin/v1';
 
+/** `EventSource` can't go through `_request` (it sends no cookie header the
+ *  way `fetch` does — it relies on `withCredentials` instead), so the fleet
+ *  stream hook needs the raw URL. */
+export const FLEET_STREAM_URL = `${BASE}/fleet/stream`;
+
 export interface AuthConfig {
   local: boolean;
   sso: boolean;
@@ -92,11 +97,24 @@ export interface SessionInfo {
   csrfToken: string;
 }
 
+/** One dependency in the BFF health rollup. */
+export interface HealthComponent {
+  /** Stable identifier, matching the compose service name where there is one. */
+  name: string;
+  /** 'ok' | 'degraded' | 'unreachable' | 'fail'; kept loose so a new status
+   *  added server-side renders rather than breaking the build. */
+  status: string;
+  latencyMs: number;
+  /** One-line cause when the component is not ok. */
+  detail?: string;
+}
+
 export interface HealthReport {
   bff: string;
-  database: string;
-  sessionManager: string;
-  sessionManagerLatencyMs: number;
+  /** Every checked dependency. A list rather than named fields so the
+   *  dashboard renders new components (B1.7 providers, and so on) without a
+   *  matching SPA change. */
+  components: HealthComponent[];
   checkedAt: string;
 }
 
@@ -104,6 +122,166 @@ export interface Paginated<T> {
   items: T[];
   nextCursor: string | null;
 }
+
+// ---- Fleet telemetry (B1.7 §2.5) ----
+// Mirrors `FleetSnapshot` in
+// apps/admin-server/src/server/shared/services/fleet-telemetry.service.ts and
+// the node-server / transcription-service snapshot schemas it composes, from
+// @scribear/scribear-redis. Restated here rather than imported: that package
+// depends on ioredis and has no browser-safe entry point, so importing it
+// would pull a Node Redis client into this bundle. Kept in step by eye, the
+// same way transcription-service's Python side restates the TypeScript
+// contract (webserver/features/telemetry/telemetry_keys.py).
+
+export interface LatencySeries {
+  measure: 'pipeline' | 'e2e';
+  kind: 'final' | 'inProgress';
+  count: number;
+  sum: number;
+  sampleCount: number;
+  min: number;
+  max: number;
+  mean: number;
+  p50: number;
+  p95: number;
+  p99: number;
+}
+
+export type UpstreamState =
+  | 'IDLE'
+  | 'CONNECTING'
+  | 'HANDSHAKING'
+  | 'OPEN'
+  | 'WAITING_RETRY'
+  | 'CLOSED';
+
+/** One live session, as published by the owning node-server instance. */
+export interface SessionSnapshot {
+  sessionUid: string;
+  roomUid: string | null;
+  providerKey: string;
+  sourceCount: number;
+  subscriberCount: number;
+  pendingChunkCount: number;
+  upstreamState: UpstreamState;
+  upstreamRetryAttempt: number;
+  latency: LatencySeries[];
+  /** Publish time, epoch ms, on the publishing host's clock. */
+  updatedAt: number;
+  nodeInstanceId: string;
+  processUid: string;
+}
+
+/** One node-server instance's own counters, excluding its session list. */
+export interface NodeSnapshot {
+  processUid: string;
+  processStartedAt: string;
+  generatedAt: string;
+  summary: {
+    activeSessionCount: number;
+    decodeDropsTotal: number;
+    pendingChunkEvictionsTotal: number;
+    upstreamChurnTotal: number;
+    authSuccessTotal: number;
+    authTimeoutsTotal: number;
+    orchestratorFailuresTotal: number;
+    latencySamplesTotal: number;
+    latencyE2eUnavailableTotal: number;
+    latencyE2eNegativeTotal: number;
+    latencyUnmatchedChunkTotal: number;
+  };
+  upstreamStateTransitions: {
+    from: UpstreamState;
+    to: UpstreamState;
+    count: number;
+  }[];
+  wsCloses: {
+    code: number;
+    reason: string;
+    role: 'source' | 'client';
+    initiator: 'server' | 'peer';
+    count: number;
+  }[];
+  latency: LatencySeries[];
+  authFailures: { reason: string; count: number }[];
+  updatedAt: number;
+  nodeInstanceId: string;
+}
+
+export interface TranscriptionWorker {
+  workerId: number;
+  utilization: number;
+  liveJobCount: number;
+  totalJobsRegistered: number;
+  contextIds: string[];
+  alive: boolean;
+  activeJobs: { jobId: number; sessionUid: string | null; roomUid: string | null }[];
+}
+
+/** Fields that don't apply to a provider's `kind` are `null`, never omitted. */
+export interface ProviderHealth {
+  providerUid: string;
+  kind: 'local' | 'remote' | 'debug' | 'unknown';
+  status: 'ok' | 'degraded' | 'down';
+  activeSessions: number;
+  model: string | null;
+  modelLoaded: boolean | null;
+  owningWorkers: TranscriptionWorker[];
+  endpoint: string | null;
+  reachable: boolean | null;
+  probeLatencyMs: number | null;
+  detail: string | null;
+}
+
+/** One Transcription Service host's entire `/providers/health` body, plus envelope. */
+export interface TranscriptionHostSnapshot {
+  updatedAt: number;
+  transcriptionHost: string;
+  processUid: string;
+  processStartedAt: string;
+  numWorkers: number;
+  invalidProviderKeyRejects: number;
+  workers: TranscriptionWorker[];
+  /** Keyed by configured provider key, verbatim. */
+  providers: Record<string, ProviderHealth>;
+}
+
+/**
+ * One provider merged across every Transcription Service host serving it.
+ * `status` is `down` only when every host reporting this key is `down`, `ok`
+ * only when every host is `ok`; `activeSessions` is summed.
+ */
+export interface MergedProvider {
+  providerKey: string;
+  status: 'ok' | 'degraded' | 'down';
+  activeSessions: number;
+  hosts: { transcriptionHost: string; health: ProviderHealth }[];
+}
+
+export interface FleetSnapshot {
+  generatedAt: number;
+  nodes: NodeSnapshot[];
+  sessions: SessionSnapshot[];
+  transcriptionHosts: TranscriptionHostSnapshot[];
+  providers: MergedProvider[];
+}
+
+/**
+ * Sub-second delta pushed over `/fleet/stream` — a plain SSE `message` event
+ * (no `event:` name to switch on; the `t` field is the discriminant). Only
+ * the `session` variant has a writer today; an unrecognized `t` should be
+ * ignored rather than treated as an error, so this stays forward-compatible
+ * with a `node`/`provider` variant added later.
+ */
+export interface SessionStatusEvent {
+  t: 'session';
+  sessionUid: string;
+  transcriptionServiceConnected: boolean;
+  sourceDeviceConnected: boolean;
+  /** Publish time, epoch ms, on the publisher's clock. */
+  at: number;
+}
+export type FleetEvent = SessionStatusEvent;
 
 export interface RoomDetail {
   room: Room;
@@ -238,6 +416,15 @@ export class AdminApiClient {
   // ---- Health ----
   health(): Promise<HealthReport> {
     return this._request('GET', '/health');
+  }
+
+  // ---- Fleet telemetry ----
+  /** Throws `ApiError` with code `TELEMETRY_UNAVAILABLE` (REDIS_URL unset) or
+   *  `TELEMETRY_DEGRADED` (a read failed) — never resolves to an empty
+   *  snapshot for either case, since that would be indistinguishable from a
+   *  fleet that is genuinely idle. */
+  fleet(): Promise<FleetSnapshot> {
+    return this._request('GET', '/fleet');
   }
 
   // ---- Rooms ----

@@ -1,0 +1,12 @@
+[
+  {
+    "device": "cuda",
+    "base_image": "nvidia/cuda:12.2.2-cudnn8-runtime-ubuntu22.04",
+    "notes": "Default variant. CUDA 12.2 / cuDNN 8. Must match the CUDA_BASE_IMAGE default in Dockerfile_CUDA."
+  },
+  {
+    "device": "cuda128",
+    "base_image": "nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04",
+    "notes": "CUDA 12.8 / cuDNN 9. Adds Blackwell (sm_120) support, i.e. RTX 50-series and newer, which CUDA 12.2 has no kernels for."
+  }
+]

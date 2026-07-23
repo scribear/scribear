@@ -39,17 +39,20 @@ export class TranscriptionStreamController {
   private _sessionTokenService: AppDependencies['sessionTokenService'];
   private _eventBusService: AppDependencies['eventBusService'];
   private _transcriptionOrchestratorService: AppDependencies['transcriptionOrchestratorService'];
+  private _metrics: AppDependencies['nodeServerMetricsService'];
 
   constructor(
     logger: AppDependencies['logger'],
     sessionTokenService: AppDependencies['sessionTokenService'],
     eventBusService: AppDependencies['eventBusService'],
     transcriptionOrchestratorService: AppDependencies['transcriptionOrchestratorService'],
+    nodeServerMetricsService: AppDependencies['nodeServerMetricsService'],
   ) {
     this._logger = logger;
     this._sessionTokenService = sessionTokenService;
     this._eventBusService = eventBusService;
     this._transcriptionOrchestratorService = transcriptionOrchestratorService;
+    this._metrics = nodeServerMetricsService;
   }
 
   handleSourceConnection(socket: WebSocket, request: FastifyRequest): void {
@@ -93,6 +96,15 @@ export class TranscriptionStreamController {
       if (closed) return;
       closed = true;
       clearAuthTimer();
+      // Observability: the close code/reason is the only signal distinguishing
+      // an auth rejection (1008 invalid-token) from a protocol error (1007)
+      // from an orchestrator outage (1011). Logged at info so the monitoring
+      // sidecar can tally close codes without raising node-server's log level.
+      this._metrics.recordWsClose(code, reason, role, 'server');
+      this._logger.info(
+        { sessionUid, role, code, reason },
+        'transcription-stream socket closed',
+      );
       try {
         socket.close(code, reason);
       } catch (err) {
@@ -103,6 +115,7 @@ export class TranscriptionStreamController {
 
     authTimer = setTimeout(() => {
       if (ready || closed) return;
+      this._metrics.recordAuthTimeout();
       closeWith(1008, 'auth-timeout');
     }, AUTH_TIMEOUT_MS);
 
@@ -120,6 +133,10 @@ export class TranscriptionStreamController {
       );
       if (!result.ok) {
         authInFlight = false;
+        // S2 (signing-key drift between session-manager and node-server) shows
+        // up as this rate approaching 100%, not as any single failure, so the
+        // success side is counted too - see recordAuthSuccess below.
+        this._metrics.recordAuthFailure(result.reason);
         closeWith(result.code, result.reason);
         return;
       }
@@ -130,6 +147,7 @@ export class TranscriptionStreamController {
         eventBusService: this._eventBusService,
         transcriptionOrchestratorService:
           this._transcriptionOrchestratorService,
+        nodeServerMetricsService: this._metrics,
       });
       service.on('send', (msg) => {
         safeSend(msg);
@@ -142,6 +160,7 @@ export class TranscriptionStreamController {
         await service.start();
       } catch (err) {
         authInFlight = false;
+        this._metrics.recordOrchestratorFailure();
         this._logger.error({ err, sessionUid }, 'orchestrator register failed');
         closeWith(1011, 'orchestrator-unavailable');
         return;
@@ -157,15 +176,25 @@ export class TranscriptionStreamController {
       ready = true;
       authInFlight = false;
       clearAuthTimer();
+      this._metrics.recordAuthSuccess();
 
       safeSend({ type: TranscriptionStreamServerMessageType.AUTH_OK });
       service.publishCurrentStatus();
     };
 
-    socket.on('close', () => {
+    socket.on('close', (code: number, reason: Buffer) => {
       if (closed) return;
       closed = true;
       clearAuthTimer();
+      // Peer-initiated close (client navigated away, Wi-Fi dropped). Distinct
+      // from closeWith above, which is server-initiated; the sidecar separates
+      // the two by `initiator` so a flapping uplink doesn't look like an auth
+      // failure.
+      this._metrics.recordWsClose(code, reason.toString(), role, 'peer');
+      this._logger.info(
+        { sessionUid, role, code, reason: reason.toString() },
+        'transcription-stream socket closed by peer',
+      );
       service?.close();
     });
 

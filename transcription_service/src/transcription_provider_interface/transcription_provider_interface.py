@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from src.shared.logger import Logger
 from src.shared.utils.worker_pool import WorkerPool
 
+from .provider_health import ProviderHealth, ProviderKind, ProviderStatus
 from .transcription_session_interface import TranscriptionSessionInterface
 
 
@@ -26,18 +27,29 @@ class TranscriptionProviderInterface(ABC):
 
     @abstractmethod
     def __init__(
-        self, provider_config: object, logger: Logger, worker_pool: WorkerPool
+        self,
+        provider_config: object,
+        logger: Logger,
+        worker_pool: WorkerPool,
+        provider_key: str,
     ):
         """
         Args:
             provider_config - Provider configuration object unique to transcription provider
             logger          - Application logger
             worker_pool     - Application worker pool to dispatch compute heavy work to
+            provider_key    - Configured key this provider was registered under.
+                                Passed to register_job as the job label so worker
+                                pool telemetry can be grouped by provider.
         """
 
     @abstractmethod
     def create_session(
-        self, session_config: object, logger: Logger
+        self,
+        session_config: object,
+        session_uid: str | None,
+        room_uid: str | None,
+        logger: Logger,
     ) -> TranscriptionSessionInterface:
         """
         Called when a transcription session is requested
@@ -51,6 +63,11 @@ class TranscriptionProviderInterface(ABC):
 
         Args:
             session_config  - Session configuration object unique to transcription provider
+            session_uid     - Opaque session identifier from the caller, if
+                                known. Not validated or used for anything
+                                beyond storage on the returned session.
+            room_uid        - Opaque room identifier from the caller, if
+                                known. Same handling as session_uid.
             logger          - Application logger for session to use
 
         Returns:
@@ -63,3 +80,61 @@ class TranscriptionProviderInterface(ABC):
         Called when application exits
         Should cleanup resources used by TranscriptionProvider
         """
+
+    # Session accounting and health reporting are concrete, not abstract: a
+    # provider that never opts in still reports a truthful (if opaque) health
+    # entry, so adding a provider cannot silently create a blind spot on the
+    # dashboard.
+
+    # Declared on the class rather than set in __init__ because implementations
+    # define their own __init__ and none of them chain to super(). Ints are
+    # immutable, so the first increment rebinds it as an instance attribute and
+    # no state is ever shared between providers.
+    _active_sessions: int = 0
+
+    @property
+    def active_sessions(self) -> int:
+        """
+        Gets the number of sessions currently open against this provider
+
+        Providers did not track this before B1.7, so "which backend are these
+        rooms actually using" had no answer.
+        """
+        return self._active_sessions
+
+    def session_started(self) -> None:
+        """
+        Counts one session opened against this provider
+
+        Called by the provider's own session, at the END of its __init__ - a
+        session whose construction raises never opened, and counting it up
+        front would leak a count that nothing ever decrements.
+        """
+        self._active_sessions += 1
+
+    def session_ended(self) -> None:
+        """
+        Counts one session closed against this provider
+
+        Clamped at zero so that a double end_session can only ever undercount.
+        An unsigned drift understates load, which is a mild reporting error; a
+        negative count is a visibly broken dashboard.
+        """
+        self._active_sessions = max(0, self._active_sessions - 1)
+
+    async def describe_health(self) -> ProviderHealth:
+        """
+        Gets this provider's current health
+
+        Default: alive but opaque. Providers override to add the signals only
+        they can produce - context-load state for local models, endpoint
+        reachability for remote ones.
+
+        Returns:
+            ProviderHealth snapshot
+        """
+        return ProviderHealth(
+            kind=ProviderKind.DEBUG,
+            status=ProviderStatus.OK,
+            active_sessions=self._active_sessions,
+        )

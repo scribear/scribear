@@ -20,7 +20,9 @@ from src.transcription_provider_interface import (
     TranscriptionClientError,
     TranscriptionResult,
 )
+from src.webserver.features.telemetry import RedisSessionAudioPublisher
 from src.webserver.shared.auth_service import AuthService
+from src.webserver.shared.metrics import MetricsRegistry
 from src.webserver.shared.transcription_provider_registry import (
     TranscriptionProviderRegistry,
 )
@@ -58,8 +60,10 @@ class TranscriptionStreamController(WebsocketHandler):
         logger: Logger,
         auth_service: AuthService,
         provider_registry: TranscriptionProviderRegistry,
+        metrics_registry: MetricsRegistry,
         provider_key: str,
         ws: WebSocket,
+        audio_publisher: RedisSessionAudioPublisher | None = None,
     ):
         """
         Args:
@@ -67,17 +71,25 @@ class TranscriptionStreamController(WebsocketHandler):
             logger              - Application logger
             auth_service        - Service used to verify the presented API key
             provider_registry   - Process-singleton provider registry
+            metrics_registry    - Process-singleton telemetry store
             provider_key        - Provider key requested by websocket
             ws                  - Websocket to manage
+            audio_publisher      - Process-singleton publisher of per-session
+                                     audio-level stats, or None when no
+                                     telemetry backplane is configured
         """
         super().__init__(logger, ws)
 
         self._auth_service = auth_service
         self._provider_registry = provider_registry
+        self._metrics_registry = metrics_registry
         self._provider_key = provider_key
+        self._audio_publisher = audio_publisher
 
         self._service: TranscriptionStreamService | None = None
         self._is_authenticated = False
+        self._session_uid: str | None = None
+        self._room_uid: str | None = None
         self._timeout_task = asyncio.create_task(
             self._init_timeout(config.ws_init_timeout_sec)
         )
@@ -108,7 +120,12 @@ class TranscriptionStreamController(WebsocketHandler):
 
         self._is_authenticated = True
 
-    def _config(self, session_config: object):
+    def _config(
+        self,
+        session_config: object,
+        session_uid: str | None,
+        room_uid: str | None,
+    ):
         """
         Handle the config client message. Constructs the per-connection
         TranscriptionStreamService once auth has completed and a config has
@@ -118,15 +135,21 @@ class TranscriptionStreamController(WebsocketHandler):
             self.close(1008, "Unexpected Config Message")
             return
 
+        self._session_uid = session_uid
+        self._room_uid = room_uid
+
         service = TranscriptionStreamService(
             self._logger,
             self._provider_registry,
             self._provider_key,
             session_config,
+            session_uid,
+            room_uid,
         )
         service.on(
             service.TranscriptionResultEvent, self._handle_transcription_result
         )
+        service.on(service.TranscriptionResultEvent, self._handle_audio_stats)
         service.on(service.TranscriptionErrorEvent, self._handle_error)
         service.start()
         self._service = service
@@ -161,6 +184,34 @@ class TranscriptionStreamController(WebsocketHandler):
             )
         )
 
+    def _handle_audio_stats(self, result: TranscriptionResult):
+        """
+        Forward a result's audio-level stats, and VAD stats alongside them,
+        to the fleet telemetry backplane
+
+        A second listener on the same event `_handle_transcription_result`
+        subscribes to, kept separate rather than folded into that handler:
+        WS-serialization and telemetry-publishing are independent concerns
+        that happen to react to the same event, matching this codebase's
+        existing separation between a join (`ProviderHealthSnapshotService`)
+        and its publisher.
+
+        Guarded on `audio_stats` alone, not `vad_stats` too: `vad_stats` can
+        legitimately be None (VAD off, or no VAD ran this batch) independent
+        of whether `audio_stats` is present - they come from different
+        mechanisms, a persistent meter vs. a transient per-call
+        computation - so a missing `vad_stats` should not suppress an
+        otherwise-useful audio-stats publish.
+        """
+        if self._audio_publisher is None or result.audio_stats is None:
+            return
+        self._audio_publisher.publish(
+            self._session_uid,
+            self._room_uid,
+            result.audio_stats,
+            result.vad_stats,
+        )
+
     async def _handle_text_message(self, message: str):
         """
         Decode and route a text client message.
@@ -171,7 +222,11 @@ class TranscriptionStreamController(WebsocketHandler):
             case ClientMessageTypes.AUTH:
                 self._auth(parsed_message.api_key)
             case ClientMessageTypes.CONFIG:
-                self._config(parsed_message.config)
+                self._config(
+                    parsed_message.config,
+                    parsed_message.session_uid,
+                    parsed_message.room_uid,
+                )
 
     async def _handle_binary_message(self, message: bytes):
         """
@@ -193,6 +248,7 @@ class TranscriptionStreamController(WebsocketHandler):
             frame = decode_audio_frame(message)
         except AudioFrameError:
             self._logger.warning("Dropping malformed audio frame")
+            self._metrics_registry.record_decode_drop(self._provider_key)
             return
 
         self._service.handle_audio_chunk(frame.chunk_id or "", frame.audio)
@@ -205,6 +261,8 @@ class TranscriptionStreamController(WebsocketHandler):
         self._timeout_task.cancel()
         if self._service is not None:
             self._service.close()
+        if self._audio_publisher is not None:
+            self._audio_publisher.forget(self._session_uid)
 
         self._logger.info(
             "Websocket closed", context={"code": code, "reason": reason}

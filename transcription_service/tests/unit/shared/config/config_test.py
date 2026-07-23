@@ -4,6 +4,7 @@ Unit tests for Config
 
 import json
 import os
+import socket
 import sys
 from pathlib import Path
 from typing import Callable
@@ -24,6 +25,7 @@ LOG_LEVEL = LogLevel.DEBUG
 PORT = 12345
 HOST = "1.2.3.4"
 API_KEY = "SOME_KEY"
+METRICS_API_KEY = "SOME_METRICS_KEY"
 WS_INIT_TIMEOUT_SEC = 0.5
 
 valid_env: Callable[[str], str] = (
@@ -111,6 +113,14 @@ def test_config_load_valid_config(clean_os_environ: None, tmp_path: Path):
     assert config.host == HOST
     assert config.api_key == API_KEY
     assert config.ws_init_timeout_sec == WS_INIT_TIMEOUT_SEC
+    # Absent from the .env above on purpose: the metrics key must stay
+    # optional, or adding it would break every existing deployment.
+    assert config.metrics_api_key == ""
+    # Same reasoning for the telemetry backplane: unset means publishing off
+    # and no connection at all, and the host identity falls back to the
+    # hostname so an unconfigured deployment still has a stable one.
+    assert config.redis_url == ""
+    assert config.transcription_host_id == socket.gethostname()
 
     assert config.provider_config.num_workers == NUM_WORKERS
     assert len(config.provider_config.contexts) == 2
@@ -119,6 +129,92 @@ def test_config_load_valid_config(clean_os_environ: None, tmp_path: Path):
     assert len(config.provider_config.providers) == 2
     assert config.provider_config.providers["provider0"] == PROVIDER_0
     assert config.provider_config.providers["provider1"] == PROVIDER_1
+
+
+def test_config_loads_metrics_api_key_when_set(
+    clean_os_environ: None, tmp_path: Path
+):
+    # pylint: disable=unused-argument
+    # Need to include clean_os_environ so that fixture is created
+    """
+    Test that a configured metrics key is read
+
+    It is a separate secret from API_KEY: that one opens transcription
+    sessions, this one only reads counters.
+    """
+    # Arrange
+    transcription_config_path = tmp_path / "transcription_config.json"
+    transcription_config_path.write_text(VALID_PROVIDER_CONFIG_JSON)
+
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text(
+        valid_env(str(transcription_config_path))
+        + f"METRICS_API_KEY={METRICS_API_KEY}\n"
+    )
+
+    # Act
+    config = Config(dotenv_path=str(dotenv_path))
+
+    # Assert
+    assert config.metrics_api_key == METRICS_API_KEY
+    assert config.api_key == API_KEY
+
+
+def test_config_loads_telemetry_settings_when_set(
+    clean_os_environ: None, tmp_path: Path
+):
+    # pylint: disable=unused-argument
+    # Need to include clean_os_environ so that fixture is created
+    """
+    Test a configured backplane URL and host identity are read
+
+    Both gate fleet telemetry publishing; neither touches the transcription
+    path.
+    """
+    # Arrange
+    transcription_config_path = tmp_path / "transcription_config.json"
+    transcription_config_path.write_text(VALID_PROVIDER_CONFIG_JSON)
+
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text(
+        valid_env(str(transcription_config_path))
+        + "REDIS_URL=redis://:secret@redis:6379\n"
+        + "TRANSCRIPTION_HOST_ID=ts-host-7\n"
+    )
+
+    # Act
+    config = Config(dotenv_path=str(dotenv_path))
+
+    # Assert
+    assert config.redis_url == "redis://:secret@redis:6379"
+    assert config.transcription_host_id == "ts-host-7"
+
+
+def test_config_rejects_a_host_id_that_could_forge_a_telemetry_key(
+    clean_os_environ: None, tmp_path: Path
+):
+    # pylint: disable=unused-argument
+    # Need to include clean_os_environ so that fixture is created
+    """
+    Test a ':' in the host identity is refused at boot
+
+    It is interpolated into `scribe:v1:ts:{host}`, so a value containing ':'
+    could write over another part of the telemetry namespace. Rejecting it at
+    config load fails the process once rather than every heartbeat.
+    """
+    # Arrange
+    transcription_config_path = tmp_path / "transcription_config.json"
+    transcription_config_path.write_text(VALID_PROVIDER_CONFIG_JSON)
+
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text(
+        valid_env(str(transcription_config_path))
+        + "TRANSCRIPTION_HOST_ID=host:with:colons\n"
+    )
+
+    # Act / Assert
+    with pytest.raises(ValidationError):
+        Config(dotenv_path=str(dotenv_path))
 
 
 def test_config_invalid_transcription_file(

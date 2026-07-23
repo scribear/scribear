@@ -1,0 +1,290 @@
+"""
+Unit tests for LumenGraniteProvider health reporting
+"""
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from pytest_mock import MockerFixture
+
+from src.shared.logger import Logger
+from src.shared.utils.worker_pool import WorkerPool
+from src.transcription_provider_interface import ProviderKind, ProviderStatus
+from src.transcription_providers.lumen_granite_provider import (
+    LumenGraniteProvider,
+)
+
+API_KEY_ENV = "TEST_LUMEN_API_KEY"
+BASE_URL = "https://lumen.example.invalid/v1"
+PROVIDER_KEY = "lumen_granite"
+
+
+@pytest.fixture
+def mock_logger():
+    """
+    Create a mocked logger instance for tests
+    """
+    return MagicMock(spec=Logger)
+
+
+@pytest.fixture
+def mock_worker_pool():
+    """
+    Create a mocked worker pool; remote providers never route to it
+    """
+    return MagicMock(spec=WorkerPool)
+
+
+@pytest.fixture
+def provider(mock_logger: Logger, mock_worker_pool: WorkerPool):
+    """
+    Create a LumenGraniteProvider pointed at an unroutable test endpoint
+    """
+    return LumenGraniteProvider(
+        {"base_url": BASE_URL, "api_key_env": API_KEY_ENV},
+        mock_logger,
+        mock_worker_pool,
+        PROVIDER_KEY,
+    )
+
+
+@pytest.fixture
+def mock_client_class(mocker: MockerFixture):
+    """
+    Patch httpx.AsyncClient so tests can assert whether the network was used
+    """
+    return mocker.patch(
+        "src.transcription_providers.lumen_granite_provider"
+        ".lumen_granite_provider.httpx.AsyncClient"
+    )
+
+
+def _respond_with(mock_client_class: MagicMock, status_code: int):
+    """
+    Drives the patched client to answer every GET with the given status
+
+    Args:
+        mock_client_class   - Patched httpx.AsyncClient
+        status_code         - Status the probe request should see
+    """
+    response = MagicMock()
+    response.status_code = status_code
+    client = mock_client_class.return_value.__aenter__.return_value
+    client.get = AsyncMock(return_value=response)
+    return client
+
+
+@pytest.mark.asyncio
+async def test_reports_down_without_network_when_key_env_unset(
+    provider: LumenGraniteProvider,
+    mock_client_class: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    Test a missing api key is answered as a config error, not a network trip
+
+    A deployment that never configured lumen would otherwise have its health
+    endpoint make a doomed request to a third party on every single poll.
+    """
+    # Arrange
+    monkeypatch.delenv(API_KEY_ENV, raising=False)
+
+    # Act
+    health = await provider.describe_health()
+
+    # Assert
+    assert health.status == ProviderStatus.DOWN
+    assert health.reachable is False
+    assert health.probe_latency_ms is None
+    assert API_KEY_ENV in (health.detail or "")
+    mock_client_class.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reports_ok_when_endpoint_answers(
+    provider: LumenGraniteProvider,
+    mock_client_class: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    Test a reachable endpoint reports ok with a measured latency
+    """
+    # Arrange
+    monkeypatch.setenv(API_KEY_ENV, "secret")
+    _respond_with(mock_client_class, 200)
+
+    # Act
+    health = await provider.describe_health()
+
+    # Assert
+    assert health.kind == ProviderKind.REMOTE
+    assert health.status == ProviderStatus.OK
+    assert health.reachable is True
+    assert health.probe_latency_ms is not None
+    assert health.endpoint == BASE_URL
+    assert health.detail is None
+
+
+@pytest.mark.asyncio
+async def test_treats_unauthorized_as_reachable(
+    provider: LumenGraniteProvider,
+    mock_client_class: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    Test a 401 still proves the endpoint is up
+
+    The probe asks "is anything listening", not "is my key good". Calling a
+    reachable-but-rejecting endpoint down would send an operator hunting a
+    network fault when the answer is a credential.
+    """
+    # Arrange
+    monkeypatch.setenv(API_KEY_ENV, "secret")
+    _respond_with(mock_client_class, 401)
+
+    # Act
+    health = await provider.describe_health()
+
+    # Assert
+    assert health.status == ProviderStatus.OK
+    assert health.reachable is True
+
+
+@pytest.mark.asyncio
+async def test_reports_down_on_upstream_server_error(
+    provider: LumenGraniteProvider,
+    mock_client_class: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    Test a 5xx reports down and names the status
+    """
+    # Arrange
+    monkeypatch.setenv(API_KEY_ENV, "secret")
+    _respond_with(mock_client_class, 503)
+
+    # Act
+    health = await provider.describe_health()
+
+    # Assert
+    assert health.status == ProviderStatus.DOWN
+    assert health.reachable is False
+    assert "503" in (health.detail or "")
+
+
+@pytest.mark.asyncio
+async def test_reports_down_and_names_the_transport_failure(
+    provider: LumenGraniteProvider,
+    mock_client_class: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    Test a connection failure reports down with the exception class in detail
+
+    A timeout and a DNS failure need different fixes, so the class is the
+    operator's only clue about which one they have.
+    """
+    # Arrange
+    monkeypatch.setenv(API_KEY_ENV, "secret")
+    import httpx  # pylint: disable=import-outside-toplevel
+
+    client = mock_client_class.return_value.__aenter__.return_value
+    client.get = AsyncMock(side_effect=httpx.ConnectTimeout("timed out"))
+
+    # Act
+    health = await provider.describe_health()
+
+    # Assert
+    assert health.status == ProviderStatus.DOWN
+    assert health.reachable is False
+    assert "ConnectTimeout" in (health.detail or "")
+
+
+@pytest.mark.asyncio
+async def test_caches_the_probe_between_calls(
+    provider: LumenGraniteProvider,
+    mock_client_class: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    Test repeated health reads reuse one probe result
+
+    Every operator browser multiplies the dashboard's poll rate, so an uncached
+    probe would turn the monitoring page into a load generator aimed at a third
+    party.
+    """
+    # Arrange
+    monkeypatch.setenv(API_KEY_ENV, "secret")
+    _respond_with(mock_client_class, 200)
+
+    # Act
+    for _ in range(5):
+        await provider.describe_health()
+
+    # Assert
+    assert mock_client_class.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_probe_cache_is_not_shared_between_instances(
+    mock_logger: Logger,
+    mock_worker_pool: WorkerPool,
+    mock_client_class: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    Test two configured lumen providers probe independently
+
+    They can point at different endpoints, so a cache held on the class would
+    report one provider's reachability as the other's.
+    """
+    # Arrange
+    monkeypatch.setenv(API_KEY_ENV, "secret")
+    _respond_with(mock_client_class, 200)
+    first = LumenGraniteProvider(
+        {"base_url": BASE_URL, "api_key_env": API_KEY_ENV},
+        mock_logger,
+        mock_worker_pool,
+        "lumen_a",
+    )
+    second = LumenGraniteProvider(
+        # Same key env, different endpoint - so the only thing that could
+        # collapse these into one probe is a shared cache.
+        {
+            "base_url": "https://other.example.invalid/v1",
+            "api_key_env": API_KEY_ENV,
+        },
+        mock_logger,
+        mock_worker_pool,
+        "lumen_b",
+    )
+
+    # Act
+    await first.describe_health()
+    await second.describe_health()
+
+    # Assert
+    assert mock_client_class.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_reports_active_session_count(
+    provider: LumenGraniteProvider,
+    mock_client_class: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    Test open sessions are counted against the provider
+    """
+    # Arrange
+    monkeypatch.setenv(API_KEY_ENV, "secret")
+    _respond_with(mock_client_class, 200)
+    provider.session_started()
+    provider.session_started()
+    provider.session_ended()
+
+    # Act
+    health = await provider.describe_health()
+
+    # Assert
+    assert health.active_sessions == 1

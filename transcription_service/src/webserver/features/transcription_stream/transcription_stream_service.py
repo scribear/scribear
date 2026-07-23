@@ -47,6 +47,8 @@ class TranscriptionStreamService(EventEmitter):
         provider_registry: TranscriptionProviderRegistry,
         provider_key: str,
         session_config: Any,
+        session_uid: str | None = None,
+        room_uid: str | None = None,
     ):
         """
         Args:
@@ -54,12 +56,18 @@ class TranscriptionStreamService(EventEmitter):
             provider_registry   - Process-singleton provider registry
             provider_key        - Provider key requested by the caller
             session_config      - Session configuration payload from the caller
+            session_uid         - Opaque session identifier from the caller,
+                                    if known
+            room_uid            - Opaque room identifier from the caller, if
+                                    known
         """
         super().__init__()
         self._logger = logger
         self._provider_registry = provider_registry
         self._provider_key = provider_key
         self._session_config = session_config
+        self._session_uid = session_uid
+        self._room_uid = room_uid
         self._session: TranscriptionSessionInterface | None = None
         self._closed = False
 
@@ -71,7 +79,11 @@ class TranscriptionStreamService(EventEmitter):
         should treat that as a protocol-level (1007) close.
         """
         self._session = self._provider_registry.create_session(
-            self._provider_key, self._session_config, self._logger
+            self._provider_key,
+            self._session_config,
+            self._session_uid,
+            self._room_uid,
+            self._logger,
         )
         self._session.on(
             self._session.TranscriptionResultEvent, self._handle_session_result

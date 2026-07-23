@@ -11,6 +11,16 @@
       }
     },
     {
+      "context_uid": "faster-whisper",
+      "worker_ids": [0],
+      "tags": ["crisper_whisper_cuda_context"],
+      "context_config": {
+        "model": "nyrahealth/faster_CrisperWhisper",
+        "device": "cuda",
+        "compute_type": "float32"
+      }
+    },
+    {
       "context_uid": "silero-vad",
       "worker_ids": [0],
       "tags": ["silero_vad"],
@@ -44,6 +54,17 @@
         "api_key_env": "TRANSCRIPTION_PROVIDER_API_KEY",
         "job_period_ms": 3000,
         "max_buffer_len_sec": 20
+      }
+    },
+    "crisper_whisper": {
+      "provider_uid": "whisper-streaming",
+      "provider_config": {
+        "whisper_context_tag": "crisper_whisper_cuda_context",
+        "silero_context_tag": "silero_vad",
+        "job_period_ms": 500,
+        "max_buffer_len_sec": 30,
+        "local_agree_dim": 2,
+        "vad_detector": true
       }
     }
   }

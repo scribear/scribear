@@ -12,6 +12,17 @@ export const DEVICE_SCHEMA = Type.Object(
     roomUid: Type.Union([Type.String({ format: 'uuid' }), Type.Null()]),
     isSource: Type.Union([Type.Boolean(), Type.Null()]),
     createdAt: Type.String({ format: 'date-time' }),
+    /**
+     * When the device last made an authenticated request. Null means it has
+     * not been heard from since presence tracking shipped (B1.6) — not that it
+     * was never registered.
+     */
+    lastSeenAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+    /**
+     * Whether `lastSeenAt` is within the online TTL. Derived server-side so
+     * every consumer agrees on the cutoff rather than each picking its own.
+     */
+    online: Type.Boolean(),
   },
   { $id: 'Device' },
 );

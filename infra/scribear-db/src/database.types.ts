@@ -88,6 +88,7 @@ export interface Devices {
   created_at: Generated<Timestamp>;
   expiry: Timestamp | null;
   hash: string | null;
+  last_seen_at: Timestamp | null;
   name: string;
   uid: Generated<string>;
 }

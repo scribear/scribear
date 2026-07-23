@@ -25,6 +25,8 @@ from src.webserver.shared.transcription_provider_registry import (
 
 PROVIDER_KEY = "TEST_PROVIDER"
 SESSION_CONFIG = "SESSION_CONFIG"
+SESSION_UID = "session-1"
+ROOM_UID = "room-1"
 
 
 class FakeSession(TranscriptionSessionInterface):
@@ -81,7 +83,12 @@ def service(
     Fresh service with mocked dependencies.
     """
     return TranscriptionStreamService(
-        mock_logger, mock_provider_registry, PROVIDER_KEY, SESSION_CONFIG
+        mock_logger,
+        mock_provider_registry,
+        PROVIDER_KEY,
+        SESSION_CONFIG,
+        SESSION_UID,
+        ROOM_UID,
     )
 
 
@@ -100,9 +107,30 @@ def test_start_creates_session_through_registry(
 
     # Assert
     mock_provider_registry.create_session.assert_called_once_with(
-        PROVIDER_KEY, SESSION_CONFIG, mock_logger
+        PROVIDER_KEY, SESSION_CONFIG, SESSION_UID, ROOM_UID, mock_logger
     )
     fake_session.start_session.assert_called_once()
+
+
+def test_start_defaults_session_and_room_uid_to_none(
+    mock_logger: MagicMock, mock_provider_registry: MagicMock
+):
+    """
+    A caller that omits session_uid/room_uid (an older node server) still
+    starts a session; the registry sees them as None rather than missing.
+    """
+    # Arrange
+    service = TranscriptionStreamService(
+        mock_logger, mock_provider_registry, PROVIDER_KEY, SESSION_CONFIG
+    )
+
+    # Act
+    service.start()
+
+    # Assert
+    mock_provider_registry.create_session.assert_called_once_with(
+        PROVIDER_KEY, SESSION_CONFIG, None, None, mock_logger
+    )
 
 
 def test_start_propagates_unknown_provider_error(

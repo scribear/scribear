@@ -164,7 +164,11 @@ describe('DeviceManagementRepository', () => {
       // Arrange - activate a device so its code is consumed
       await dbContext.db
         .insertInto('devices')
-        .values({ name: 'pending', activation_code: TEST_CODE, expiry: FUTURE_EXPIRY })
+        .values({
+          name: 'pending',
+          activation_code: TEST_CODE,
+          expiry: FUTURE_EXPIRY,
+        })
         .execute();
       await repository.activate(TEST_CODE, TEST_HASH);
 
@@ -316,7 +320,13 @@ describe('DeviceManagementRepository', () => {
         .execute();
 
       // Act
-      const result = await repository.list({ search: null, active: null, roomUid: null, cursor: null, limit: 50 });
+      const result = await repository.list({
+        search: null,
+        active: null,
+        roomUid: null,
+        cursor: null,
+        limit: 50,
+      });
 
       // Assert
       expect(result.items).toHaveLength(2);
@@ -342,7 +352,13 @@ describe('DeviceManagementRepository', () => {
         .execute();
 
       // Act
-      const result = await repository.list({ search: null, active: null, roomUid: null, cursor: null, limit: 1 });
+      const result = await repository.list({
+        search: null,
+        active: null,
+        roomUid: null,
+        cursor: null,
+        limit: 1,
+      });
 
       // Assert
       expect(result.items).toHaveLength(1);
@@ -364,7 +380,13 @@ describe('DeviceManagementRepository', () => {
         .execute();
 
       // Act
-      const result = await repository.list({ search: null, active: true, roomUid: null, cursor: null, limit: 50 });
+      const result = await repository.list({
+        search: null,
+        active: true,
+        roomUid: null,
+        cursor: null,
+        limit: 50,
+      });
 
       // Assert
       expect(result.items).toHaveLength(1);
@@ -400,7 +422,13 @@ describe('DeviceManagementRepository', () => {
         .execute();
 
       // Act
-      const result = await repository.list({ search: null, active: null, roomUid: '', cursor: null, limit: 50 });
+      const result = await repository.list({
+        search: null,
+        active: null,
+        roomUid: '',
+        cursor: null,
+        limit: 50,
+      });
 
       // Assert
       expect(result.items).toHaveLength(1);

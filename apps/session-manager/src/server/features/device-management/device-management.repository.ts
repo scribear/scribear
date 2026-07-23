@@ -15,6 +15,7 @@ interface DeviceRow {
   name: string;
   active: boolean;
   created_at: Date;
+  last_seen_at: Date | null;
   room_uid: string | null;
   is_source: boolean | null;
 }
@@ -36,6 +37,10 @@ function mapDevice(row: DeviceRow) {
     name: row.name,
     active: row.active,
     createdAt: row.created_at,
+    // Null means the device has not been heard from since B1.6 shipped, which
+    // is deliberately distinct from a stamped-at-migration-time value that
+    // would have shown the whole fleet as freshly online.
+    lastSeenAt: row.last_seen_at,
     roomUid: row.room_uid,
     isSource: row.is_source,
   };
@@ -75,6 +80,7 @@ export class DeviceManagementRepository {
         'devices.name',
         'devices.active',
         'devices.created_at',
+        'devices.last_seen_at',
         'room_devices.room_uid',
         'room_devices.is_source',
       ])
@@ -114,6 +120,7 @@ export class DeviceManagementRepository {
         'devices.name',
         'devices.active',
         'devices.created_at',
+        'devices.last_seen_at',
         'room_devices.room_uid',
         'room_devices.is_source',
       ]) as BaseDeviceQuery;
@@ -323,6 +330,24 @@ export class DeviceManagementRepository {
 
     if (!result) return undefined;
     return this.findById(deviceUid);
+  }
+
+  /**
+   * Stamps when a device was last heard from.
+   *
+   * Deliberately not routed through `update`: this runs on device-authenticated
+   * requests rather than admin ones, writes a column no admin can set, and must
+   * not re-read the row afterwards - it is called on a request path, and the
+   * caller does not use the result.
+   * @param deviceUid The device that was just seen.
+   * @param seenAt Timestamp to record.
+   */
+  async updateLastSeenAt(deviceUid: string, seenAt: Date) {
+    await this._dbClient.db
+      .updateTable('devices')
+      .where('uid', '=', deviceUid)
+      .set({ last_seen_at: seenAt })
+      .execute();
   }
 
   /**

@@ -12,6 +12,7 @@ import registerDependencies from './dependency-injection/register-dependencies.j
 import { auditRouter } from './features/audit/audit.router.js';
 import { authRouter } from './features/auth/auth.router.js';
 import { devicesRouter } from './features/devices/devices.router.js';
+import { fleetRouter } from './features/fleet/fleet.router.js';
 import { healthRouter } from './features/health/health.router.js';
 import { probesRouter } from './features/probes/probes.router.js';
 import { roomsRouter } from './features/rooms/rooms.router.js';
@@ -54,6 +55,7 @@ async function createServer(config: AppConfig) {
   fastify.register(devicesRouter);
   fastify.register(schedulingRouter);
   fastify.register(auditRouter);
+  fastify.register(fleetRouter);
 
   const dbClient =
     dependencyContainer.resolve<AppDependencies['dbClient']>('dbClient');
@@ -66,6 +68,27 @@ async function createServer(config: AppConfig) {
   // Drain the pg pool on shutdown.
   fastify.addHook('onClose', async () => {
     await dbClient.destroy();
+  });
+
+  // Close the fleet telemetry Redis connection on shutdown, if one was ever
+  // opened. Resolving here (rather than eagerly at boot) is enough: the
+  // service opens no connection until REDIS_URL is set, so this is a no-op
+  // when telemetry is disabled.
+  fastify.addHook('onClose', async () => {
+    const fleetTelemetryService = dependencyContainer.resolve<
+      AppDependencies['fleetTelemetryService']
+    >('fleetTelemetryService');
+    await fleetTelemetryService.close();
+  });
+
+  // Same lazy-resolve, no-op-if-never-opened shutdown as the fleet telemetry
+  // connection above, for the fleet events subscriber.
+  fastify.addHook('onClose', async () => {
+    const fleetEventsService =
+      dependencyContainer.resolve<AppDependencies['fleetEventsService']>(
+        'fleetEventsService',
+      );
+    await fleetEventsService.close();
   });
 
   return { logger, fastify };

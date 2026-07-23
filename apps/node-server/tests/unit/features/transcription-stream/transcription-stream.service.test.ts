@@ -9,6 +9,7 @@ import { SessionStatusChannel } from '#src/server/features/transcription-stream/
 import { TranscriptChannel } from '#src/server/features/transcription-stream/events/transcript.events.js';
 import { TranscriptionStreamService } from '#src/server/features/transcription-stream/transcription-stream.service.js';
 import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
+import { NodeServerMetricsService } from '#src/server/shared/services/node-server-metrics.service.js';
 import { createMockLogger } from '#tests/utils/mock-logger.js';
 
 const SESSION_UID = '00000000-0000-0000-0000-000000000abc';
@@ -21,6 +22,7 @@ interface Harness {
   getStatus: ReturnType<typeof vi.fn>;
   sent: unknown[];
   closes: { code: number; reason: string }[];
+  metrics: NodeServerMetricsService;
 }
 
 function makeHarness(
@@ -36,9 +38,11 @@ function makeHarness(
   const logger = createMockLogger();
   const bus = new EventBusService(logger as never);
   const unregisterSource = vi.fn();
-  const registerSource = vi.fn(async () => {
-    if (options.registerThrows) throw new Error('orchestrator-down');
-    return unregisterSource;
+  const registerSource = vi.fn(() => {
+    if (options.registerThrows) {
+      return Promise.reject(new Error('orchestrator-down'));
+    }
+    return Promise.resolve(unregisterSource);
   });
   const getStatus = vi.fn(
     () =>
@@ -55,11 +59,13 @@ function makeHarness(
     typeof TranscriptionStreamService
   >[0]['transcriptionOrchestratorService'];
 
+  const metrics = new NodeServerMetricsService();
   const service = new TranscriptionStreamService({
     role,
     sessionUid: SESSION_UID,
     eventBusService: bus,
     transcriptionOrchestratorService: orchestrator,
+    nodeServerMetricsService: metrics,
   });
 
   const sent: unknown[] = [];
@@ -79,6 +85,7 @@ function makeHarness(
     getStatus,
     sent,
     closes,
+    metrics,
   };
 }
 
@@ -101,6 +108,54 @@ describe('TranscriptionStreamService', () => {
 
       // Assert
       expect(h.registerSource).toHaveBeenCalledWith(SESSION_UID);
+    });
+
+    it('counts a client-role connection as a subscriber and releases it on close', async () => {
+      // Arrange - N4 (fan-out cost) is dominated by receive-only clients,
+      // which never reach the orchestrator, so this is the only place they
+      // are counted at all.
+      const h = makeHarness('client');
+
+      // Act
+      await h.service.start();
+
+      // Assert
+      expect(h.metrics.subscriberCount(SESSION_UID)).toBe(1);
+
+      // Act
+      h.service.close();
+
+      // Assert
+      expect(h.metrics.subscriberCount(SESSION_UID)).toBe(0);
+    });
+
+    it('does not count a connection that closed before it subscribed', async () => {
+      // Arrange - the close-during-registration race: start() bails early,
+      // so a naive increment in the constructor would leak a subscriber for
+      // the life of the process.
+      const h = makeHarness('source');
+      h.service.close();
+
+      // Act
+      await h.service.start();
+
+      // Assert
+      expect(h.metrics.subscriberCount(SESSION_UID)).toBe(0);
+    });
+
+    it('does not double-count when close runs more than once', async () => {
+      // Arrange
+      const h = makeHarness('client');
+      await h.service.start();
+
+      // Act - cleanup is idempotent and does run twice in the wild: the
+      // controller calls close() on both its own path and the socket's.
+      h.service.close();
+      h.service.close();
+
+      // Assert - a second decrement would drive the count negative and make
+      // a busy room under-report.
+      expect(h.metrics.subscriberCount(SESSION_UID)).toBe(0);
     });
 
     it('does not register with the orchestrator on client-role start', async () => {
@@ -160,6 +215,7 @@ describe('TranscriptionStreamService', () => {
         sessionUid: SESSION_UID,
         eventBusService: bus,
         transcriptionOrchestratorService: orchestrator,
+        nodeServerMetricsService: new NodeServerMetricsService(),
       });
 
       // Act - close before resolving the registration.

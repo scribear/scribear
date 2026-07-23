@@ -11,10 +11,18 @@ by every session; per-session `session_config` is ignored.
 # The provider/session wiring necessarily mirrors the other providers.
 # pylint: disable=duplicate-code
 
+import os
+import time
+
+import httpx
+
 from src.shared.logger import Logger
 from src.shared.utils.worker_pool import JobException, JobSuccess, WorkerPool
 from src.transcription_provider_interface import (
     AudioChunkPayload,
+    ProviderHealth,
+    ProviderKind,
+    ProviderStatus,
     TranscriptionProviderInterface,
     TranscriptionResult,
     TranscriptionSessionInterface,
@@ -22,6 +30,16 @@ from src.transcription_provider_interface import (
 
 from .lumen_granite_config import lumen_granite_config_adapter
 from .lumen_granite_job import LumenGraniteProviderJob
+
+# How long a reachability probe result is reused. The dashboard polls provider
+# health continuously and every operator browser multiplies that, so an
+# uncached probe would turn a monitoring page into a load generator pointed at
+# a third party's endpoint.
+PROBE_TTL_SEC = 10.0
+
+# Bounded well under the dashboard's poll interval: a hung endpoint must make
+# the probe report "unreachable", not make the health request hang.
+PROBE_TIMEOUT_SEC = 5.0
 
 
 class LumenGraniteProvider(TranscriptionProviderInterface):
@@ -35,17 +53,33 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
         Transcription session interface for LumenGraniteProvider.
         """
 
-        def __init__(self, provider: "LumenGraniteProvider", logger: Logger):
+        def __init__(
+            self,
+            provider: "LumenGraniteProvider",
+            logger: Logger,
+            session_uid: str | None,
+            room_uid: str | None,
+        ):
             super().__init__()
             self._log = logger
             self._provider = provider
+            # Opaque; stored for a future consumer (Part 2), not read here.
+            self.session_uid = session_uid
+            self.room_uid = room_uid
 
             self._job = provider.worker_pool.register_job(
                 (),  # no context - remote endpoint does the work
                 provider.config.job_period_ms,
                 LumenGraniteProviderJob(provider.config),
+                provider.provider_key,
+                session_uid=self.session_uid,
+                room_uid=self.room_uid,
             )
             self._job.on(self._job.JobResultEvent, self._handle_job_result)
+
+            # Last, so a registration that raises above never counts a session
+            # that did not open.
+            provider.session_started()
 
         def _handle_job_result(
             self, result: JobSuccess[TranscriptionResult] | JobException
@@ -64,18 +98,109 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
         def end_session(self):
             super().end_session()
             self._job.deregister()
+            self._provider.session_ended()
 
     def __init__(
-        self, provider_config: object, logger: Logger, worker_pool: WorkerPool
+        self,
+        provider_config: object,
+        logger: Logger,
+        worker_pool: WorkerPool,
+        provider_key: str,
     ):
         self._log = logger
         self.config = lumen_granite_config_adapter.validate_python(
             provider_config
         )
         self.worker_pool = worker_pool
+        self.provider_key = provider_key
 
-    def create_session(self, session_config: object, logger: Logger):
-        return self._LumenGraniteSession(self, logger)
+        # Per instance, not per class: two lumen providers can be configured
+        # against different endpoints, and a shared cache would report one's
+        # reachability as the other's.
+        self._probe_cache: tuple[float, bool, float | None, str | None] | None
+        self._probe_cache = None
+
+    def create_session(
+        self,
+        session_config: object,
+        session_uid: str | None,
+        room_uid: str | None,
+        logger: Logger,
+    ):
+        del session_config  # per-session config is ignored; see module docstring
+        return self._LumenGraniteSession(self, logger, session_uid, room_uid)
+
+    async def _probe_endpoint(self) -> tuple[bool, float | None, str | None]:
+        """
+        Checks whether the upstream endpoint is answering, with caching
+
+        Returns:
+            (reachable, latency_ms, detail)
+        """
+        now = time.monotonic()
+        if self._probe_cache is not None and self._probe_cache[0] > now:
+            _, reachable, latency_ms, detail = self._probe_cache
+            return (reachable, latency_ms, detail)
+
+        reachable, latency_ms, detail = await self._measure_endpoint()
+        self._probe_cache = (now + PROBE_TTL_SEC, reachable, latency_ms, detail)
+        return (reachable, latency_ms, detail)
+
+    async def _measure_endpoint(self) -> tuple[bool, float | None, str | None]:
+        """
+        Performs one uncached reachability check
+
+        Returns:
+            (reachable, latency_ms, detail)
+        """
+        # A missing key is a configuration error, not a network condition, so
+        # it is answered without a request. This is also what makes the
+        # endpoint safe to poll in a deployment that never configured lumen.
+        env_var = self.config.api_key_env
+        if not env_var or not os.environ.get(env_var):
+            return (False, None, f"api key env '{env_var}' is not set")
+
+        try:
+            started = time.monotonic()
+            async with httpx.AsyncClient(timeout=PROBE_TIMEOUT_SEC) as client:
+                response = await client.get(self.config.base_url)
+            latency_ms = (time.monotonic() - started) * 1000
+        except (httpx.HTTPError, OSError) as error:
+            # The class and message, because this is the operator's only clue
+            # about *how* the endpoint is unreachable - a timeout and a DNS
+            # failure need different fixes.
+            return (False, None, f"{type(error).__name__}: {error}")
+
+        # Liveness, not correctness: a 401 or 404 still proves something is
+        # listening and routing, which is the question being asked. Only a 5xx
+        # says the upstream itself is broken.
+        if response.status_code >= 500:
+            return (
+                False,
+                latency_ms,
+                f"upstream returned {response.status_code}",
+            )
+        return (True, latency_ms, None)
+
+    async def describe_health(self):
+        """
+        Gets health of this remote provider
+
+        The reachability probe is cached for `PROBE_TTL_SEC`, so a dashboard
+        polling this in a loop cannot add measurable load to the upstream or
+        latency to active transcription.
+        """
+        reachable, latency_ms, detail = await self._probe_endpoint()
+        return ProviderHealth(
+            kind=ProviderKind.REMOTE,
+            status=ProviderStatus.OK if reachable else ProviderStatus.DOWN,
+            active_sessions=self.active_sessions,
+            model=self.config.model,
+            endpoint=self.config.base_url,
+            reachable=reachable,
+            probe_latency_ms=latency_ms,
+            detail=detail,
+        )
 
     def cleanup_provider(self):
         pass

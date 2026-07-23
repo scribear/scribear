@@ -25,6 +25,7 @@ import { SessionAuthService } from '#src/server/features/session-auth/session-au
 import { DeviceAuthRepository } from '#src/server/shared/repositories/device-auth.repository.js';
 import { AdminAuthService } from '#src/server/shared/services/admin-auth.service.js';
 import { DeviceAuthService } from '#src/server/shared/services/device-auth.service.js';
+import { DevicePresenceService } from '#src/server/shared/services/device-presence.service.js';
 import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
 import { HashService } from '#src/server/shared/services/hash.service.js';
 import { ServiceAuthService } from '#src/server/shared/services/service-auth.service.js';
@@ -46,6 +47,7 @@ function registerDependencies(
     baseConfig: asValue(config.baseConfig),
     adminAuthConfig: asValue(config.adminAuthConfig),
     serviceAuthConfig: asValue(config.serviceAuthConfig),
+    devicePresenceConfig: asValue(config.devicePresenceConfig),
     sessionTokenConfig: asValue(config.sessionTokenConfig),
     dbClientConfig: asValue(config.dbClientConfig),
     materializationWorkerConfig: asValue(config.materializationWorkerConfig),
@@ -63,6 +65,12 @@ function registerDependencies(
     }),
     deviceAuthService: asClass(DeviceAuthService, {
       lifetime: Lifetime.SCOPED,
+    }),
+    // Singleton: the write-coalescing map is process-wide state. A scoped
+    // instance would start empty on every request and write on every poll,
+    // which is exactly what the coalescing exists to avoid.
+    devicePresenceService: asClass(DevicePresenceService, {
+      lifetime: Lifetime.SINGLETON,
     }),
     sessionTokenService: asClass(SessionTokenService, {
       lifetime: Lifetime.SINGLETON,

@@ -28,6 +28,14 @@ class TranscriptionSessionInterface(ABC, EventEmitter):
         "TRANSCRIPTION_ERROR"
     )
 
+    # Opaque identifiers passed into create_session(), stored uniformly here
+    # rather than left to each implementation to invent its own attribute
+    # names. This service is still session-blind: nothing here reads them,
+    # they exist only so a future consumer can (monitoring dashboard plan
+    # Part 2).
+    session_uid: str | None = None
+    room_uid: str | None = None
+
     def start_session(self):
         """
         Called after a transcription session is created and event handlers are registered

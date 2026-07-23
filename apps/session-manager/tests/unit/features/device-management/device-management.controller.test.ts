@@ -10,8 +10,17 @@ const mockDevice = {
   name: 'Test Device',
   active: true,
   createdAt: FAKE_DATE,
+  lastSeenAt: null,
   roomUid: null,
   isSource: null,
+};
+
+/** The wire form of {@link mockDevice}: dates stringified, presence derived. */
+const mockDeviceResponse = {
+  ...mockDevice,
+  createdAt: FAKE_DATE.toISOString(),
+  lastSeenAt: null,
+  online: false,
 };
 
 describe('DeviceManagementController', () => {
@@ -51,6 +60,9 @@ describe('DeviceManagementController', () => {
       { isDevelopment: true } as never,
       mockService as never,
       mockDeviceAuthService as never,
+      // Presence is exercised in its own suite; here it only has to answer
+      // isOnline so the mapped responses are well formed.
+      { isOnline: () => false, touch: vi.fn(), forget: vi.fn() } as never,
     );
 
     mockSend = vi.fn();
@@ -76,7 +88,7 @@ describe('DeviceManagementController', () => {
       // Assert
       expect(mockCode).toHaveBeenCalledWith(200);
       expect(mockSend).toHaveBeenCalledWith({
-        items: [{ ...mockDevice, createdAt: FAKE_DATE.toISOString() }],
+        items: [mockDeviceResponse],
         nextCursor: null,
       });
     });
@@ -359,6 +371,7 @@ describe('DeviceManagementController', () => {
         { isDevelopment: false } as never,
         mockService as never,
         mockDeviceAuthService as never,
+        { isOnline: () => false, touch: vi.fn(), forget: vi.fn() } as never,
       );
       mockService.activateDevice.mockResolvedValue({
         deviceUid: 'device-1',

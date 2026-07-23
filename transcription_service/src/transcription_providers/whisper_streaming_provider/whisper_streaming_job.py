@@ -6,17 +6,22 @@ import numpy as np
 
 from src.shared.logger import Logger
 from src.shared.utils.audio_decoder import AudioDecoder, TargetFormat
+from src.shared.utils.audio_meter import AudioMeter, dbfs
 from src.shared.utils.local_agree import LocalAgree, TranscriptionSegment
 from src.shared.utils.np_circular_buffer import NPCircularBuffer
-from src.shared.utils.silence_filter import RMSSilenceDetection
+from src.shared.utils.repeated_segment_detector import RepeatedSegmentDetector
+from src.shared.utils.silence_filter import IncrementalVadStream
 from src.shared.utils.worker_pool import JobInterface
 from src.transcription_contexts.faster_whisper_context import WhisperModel
 from src.transcription_contexts.silero_vad_context import SileroVadModelType
 from src.transcription_provider_interface import (
     AudioChunkPayload,
+    JobCounterCollector,
     TranscriptionClientError,
+    TranscriptionJobCounter,
     TranscriptionResult,
     TranscriptionSequence,
+    VadStats,
 )
 
 from .whisper_streaming_config import WhisperStreamingProviderConfig
@@ -38,6 +43,10 @@ class WhisperStreamingProviderJob(
     """
 
     def __init__(self, config: WhisperStreamingProviderConfig):
+        # Per-execution counters for events that happen inside the worker
+        # process and are otherwise invisible to the parent.
+        self._counters = JobCounterCollector()
+
         self._decoder = AudioDecoder(
             SAMPLE_RATE, NUM_CHANNELS, TargetFormat.FLOAT_32
         )
@@ -58,13 +67,31 @@ class WhisperStreamingProviderJob(
 
         self._local_agree = LocalAgree(config.local_agree_dim)
         self._last_finalized = ""
+        self._repeated_segment_detector = RepeatedSegmentDetector()
 
-        # Pure_silence detector:
+        # Guard thresholds over Whisper's own quality signals - see
+        # TranscriptionJobCounter for what each field means and why a
+        # threshold crossing is a risk signal, not an error.
+        self._compression_ratio_guard_threshold = (
+            config.compression_ratio_guard_threshold
+        )
+        self._avg_logprob_guard_threshold = config.avg_logprob_guard_threshold
+        self._no_speech_prob_guard_threshold = (
+            config.no_speech_prob_guard_threshold
+        )
+
+        # Pure-silence threshold, handed straight to
+        # whisper.transcribe(hallucination_silence_threshold=...) below.
         self._silence_threshold = config.silence_threshold
-        self._silence_detector = RMSSilenceDetection(
-            sample_rate=SAMPLE_RATE,
-            default_silence_threshold=self._silence_threshold,
-            mix_to_mono=True,
+
+        # Independent 10s-wall-clock audio-level meter (B2.1) - RMS/peak
+        # dBFS, clipping, silence, noise floor. Deliberately its own window,
+        # not self._buffer: that buffer's size and purge schedule are driven
+        # by transcription progress (max_buffer_len_sec, force-finalization),
+        # not wall-clock time, so it cannot answer "what does the last 10s of
+        # audio look like".
+        self._meter = AudioMeter(
+            sample_rate=SAMPLE_RATE, silence_threshold=self._silence_threshold
         )
 
         # Silero_VAD detector config:
@@ -73,6 +100,22 @@ class WhisperStreamingProviderJob(
         self._vad_neg_threshold = config.vad_neg_threshold
         if self._vad_neg_threshold is not None:
             self._vad_neg_threshold = float(self._vad_neg_threshold)
+
+        # Per-session VAD stream, created on first use because the shared model
+        # only arrives with the contexts in process_batch. It scores each
+        # 512-sample window once and caches the probability, so a job period
+        # costs only the audio that arrived during it rather than a rescan of
+        # the whole buffer - 3.5ms against 69.7ms measured on a 30s buffer.
+        # Anchored on absolute stream position, which is why every call below
+        # passes self._buffer_offset_samples: the buffer slides underneath it.
+        self._vad_stream: IncrementalVadStream | None = None
+
+        # VAD statistics (B2.2) - transient, unlike self._meter: recomputed
+        # every _transcribe_audio call and read by the next _build_result,
+        # the same instance-state handoff self._last_finalized already uses
+        # across process_batch's several _build_result call sites. None
+        # until the first _transcribe_audio call completes.
+        self._vad_stats: VadStats | None = None
 
     def _decode_audio(self, batch: list[AudioChunkPayload]):
         """
@@ -100,9 +143,18 @@ class WhisperStreamingProviderJob(
                 }
             )
             extra = self._buffer.append(samples)
+            self._meter.append(samples)
             self._total_decoded_samples += num_samples
+            self._counters.inc(
+                TranscriptionJobCounter.AUDIO_SECONDS_DECODED,
+                num_samples / SAMPLE_RATE,
+            )
             # More than expected number of samples received, client sending audio to fast
             if len(extra) > 0:
+                # Counted before the raise, not inferred from the exception
+                # class: decode failures raise the same type, so the class
+                # alone cannot tell the two apart.
+                self._counters.inc(TranscriptionJobCounter.AUDIO_TOO_FAST)
                 raise TranscriptionClientError("Client sent audio too quickly.")
 
     def _detect_speech_ranges(
@@ -117,17 +169,113 @@ class WhisperStreamingProviderJob(
         if not self._enable_vad:
             return [(0, buffer_samples.shape[0])]
 
-        ranges = vad_context.detect_speech_ranges(
+        if self._vad_stream is None:
+            self._vad_stream = vad_context.create_stream()
+
+        ranges = self._vad_stream.detect_speech_ranges(
             buffer_samples,
+            buffer_start_sample=self._buffer_offset_samples,
             threshold=self._vad_threshold,
             neg_threshold=self._vad_neg_threshold,
         )
 
         if not ranges:
+            # DEBUG, so invisible at the default production log level - the
+            # counter is the only production-visible form of this signal.
             log.debug("VAD detected no speech in buffer")
+            self._counters.inc(TranscriptionJobCounter.VAD_NO_SPEECH)
             return []
 
         return ranges
+
+    def _compute_vad_stats(
+        self, ranges: list[tuple[int, int]], buffer_samples: np.ndarray
+    ) -> VadStats:
+        """
+        Accumulates VAD statistics (B2.2) from the speech ranges
+        `_detect_speech_ranges` already computed for this buffer - no new
+        detection logic, just reduction over `ranges`/`buffer_samples`.
+
+        Args:
+            ranges          - Speech ranges from _detect_speech_ranges
+            buffer_samples  - The buffer those ranges were computed over
+
+        Returns:
+            Every field but vad_enabled is None when VAD is off - the
+            [(0, N)] placeholder _detect_speech_ranges returns in that case
+            is not a measurement, so it is not treated as one. When VAD is
+            on but found no speech (`ranges == []`), speech_active_ratio/
+            segment_count/speech_to_pause_ratio are real zero-valued
+            readings; mean_segment_duration_sec and snr_db stay None
+            (undefined, not zero - there is no segment to average and no
+            signal side to compare against noise).
+        """
+        if not self._enable_vad:
+            return VadStats(
+                vad_enabled=False,
+                speech_active_ratio=None,
+                segment_count=None,
+                mean_segment_duration_sec=None,
+                speech_to_pause_ratio=None,
+                snr_db=None,
+            )
+
+        total_samples = buffer_samples.shape[0]
+        speech_samples = sum(end - start for start, end in ranges)
+        speech_active_ratio = speech_samples / total_samples
+        segment_count = len(ranges)
+
+        mean_segment_duration_sec = (
+            sum((end - start) / SAMPLE_RATE for start, end in ranges)
+            / segment_count
+            if segment_count > 0
+            else None
+        )
+
+        speech_to_pause_ratio = (
+            speech_active_ratio / (1 - speech_active_ratio)
+            if speech_active_ratio < 1.0
+            else None
+        )
+
+        return VadStats(
+            vad_enabled=True,
+            speech_active_ratio=speech_active_ratio,
+            segment_count=segment_count,
+            mean_segment_duration_sec=mean_segment_duration_sec,
+            speech_to_pause_ratio=speech_to_pause_ratio,
+            snr_db=self._compute_snr_db(ranges, buffer_samples),
+        )
+
+    def _compute_snr_db(
+        self, ranges: list[tuple[int, int]], buffer_samples: np.ndarray
+    ) -> float | None:
+        """
+        VAD-gated SNR: mean RMS (dBFS) of samples inside `ranges` minus mean
+        RMS (dBFS) of samples outside them, reusing AudioMeter's dbfs() so
+        this is not a second copy of the RMS->dB math.
+
+        Returns:
+            None when either side has no samples - `ranges` covering 0% or
+            100% of the buffer, where "signal vs. noise" has nothing on one
+            side to compare against.
+        """
+        in_range_mask = np.zeros(buffer_samples.shape[0], dtype=bool)
+        for start, end in ranges:
+            in_range_mask[start:end] = True
+
+        signal_samples = buffer_samples[in_range_mask]
+        noise_samples = buffer_samples[~in_range_mask]
+        if signal_samples.size == 0 or noise_samples.size == 0:
+            return None
+
+        signal_rms = float(
+            np.sqrt(np.mean(np.square(signal_samples, dtype=np.float64)))
+        )
+        noise_rms = float(
+            np.sqrt(np.mean(np.square(noise_samples, dtype=np.float64)))
+        )
+        return dbfs(signal_rms) - dbfs(noise_rms)
 
     def _transcribe_audio(
         self,
@@ -148,9 +296,15 @@ class WhisperStreamingProviderJob(
         # Silero VAD Model detection
         buffer_samples = np.asarray(self._buffer.get())
         if buffer_samples.size == 0:
+            # No VAD ran this call at all - a distinct absence from "VAD ran
+            # and found nothing", so the whole reading is None rather than a
+            # VadStats with every field None (same "absent series is not a
+            # zero" distinction AudioMeter.snapshot() already makes).
+            self._vad_stats = None
             return []
 
         ranges = self._detect_speech_ranges(buffer_samples, vad_context, log)
+        self._vad_stats = self._compute_vad_stats(ranges, buffer_samples)
         transcription: list = []
 
         for start_sample, end_sample in ranges:
@@ -183,6 +337,30 @@ class WhisperStreamingProviderJob(
                     raise RuntimeError(
                         "Expected whisper transcription to have word timestamps"
                     )
+
+                # Whisper's own hallucination-risk signals, discarded until
+                # now. Firing is a rate signal, not a fatal error - the
+                # transcript is still returned either way.
+                if (
+                    part.compression_ratio
+                    > self._compression_ratio_guard_threshold
+                ):
+                    self._counters.inc(
+                        TranscriptionJobCounter.COMPRESSION_RATIO_GUARD_FIRED
+                    )
+                if part.avg_logprob < self._avg_logprob_guard_threshold:
+                    self._counters.inc(
+                        TranscriptionJobCounter.AVG_LOGPROB_GUARD_FIRED
+                    )
+                if part.no_speech_prob > self._no_speech_prob_guard_threshold:
+                    self._counters.inc(
+                        TranscriptionJobCounter.NO_SPEECH_PROB_GUARD_FIRED
+                    )
+                if part.temperature > 0:
+                    self._counters.inc(
+                        TranscriptionJobCounter.TEMPERATURE_FALLBACK
+                    )
+
                 for word in part.words:
                     transcription.append(
                         TranscriptionSegment(
@@ -246,6 +424,8 @@ class WhisperStreamingProviderJob(
             in_progress_chunk_ids=self._extract_chunk_ids_for_time(
                 in_progress_end_time
             ),
+            audio_stats=self._meter.snapshot(),
+            vad_stats=self._vad_stats,
         )
 
     def _append_sequence(
@@ -263,6 +443,19 @@ class WhisperStreamingProviderJob(
             a.starts.extend(b.starts)
         if a.ends is not None and b.ends is not None:
             a.ends.extend(b.ends)
+
+    def _check_repeated_segment(self, text: str) -> None:
+        """
+        Runs a newly finalized segment's text past the repeated-segment
+        detector and counts a hit
+
+        Args:
+            text - Text just assigned to self._last_finalized
+        """
+        if self._repeated_segment_detector.check(text):
+            self._counters.inc(
+                TranscriptionJobCounter.REPEATED_SEGMENT_DETECTED
+            )
 
     def process_batch(
         self,
@@ -284,6 +477,11 @@ class WhisperStreamingProviderJob(
             log.info(
                 f"Buffer full. Forcing finalization of audio up to: {end_time:.4f}"
             )
+            self._counters.inc(TranscriptionJobCounter.BUFFER_OVERFLOW)
+            self._counters.inc(
+                TranscriptionJobCounter.BUFFER_OVERFLOW_SECONDS,
+                samples_to_purge / SAMPLE_RATE,
+            )
             forced_final = self._local_agree.force_finalized(end_time)
 
             # Remove finalized audio from buffer
@@ -295,9 +493,11 @@ class WhisperStreamingProviderJob(
         segments = self._transcribe_audio(whisper_model, vad_context, log)
         if len(segments) == 0:
             log.info("No words transcribed in buffer.")
+            self._counters.inc(TranscriptionJobCounter.NO_WORDS)
 
             if forced_final is not None:
                 self._last_finalized = "".join(forced_final.text)
+                self._check_repeated_segment(self._last_finalized)
             return self._build_result(forced_final, None)
 
         self._local_agree.append_transcription(segments)
@@ -319,15 +519,24 @@ class WhisperStreamingProviderJob(
             self._buffer_offset_samples = end_samples
 
             self._last_finalized = "".join(final.text)
+            if forced_final is None:
+                # Otherwise this value is about to be superseded below by the
+                # combined forced_final+final text - check that one instead,
+                # so a single finalization is not checked twice.
+                self._check_repeated_segment(self._last_finalized)
 
         if forced_final is not None:
             # If forced_final transcription exists, add to beginning of finalized transcription
             self._append_sequence(forced_final, final)
 
             self._last_finalized = "".join(forced_final.text)
+            self._check_repeated_segment(self._last_finalized)
             return self._build_result(forced_final, in_progress)
 
         return self._build_result(final, in_progress)
+
+    def drain_counters(self) -> dict[str, float]:
+        return self._counters.drain()
 
     def update_config(self, log: Logger, contexts: tuple, config: None) -> None:
         raise TranscriptionClientError("On the fly config update not supported")

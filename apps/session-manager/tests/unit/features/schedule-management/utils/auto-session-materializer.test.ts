@@ -81,7 +81,9 @@ describe('materializeAutoSessions', () => {
       // Arrange
       const now = new Date('2024-06-03T09:00:00Z');
       const windows = [window('2024-06-03T08:00:00Z', '2024-06-03T17:00:00Z')];
-      const sessions = [session('2024-06-03T11:00:00Z', '2024-06-03T12:00:00Z')];
+      const sessions = [
+        session('2024-06-03T11:00:00Z', '2024-06-03T12:00:00Z'),
+      ];
 
       // Act
       const result = materializeAutoSessions(
@@ -103,7 +105,9 @@ describe('materializeAutoSessions', () => {
       // Arrange - active session started before now, ends mid-window
       const now = new Date('2024-06-03T09:00:00Z');
       const windows = [window('2024-06-03T08:00:00Z', '2024-06-03T17:00:00Z')];
-      const sessions = [session('2024-06-03T07:00:00Z', '2024-06-03T11:00:00Z')];
+      const sessions = [
+        session('2024-06-03T07:00:00Z', '2024-06-03T11:00:00Z'),
+      ];
 
       // Act
       const result = materializeAutoSessions(
@@ -123,7 +127,9 @@ describe('materializeAutoSessions', () => {
       // Arrange
       const now = new Date('2024-06-03T09:00:00Z');
       const windows = [window('2024-06-03T08:00:00Z', '2024-06-03T17:00:00Z')];
-      const sessions = [session('2024-06-03T15:00:00Z', '2024-06-03T18:00:00Z')];
+      const sessions = [
+        session('2024-06-03T15:00:00Z', '2024-06-03T18:00:00Z'),
+      ];
 
       // Act
       const result = materializeAutoSessions(
@@ -143,7 +149,9 @@ describe('materializeAutoSessions', () => {
       // Arrange
       const now = new Date('2024-06-03T09:00:00Z');
       const windows = [window('2024-06-03T08:00:00Z', '2024-06-03T17:00:00Z')];
-      const sessions = [session('2024-06-03T07:00:00Z', '2024-06-03T18:00:00Z')];
+      const sessions = [
+        session('2024-06-03T07:00:00Z', '2024-06-03T18:00:00Z'),
+      ];
 
       // Act
       const result = materializeAutoSessions(
@@ -206,7 +214,9 @@ describe('materializeAutoSessions', () => {
         window('2024-06-03T09:00:00Z', '2024-06-03T12:00:00Z', 'win-morning'),
         window('2024-06-03T14:00:00Z', '2024-06-03T17:00:00Z', 'win-afternoon'),
       ];
-      const sessions = [session('2024-06-03T11:00:00Z', '2024-06-03T15:00:00Z')];
+      const sessions = [
+        session('2024-06-03T11:00:00Z', '2024-06-03T15:00:00Z'),
+      ];
 
       // Act
       const result = materializeAutoSessions(
@@ -233,7 +243,9 @@ describe('materializeAutoSessions', () => {
         window('2024-06-03T09:00:00Z', '2024-06-03T12:00:00Z'),
         window('2024-06-03T14:00:00Z', '2024-06-03T17:00:00Z'),
       ];
-      const sessions = [session('2024-06-03T12:30:00Z', '2024-06-03T13:30:00Z')];
+      const sessions = [
+        session('2024-06-03T12:30:00Z', '2024-06-03T13:30:00Z'),
+      ];
 
       // Act
       const result = materializeAutoSessions(

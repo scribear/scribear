@@ -1,6 +1,6 @@
 {
   "name": "@scribear/node-server",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "",
   "author": "scribear",
   "main": "dist/src/index.js",
@@ -31,6 +31,7 @@
     "eventemitter3": "5.0.4",
     "fastify": "5.10.0",
     "fastify-plugin": "5.1.0",
+    "ioredis": "5.10.1",
     "typebox": "1.1.5",
     "ws": "8.21.1"
   },

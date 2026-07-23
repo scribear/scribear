@@ -77,7 +77,10 @@ describe('pagination', () => {
     it('returns null when the decoded JSON is missing required fields', () => {
       // Arrange - valid base64url but missing uid
       const cursor = Buffer.from(
-        JSON.stringify({ type: 'createdAt', createdAt: '2024-01-15T10:30:00.000Z' }),
+        JSON.stringify({
+          type: 'createdAt',
+          createdAt: '2024-01-15T10:30:00.000Z',
+        }),
       ).toString('base64url');
 
       // Act

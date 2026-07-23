@@ -6,6 +6,7 @@ import asyncio
 import logging
 import threading
 from collections import deque
+from dataclasses import dataclass
 from queue import Empty
 from typing import Any, Callable, Generic, TypeVar, cast
 
@@ -17,8 +18,13 @@ from src.shared.utils.event_emitter import Event, EventEmitter
 
 from .job_context_interface import JobContextInterface
 from .job_interface import JobInterface
-from .job_result import JobException, JobSuccess
-from .result import Result, ResultType
+from .job_result import (
+    JobException,
+    JobExecutionObservation,
+    JobObserver,
+    JobSuccess,
+)
+from .result import JobExecutionResult, Result, ResultType
 from .task import (
     DeregisterJobTask,
     QueueDataTask,
@@ -35,6 +41,11 @@ NS_PER_SEC = 1000000000
 
 # Rolling window over which a worker's busy/idle ratio is averaged.
 ROLLING_UTILIZATION_WINDOW_NS = 10 * 60 * NS_PER_SEC
+
+# Rolling utilization at or above which a worker is treated as having no
+# headroom. Not 1.0: the window is a 10-minute average, so a worker that is
+# genuinely pinned rarely reports exactly 1.0. See is_saturated.
+SATURATION_UTILIZATION = 0.95
 
 # How long a single background get() blocks before the poll loop rechecks its
 # stop flag. Bounds how long the (daemon) result-poller thread can be parked in
@@ -209,6 +220,69 @@ class _RollingUtilization:
             self._busy_time_ns += increment_ns
 
 
+@dataclass(frozen=True)
+class ActiveJob:
+    """
+    One job currently registered to a worker, correlated to the caller's own
+    identifiers for it
+
+    session_uid/room_uid are opaque to this layer - accepted from
+    `register_job` and reported back verbatim - so that `/providers/health`
+    can show which session/room a worker is actively processing rather than
+    only the aggregate `live_job_count`. Either is None when the caller
+    supplied none (e.g. an older node-server peer).
+    """
+
+    job_id: int
+    session_uid: str | None
+    room_uid: str | None
+
+
+@dataclass(frozen=True)
+class WorkerSnapshot:
+    """
+    Point-in-time view of one worker, safe to read from a request handler
+
+    Exists so callers outside the pool can observe worker load without
+    reaching through private attributes.
+    """
+
+    worker_id: int
+    utilization: float
+    live_job_count: int
+    total_jobs_registered: int
+    context_ids: set[int]
+    alive: bool
+    active_jobs: tuple[ActiveJob, ...]
+
+
+def is_saturated(snapshot: WorkerSnapshot) -> bool:
+    """
+    Whether a worker has no headroom left
+
+    Args:
+        snapshot    - Point-in-time view of the worker
+
+    Returns:
+        True when the worker is pinned and actually holding work
+
+    Utilization alone is not enough. `_RollingUtilization` reports 1.0 once a
+    worker has recorded busy time but no idle time yet, which is exactly the
+    state a freshly-booted worker is in after creating its contexts - so a
+    utilization-only test calls every cold start saturated. A worker holding no
+    jobs is not saturated whatever the window says.
+
+    Shared by the readiness probe and by per-provider health so the two cannot
+    disagree about what "saturated" means; they draw different conclusions from
+    it (readiness reports the pool degraded, provider health reports one
+    provider degraded), but from the same predicate.
+    """
+    return (
+        snapshot.utilization >= SATURATION_UTILIZATION
+        and snapshot.live_job_count > 0
+    )
+
+
 class WorkerProcessManager:
     """
     Main process interface for managing WorkerProcess
@@ -322,12 +396,71 @@ class WorkerProcessManager:
         """
         return set(self._context_defs.keys())
 
+    @property
+    def worker_id(self) -> int:
+        """
+        Gets unique identifier of the worker this manages
+        """
+        return self._worker_id
+
+    @property
+    def live_job_count(self) -> int:
+        """
+        Gets number of jobs currently registered to this worker
+        """
+        return len(self._registered_job_handles)
+
+    @property
+    def total_jobs_registered(self) -> int:
+        """
+        Gets number of jobs ever registered to this worker
+
+        Monotonic for the lifetime of the worker process, so consumers can
+        difference successive reads to get a registration rate.
+        """
+        return self._next_job_id
+
+    @property
+    def alive(self) -> bool:
+        """
+        Whether the worker process is still running
+
+        A worker that dies after initialization is otherwise invisible: the
+        result-queue poll loop simply times out forever, and any job already
+        registered to that worker never completes and never errors. Nothing
+        else in the pool notices, so this is the only signal that distinguishes
+        a wedged worker from an idle one.
+        """
+        return self._process.is_alive()
+
+    def snapshot(self) -> WorkerSnapshot:
+        """
+        Gets a point-in-time view of this worker's load
+
+        Side effect free, so it is safe to call from a request handler.
+        """
+        return WorkerSnapshot(
+            worker_id=self._worker_id,
+            utilization=self.utilization,
+            live_job_count=self.live_job_count,
+            total_jobs_registered=self.total_jobs_registered,
+            context_ids=self.context_ids,
+            alive=self.alive,
+            active_jobs=tuple(
+                ActiveJob(
+                    job_id, *self._job_correlation.get(job_id, (None, None))
+                )
+                for job_id in self._registered_job_handles
+            ),
+        )
+
     def __init__(
         self,
         logger: Logger,
         worker_id: int,
         context_defs: dict[int, JobContextInterface[Any]],
         rolling_utilization_window_ns: int = ROLLING_UTILIZATION_WINDOW_NS,
+        job_observer: JobObserver | None = None,
     ):
         """
         Constructor blocks until the worker process has finished creating all
@@ -341,9 +474,12 @@ class WorkerProcessManager:
                                 initialize on this worker
             rolling_utilization_window_ns - Override for utilization smoothing window
                                               (production should use the default)
+            job_observer    - Optional callback invoked on the event loop thread
+                                for every completed job execution
         """
         self._log = logger.child({"worker_id": worker_id})
         self._worker_id = worker_id
+        self._job_observer = job_observer
 
         self._rolling_utilization = _RollingUtilization(
             rolling_utilization_window_ns
@@ -352,6 +488,12 @@ class WorkerProcessManager:
         self._next_job_id = 0
         self._context_defs = context_defs
         self._registered_job_handles: dict[int, JobHandle[Any, Any, Any]] = {}
+        self._job_labels: dict[int, str] = {}
+        # Caller-supplied session/room identifiers per job, reported on
+        # /providers/health via ActiveJob. Kept only while the job lives -
+        # same lifetime rule as _job_labels - so it cannot grow with the
+        # number of sessions the process has ever served.
+        self._job_correlation: dict[int, tuple[str | None, str | None]] = {}
 
         # Signals the result-poller thread to stop. Set during wait_shutdown.
         self._stopping = threading.Event()
@@ -470,6 +612,12 @@ class WorkerProcessManager:
                 result.state, result.time_elapsed_ns
             )
         elif result.type == ResultType.JOB_EXECUTION:
+            # Observe before the registration check: a result that arrives
+            # after its job was deregistered still describes work the worker
+            # really did, and dropping it would under-report utilization
+            # exactly when jobs are churning.
+            self._observe_job_execution(result)
+
             if result.job_id not in self._registered_job_handles:
                 return
             job_handle = self._registered_job_handles[result.job_id]
@@ -478,11 +626,49 @@ class WorkerProcessManager:
             if result.result.has_exception:
                 job_handle.deregister()
 
+    def _observe_job_execution(self, result: JobExecutionResult):
+        """
+        Reports a completed job execution to the configured observer
+
+        Args:
+            result  - Job execution result received from the worker
+
+        The observer is out-of-band bookkeeping (metrics), so a fault in it
+        must not take the result-dispatch path down with it - a job result
+        that never reaches its handle would stall a live transcription
+        session. Failures are logged and swallowed.
+        """
+        if self._job_observer is None:
+            return
+
+        job_result = result.result
+        try:
+            self._job_observer(
+                JobExecutionObservation(
+                    worker_id=self._worker_id,
+                    job_id=result.job_id,
+                    label=self._job_labels.get(result.job_id, ""),
+                    stats=job_result.stats,
+                    exception=(
+                        job_result.value if job_result.has_exception else None
+                    ),
+                    counters=job_result.counters,
+                )
+            )
+        # pylint: disable-next=broad-exception-caught
+        except Exception as error:
+            self._log.error(
+                "Job observer raised", context={"error": str(error)}
+            )
+
     def register_job(
         self,
         context_ids: tuple[int, ...],
         period_ms: int,
         job: JobInterface[C, D, R, Conf],
+        label: str = "",
+        session_uid: str | None = None,
+        room_uid: str | None = None,
     ) -> JobHandle[D, R, Conf]:
         """
         Registers a new job with WorkerProcess
@@ -491,6 +677,12 @@ class WorkerProcessManager:
             context_ids     - Context ids of context instances to provide to Job, can be empty
             period_ms       - Frequency at which job should be run
             job             - Definition of job to register
+            label           - Opaque grouping label reported to the job observer
+            session_uid     - Opaque caller session identifier reported on
+                                /providers/health via ActiveJob, None if the
+                                caller supplied none
+            room_uid        - Opaque caller room identifier reported alongside
+                                session_uid
 
         Returns:
             JobHandle for registered job
@@ -518,11 +710,17 @@ class WorkerProcessManager:
         def _deregister():
             self._task_queue.put(DeregisterJobTask(job_id))
             del self._registered_job_handles[job_id]
+            # Kept only while the job lives, so the label map cannot grow with
+            # the number of sessions the process has ever served.
+            self._job_labels.pop(job_id, None)
+            self._job_correlation.pop(job_id, None)
 
         job_handle = JobHandle[D, R, Conf](
             self._worker_id, job_id, _queue_data, _update_config, _deregister
         )
         self._registered_job_handles[job_id] = job_handle
+        self._job_labels[job_id] = label
+        self._job_correlation[job_id] = (session_uid, room_uid)
         return job_handle
 
     def send_terminate(self):
