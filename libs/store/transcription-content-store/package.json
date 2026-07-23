@@ -25,6 +25,6 @@
   },
   "dependencies": {
     "@reduxjs/toolkit": "2.11.2",
-    "uuid": "13.0.1"
+    "uuid": "14.0.1"
   }
 }
