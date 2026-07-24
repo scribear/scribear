@@ -65,9 +65,12 @@ class ProviderHealth:
     # the provider config, and a provider only holds a tag that routes to it.
     model: str | None = None
 
-    # Local only. A provider whose contexts no live worker owns is down however
+    # Local: a provider whose contexts no live worker owns is down however
     # healthy the pool looks - this is the mis-set worker_ids/tags failure that
     # readiness cannot see, because the pool itself is fine.
+    # Remote: whether the configured model was found in the upstream's model
+    # list. None when the provider cannot determine this - unreachable, or a
+    # model listing whose shape it does not recognize.
     model_loaded: bool | None = None
     owning_workers: list[WorkerSnapshot] = field(default_factory=list)
 

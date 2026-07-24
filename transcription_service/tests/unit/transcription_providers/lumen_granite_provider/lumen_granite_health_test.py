@@ -17,6 +17,10 @@ from src.transcription_providers.lumen_granite_provider import (
 API_KEY_ENV = "TEST_LUMEN_API_KEY"
 BASE_URL = "https://lumen.example.invalid/v1"
 PROVIDER_KEY = "lumen_granite"
+# The provider fixture below never overrides `model`, so this is the config
+# default (see LumenGraniteProviderConfig) - the id the /models fixture body
+# must list for a probe to report the model as found.
+MODEL = "granite-speech-4.1-2b-plus"
 
 
 @pytest.fixture
@@ -59,16 +63,25 @@ def mock_client_class(mocker: MockerFixture):
     )
 
 
-def _respond_with(mock_client_class: MagicMock, status_code: int):
+def _respond_with(
+    mock_client_class: MagicMock, status_code: int, json_body: object = None
+):
     """
     Drives the patched client to answer every GET with the given status
 
     Args:
         mock_client_class   - Patched httpx.AsyncClient
         status_code         - Status the probe request should see
+        json_body           - Body `.json()` returns; defaults to an OpenAI-
+                               style listing that contains MODEL, so tests
+                               that don't care about model listing still see
+                               it as found
     """
     response = MagicMock()
     response.status_code = status_code
+    response.json.return_value = (
+        json_body if json_body is not None else {"data": [{"id": MODEL}]}
+    )
     client = mock_client_class.return_value.__aenter__.return_value
     client.get = AsyncMock(return_value=response)
     return client
@@ -123,10 +136,66 @@ async def test_reports_ok_when_endpoint_answers(
     assert health.reachable is True
     assert health.probe_latency_ms is not None
     assert health.endpoint == BASE_URL
+    assert health.model_loaded is True
     assert health.detail is None
     client.get.assert_awaited_once_with(
         f"{BASE_URL}/models", headers={"Authorization": "Bearer secret"}
     )
+
+
+@pytest.mark.asyncio
+async def test_reports_degraded_when_model_is_missing_from_listing(
+    provider: LumenGraniteProvider,
+    mock_client_class: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    Test a models listing that omits the configured model reports degraded
+
+    The endpoint answered and the key works, so this is not DOWN - but the
+    model the provider is configured to use isn't actually being served,
+    which is worth an operator's attention.
+    """
+    # Arrange
+    monkeypatch.setenv(API_KEY_ENV, "secret")
+    _respond_with(
+        mock_client_class, 200, json_body={"data": [{"id": "some-other-model"}]}
+    )
+
+    # Act
+    health = await provider.describe_health()
+
+    # Assert
+    assert health.status == ProviderStatus.DEGRADED
+    assert health.reachable is True
+    assert health.model_loaded is False
+    assert MODEL in (health.detail or "")
+
+
+@pytest.mark.asyncio
+async def test_model_loaded_is_none_when_listing_has_an_unrecognized_shape(
+    provider: LumenGraniteProvider,
+    mock_client_class: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    Test a /models body that isn't the expected OpenAI shape reports unknown
+
+    A nonstandard listing is not the same claim as "model confirmed missing",
+    so it must not be treated as one - and must not flip an otherwise healthy
+    probe to degraded.
+    """
+    # Arrange
+    monkeypatch.setenv(API_KEY_ENV, "secret")
+    _respond_with(mock_client_class, 200, json_body={"unexpected": "shape"})
+
+    # Act
+    health = await provider.describe_health()
+
+    # Assert
+    assert health.status == ProviderStatus.OK
+    assert health.reachable is True
+    assert health.model_loaded is None
 
 
 @pytest.mark.asyncio
@@ -152,6 +221,7 @@ async def test_reports_down_when_upstream_rejects_the_key(
     # Assert
     assert health.status == ProviderStatus.DOWN
     assert health.reachable is False
+    assert health.model_loaded is None
     assert "401" in (health.detail or "")
 
 

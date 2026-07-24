@@ -117,7 +117,9 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
         # Per instance, not per class: two lumen providers can be configured
         # against different endpoints, and a shared cache would report one's
         # reachability as the other's.
-        self._probe_cache: tuple[float, bool, float | None, str | None] | None
+        self._probe_cache: (
+            tuple[float, bool, float | None, bool | None, str | None] | None
+        )
         self._probe_cache = None
 
     def create_session(
@@ -130,28 +132,40 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
         del session_config  # per-session config is ignored; see module docstring
         return self._LumenGraniteSession(self, logger, session_uid, room_uid)
 
-    async def _probe_endpoint(self) -> tuple[bool, float | None, str | None]:
+    async def _probe_endpoint(
+        self,
+    ) -> tuple[bool, float | None, bool | None, str | None]:
         """
         Checks whether the upstream endpoint is answering, with caching
 
         Returns:
-            (reachable, latency_ms, detail)
+            (reachable, latency_ms, model_loaded, detail)
         """
         now = time.monotonic()
         if self._probe_cache is not None and self._probe_cache[0] > now:
-            _, reachable, latency_ms, detail = self._probe_cache
-            return (reachable, latency_ms, detail)
+            _, reachable, latency_ms, model_loaded, detail = self._probe_cache
+            return (reachable, latency_ms, model_loaded, detail)
 
-        reachable, latency_ms, detail = await self._measure_endpoint()
-        self._probe_cache = (now + PROBE_TTL_SEC, reachable, latency_ms, detail)
-        return (reachable, latency_ms, detail)
+        reachable, latency_ms, model_loaded, detail = (
+            await self._measure_endpoint()
+        )
+        self._probe_cache = (
+            now + PROBE_TTL_SEC,
+            reachable,
+            latency_ms,
+            model_loaded,
+            detail,
+        )
+        return (reachable, latency_ms, model_loaded, detail)
 
-    async def _measure_endpoint(self) -> tuple[bool, float | None, str | None]:
+    async def _measure_endpoint(
+        self,
+    ) -> tuple[bool, float | None, bool | None, str | None]:
         """
         Performs one uncached reachability check
 
         Returns:
-            (reachable, latency_ms, detail)
+            (reachable, latency_ms, model_loaded, detail)
         """
         # A missing key is a configuration error, not a network condition, so
         # it is answered without a request. This is also what makes the
@@ -159,7 +173,7 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
         env_var = self.config.api_key_env
         api_key = os.environ.get(env_var) if env_var else None
         if not env_var or not api_key:
-            return (False, None, f"api key env '{env_var}' is not set")
+            return (False, None, None, f"api key env '{env_var}' is not set")
 
         # `{base_url}` alone 404s; the models route is the cheapest endpoint
         # that both requires and validates the bearer token, so it doubles as
@@ -176,7 +190,7 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
             # The class and message, because this is the operator's only clue
             # about *how* the endpoint is unreachable - a timeout and a DNS
             # failure need different fixes.
-            return (False, None, f"{type(error).__name__}: {error}")
+            return (False, None, None, f"{type(error).__name__}: {error}")
 
         # A bearer token is now on the request, so 401/403 is no longer mere
         # liveness noise - it means the upstream rejected our key, which is
@@ -185,15 +199,44 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
             return (
                 False,
                 latency_ms,
+                None,
                 f"upstream rejected API key ({response.status_code})",
             )
         if response.status_code >= 500:
             return (
                 False,
                 latency_ms,
+                None,
                 f"upstream returned {response.status_code}",
             )
-        return (True, latency_ms, None)
+
+        model_loaded, model_detail = self._check_model_listed(response)
+        return (True, latency_ms, model_loaded, model_detail)
+
+    def _check_model_listed(
+        self, response: httpx.Response
+    ) -> tuple[bool | None, str | None]:
+        """
+        Checks whether the configured model appears in an OpenAI-style
+        `{"data": [{"id": ...}, ...]}` models listing
+
+        Returns:
+            (model_loaded, detail) - model_loaded is None when the body
+            doesn't match that shape, so a nonstandard listing cannot flip an
+            otherwise-healthy endpoint to a false negative.
+        """
+        try:
+            listed_ids = {entry["id"] for entry in response.json()["data"]}
+        except (ValueError, KeyError, TypeError):
+            return (None, None)
+
+        if self.config.model in listed_ids:
+            return (True, None)
+        return (
+            False,
+            f"configured model '{self.config.model}' not found in "
+            "upstream /models list",
+        )
 
     async def describe_health(self):
         """
@@ -203,12 +246,27 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
         polling this in a loop cannot add measurable load to the upstream or
         latency to active transcription.
         """
-        reachable, latency_ms, detail = await self._probe_endpoint()
+        reachable, latency_ms, model_loaded, detail = (
+            await self._probe_endpoint()
+        )
+        # An unreachable/unauthenticated endpoint is DOWN outright; reachable
+        # with the configured model missing from its listing is DEGRADED
+        # rather than DOWN, since the endpoint is answering and the model may
+        # still work even if unlisted (or missing from a shape we don't
+        # recognize) - unlike LOCAL providers, there is no direct way to know
+        # whether the model actually loads without transcribing through it.
+        if not reachable:
+            status = ProviderStatus.DOWN
+        elif model_loaded is False:
+            status = ProviderStatus.DEGRADED
+        else:
+            status = ProviderStatus.OK
         return ProviderHealth(
             kind=ProviderKind.REMOTE,
-            status=ProviderStatus.OK if reachable else ProviderStatus.DOWN,
+            status=status,
             active_sessions=self.active_sessions,
             model=self.config.model,
+            model_loaded=model_loaded,
             endpoint=self.config.base_url,
             reachable=reachable,
             probe_latency_ms=latency_ms,
