@@ -1,5 +1,5 @@
 name: "Build Containers"
-description: "Builds docker containers using provided config for linux/amd64 and linux/arm64. Pulls from and pushes to buildcaches to reduce build times."
+description: "Builds linux/amd64 docker images and publishes them to GHCR. Reads (and on branch builds writes) a registry build cache to keep build times down."
 inputs:
   image_name:
     description: "Container image name (e.g., scribear/app)."
@@ -20,63 +20,55 @@ inputs:
     required: false
     default: ''
   custom_tags:
-    description: "Optional newline-delimited tags to publish instead of the default metadata tags."
+    description: >
+      Newline-delimited tags to publish, from resolve-container-tags. Empty
+      means build without publishing: the image is still compiled, which is all
+      a PR needs, but nothing is pushed.
     required: false
     default: ""
   build_args:
     description: "Optional newline-delimited --build-arg values (KEY=value) passed to every build step."
     required: false
     default: ""
-  dockerhub_username:
-    description: "DockerHub username."
-    required: true
-  dockerhub_password:
-    description: "DockerHub password."
-    required: true
   github_token:
     description: "GITHUB_TOKEN used to authenticate to ghcr.io."
     required: true
 runs:
   using: "composite"
   steps:
+    # An empty tag list used to fall back to docker/metadata-action's defaults,
+    # which quietly published a branch- or pr-named tag. Now it means exactly
+    # what it says: build, do not publish.
     - name: Resolve Metadata Tags
       id: resolved-tags
       shell: bash
       env:
         CUSTOM_TAGS: ${{ inputs.custom_tags }}
       run: |
-        if [ -n "$CUSTOM_TAGS" ]; then
-          {
-            echo 'tags<<EOF'
-            while IFS= read -r tag; do
-              if [ -n "$tag" ]; then
-                printf 'type=raw,value=%s\n' "$tag"
-              fi
-            done <<< "$CUSTOM_TAGS"
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+        {
+          echo 'tags<<EOF'
+          while IFS= read -r tag; do
+            if [ -n "$tag" ]; then
+              printf 'type=raw,value=%s\n' "$tag"
+            fi
+          done <<< "$CUSTOM_TAGS"
+          echo 'EOF'
+        } >> "$GITHUB_OUTPUT"
+
+        if [ -n "$(echo "$CUSTOM_TAGS" | tr -d '[:space:]')" ]; then
+          echo "has_tags=true" >> "$GITHUB_OUTPUT"
         else
-          {
-            echo 'tags<<EOF'
-            cat <<'EOF'
-        type=schedule
-        type=ref,event=branch
-        type=ref,event=pr
-        EOF
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+          echo "has_tags=false" >> "$GITHUB_OUTPUT"
+          echo "No tags resolved - building without publishing."
         fi
 
-    # Generate tags and labels for the Docker image
+    # Generate tags and labels for the Docker image.
+    # GHCR only: DockerHub is retired as a publish target.
     - name: Generate Container Metadata
       id: meta
       uses: docker/metadata-action@v5
       with:
-        # Dual-publish to DockerHub and GHCR during the migration.
-        # Once DockerHub is retired, drop the first (DockerHub) image line.
-        images: |
-          ${{ inputs.image_name }}
-          ghcr.io/${{ inputs.image_name }}
+        images: ghcr.io/${{ inputs.image_name }}
         tags: ${{ steps.resolved-tags.outputs.tags }}
 
     # - name: Set up QEMU
@@ -96,9 +88,9 @@ runs:
           [registry."docker.io"]
             mirrors = ["mirror.gcr.io"]
 
-    # Fork PRs run with a read-only GITHUB_TOKEN and no DockerHub secrets, so they
-    # cannot log in, push, or write cache. Detect that case and build-only (which still
-    # validates the image compiles) instead of failing on an unauthenticated push.
+    # Fork PRs run with a read-only GITHUB_TOKEN, so they cannot push or write
+    # cache. Detect that case and build-only (which still validates the image
+    # compiles) instead of failing on an unauthenticated push.
     - name: Determine push eligibility
       id: eligibility
       shell: bash
@@ -113,13 +105,9 @@ runs:
           echo "can_push=true" >> "$GITHUB_OUTPUT"
         fi
 
-    - name: Login to DockerHub
-      if: steps.eligibility.outputs.can_push == 'true'
-      uses: docker/login-action@v3
-      with:
-        username: ${{ inputs.dockerhub_username }}
-        password: ${{ inputs.dockerhub_password }}
-
+    # GHCR is the only registry now; the build cache is read from it even when
+    # nothing will be published, so this login is not gated on push eligibility
+    # beyond the fork check below.
     - name: Login to GHCR
       if: steps.eligibility.outputs.can_push == 'true'
       uses: docker/login-action@v3
@@ -144,7 +132,8 @@ runs:
     - name: Build and Push
       uses: docker/build-push-action@v6
       with:
-        push: ${{ steps.eligibility.outputs.can_push == 'true' }}
+        # Publish only when there is something to publish and we are allowed to.
+        push: ${{ steps.eligibility.outputs.can_push == 'true' && steps.resolved-tags.outputs.has_tags == 'true' }}
         context: ${{ inputs.build_context }}
         file: ${{ inputs.dockerfile }}
         platforms: "linux/amd64"
