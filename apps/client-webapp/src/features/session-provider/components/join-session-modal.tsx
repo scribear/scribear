@@ -65,8 +65,13 @@ export const JoinSessionModal = () => {
               setJoinCode(e.target.value.toUpperCase());
             }}
             error={joinError !== null}
-            slotProps={{ htmlInput: { maxLength: 16 } }}
-            sx={{ mb: 2, fontFamily: 'monospace' }}
+            slotProps={{
+              htmlInput: {
+                maxLength: 16,
+                style: { fontFamily: 'monospace' },
+              },
+            }}
+            sx={{ mb: 2 }}
           />
           {joinError !== null && (
             <Alert severity="error" sx={{ mb: 2 }}>

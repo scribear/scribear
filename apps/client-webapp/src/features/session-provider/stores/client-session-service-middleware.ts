@@ -109,7 +109,8 @@ export const createClientSessionServiceMiddleware =
       const joinCode = selectJoinCode(state);
       if (joinCode === null) return;
       store.dispatch(setJoinCode(null));
-      void service.joinSession(joinCode.trim().toUpperCase());
+      // joinSession normalizes (trim + upper-case) internally.
+      void service.joinSession(joinCode);
     };
 
     return (next) => (action) => {

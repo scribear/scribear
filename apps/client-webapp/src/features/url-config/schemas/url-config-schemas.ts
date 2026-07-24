@@ -5,10 +5,12 @@ import { appLayoutPreferencesSchema } from '@scribear/app-layout-store';
 import { themePreferencesSchema } from '@scribear/theme-customization-store';
 import { transcriptionDisplayPreferencesSchema } from '@scribear/transcription-display-store';
 
+// Only `joinCode` is a valid inbound channel from URL config - it's the
+// one-shot value the middleware consumes on load. The session identity
+// (sessionUid / sessionRefreshToken / clientId) is issued by the server and
+// must never be settable from a URL, or a crafted link could pre-seed a
+// foreign or stale session into localStorage.
 const clientSessionConfigSchema = Type.Object({
-  sessionUid: Type.Union([Type.String(), Type.Null()]),
-  sessionRefreshToken: Type.Union([Type.String(), Type.Null()]),
-  clientId: Type.Union([Type.String(), Type.Null()]),
   joinCode: Type.Union([Type.String(), Type.Null()]),
 });
 
