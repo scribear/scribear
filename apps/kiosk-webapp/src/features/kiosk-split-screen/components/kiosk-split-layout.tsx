@@ -120,9 +120,13 @@ export const KioskSplitLayout = ({ left, right }: KioskSplitLayoutProps) => {
               flexShrink: 0,
             }}
           >
-            <Tooltip title={isRightPanelOpen ? 'Collapse panel' : 'Expand panel'}>
+            <Tooltip
+              title={isRightPanelOpen ? 'Collapse panel' : 'Expand panel'}
+            >
               <IconButton
-                aria-label={isRightPanelOpen ? 'Collapse panel' : 'Expand panel'}
+                aria-label={
+                  isRightPanelOpen ? 'Collapse panel' : 'Expand panel'
+                }
                 aria-expanded={isRightPanelOpen}
                 onClick={() => {
                   dispatch(toggleRightPanelIsOpen());
@@ -149,7 +153,9 @@ export const KioskSplitLayout = ({ left, right }: KioskSplitLayoutProps) => {
           onResize={handleResize}
           style={{ height: '100%' }}
         >
-          <Pane minSize={`${LEFT_PANEL_MIN_WIDTH_PX.toString()}px`}>{left}</Pane>
+          <Pane minSize={`${LEFT_PANEL_MIN_WIDTH_PX.toString()}px`}>
+            {left}
+          </Pane>
           {isRightPanelOpen ? (
             <Pane
               size={`${rightPanelWidthPx.toString()}px`}

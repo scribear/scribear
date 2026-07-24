@@ -1,9 +1,4 @@
-import Stack from '@mui/material/Stack';
-import Typography from '@mui/material/Typography';
-
-import { MuiColorInput } from 'mui-color-input';
-
-import { useDebouncedValue } from '@scribear/core-ui';
+import { ColorPickerField } from './color-picker-field.js';
 
 /**
  * Props for {@link TranscriptionColorSelector}.
@@ -22,22 +17,11 @@ export const TranscriptionColorSelector = ({
   transcriptionColor,
   setTranscriptionColor,
 }: TranscriptionColorSelectorProps) => {
-  const [value, handleChange] = useDebouncedValue(
-    transcriptionColor,
-    setTranscriptionColor,
-  );
-
   return (
-    <Stack direction="row" alignItems="center" justifyContent="space-between">
-      <Typography>Transcription Color</Typography>
-      <MuiColorInput
-        aria-label="Transcription Text Color Selector"
-        sx={{ width: '8em' }}
-        format="hex"
-        isAlphaHidden={true}
-        value={value}
-        onChange={handleChange}
-      />
-    </Stack>
+    <ColorPickerField
+      label="Transcription Color"
+      value={transcriptionColor}
+      onChange={setTranscriptionColor}
+    />
   );
 };

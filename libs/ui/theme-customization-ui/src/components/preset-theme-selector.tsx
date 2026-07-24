@@ -59,7 +59,13 @@ export const PresetThemeSelector = ({
         }}
       >
         <Tooltip title="View Preset Themes">
-          <IconButton color="inherit" onClick={showPresetThemeSelector}>
+          <IconButton
+            color="inherit"
+            aria-label="View Preset Themes"
+            aria-haspopup="true"
+            aria-expanded={isThemeSelectorOpen}
+            onClick={showPresetThemeSelector}
+          >
             <PaletteIcon />
           </IconButton>
         </Tooltip>
@@ -77,6 +83,7 @@ export const PresetThemeSelector = ({
             <Grid size={3} key={theme.id}>
               <Tooltip title={theme.name}>
                 <ButtonBase
+                  aria-label={theme.name}
                   onClick={() => {
                     handleApplyPresetTheme(theme);
                   }}
@@ -95,6 +102,7 @@ export const PresetThemeSelector = ({
                 >
                   <Typography
                     variant="body2"
+                    aria-hidden="true"
                     sx={{
                       color: theme.transcriptionColor,
                       fontWeight: 'bold',

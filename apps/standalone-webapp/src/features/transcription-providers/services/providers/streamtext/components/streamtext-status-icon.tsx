@@ -45,7 +45,11 @@ export const StreamtextStatusIcon = () => {
 
   return (
     <Tooltip title={tooltip}>
-      <Stack sx={{ p: 1 }}>{icon}</Stack>
+      {/* role="img" + aria-label exposes the status (distinct icon shapes carry
+          it visually) to AT, which a tooltip on a non-focusable box does not. */}
+      <Stack sx={{ p: 1 }} role="img" aria-label={tooltip}>
+        {icon}
+      </Stack>
     </Tooltip>
   );
 };

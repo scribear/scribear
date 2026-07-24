@@ -1,4 +1,4 @@
-import { type SyntheticEvent, useState } from 'react';
+import { type SyntheticEvent, useId, useState } from 'react';
 
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -41,6 +41,8 @@ export const JoinSessionModal = () => {
   const lifecycle = useAppSelector(selectLifecycle);
   const joinError = useAppSelector(selectJoinError);
   const [joinCode, setJoinCode] = useState('');
+  const titleId = useId();
+  const errorId = useId();
 
   const isOpen = lifecycle === ClientLifecycle.IDLE;
 
@@ -52,8 +54,8 @@ export const JoinSessionModal = () => {
   };
 
   return (
-    <Dialog open={isOpen} disableEscapeKeyDown>
-      <DialogTitle>Join Session</DialogTitle>
+    <Dialog open={isOpen} disableEscapeKeyDown aria-labelledby={titleId}>
+      <DialogTitle id={titleId}>Join Session</DialogTitle>
       <DialogContent>
         <Box component="form" onSubmit={handleSubmit} sx={{ pt: 1 }}>
           <TextField
@@ -69,12 +71,15 @@ export const JoinSessionModal = () => {
               htmlInput: {
                 maxLength: 16,
                 style: { fontFamily: 'monospace' },
+                'aria-describedby': joinError !== null ? errorId : undefined,
               },
             }}
             sx={{ mb: 2 }}
           />
           {joinError !== null && (
-            <Alert severity="error" sx={{ mb: 2 }}>
+            // role="alert" (MUI Alert default) announces it; the id ties it to
+            // the field for follow-up navigation. SC 4.1.3, 3.3.1
+            <Alert id={errorId} severity="error" sx={{ mb: 2 }}>
               {JOIN_ERROR_MESSAGES[joinError]}
             </Alert>
           )}
