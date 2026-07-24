@@ -231,7 +231,7 @@ const ScheduleDialog = ({
   onSaved,
 }: ScheduleDialogProps) => {
   const { showSuccess, showError } = useToast();
-  const [form, setForm] = useState<ScheduleFormState>(
+  const [form, setForm] = useState<ScheduleFormState>(() =>
     schedule
       ? scheduleToFormState(schedule)
       : {
@@ -568,7 +568,7 @@ const AutoWindowDialog = ({
   onSaved,
 }: AutoWindowDialogProps) => {
   const { showSuccess, showError } = useToast();
-  const [form, setForm] = useState<AutoWindowFormState>(
+  const [form, setForm] = useState<AutoWindowFormState>(() =>
     autoWindow
       ? windowToFormState(autoWindow)
       : {
