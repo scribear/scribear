@@ -470,7 +470,12 @@ export const ScheduleStep = ({
       from: new Date().toISOString(),
       to: new Date(Date.now() + RANGE_DAYS * 86_400_000).toISOString(),
     };
-    // eslint-disable-next-line react-hooks/set-state-in-effect, @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
+    // Not converted to useAsyncData: this effect seeds locally-mutable state —
+    // `schedules`/`windows`/`autoEnabled`, which the create handlers below
+    // optimistically append to without refetching, plus the `windowForm`
+    // default and a `misconfigured` banner those handlers also set — so it does
+    // not fit the read-only useAsyncData idiom. Suppression kept deliberately.
+    // eslint-disable-next-line react-hooks/set-state-in-effect, @eslint-react/set-state-in-effect -- see REVIEW-EFFECT-SETState.md
     setLoading(true);
     Promise.all([
       adminApi.listSchedules(range),

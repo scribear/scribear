@@ -27,6 +27,7 @@ import { NameWithUid } from '#src/components/name-with-uid';
 import type { ReregisterDeviceResult } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { useAsyncData } from '#src/lib/use-async-data';
 import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
 
@@ -150,11 +151,30 @@ export const DeviceDetailPage = () => {
   const { showSuccess, showError } = useToast();
   const { showUuids } = useSettings();
 
-  const [device, setDevice] = useState<Device | null>(null);
-  const [room, setRoom] = useState<Room | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [misconfigured, setMisconfigured] = useState(false);
-  const [notFound, setNotFound] = useState(false);
+  const {
+    data: device,
+    loading,
+    error,
+    reload,
+  } = useAsyncData<Device>(
+    () =>
+      deviceUid === undefined
+        ? Promise.reject(new ApiError('NOT_FOUND', 'No device id.', 404))
+        : adminApi.getDevice(deviceUid),
+    [deviceUid],
+  );
+
+  // Branches derived from the load error rather than stored as separate state.
+  const misconfigured = isApiErrorCode(error, 'BACKEND_MISCONFIGURATION');
+  const notFound = error instanceof ApiError && error.status === 404;
+
+  // Non-critical room lookup: fetch failures leave `room` null so the UI falls
+  // back to showing the raw room uid.
+  const roomUid = device?.roomUid ?? null;
+  const { data: room } = useAsyncData<Room | null>(
+    () => (roomUid === null ? Promise.resolve(null) : adminApi.getRoom(roomUid)),
+    [roomUid],
+  );
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameDialogKey, setRenameDialogKey] = useState(0);
@@ -165,59 +185,18 @@ export const DeviceDetailPage = () => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // Any load failure that isn't misconfiguration or not-found is surfaced as a
+  // toast, once per error.
   useEffect(() => {
-    if (deviceUid === undefined) return;
-    const alive = { current: true };
-    // eslint-disable-next-line react-hooks/set-state-in-effect, @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
-    setLoading(true);
-    // eslint-disable-next-line @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
-    setNotFound(false);
-    // eslint-disable-next-line @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
-    setMisconfigured(false);
-    adminApi
-      .getDevice(deviceUid)
-      .then((d) => {
-        if (alive.current) setDevice(d);
-      })
-      .catch((err: unknown) => {
-        if (!alive.current) return;
-        if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
-          setMisconfigured(true);
-        } else if (err instanceof ApiError && err.status === 404) {
-          setNotFound(true);
-        } else {
-          showError(errorMessage(err, 'Failed to load device.'));
-        }
-      })
-      .finally(() => {
-        if (alive.current) setLoading(false);
-      });
-    return () => {
-      alive.current = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
-  }, [deviceUid]);
-
-  const roomUid = device?.roomUid ?? null;
-  useEffect(() => {
-    if (roomUid === null) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect, @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
-      setRoom(null);
-      return;
+    if (
+      error !== null &&
+      !isApiErrorCode(error, 'BACKEND_MISCONFIGURATION') &&
+      !(error instanceof ApiError && error.status === 404)
+    ) {
+      showError(errorMessage(error, 'Failed to load device.'));
     }
-    const alive = { current: true };
-    adminApi
-      .getRoom(roomUid)
-      .then((r) => {
-        if (alive.current) setRoom(r);
-      })
-      .catch(() => {
-        // Non-critical: falls back to showing the raw room uid.
-      });
-    return () => {
-      alive.current = false;
-    };
-  }, [roomUid]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
+  }, [error]);
 
   const handleDelete = () => {
     if (deviceUid === undefined) return;
@@ -261,7 +240,7 @@ export const DeviceDetailPage = () => {
       });
   };
 
-  if (loading) {
+  if (loading && device === null) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
         <CircularProgress />
@@ -390,8 +369,8 @@ export const DeviceDetailPage = () => {
         onClose={() => {
           setRenameOpen(false);
         }}
-        onRenamed={(updated) => {
-          setDevice(updated);
+        onRenamed={() => {
+          reload();
           setRenameOpen(false);
         }}
       />

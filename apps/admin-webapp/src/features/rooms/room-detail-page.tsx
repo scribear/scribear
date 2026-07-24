@@ -37,7 +37,8 @@ import { ConfirmDialog } from '#src/components/confirm-dialog';
 import { NameWithUid } from '#src/components/name-with-uid';
 import type { RoomDetail } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
-import { ApiError } from '#src/lib/api-error';
+import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { useAsyncData } from '#src/lib/use-async-data';
 import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
 
@@ -275,74 +276,37 @@ export const RoomDetailPage = () => {
   const { showSuccess, showError } = useToast();
   const { showUuids } = useSettings();
 
-  const [detail, setDetail] = useState<RoomDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [misconfigured, setMisconfigured] = useState(false);
+  const {
+    data: detail,
+    loading,
+    error,
+    reload,
+  } = useAsyncData<RoomDetail>(
+    () =>
+      roomUid === undefined
+        ? Promise.reject(new ApiError('NOT_FOUND', 'No room id.', 404))
+        : adminApi.roomDetail(roomUid),
+    [roomUid],
+  );
+
+  // Derived from the load error rather than stored as separate state.
+  const misconfigured = isApiErrorCode(error, 'BACKEND_MISCONFIGURATION');
+
   const [renameOpen, setRenameOpen] = useState(false);
   const [addDeviceOpen, setAddDeviceOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [rowActionUid, setRowActionUid] = useState<string | null>(null);
 
-  const load = () => {
-    if (roomUid === undefined) return;
-    setLoading(true);
-    adminApi
-      .roomDetail(roomUid)
-      .then((res) => {
-        setMisconfigured(false);
-        setDetail(res);
-      })
-      .catch((err: unknown) => {
-        if (
-          err instanceof ApiError &&
-          err.code === 'BACKEND_MISCONFIGURATION'
-        ) {
-          setMisconfigured(true);
-        } else {
-          showError(
-            err instanceof ApiError ? err.message : 'Failed to load room.',
-          );
-        }
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  };
-
+  // Non-misconfiguration load failures are surfaced as a toast, once per error.
   useEffect(() => {
-    const alive = { current: true };
-    if (roomUid === undefined) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect, @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
-    setLoading(true);
-    adminApi
-      .roomDetail(roomUid)
-      .then((res) => {
-        if (!alive.current) return;
-        setMisconfigured(false);
-        setDetail(res);
-      })
-      .catch((err: unknown) => {
-        if (!alive.current) return;
-        if (
-          err instanceof ApiError &&
-          err.code === 'BACKEND_MISCONFIGURATION'
-        ) {
-          setMisconfigured(true);
-        } else {
-          showError(
-            err instanceof ApiError ? err.message : 'Failed to load room.',
-          );
-        }
-      })
-      .finally(() => {
-        if (alive.current) setLoading(false);
-      });
-    return () => {
-      alive.current = false;
-    };
+    if (error !== null && !isApiErrorCode(error, 'BACKEND_MISCONFIGURATION')) {
+      showError(
+        error instanceof ApiError ? error.message : 'Failed to load room.',
+      );
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
-  }, [roomUid]);
+  }, [error]);
 
   const handleSetSource = (deviceUid: string) => {
     if (roomUid === undefined) return;
@@ -351,21 +315,14 @@ export const RoomDetailPage = () => {
       .setSourceDevice({ roomUid, deviceUid })
       .then(() => {
         showSuccess('Source device updated.');
-        load();
+        reload();
       })
       .catch((err: unknown) => {
-        if (
-          err instanceof ApiError &&
-          err.code === 'BACKEND_MISCONFIGURATION'
-        ) {
-          setMisconfigured(true);
-        } else {
-          showError(
-            err instanceof ApiError
-              ? err.message
-              : 'Failed to set source device.',
-          );
-        }
+        showError(
+          err instanceof ApiError
+            ? err.message
+            : 'Failed to set source device.',
+        );
       })
       .finally(() => {
         setRowActionUid(null);
@@ -378,19 +335,12 @@ export const RoomDetailPage = () => {
       .removeDeviceFromRoom(deviceUid)
       .then(() => {
         showSuccess('Device removed from room.');
-        load();
+        reload();
       })
       .catch((err: unknown) => {
-        if (
-          err instanceof ApiError &&
-          err.code === 'BACKEND_MISCONFIGURATION'
-        ) {
-          setMisconfigured(true);
-        } else {
-          showError(
-            err instanceof ApiError ? err.message : 'Failed to remove device.',
-          );
-        }
+        showError(
+          err instanceof ApiError ? err.message : 'Failed to remove device.',
+        );
       })
       .finally(() => {
         setRowActionUid(null);
@@ -407,16 +357,9 @@ export const RoomDetailPage = () => {
         void navigate('/rooms');
       })
       .catch((err: unknown) => {
-        if (
-          err instanceof ApiError &&
-          err.code === 'BACKEND_MISCONFIGURATION'
-        ) {
-          setMisconfigured(true);
-        } else {
-          showError(
-            err instanceof ApiError ? err.message : 'Failed to delete room.',
-          );
-        }
+        showError(
+          err instanceof ApiError ? err.message : 'Failed to delete room.',
+        );
       })
       .finally(() => {
         setDeleting(false);
@@ -639,7 +582,7 @@ export const RoomDetailPage = () => {
           }}
           onRenamed={() => {
             setRenameOpen(false);
-            load();
+            reload();
           }}
         />
       )}
@@ -652,7 +595,7 @@ export const RoomDetailPage = () => {
           }}
           onAdded={() => {
             setAddDeviceOpen(false);
-            load();
+            reload();
           }}
         />
       )}
