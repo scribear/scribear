@@ -4,6 +4,19 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import viteTsconfigPaths from 'vite-tsconfig-paths';
 
+const VENDOR_PACKAGES = [
+  'react',
+  'react-dom',
+  '@mui/material',
+  '@mui/icons-material',
+  '@emotion/react',
+  '@emotion/styled',
+  '@base-ui/react',
+  '@reduxjs/toolkit',
+  'react-redux',
+  'redux-remember',
+];
+
 // https://vite.dev/config/
 export default defineConfig({
   base: './',
@@ -12,20 +25,19 @@ export default defineConfig({
     conditions: ['development'],
   },
   build: {
-    rollupOptions: {
+    // Vite 8 / rolldown no longer accepts object-form `manualChunks`; use the
+    // `codeSplitting.groups` API instead (see https://rolldown.rs/in-depth/manual-code-splitting).
+    rolldownOptions: {
       output: {
-        manualChunks: {
-          vendor: [
-            'react',
-            'react-dom',
-            '@mui/material',
-            '@mui/icons-material',
-            '@emotion/react',
-            '@emotion/styled',
-            '@base-ui/react',
-            '@reduxjs/toolkit',
-            'react-redux',
-            'redux-remember',
+        codeSplitting: {
+          groups: [
+            {
+              name: 'vendor',
+              test: (id: string) =>
+                VENDOR_PACKAGES.some((pkg) =>
+                  id.replaceAll('\\', '/').includes(`/node_modules/${pkg}/`),
+                ),
+            },
           ],
         },
       },
