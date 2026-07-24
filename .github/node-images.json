@@ -1,0 +1,79 @@
+[
+  {
+    "image_name": "scribear/scribear-db",
+    "build_context": "infra/scribear-db",
+    "dockerfile": "infra/scribear-db/Dockerfile",
+    "workspace": "infra/scribear-db",
+    "version_file": "infra/scribear-db/package.json"
+  },
+  {
+    "image_name": "scribear/scribear-nginx",
+    "build_context": "infra/scribear-nginx",
+    "dockerfile": "infra/scribear-nginx/Dockerfile",
+    "workspace": "infra/scribear-nginx",
+    "version_file": "infra/scribear-nginx/package.json"
+  },
+  {
+    "image_name": "scribear/scribear-redis",
+    "build_context": "infra/scribear-redis",
+    "dockerfile": "infra/scribear-redis/Dockerfile",
+    "workspace": "infra/scribear-redis",
+    "version_file": "infra/scribear-redis/package.json"
+  },
+  {
+    "image_name": "scribear/client-webapp",
+    "build_context": ".",
+    "dockerfile": "apps/client-webapp/Dockerfile",
+    "workspace": "apps/client-webapp",
+    "version_file": "apps/client-webapp/package.json"
+  },
+  {
+    "image_name": "scribear/kiosk-webapp",
+    "build_context": ".",
+    "dockerfile": "apps/kiosk-webapp/Dockerfile",
+    "workspace": "apps/kiosk-webapp",
+    "version_file": "apps/kiosk-webapp/package.json"
+  },
+  {
+    "image_name": "scribear/standalone-webapp",
+    "build_context": ".",
+    "dockerfile": "apps/standalone-webapp/Dockerfile",
+    "workspace": "apps/standalone-webapp",
+    "version_file": "apps/standalone-webapp/package.json"
+  },
+  {
+    "image_name": "scribear/session-manager",
+    "build_context": ".",
+    "dockerfile": "apps/session-manager/Dockerfile",
+    "workspace": "apps/session-manager",
+    "version_file": "apps/session-manager/package.json"
+  },
+  {
+    "image_name": "scribear/node-server",
+    "build_context": ".",
+    "dockerfile": "apps/node-server/Dockerfile",
+    "workspace": "apps/node-server",
+    "version_file": "apps/node-server/package.json"
+  },
+  {
+    "image_name": "scribear/monitoring-sidecar",
+    "build_context": ".",
+    "dockerfile": "apps/monitoring-sidecar/Dockerfile",
+    "workspace": "apps/monitoring-sidecar",
+    "version_file": "apps/monitoring-sidecar/package.json"
+  },
+  {
+    "image_name": "scribear/admin-server",
+    "build_context": ".",
+    "dockerfile": "apps/admin-server/Dockerfile",
+    "workspace": "apps/admin-server",
+    "version_file": "apps/admin-server/package.json"
+  },
+  {
+    "image_name": "scribear/admin-webapp",
+    "build_context": ".",
+    "dockerfile": "apps/admin-webapp/Dockerfile",
+    "workspace": "apps/admin-webapp",
+    "version_file": "apps/admin-webapp/package.json"
+  }
+]

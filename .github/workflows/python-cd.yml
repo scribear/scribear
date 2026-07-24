@@ -12,6 +12,11 @@ permissions:
   contents: read
   packages: write
 
+# See node-cd: deployments queue rather than cancel.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   changes:
     runs-on: ubuntu-latest

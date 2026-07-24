@@ -1,0 +1,54 @@
+name: "Node Image Matrix"
+description: >
+  Builds the docker-build job matrix for the Node images declared in
+  .github/node-images.json, keeping only the images whose workspace is in the
+  affected set reported by detect-changes.
+inputs:
+  workspaces:
+    description: "JSON array of affected workspace paths, from the detect-changes action."
+    required: true
+outputs:
+  matrix:
+    # No ${{ }} in this text: GitHub evaluates descriptions as expressions.
+    description: "JSON object with an `include` array, for use as a strategy.matrix via fromJSON."
+    value: ${{ steps.build.outputs.matrix }}
+  has_images:
+    description: '"true" if at least one image needs building, "false" otherwise.'
+    value: ${{ steps.build.outputs.has_images }}
+runs:
+  using: "composite"
+  steps:
+    # The matrix used to be hard-coded in node-ci and node-cd, which let the two
+    # drift: CI never built scribear-redis or monitoring-sidecar, so those two
+    # images were only ever compiled for the first time on a push to staging.
+    #
+    # Filtering here rather than with a per-entry `if:` on the build step also
+    # stops GitHub allocating a runner for every image on every run just to skip
+    # the one step that matters.
+    - name: Build image matrix
+      id: build
+      shell: bash
+      env:
+        WORKSPACES: ${{ inputs.workspaces }}
+      run: |
+        node <<'JS'
+        const { readFileSync, appendFileSync } = require('fs');
+
+        const images = JSON.parse(
+          readFileSync('.github/node-images.json', 'utf8'),
+        );
+        const affected = new Set(JSON.parse(process.env.WORKSPACES));
+        const include = images.filter((image) => affected.has(image.workspace));
+
+        appendFileSync(
+          process.env.GITHUB_OUTPUT,
+          `matrix=${JSON.stringify({ include })}\n` +
+            `has_images=${include.length > 0 ? 'true' : 'false'}\n`,
+        );
+
+        console.log(
+          include.length
+            ? `${include.length} images: ${include.map((i) => i.image_name).join(', ')}`
+            : 'No images affected',
+        );
+        JS

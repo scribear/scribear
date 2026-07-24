@@ -12,81 +12,56 @@ permissions:
   contents: read
   packages: write
 
+# Deployments queue rather than cancel: a superseded CD run may already have
+# pushed images or deployed, so letting it finish keeps the registry and the
+# deploy target consistent.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
       workspaces: ${{ steps.changes.outputs.workspaces }}
       has_changes: ${{ steps.changes.outputs.has_changes }}
+      image_matrix: ${{ steps.image_matrix.outputs.matrix }}
+      has_images: ${{ steps.image_matrix.outputs.has_images }}
     steps:
+      # fetch-depth: 0 so detect-changes can diff against the previous commit.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Detect Changed Workspaces
         id: changes
         uses: ./.github/actions/detect-changes
 
+      - name: Resolve node image matrix
+        id: image_matrix
+        uses: ./.github/actions/node-image-matrix
+        with:
+          workspaces: ${{ steps.changes.outputs.workspaces }}
+
+  # Seeds the node_modules cache on the default branch. GitHub only lets a PR
+  # restore caches from its own branch or its base, so without this every new
+  # PR would pay for a cold `npm ci` in all six of its Node jobs; with it, only
+  # a lockfile change does. Costs ~10s when the lockfile is unchanged.
+  warm-dependency-cache:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-node
+
   docker-build:
     needs: [changes]
-    if: needs.changes.outputs.has_changes == 'true'
+    if: needs.changes.outputs.has_images == 'true'
+    # Matrix lives in .github/node-images.json, shared with node-ci, and is
+    # already filtered to the affected images.
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - image_name: scribear/scribear-db
-            build_context: infra/scribear-db
-            dockerfile: infra/scribear-db/Dockerfile
-            workspace: infra/scribear-db
-            version_file: infra/scribear-db/package.json
-          - image_name: scribear/scribear-nginx
-            build_context: infra/scribear-nginx
-            dockerfile: infra/scribear-nginx/Dockerfile
-            workspace: infra/scribear-nginx
-            version_file: infra/scribear-nginx/package.json
-          - image_name: scribear/scribear-redis
-            build_context: infra/scribear-redis
-            dockerfile: infra/scribear-redis/Dockerfile
-            workspace: infra/scribear-redis
-            version_file: infra/scribear-redis/package.json
-          - image_name: scribear/client-webapp
-            build_context: .
-            dockerfile: apps/client-webapp/Dockerfile
-            workspace: apps/client-webapp
-            version_file: apps/client-webapp/package.json
-          - image_name: scribear/kiosk-webapp
-            build_context: .
-            dockerfile: apps/kiosk-webapp/Dockerfile
-            workspace: apps/kiosk-webapp
-            version_file: apps/kiosk-webapp/package.json
-          - image_name: scribear/standalone-webapp
-            build_context: .
-            dockerfile: apps/standalone-webapp/Dockerfile
-            workspace: apps/standalone-webapp
-            version_file: apps/standalone-webapp/package.json
-          - image_name: scribear/session-manager
-            build_context: .
-            dockerfile: apps/session-manager/Dockerfile
-            workspace: apps/session-manager
-            version_file: apps/session-manager/package.json
-          - image_name: scribear/node-server
-            build_context: .
-            dockerfile: apps/node-server/Dockerfile
-            workspace: apps/node-server
-            version_file: apps/node-server/package.json
-          - image_name: scribear/monitoring-sidecar
-            build_context: .
-            dockerfile: apps/monitoring-sidecar/Dockerfile
-            workspace: apps/monitoring-sidecar
-            version_file: apps/monitoring-sidecar/package.json
-          - image_name: scribear/admin-server
-            build_context: .
-            dockerfile: apps/admin-server/Dockerfile
-            workspace: apps/admin-server
-            version_file: apps/admin-server/package.json
-          - image_name: scribear/admin-webapp
-            build_context: .
-            dockerfile: apps/admin-webapp/Dockerfile
-            workspace: apps/admin-webapp
-            version_file: apps/admin-webapp/package.json
+      matrix: ${{ fromJSON(needs.changes.outputs.image_matrix) }}
+    name: docker-build (${{ matrix.image_name }})
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -98,7 +73,6 @@ jobs:
           version_file: ${{ matrix.version_file }}
 
       - name: Build Container
-        if: contains(needs.changes.outputs.workspaces, matrix.workspace)
         uses: ./.github/actions/build-container
         with:
           image_name: ${{ matrix.image_name }}
