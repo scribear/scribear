@@ -1,0 +1,870 @@
+{
+  "$schema": "./alice-chapter-v.utterances.schema.json",
+  "source": {
+    "title": "Alice's Adventures in Wonderland",
+    "author": "Lewis Carroll",
+    "chapter": "Chapter V — Advice from a Caterpillar",
+    "attribution": "Project Gutenberg eBook #11 (public domain).",
+    "url": "https://www.gutenberg.org/files/11/11-h/11-h.htm#chap05",
+    "note": "Spoken dialogue only, extracted from #chap05 up to where #chap06 begins. Text is in the public domain; this fixture is for local/dev caption playback."
+  },
+  "timing": {
+    "wordsPerSecond": 3.0,
+    "gapWithinTurnSeconds": 0.3,
+    "gapBetweenTurnsSeconds": 0.8,
+    "progressEmittedAtFractionOfDuration": 0.5
+  },
+  "speakers": ["caterpillar", "alice", "pigeon"],
+  "loop": true,
+  "totalDurationSeconds": 404.97,
+  "utteranceCount": 121,
+  "utterances": [
+    {
+      "start": 0.0,
+      "end": 1.0,
+      "speaker": "caterpillar",
+      "spoken": "Who are you?",
+      "progresstxt": "who are"
+    },
+    {
+      "start": 1.8,
+      "end": 4.47,
+      "speaker": "alice",
+      "spoken": "I—I hardly know, sir, just at present—",
+      "progresstxt": "I hardly know sir just at"
+    },
+    {
+      "start": 4.77,
+      "end": 9.1,
+      "speaker": "alice",
+      "spoken": "at least I know who I was when I got up this morning,",
+      "progresstxt": "at least I know who I was when I got"
+    },
+    {
+      "start": 9.4,
+      "end": 13.4,
+      "speaker": "alice",
+      "spoken": "but I think I must have been changed several times since then.",
+      "progresstxt": "but I think I must have been changed"
+    },
+    {
+      "start": 14.2,
+      "end": 16.87,
+      "speaker": "caterpillar",
+      "spoken": "What do you mean by that? Explain yourself!",
+      "progresstxt": "what do you mean by that"
+    },
+    {
+      "start": 17.67,
+      "end": 20.0,
+      "speaker": "alice",
+      "spoken": "I can't explain myself, I'm afraid, sir,",
+      "progresstxt": "I can't explain myself I'm afraid"
+    },
+    {
+      "start": 20.3,
+      "end": 22.3,
+      "speaker": "alice",
+      "spoken": "because I'm not myself, you see.",
+      "progresstxt": "because I'm not myself you"
+    },
+    {
+      "start": 23.1,
+      "end": 24.1,
+      "speaker": "caterpillar",
+      "spoken": "I don't see.",
+      "progresstxt": "I don't"
+    },
+    {
+      "start": 24.9,
+      "end": 27.57,
+      "speaker": "alice",
+      "spoken": "I'm afraid I can't put it more clearly,",
+      "progresstxt": "I'm afraid I can't put it more"
+    },
+    {
+      "start": 27.87,
+      "end": 30.87,
+      "speaker": "alice",
+      "spoken": "for I can't understand it myself to begin with;",
+      "progresstxt": "for I can't understand it myself to"
+    },
+    {
+      "start": 31.17,
+      "end": 35.17,
+      "speaker": "alice",
+      "spoken": "and being so many different sizes in a day is very confusing.",
+      "progresstxt": "and being so many different sizes in a day"
+    },
+    {
+      "start": 35.97,
+      "end": 36.97,
+      "speaker": "caterpillar",
+      "spoken": "It isn't.",
+      "progresstxt": ""
+    },
+    {
+      "start": 37.77,
+      "end": 40.44,
+      "speaker": "alice",
+      "spoken": "Well, perhaps you haven't found it so yet,",
+      "progresstxt": "well perhaps you haven't found it so"
+    },
+    {
+      "start": 40.74,
+      "end": 45.74,
+      "speaker": "alice",
+      "spoken": "but when you have to turn into a chrysalis—you will some day, you know—",
+      "progresstxt": "but when you have to turn into a crystal is you will"
+    },
+    {
+      "start": 46.04,
+      "end": 48.37,
+      "speaker": "alice",
+      "spoken": "and then after that into a butterfly,",
+      "progresstxt": "and then after that into a butter"
+    },
+    {
+      "start": 48.67,
+      "end": 52.34,
+      "speaker": "alice",
+      "spoken": "I should think you'll feel it a little queer, won't you?",
+      "progresstxt": "I should think you'll feel it a little queer"
+    },
+    {
+      "start": 53.14,
+      "end": 54.14,
+      "speaker": "caterpillar",
+      "spoken": "Not a bit.",
+      "progresstxt": "not a"
+    },
+    {
+      "start": 54.94,
+      "end": 57.27,
+      "speaker": "alice",
+      "spoken": "Well, perhaps your feelings may be different,",
+      "progresstxt": "well perhaps your feelings may be"
+    },
+    {
+      "start": 57.57,
+      "end": 61.24,
+      "speaker": "alice",
+      "spoken": "all I know is, it would feel very queer to me.",
+      "progresstxt": "all I know is it would feel very"
+    },
+    {
+      "start": 62.04,
+      "end": 63.37,
+      "speaker": "caterpillar",
+      "spoken": "You! Who are you?",
+      "progresstxt": "you who are"
+    },
+    {
+      "start": 64.17,
+      "end": 67.84,
+      "speaker": "alice",
+      "spoken": "I think, you ought to tell me who you are, first.",
+      "progresstxt": "I think you ought to tell me who you"
+    },
+    {
+      "start": 68.64,
+      "end": 69.64,
+      "speaker": "caterpillar",
+      "spoken": "Why?",
+      "progresstxt": ""
+    },
+    {
+      "start": 70.44,
+      "end": 71.44,
+      "speaker": "caterpillar",
+      "spoken": "Come back!",
+      "progresstxt": ""
+    },
+    {
+      "start": 71.74,
+      "end": 73.41,
+      "speaker": "caterpillar",
+      "spoken": "I've something important to say!",
+      "progresstxt": "I've something important to"
+    },
+    {
+      "start": 74.21,
+      "end": 75.21,
+      "speaker": "caterpillar",
+      "spoken": "Keep your temper.",
+      "progresstxt": "keep your"
+    },
+    {
+      "start": 76.01,
+      "end": 77.01,
+      "speaker": "alice",
+      "spoken": "Is that all?",
+      "progresstxt": "is that"
+    },
+    {
+      "start": 77.81,
+      "end": 78.81,
+      "speaker": "caterpillar",
+      "spoken": "No.",
+      "progresstxt": ""
+    },
+    {
+      "start": 79.61,
+      "end": 81.94,
+      "speaker": "caterpillar",
+      "spoken": "So you think you're changed, do you?",
+      "progresstxt": "so you think you're changed"
+    },
+    {
+      "start": 82.74,
+      "end": 84.41,
+      "speaker": "alice",
+      "spoken": "I'm afraid I am, sir,",
+      "progresstxt": "I'm afraid I am"
+    },
+    {
+      "start": 84.71,
+      "end": 87.04,
+      "speaker": "alice",
+      "spoken": "I can't remember things as I used—",
+      "progresstxt": "I can't remember things as I"
+    },
+    {
+      "start": 87.34,
+      "end": 91.01,
+      "speaker": "alice",
+      "spoken": "and I don't keep the same size for ten minutes together!",
+      "progresstxt": "and I don't keep the same sighs for ten"
+    },
+    {
+      "start": 91.81,
+      "end": 93.14,
+      "speaker": "caterpillar",
+      "spoken": "Can't remember what things?",
+      "progresstxt": "can't remember what"
+    },
+    {
+      "start": 93.94,
+      "end": 97.61,
+      "speaker": "alice",
+      "spoken": "Well, I've tried to say \"How doth the little busy bee,\"",
+      "progresstxt": "well I've tried to say how does the little busy"
+    },
+    {
+      "start": 97.91,
+      "end": 99.58,
+      "speaker": "alice",
+      "spoken": "but it all came different!",
+      "progresstxt": "but it all came"
+    },
+    {
+      "start": 100.38,
+      "end": 102.38,
+      "speaker": "caterpillar",
+      "spoken": "Repeat, 'You are old, Father William,'",
+      "progresstxt": "repeat you are old father"
+    },
+    {
+      "start": 103.18,
+      "end": 108.51,
+      "speaker": "alice",
+      "spoken": "\"You are old, Father William,\" the young man said, \"And your hair has become very white;",
+      "progresstxt": "you are old father william the young man said and your"
+    },
+    {
+      "start": 108.81,
+      "end": 114.48,
+      "speaker": "alice",
+      "spoken": "And yet you incessantly stand on your head— Do you think, at your age, it is right?\"",
+      "progresstxt": "and yet you incessantly stand on your head do you think"
+    },
+    {
+      "start": 114.78,
+      "end": 120.11,
+      "speaker": "alice",
+      "spoken": "\"In my youth,\" Father William replied to his son, \"I feared it might injure the brain;",
+      "progresstxt": "in my youth father william replied to his son I feared"
+    },
+    {
+      "start": 120.41,
+      "end": 125.74,
+      "speaker": "alice",
+      "spoken": "But, now that I'm perfectly sure I have none, Why, I do it again and again.\"",
+      "progresstxt": "but now that I'm perfectly sure I have none why I"
+    },
+    {
+      "start": 126.04,
+      "end": 131.37,
+      "speaker": "alice",
+      "spoken": "\"You are old,\" said the youth, \"as I mentioned before, And have grown most uncommonly fat;",
+      "progresstxt": "you are old said the youth as I mentioned before and"
+    },
+    {
+      "start": 131.67,
+      "end": 137.0,
+      "speaker": "alice",
+      "spoken": "Yet you turned a back-somersault in at the door— Pray, what is the reason of that?\"",
+      "progresstxt": "yet you turned a back somersault in at the door pray"
+    },
+    {
+      "start": 137.3,
+      "end": 143.63,
+      "speaker": "alice",
+      "spoken": "\"In my youth,\" said the sage, as he shook his grey locks, \"I kept all my limbs very supple",
+      "progresstxt": "in my youth said the sage as he shook his grey"
+    },
+    {
+      "start": 143.93,
+      "end": 149.6,
+      "speaker": "alice",
+      "spoken": "By the use of this ointment—one shilling the box— Allow me to sell you a couple?\"",
+      "progresstxt": "by the use of this ointment one shilling the box allow"
+    },
+    {
+      "start": 149.9,
+      "end": 155.57,
+      "speaker": "alice",
+      "spoken": "\"You are old,\" said the youth, \"and your jaws are too weak For anything tougher than suet;",
+      "progresstxt": "you are old said the youth and your jaws are too"
+    },
+    {
+      "start": 155.87,
+      "end": 162.2,
+      "speaker": "alice",
+      "spoken": "Yet you finished the goose, with the bones and the beak— Pray, how did you manage to do it?\"",
+      "progresstxt": "yet you finished the goose with the bones and the beak"
+    },
+    {
+      "start": 162.5,
+      "end": 168.5,
+      "speaker": "alice",
+      "spoken": "\"In my youth,\" said his father, \"I took to the law, And argued each case with my wife;",
+      "progresstxt": "in my youth said his father I took to the law"
+    },
+    {
+      "start": 168.8,
+      "end": 174.47,
+      "speaker": "alice",
+      "spoken": "And the muscular strength, which it gave to my jaw, Has lasted the rest of my life.\"",
+      "progresstxt": "and the muscular strength which it gave to my jaw has"
+    },
+    {
+      "start": 174.77,
+      "end": 180.77,
+      "speaker": "alice",
+      "spoken": "\"You are old,\" said the youth, \"one would hardly suppose That your eye was as steady as ever;",
+      "progresstxt": "you are old said the youth one would hardly suppose that"
+    },
+    {
+      "start": 181.07,
+      "end": 186.74,
+      "speaker": "alice",
+      "spoken": "Yet you balanced an eel on the end of your nose— What made you so awfully clever?\"",
+      "progresstxt": "yet you balanced an eel on the end of your nose"
+    },
+    {
+      "start": 187.04,
+      "end": 192.37,
+      "speaker": "alice",
+      "spoken": "\"I have answered three questions, and that is enough,\" Said his father; \"don't give yourself airs!",
+      "progresstxt": "I have answered three questions and that is enough said his"
+    },
+    {
+      "start": 192.67,
+      "end": 199.0,
+      "speaker": "alice",
+      "spoken": "Do you think I can listen all day to such stuff? Be off, or I'll kick you down stairs!\"",
+      "progresstxt": "do you think I can listen all day to such stuff"
+    },
+    {
+      "start": 199.8,
+      "end": 201.47,
+      "speaker": "caterpillar",
+      "spoken": "That is not said right.",
+      "progresstxt": "that is not said"
+    },
+    {
+      "start": 202.27,
+      "end": 203.94,
+      "speaker": "alice",
+      "spoken": "Not quite right, I'm afraid,",
+      "progresstxt": "not quite right I'm"
+    },
+    {
+      "start": 204.24,
+      "end": 206.57,
+      "speaker": "alice",
+      "spoken": "some of the words have got altered.",
+      "progresstxt": "some of the words have got"
+    },
+    {
+      "start": 207.37,
+      "end": 209.7,
+      "speaker": "caterpillar",
+      "spoken": "It is wrong from beginning to end.",
+      "progresstxt": "it is wrong from beginning"
+    },
+    {
+      "start": 210.5,
+      "end": 212.83,
+      "speaker": "caterpillar",
+      "spoken": "What size do you want to be?",
+      "progresstxt": "what size do you want"
+    },
+    {
+      "start": 213.63,
+      "end": 215.96,
+      "speaker": "alice",
+      "spoken": "Oh, I'm not particular as to size,",
+      "progresstxt": "oh I'm not particular as to"
+    },
+    {
+      "start": 216.26,
+      "end": 219.26,
+      "speaker": "alice",
+      "spoken": "only one doesn't like changing so often, you know.",
+      "progresstxt": "only one doesn't like changing so often"
+    },
+    {
+      "start": 220.06,
+      "end": 221.06,
+      "speaker": "caterpillar",
+      "spoken": "I don't know.",
+      "progresstxt": "I don't"
+    },
+    {
+      "start": 221.86,
+      "end": 223.19,
+      "speaker": "caterpillar",
+      "spoken": "Are you content now?",
+      "progresstxt": "are you content"
+    },
+    {
+      "start": 223.99,
+      "end": 227.32,
+      "speaker": "alice",
+      "spoken": "Well, I should like to be a little larger, sir,",
+      "progresstxt": "well I should like to be a little larger"
+    },
+    {
+      "start": 227.62,
+      "end": 228.95,
+      "speaker": "alice",
+      "spoken": "if you wouldn't mind,",
+      "progresstxt": "if you wouldn't"
+    },
+    {
+      "start": 229.25,
+      "end": 232.25,
+      "speaker": "alice",
+      "spoken": "three inches is such a wretched height to be.",
+      "progresstxt": "three inches is such a wretched height"
+    },
+    {
+      "start": 233.05,
+      "end": 235.38,
+      "speaker": "caterpillar",
+      "spoken": "It is a very good height indeed!",
+      "progresstxt": "it is a very good height"
+    },
+    {
+      "start": 236.18,
+      "end": 238.18,
+      "speaker": "alice",
+      "spoken": "But I'm not used to it!",
+      "progresstxt": "but I'm not used to"
+    },
+    {
+      "start": 238.98,
+      "end": 241.31,
+      "speaker": "caterpillar",
+      "spoken": "You'll get used to it in time.",
+      "progresstxt": "you'll get used to it in"
+    },
+    {
+      "start": 242.11,
+      "end": 244.44,
+      "speaker": "caterpillar",
+      "spoken": "One side will make you grow taller,",
+      "progresstxt": "one side will make you grow"
+    },
+    {
+      "start": 244.74,
+      "end": 247.74,
+      "speaker": "caterpillar",
+      "spoken": "and the other side will make you grow shorter.",
+      "progresstxt": "and the other side will make you grow"
+    },
+    {
+      "start": 248.54,
+      "end": 249.54,
+      "speaker": "caterpillar",
+      "spoken": "Of the mushroom.",
+      "progresstxt": "of the"
+    },
+    {
+      "start": 250.34,
+      "end": 252.01,
+      "speaker": "alice",
+      "spoken": "And now which is which?",
+      "progresstxt": "and now which is"
+    },
+    {
+      "start": 252.81,
+      "end": 254.81,
+      "speaker": "alice",
+      "spoken": "Come, my head's free at last!",
+      "progresstxt": "come my head's free at"
+    },
+    {
+      "start": 255.61,
+      "end": 257.94,
+      "speaker": "alice",
+      "spoken": "What can all that green stuff be?",
+      "progresstxt": "what can all that green stuff"
+    },
+    {
+      "start": 258.24,
+      "end": 260.57,
+      "speaker": "alice",
+      "spoken": "And where have my shoulders got to?",
+      "progresstxt": "and where have my shoulders got"
+    },
+    {
+      "start": 260.87,
+      "end": 262.54,
+      "speaker": "alice",
+      "spoken": "And oh, my poor hands,",
+      "progresstxt": "and oh my poor"
+    },
+    {
+      "start": 262.84,
+      "end": 265.17,
+      "speaker": "alice",
+      "spoken": "how is it I can't see you?",
+      "progresstxt": "how is it I can't see"
+    },
+    {
+      "start": 265.97,
+      "end": 266.97,
+      "speaker": "pigeon",
+      "spoken": "Serpent!",
+      "progresstxt": ""
+    },
+    {
+      "start": 267.77,
+      "end": 269.1,
+      "speaker": "alice",
+      "spoken": "I'm not a serpent!",
+      "progresstxt": "I'm not a"
+    },
+    {
+      "start": 269.4,
+      "end": 270.4,
+      "speaker": "alice",
+      "spoken": "Let me alone!",
+      "progresstxt": "let me"
+    },
+    {
+      "start": 271.2,
+      "end": 272.53,
+      "speaker": "pigeon",
+      "spoken": "Serpent, I say again!",
+      "progresstxt": "serpent I say"
+    },
+    {
+      "start": 272.83,
+      "end": 274.16,
+      "speaker": "pigeon",
+      "spoken": "I've tried every way,",
+      "progresstxt": "I've tried every"
+    },
+    {
+      "start": 274.46,
+      "end": 276.46,
+      "speaker": "pigeon",
+      "spoken": "and nothing seems to suit them!",
+      "progresstxt": "and nothing seems to suit"
+    },
+    {
+      "start": 277.26,
+      "end": 280.26,
+      "speaker": "alice",
+      "spoken": "I haven't the least idea what you're talking about.",
+      "progresstxt": "I haven't the least idea what you're"
+    },
+    {
+      "start": 281.06,
+      "end": 283.06,
+      "speaker": "pigeon",
+      "spoken": "I've tried the roots of trees,",
+      "progresstxt": "I've tried the roots of"
+    },
+    {
+      "start": 283.36,
+      "end": 286.03,
+      "speaker": "pigeon",
+      "spoken": "and I've tried banks, and I've tried hedges,",
+      "progresstxt": "and I've tried banks and I've tried"
+    },
+    {
+      "start": 286.33,
+      "end": 288.66,
+      "speaker": "pigeon",
+      "spoken": "but those serpents! There's no pleasing them!",
+      "progresstxt": "but those serpents there's no pleasing"
+    },
+    {
+      "start": 289.46,
+      "end": 292.46,
+      "speaker": "pigeon",
+      "spoken": "As if it wasn't trouble enough hatching the eggs,",
+      "progresstxt": "as if it wasn't trouble enough hatching"
+    },
+    {
+      "start": 292.76,
+      "end": 296.76,
+      "speaker": "pigeon",
+      "spoken": "but I must be on the look-out for serpents night and day!",
+      "progresstxt": "but I must be on the lookout for serpents night"
+    },
+    {
+      "start": 297.06,
+      "end": 300.73,
+      "speaker": "pigeon",
+      "spoken": "Why, I haven't had a wink of sleep these three weeks!",
+      "progresstxt": "why I haven't had a wink of sleep these"
+    },
+    {
+      "start": 301.53,
+      "end": 303.53,
+      "speaker": "alice",
+      "spoken": "I'm very sorry you've been annoyed.",
+      "progresstxt": "I'm very sorry you've been"
+    },
+    {
+      "start": 304.33,
+      "end": 308.0,
+      "speaker": "pigeon",
+      "spoken": "And just as I'd taken the highest tree in the wood,",
+      "progresstxt": "and just as I'd taken the highest tree in"
+    },
+    {
+      "start": 308.3,
+      "end": 312.97,
+      "speaker": "pigeon",
+      "spoken": "and just as I was thinking I should be free of them at last,",
+      "progresstxt": "and just as I was thinking I should be free of"
+    },
+    {
+      "start": 313.27,
+      "end": 316.94,
+      "speaker": "pigeon",
+      "spoken": "they must needs come wriggling down from the sky! Ugh, Serpent!",
+      "progresstxt": "they must needs come wriggling down from the sky"
+    },
+    {
+      "start": 317.74,
+      "end": 320.41,
+      "speaker": "alice",
+      "spoken": "But I'm not a serpent, I tell you!",
+      "progresstxt": "but I'm not a serpent I tell"
+    },
+    {
+      "start": 320.71,
+      "end": 322.04,
+      "speaker": "alice",
+      "spoken": "I'm a—I'm a—",
+      "progresstxt": "I'm a"
+    },
+    {
+      "start": 322.84,
+      "end": 324.17,
+      "speaker": "pigeon",
+      "spoken": "Well! What are you?",
+      "progresstxt": "well what are"
+    },
+    {
+      "start": 324.47,
+      "end": 327.14,
+      "speaker": "pigeon",
+      "spoken": "I can see you're trying to invent something!",
+      "progresstxt": "I can see you're trying to invent"
+    },
+    {
+      "start": 327.94,
+      "end": 329.61,
+      "speaker": "alice",
+      "spoken": "I—I'm a little girl,",
+      "progresstxt": "I'm a little"
+    },
+    {
+      "start": 330.41,
+      "end": 331.74,
+      "speaker": "pigeon",
+      "spoken": "A likely story indeed!",
+      "progresstxt": "a likely story"
+    },
+    {
+      "start": 332.04,
+      "end": 335.37,
+      "speaker": "pigeon",
+      "spoken": "I've seen a good many little girls in my time,",
+      "progresstxt": "I've seen a good many little girls in my"
+    },
+    {
+      "start": 335.67,
+      "end": 338.67,
+      "speaker": "pigeon",
+      "spoken": "but never one with such a neck as that!",
+      "progresstxt": "but never one with such a neck as"
+    },
+    {
+      "start": 338.97,
+      "end": 342.64,
+      "speaker": "pigeon",
+      "spoken": "No, no! You're a serpent; and there's no use denying it.",
+      "progresstxt": "no no you're a serpent and there's no use"
+    },
+    {
+      "start": 342.94,
+      "end": 347.27,
+      "speaker": "pigeon",
+      "spoken": "I suppose you'll be telling me next that you never tasted an egg!",
+      "progresstxt": "I suppose you'll be telling me next that you never"
+    },
+    {
+      "start": 348.07,
+      "end": 349.74,
+      "speaker": "alice",
+      "spoken": "I have tasted eggs, certainly,",
+      "progresstxt": "I have tasted eggs"
+    },
+    {
+      "start": 350.04,
+      "end": 354.37,
+      "speaker": "alice",
+      "spoken": "but little girls eat eggs quite as much as serpents do, you know.",
+      "progresstxt": "but little girls eat eggs quite as much as serpents"
+    },
+    {
+      "start": 355.17,
+      "end": 356.5,
+      "speaker": "pigeon",
+      "spoken": "I don't believe it,",
+      "progresstxt": "I don't believe"
+    },
+    {
+      "start": 356.8,
+      "end": 360.47,
+      "speaker": "pigeon",
+      "spoken": "but if they do, why then they're a kind of serpent,",
+      "progresstxt": "but if they do why then they're a kind of"
+    },
+    {
+      "start": 360.77,
+      "end": 362.44,
+      "speaker": "pigeon",
+      "spoken": "that's all I can say.",
+      "progresstxt": "that's all I can"
+    },
+    {
+      "start": 363.24,
+      "end": 366.24,
+      "speaker": "pigeon",
+      "spoken": "You're looking for eggs, I know that well enough;",
+      "progresstxt": "you're looking for eggs I know that well"
+    },
+    {
+      "start": 366.54,
+      "end": 368.87,
+      "speaker": "pigeon",
+      "spoken": "and what does it matter to me",
+      "progresstxt": "and what does it matter to"
+    },
+    {
+      "start": 369.17,
+      "end": 371.84,
+      "speaker": "pigeon",
+      "spoken": "whether you're a little girl or a serpent?",
+      "progresstxt": "whether you're a little girl or a"
+    },
+    {
+      "start": 372.64,
+      "end": 374.97,
+      "speaker": "alice",
+      "spoken": "It matters a good deal to me,",
+      "progresstxt": "it matters a good deal to"
+    },
+    {
+      "start": 375.27,
+      "end": 378.27,
+      "speaker": "alice",
+      "spoken": "but I'm not looking for eggs, as it happens;",
+      "progresstxt": "but I'm not looking for eggs as it"
+    },
+    {
+      "start": 378.57,
+      "end": 381.24,
+      "speaker": "alice",
+      "spoken": "and if I was, I shouldn't want yours:",
+      "progresstxt": "and if I was I shouldn't want"
+    },
+    {
+      "start": 381.54,
+      "end": 383.21,
+      "speaker": "alice",
+      "spoken": "I don't like them raw.",
+      "progresstxt": "I don't like them"
+    },
+    {
+      "start": 384.01,
+      "end": 385.34,
+      "speaker": "pigeon",
+      "spoken": "Well, be off, then!",
+      "progresstxt": "well be off"
+    },
+    {
+      "start": 386.14,
+      "end": 388.47,
+      "speaker": "alice",
+      "spoken": "Come, there's half my plan done now!",
+      "progresstxt": "come there's half my plan done"
+    },
+    {
+      "start": 388.77,
+      "end": 390.77,
+      "speaker": "alice",
+      "spoken": "How puzzling all these changes are!",
+      "progresstxt": "how puzzling all these changes"
+    },
+    {
+      "start": 391.07,
+      "end": 395.4,
+      "speaker": "alice",
+      "spoken": "I'm never sure what I'm going to be, from one minute to another!",
+      "progresstxt": "I'm never sure what I'm going to be from one"
+    },
+    {
+      "start": 395.7,
+      "end": 398.37,
+      "speaker": "alice",
+      "spoken": "However, I've got back to my right size:",
+      "progresstxt": "however I've got back to my right"
+    },
+    {
+      "start": 398.67,
+      "end": 402.0,
+      "speaker": "alice",
+      "spoken": "the next thing is, to get into that beautiful garden—",
+      "progresstxt": "the next thing is to get into that beautiful"
+    },
+    {
+      "start": 402.3,
+      "end": 404.97,
+      "speaker": "alice",
+      "spoken": "how is that to be done, I wonder?",
+      "progresstxt": "how is that to be done I"
+    }
+  ]
+}

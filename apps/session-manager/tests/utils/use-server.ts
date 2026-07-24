@@ -2,7 +2,11 @@ import { afterAll, beforeAll, inject } from 'vitest';
 
 import { LogLevel } from '@scribear/base-fastify-server';
 
-import type { AppConfig, BaseConfig } from '#src/app-config/app-config.js';
+import type {
+  AppConfig,
+  BaseConfig,
+  DemoRoomConfig,
+} from '#src/app-config/app-config.js';
 import type { DBClientConfig } from '#src/db/db-client.js';
 import createServer from '#src/server/create-server.js';
 import type { MaterializationWorkerConfig } from '#src/server/features/schedule-management/materialization.worker.js';
@@ -34,6 +38,7 @@ export interface TestAppConfigOverrides {
   dbClientConfig?: Partial<DBClientConfig>;
   devicePresenceConfig?: Partial<DevicePresenceConfig>;
   materializationWorkerConfig?: Partial<MaterializationWorkerConfig>;
+  demoRoomConfig?: Partial<DemoRoomConfig>;
 }
 
 /**
@@ -88,6 +93,13 @@ export function buildTestAppConfig(
       staleAfterMs: 24 * 60 * 60 * 1000,
       maxRoomsPerTick: 1000,
       ...overrides.materializationWorkerConfig,
+    },
+    // Off by default so ordinary suites never seed a demo room; suites
+    // exercising the seeder itself pass `{ demoRoomConfig: { enabled: true } }`.
+    demoRoomConfig: {
+      enabled: false,
+      sessionUid: 'deadbeef-0000-4000-8000-000000000001',
+      ...overrides.demoRoomConfig,
     },
   } as unknown as AppConfig;
 }

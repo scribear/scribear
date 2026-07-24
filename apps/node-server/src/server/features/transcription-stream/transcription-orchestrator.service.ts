@@ -141,6 +141,14 @@ interface SessionState {
  */
 export class TranscriptionOrchestratorService {
   private _sessions = new Map<string, SessionState>();
+  /**
+   * Status overrides for sessions that have no real upstream - only the
+   * dev/staging demo caption room (see `demo-room/`). Kept separate from
+   * `_sessions` so nothing that iterates real session state (e.g.
+   * `sessionSnapshots`, which dereferences `state.upstream`) ever sees a
+   * session without an upstream connection.
+   */
+  private _syntheticStatuses = new Map<string, SessionStatusMessage>();
   private _logger: AppDependencies['logger'];
   private _eventBus: AppDependencies['eventBusService'];
   private _transcriptionServiceClient: AppDependencies['transcriptionServiceClient'];
@@ -186,6 +194,21 @@ export class TranscriptionOrchestratorService {
   }
 
   /**
+   * Register a status override for a session with no real upstream. Used only
+   * by the dev/staging demo caption room, which publishes transcripts to
+   * {@link TranscriptChannel} directly and needs joining clients to see the
+   * session as connected rather than "waiting for source". Ignored for any
+   * session that also has real source connections (`_sessions` wins in
+   * {@link getStatus}). No-op semantics otherwise.
+   */
+  registerSyntheticSession(
+    sessionUid: string,
+    status: SessionStatusMessage,
+  ): void {
+    this._syntheticStatuses.set(sessionUid, status);
+  }
+
+  /**
    * Current connectivity snapshot for a session. Sessions that have never had
    * a source register (or whose last source has unregistered) are reported as
    * fully disconnected.
@@ -197,6 +220,8 @@ export class TranscriptionOrchestratorService {
   getStatus(sessionUid: string): SessionStatusMessage {
     const state = this._sessions.get(sessionUid);
     if (state === undefined) {
+      const synthetic = this._syntheticStatuses.get(sessionUid);
+      if (synthetic !== undefined) return synthetic;
       return {
         transcriptionServiceConnected: false,
         sourceDeviceConnected: false,

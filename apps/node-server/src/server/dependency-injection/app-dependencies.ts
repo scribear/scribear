@@ -9,10 +9,12 @@ import type { TranscriptionServiceClient } from '@scribear/transcription-service
 import type {
   AppConfig,
   BaseConfig,
+  DemoRoomConfig,
   SessionManagerClientConfig,
   TelemetryPublisherConfig,
   TranscriptionServiceClientConfig,
 } from '#src/app-config/app-config.js';
+import type { DemoCaptionSource } from '#src/server/features/demo-room/demo-caption-source.js';
 import type { LivenessController } from '#src/server/features/probes/liveness.controller.js';
 import type { ReadinessController } from '#src/server/features/probes/readiness.controller.js';
 import type { StatusController } from '#src/server/features/status/status.controller.js';
@@ -45,6 +47,7 @@ interface AppDependencies extends BaseDependencies {
   sessionManagerClientConfig: SessionManagerClientConfig;
   transcriptionServiceClientConfig: TranscriptionServiceClientConfig;
   telemetryPublisherConfig: TelemetryPublisherConfig;
+  demoRoomConfig: DemoRoomConfig;
 
   // Shared services
   serviceAuthService: ServiceAuthService;
@@ -72,6 +75,9 @@ interface AppDependencies extends BaseDependencies {
   sessionConfigPollFactory: SessionConfigPollFactory;
   transcriptionOrchestratorService: TranscriptionOrchestratorService;
   transcriptionStreamController: TranscriptionStreamController;
+
+  // Demo caption room (dev/staging only)
+  demoCaptionSource: DemoCaptionSource;
 }
 
 /**

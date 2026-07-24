@@ -7,6 +7,7 @@ import {
 } from 'awilix';
 
 import { DBClient } from '#src/db/db-client.js';
+import { DemoRoomSeeder } from '#src/server/features/demo-room/demo-room-seeder.js';
 import { DeviceManagementController } from '#src/server/features/device-management/device-management.controller.js';
 import { DeviceManagementRepository } from '#src/server/features/device-management/device-management.repository.js';
 import { DeviceManagementService } from '#src/server/features/device-management/device-management.service.js';
@@ -51,6 +52,7 @@ function registerDependencies(
     sessionTokenConfig: asValue(config.sessionTokenConfig),
     dbClientConfig: asValue(config.dbClientConfig),
     materializationWorkerConfig: asValue(config.materializationWorkerConfig),
+    demoRoomConfig: asValue(config.demoRoomConfig),
 
     // Database
     dbClient: asClass(DBClient, { lifetime: Lifetime.SINGLETON }),
@@ -142,6 +144,17 @@ function registerDependencies(
     }),
     sessionAuthRepository: asClass(SessionAuthRepository, {
       lifetime: Lifetime.SINGLETON,
+    }),
+
+    // Demo caption room (dev/staging only). Constructed regardless, but a
+    // no-op unless `demoRoomConfig.enabled`; `create-server.ts` only resolves
+    // and runs it when the flag is set. SCOPED (not SINGLETON) because it
+    // depends on scoped services; resolving it once from the root container
+    // at startup produces a single instance for the process, with its scoped
+    // dependencies cached on that same root scope (same pattern as
+    // `materializationWorker` above).
+    demoRoomSeeder: asClass(DemoRoomSeeder, {
+      lifetime: Lifetime.SCOPED,
     }),
   } as NameAndRegistrationPair<AppDependencies>);
 }

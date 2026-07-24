@@ -53,6 +53,22 @@ async function createServer(config: AppConfig) {
     );
   }
 
+  // Demo caption room (dev/staging only). Resolved solely when enabled so a
+  // production instance never constructs it. It publishes a looping synthetic
+  // caption stream for the demo session; see PLAN-Demo-CAPTION_ROOM.md.
+  if (config.demoRoomConfig.enabled) {
+    const demoCaptionSource =
+      dependencyContainer.resolve<AppDependencies['demoCaptionSource']>(
+        'demoCaptionSource',
+      );
+    fastify.addHook('onReady', () => {
+      demoCaptionSource.start();
+    });
+    fastify.addHook('onClose', () => {
+      demoCaptionSource.stop();
+    });
+  }
+
   return { logger, fastify };
 }
 

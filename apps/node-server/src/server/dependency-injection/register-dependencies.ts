@@ -16,6 +16,7 @@ import {
 } from '@scribear/session-manager-schema';
 import { createTranscriptionServiceClient } from '@scribear/transcription-service-client';
 
+import { DemoCaptionSource } from '#src/server/features/demo-room/demo-caption-source.js';
 import { LivenessController } from '#src/server/features/probes/liveness.controller.js';
 import { ReadinessController } from '#src/server/features/probes/readiness.controller.js';
 import { StatusController } from '#src/server/features/status/status.controller.js';
@@ -51,6 +52,7 @@ function registerDependencies(
       config.transcriptionServiceClientConfig,
     ),
     telemetryPublisherConfig: asValue(config.telemetryPublisherConfig),
+    demoRoomConfig: asValue(config.demoRoomConfig),
 
     // Shared services
     serviceAuthService: asClass(ServiceAuthService, {
@@ -151,6 +153,13 @@ function registerDependencies(
     ),
     transcriptionStreamController: asClass(TranscriptionStreamController, {
       lifetime: Lifetime.SCOPED,
+    }),
+
+    // Demo caption room (dev/staging only). Constructed regardless, but a no-op
+    // unless `demoRoomConfig.enabled`; `createServer` only resolves and starts
+    // it when the flag is set.
+    demoCaptionSource: asClass(DemoCaptionSource, {
+      lifetime: Lifetime.SINGLETON,
     }),
   } as NameAndRegistrationPair<AppDependencies>);
 }

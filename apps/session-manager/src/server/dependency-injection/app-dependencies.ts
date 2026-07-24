@@ -3,8 +3,13 @@ import '@fastify/awilix';
 
 import type { BaseDependencies } from '@scribear/base-fastify-server';
 
-import type { AppConfig, BaseConfig } from '#src/app-config/app-config.js';
+import type {
+  AppConfig,
+  BaseConfig,
+  DemoRoomConfig,
+} from '#src/app-config/app-config.js';
 import type { DBClient, DBClientConfig } from '#src/db/db-client.js';
+import type { DemoRoomSeeder } from '#src/server/features/demo-room/demo-room-seeder.js';
 import type { DeviceManagementController } from '#src/server/features/device-management/device-management.controller.js';
 import type { DeviceManagementRepository } from '#src/server/features/device-management/device-management.repository.js';
 import type { DeviceManagementService } from '#src/server/features/device-management/device-management.service.js';
@@ -53,6 +58,7 @@ interface AppDependencies extends BaseDependencies {
   sessionTokenConfig: SessionTokenConfig;
   dbClientConfig: DBClientConfig;
   materializationWorkerConfig: MaterializationWorkerConfig;
+  demoRoomConfig: DemoRoomConfig;
 
   // Database
   dbClient: DBClient;
@@ -94,6 +100,9 @@ interface AppDependencies extends BaseDependencies {
   sessionAuthController: SessionAuthController;
   sessionAuthService: SessionAuthService;
   sessionAuthRepository: SessionAuthRepository;
+
+  // Demo caption room (dev/staging only)
+  demoRoomSeeder: DemoRoomSeeder;
 }
 
 /**

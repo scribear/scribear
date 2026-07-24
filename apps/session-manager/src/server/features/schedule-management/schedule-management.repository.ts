@@ -1020,6 +1020,55 @@ export class ScheduleManagementRepository {
   }
 
   /**
+   * Inserts a single `sessions` row with an explicit `uid`, bypassing the
+   * `gen_random_uuid()` default every other insert path relies on. Used only
+   * by the boot-time demo-room seeder, which needs a session whose `uid`
+   * matches a fixed constant shared with the Node Server so a browser's
+   * join-code exchange yields a session token the Node Server's `sessionUid`
+   * check accepts (see `apps/node-server/PLAN-Demo-CAPTION_ROOM.md`). No
+   * request-driven path creates a session this way - `insertSessions` remains
+   * the only insert path for schedule materialization and `createOnDemandSession`.
+   *
+   * Idempotent under a race with another instance seeding the same uid: on a
+   * primary-key conflict the insert is a no-op and the already-persisted row
+   * is returned instead.
+   * @param db Kysely client or transaction.
+   * @param row Fields to insert, plus the fixed `uid`.
+   * @returns The persisted session (either just-inserted or pre-existing).
+   */
+  async insertSessionWithUid(
+    db: DBOrTrx,
+    row: SessionInsert & { uid: string },
+  ): Promise<Session> {
+    await db
+      .insertInto('sessions')
+      .values({
+        uid: row.uid,
+        room_uid: row.roomUid,
+        name: row.name,
+        type: row.type,
+        scheduled_session_uid: row.scheduledSessionUid,
+        scheduled_start_time: row.scheduledStartTime,
+        scheduled_end_time: row.scheduledEndTime,
+        join_code_scopes: row.joinCodeScopes,
+        transcription_provider_id: row.transcriptionProviderId,
+        transcription_stream_config: row.transcriptionStreamConfig,
+      })
+      .onConflict((oc) => oc.column('uid').doNothing())
+      .execute();
+
+    const persisted = await this.findSessionByUid(db, row.uid);
+    if (!persisted) {
+      // Defensive: the insert either created the row or a conflict means
+      // another writer already did - one of the two must be visible here.
+      throw new Error(
+        `insertSessionWithUid: no session found for uid ${row.uid} after insert`,
+      );
+    }
+    return persisted;
+  }
+
+  /**
    * Updates `scheduled_end_time` and bumps `session_config_version`.
    * @returns The new `session_config_version`.
    */

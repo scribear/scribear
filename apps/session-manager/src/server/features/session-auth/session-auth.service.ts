@@ -133,6 +133,43 @@ export class SessionAuthService {
   }
 
   /**
+   * Ensures a currently-valid join code exists for a session, minting one if
+   * none is active. Unlike `fetchJoinCodes`, this skips the device-membership
+   * check and next-code precomputation - there is no device request context
+   * at boot - so it is only appropriate for boot-time seeding (the demo-room
+   * seeder), not for the device-facing join-code endpoint.
+   *
+   * @param sessionUid The session to ensure a join code for.
+   * @param now Reference instant for expiry calculations.
+   * @returns The current join code, or `null` if the session does not exist.
+   */
+  async ensureCurrentJoinCode(
+    sessionUid: string,
+    now: Date,
+  ): Promise<string | null> {
+    return this._repo.db.transaction().execute(async (trx) => {
+      const locked = await this._repo.lockSession(trx, sessionUid);
+      if (!locked) return null;
+
+      const codes = await this._repo.findActiveJoinCodes(trx, sessionUid, now);
+      const current = codes.find(
+        (c) =>
+          c.validStart.getTime() <= now.getTime() &&
+          c.validEnd.getTime() > now.getTime(),
+      );
+      if (current) return current.joinCode;
+
+      const inserted = await this._repo.insertJoinCode(trx, {
+        joinCode: this._generateJoinCode(),
+        sessionUid,
+        validStart: now,
+        validEnd: new Date(now.getTime() + JOIN_CODE_DURATION_MS),
+      });
+      return inserted.joinCode;
+    });
+  }
+
+  /**
    * Mints a short-lived session token for a device that already authenticates
    * via a long-lived `DEVICE_TOKEN` cookie. No refresh token is issued: the
    * device re-calls this endpoint with its cookie when the session token
