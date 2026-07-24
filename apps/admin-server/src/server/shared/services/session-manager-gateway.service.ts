@@ -305,6 +305,18 @@ export class SessionManagerGatewayService {
     });
   }
 
+  // Named as a "get" to read naturally from the BFF's perspective (it mints a
+  // code on demand but is idempotent within the code's lifetime, and is
+  // registered as a GET route on the admin-server side) even though it
+  // forwards as a POST upstream — the gateway already does this kind of shape
+  // translation elsewhere (e.g. `startSessionEarly`).
+  getSessionJoinCode(params: Static<(typeof GET_SESSION_SCHEMA)['params']>) {
+    return this._client.sessionAuth.adminFetchJoinCode({
+      headers: this._authHeaders(),
+      body: { sessionUid: params.sessionUid },
+    });
+  }
+
   // ---- Demo room ----
 
   getDemoRoomStatus() {

@@ -96,6 +96,26 @@ export class FleetTelemetryService {
     });
   }
 
+  /**
+   * Round-trip latency of a raw `PING` on the same connection `snapshot()`
+   * uses — no second client is opened. Used by `HealthCheckerService` for the
+   * top-bar rollup's `redis` component.
+   *
+   * The connection is built with `enableOfflineQueue: false` and
+   * `maxRetriesPerRequest: 0` (see `createTelemetryRedisClient`), so a fully
+   * disconnected `PING` rejects immediately; a connected-but-hung Redis can
+   * still stall, which is why the caller applies its own timeout race rather
+   * than relying on this method to bound its own latency.
+   */
+  async ping(): Promise<number> {
+    if (this._redis === null) {
+      throw new Error('fleet telemetry is disabled: REDIS_URL is unset');
+    }
+    const start = Date.now();
+    await this._redis.ping();
+    return Date.now() - start;
+  }
+
   async snapshot(): Promise<FleetSnapshot> {
     if (this._redis === null) {
       throw new Error('fleet telemetry is disabled: REDIS_URL is unset');

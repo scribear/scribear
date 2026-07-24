@@ -57,6 +57,7 @@ export * from './schedule-management/routes/session-config-stream.schema.js';
 
 export * from './session-auth/entities/session-token-payload.schema.js';
 export * from './session-auth/routes/fetch-join-code.schema.js';
+export * from './session-auth/routes/admin-fetch-join-code.schema.js';
 export * from './session-auth/routes/exchange-device-token.schema.js';
 export * from './session-auth/routes/exchange-join-code.schema.js';
 export * from './session-auth/routes/refresh-session-token.schema.js';

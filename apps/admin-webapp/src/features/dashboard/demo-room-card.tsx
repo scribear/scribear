@@ -10,29 +10,15 @@ import CircularProgress from '@mui/material/CircularProgress';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 
+import { CopyIconButton } from '#src/components/copy-icon-button';
 import type { DemoRoomStatus } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
+import { buildJoinUrl } from '#src/lib/join-url';
 import { useAsyncData } from '#src/lib/use-async-data';
 
 // Join codes rotate on a ~5 minute window server-side; re-poll well inside that
 // so the "Open live captions" link stays exchangeable without a manual refresh.
 const POLL_MS = 120_000;
-
-/**
- * Builds a client-webapp deep link that auto-joins the demo session. The client
- * webapp reads a base64 `#config=` fragment and pre-fills/exchanges the join
- * code — the same format the kiosk QR uses. The link is same-origin: the admin
- * console and the client webapp are both served behind the one reverse proxy,
- * so a root-relative origin is correct in every environment.
- *
- * The trailing slash matters: nginx serves the client webapp at `/client/`, and
- * `/client` (no slash) 404s.
- */
-function buildJoinUrl(joinCode: string): string {
-  const config = { clientSessionConfig: { joinCode } };
-  const encoded = btoa(JSON.stringify(config));
-  return `${window.location.origin}/client/#config=${encoded}`;
-}
 
 type ChipColor = 'success' | 'warning' | 'default';
 
@@ -111,7 +97,7 @@ export const DemoRoomCard = () => {
                 looping captions in the client webapp — no join code entry
                 needed.
               </Typography>
-              <Box>
+              <Stack direction="row" alignItems="center" spacing={0.5}>
                 {joinUrl !== null ? (
                   <Button
                     variant="contained"
@@ -132,12 +118,18 @@ export const DemoRoomCard = () => {
                     Open live captions
                   </Button>
                 )}
-              </Box>
+                {joinUrl !== null && (
+                  <CopyIconButton value={joinUrl} label="join link" />
+                )}
+              </Stack>
               {data.joinCode !== null && (
-                <Typography variant="caption" color="text.secondary">
-                  Join code <strong>{data.joinCode}</strong> · rotates every few
-                  minutes
-                </Typography>
+                <Stack direction="row" alignItems="center" spacing={0.5}>
+                  <Typography variant="caption" color="text.secondary">
+                    Join code <strong>{data.joinCode}</strong> · rotates every
+                    few minutes
+                  </Typography>
+                  <CopyIconButton value={data.joinCode} label="join code" />
+                </Stack>
               )}
             </Stack>
           )}

@@ -101,8 +101,9 @@ export interface SessionInfo {
 export interface HealthComponent {
   /** Stable identifier, matching the compose service name where there is one. */
   name: string;
-  /** 'ok' | 'degraded' | 'unreachable' | 'fail'; kept loose so a new status
-   *  added server-side renders rather than breaking the build. */
+  /** 'ok' | 'degraded' | 'unreachable' | 'fail' | 'not-configured'; kept loose
+   *  so a new status added server-side renders rather than breaking the
+   *  build. */
   status: string;
   latencyMs: number;
   /** One-line cause when the component is not ok. */
@@ -121,6 +122,18 @@ export interface DemoRoomStatus {
   active: boolean;
   roomName: string | null;
   joinCode: string | null;
+}
+
+/**
+ * Join-code status for an arbitrary live session, mirrored from
+ * `AdminJoinCodeStatus` (session-manager-schema). `ok` is the only status with
+ * a non-null `joinCode`/`validEnd` — `not-active` and `no-join-scopes` are
+ * legitimate, expected states, not errors.
+ */
+export interface SessionJoinCodeStatus {
+  status: 'ok' | 'not-active' | 'no-join-scopes';
+  joinCode: string | null;
+  validEnd: string | null;
 }
 
 export interface HealthReport {
@@ -628,6 +641,12 @@ export class AdminApiClient {
     return this._request(
       'GET',
       `/sessions/get/${encodeURIComponent(sessionUid)}`,
+    );
+  }
+  getSessionJoinCode(sessionUid: string): Promise<SessionJoinCodeStatus> {
+    return this._request(
+      'GET',
+      `/sessions/${encodeURIComponent(sessionUid)}/join-code`,
     );
   }
   createOnDemandSession(body: CreateOnDemandSessionBody): Promise<Session> {

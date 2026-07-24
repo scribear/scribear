@@ -441,7 +441,7 @@ export function evaluateStaticChecks(
           category: 'telemetry',
           title: 'Fleet telemetry is switched off for this console',
           detail:
-            'ADMIN_REDIS_URL is unset, so the fleet dashboard answers 503 TELEMETRY_UNAVAILABLE. The top-bar health rollup is a separate, always-on path and is unaffected.',
+            "ADMIN_REDIS_URL is unset, so the fleet dashboard answers 503 TELEMETRY_UNAVAILABLE. The top-bar health rollup's redis component reports not-configured in the same case — not a failure, but visible there too.",
           remediation:
             'Set ADMIN_REDIS_URL in deployment/.env — see deployment/UPGRADING.md.',
           docUrl: DOC.redis,

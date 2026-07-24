@@ -1,5 +1,7 @@
 import { createEndpointClient } from '@scribear/base-api-client';
 import {
+  ADMIN_FETCH_JOIN_CODE_ROUTE,
+  ADMIN_FETCH_JOIN_CODE_SCHEMA,
   EXCHANGE_DEVICE_TOKEN_ROUTE,
   EXCHANGE_DEVICE_TOKEN_SCHEMA,
   EXCHANGE_JOIN_CODE_ROUTE,
@@ -15,6 +17,11 @@ function createSessionAuthClient(baseUrl: string) {
     fetchJoinCode: createEndpointClient(
       FETCH_JOIN_CODE_SCHEMA,
       FETCH_JOIN_CODE_ROUTE,
+      baseUrl,
+    ),
+    adminFetchJoinCode: createEndpointClient(
+      ADMIN_FETCH_JOIN_CODE_SCHEMA,
+      ADMIN_FETCH_JOIN_CODE_ROUTE,
       baseUrl,
     ),
     exchangeDeviceToken: createEndpointClient(

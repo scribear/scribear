@@ -5,7 +5,11 @@ import type { AuthMethod, SessionScope } from '@scribear/scribear-db';
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
 import { generateRandomCode } from '#src/server/utils/generate-random-code.js';
 
-import type { JoinCode, SessionAuthRow } from './session-auth.repository.js';
+import type {
+  DBOrTrx,
+  JoinCode,
+  SessionAuthRow,
+} from './session-auth.repository.js';
 
 const JOIN_CODE_LENGTH = 8;
 const JOIN_CODE_DURATION_MS = 5 * 60 * 1000;
@@ -151,21 +155,82 @@ export class SessionAuthService {
       const locked = await this._repo.lockSession(trx, sessionUid);
       if (!locked) return null;
 
-      const codes = await this._repo.findActiveJoinCodes(trx, sessionUid, now);
-      const current = codes.find(
-        (c) =>
-          c.validStart.getTime() <= now.getTime() &&
-          c.validEnd.getTime() > now.getTime(),
-      );
-      if (current) return current.joinCode;
+      const code = await this._findOrMintCurrentJoinCode(trx, sessionUid, now);
+      return code.joinCode;
+    });
+  }
 
-      const inserted = await this._repo.insertJoinCode(trx, {
-        joinCode: this._generateJoinCode(),
-        sessionUid,
-        validStart: now,
-        validEnd: new Date(now.getTime() + JOIN_CODE_DURATION_MS),
-      });
-      return inserted.joinCode;
+  /**
+   * Admin-console counterpart to `ensureCurrentJoinCode`: mints/reuses a join
+   * code for an arbitrary session on behalf of an authenticated operator
+   * (unlike the device-facing `fetchJoinCodes`, which requires a device token
+   * and room membership the admin console has neither of).
+   *
+   * Unlike `ensureCurrentJoinCode` (boot-time seeding, trusted caller, no
+   * further checks), this also validates the session the way `exchangeJoinCode`
+   * would — empty `joinCodeScopes` or an inactive window mean a minted code
+   * would never actually exchange, which would mislead the console into
+   * showing a broken "Open live captions" link.
+   *
+   * @param sessionUid The session to fetch/mint a join code for.
+   * @param now Reference instant for the active-window check and expiry.
+   */
+  async fetchJoinCodeForAdmin(
+    sessionUid: string,
+    now: Date,
+  ): Promise<
+    | { joinCode: string; validEnd: Date }
+    | 'SESSION_NOT_FOUND'
+    | 'SESSION_NOT_CURRENTLY_ACTIVE'
+    | 'JOIN_CODE_SCOPES_EMPTY'
+  > {
+    return this._repo.db.transaction().execute(async (trx) => {
+      const locked = await this._repo.lockSession(trx, sessionUid);
+      if (!locked) return 'SESSION_NOT_FOUND' as const;
+
+      const session = await this._repo.findSessionForAuth(trx, sessionUid);
+      if (!session) return 'SESSION_NOT_FOUND' as const;
+
+      if (session.joinCodeScopes.length === 0) {
+        return 'JOIN_CODE_SCOPES_EMPTY' as const;
+      }
+
+      if (!isSessionCurrentlyActive(session, now)) {
+        return 'SESSION_NOT_CURRENTLY_ACTIVE' as const;
+      }
+
+      const code = await this._findOrMintCurrentJoinCode(trx, sessionUid, now);
+      return { joinCode: code.joinCode, validEnd: code.validEnd };
+    });
+  }
+
+  /**
+   * Returns the join code covering `now`, minting one if none is active.
+   * Shared by `ensureCurrentJoinCode` and `fetchJoinCodeForAdmin`, which
+   * differ only in what they check before calling this.
+   *
+   * Callers must already hold the per-session lock (`lockSession`) so two
+   * concurrent calls can't both pass the find-then-insert check and emit
+   * duplicate active codes.
+   */
+  private async _findOrMintCurrentJoinCode(
+    trx: DBOrTrx,
+    sessionUid: string,
+    now: Date,
+  ): Promise<JoinCode> {
+    const codes = await this._repo.findActiveJoinCodes(trx, sessionUid, now);
+    const current = codes.find(
+      (c) =>
+        c.validStart.getTime() <= now.getTime() &&
+        c.validEnd.getTime() > now.getTime(),
+    );
+    if (current) return current;
+
+    return this._repo.insertJoinCode(trx, {
+      joinCode: this._generateJoinCode(),
+      sessionUid,
+      validStart: now,
+      validEnd: new Date(now.getTime() + JOIN_CODE_DURATION_MS),
     });
   }
 

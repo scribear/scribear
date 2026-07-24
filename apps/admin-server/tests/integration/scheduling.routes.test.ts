@@ -334,4 +334,92 @@ describe('Scheduling routes', () => {
       expect(rows[0]?.status_code).toBe(200);
     });
   });
+
+  describe('sessions/join-code', (it) => {
+    const SESSION_UID = '44444444-4444-4444-4444-444444444444';
+
+    it('fetches a join code and injects the admin key upstream', async () => {
+      // Arrange
+      sm.respondWith({
+        status: 200,
+        body: {
+          status: 'ok',
+          joinCode: 'ABC12345',
+          validEnd: '2026-08-01T00:05:00.000Z',
+        },
+      });
+      const { cookie } = await login(server.fastify);
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${BASE}/sessions/${SESSION_UID}/join-code`,
+        headers: { cookie },
+      });
+
+      // Assert — envelope
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        ok: true,
+        data: {
+          status: 'ok',
+          joinCode: 'ABC12345',
+          validEnd: '2026-08-01T00:05:00.000Z',
+        },
+      });
+      // Assert — upstream request
+      const upstream = sm.requests.find((r) =>
+        r.url.includes('/session-auth/admin-fetch-join-code'),
+      );
+      expect(upstream).toBeDefined();
+      expect(upstream?.headers['authorization']).toBe(
+        `Bearer ${TEST_ADMIN_KEY}`,
+      );
+      expect(upstream?.body).toMatchObject({ sessionUid: SESSION_UID });
+    });
+
+    it('passes an upstream 404 through as a 404 error envelope', async () => {
+      // Arrange
+      sm.respondWith({
+        status: 404,
+        body: { code: 'SESSION_NOT_FOUND', message: 'nope' },
+      });
+      const { cookie } = await login(server.fastify);
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${BASE}/sessions/${SESSION_UID}/join-code`,
+        headers: { cookie },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(404);
+      const body = res.json<{ ok: boolean; error: { code: string } }>();
+      expect(body.ok).toBe(false);
+      expect(body.error.code).toBe('SESSION_NOT_FOUND');
+    });
+
+    it('maps an upstream 401 (rejected admin key) to 502 BACKEND_MISCONFIGURATION', async () => {
+      // Arrange — Session Manager rejects our admin key.
+      sm.respondWith({
+        status: 401,
+        body: { code: 'INVALID_ADMIN_KEY', message: 'bad key' },
+      });
+      const { cookie } = await login(server.fastify);
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${BASE}/sessions/${SESSION_UID}/join-code`,
+        headers: { cookie },
+      });
+
+      // Assert — must NOT surface as a 401 (which would bounce the user to login).
+      expect(res.statusCode).toBe(502);
+      expect(res.json<{ error: { code: string } }>().error.code).toBe(
+        'BACKEND_MISCONFIGURATION',
+      );
+    });
+  });
 });

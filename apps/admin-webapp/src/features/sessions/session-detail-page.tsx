@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -17,10 +18,18 @@ import { Link as RouterLink, useParams } from 'react-router-dom';
 import type { Session } from '@scribear/session-manager-schema';
 
 import { ConfirmDialog } from '#src/components/confirm-dialog';
+import { CopyIconButton } from '#src/components/copy-icon-button';
+import type { SessionJoinCodeStatus } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { buildJoinUrl } from '#src/lib/join-url';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
+
+// Join codes rotate on a ~5 minute window server-side; re-poll well inside
+// that so the "Open live captions" link stays exchangeable without a manual
+// page refresh — mirrors the demo-room card's poll cadence.
+const JOIN_CODE_POLL_MS = 120_000;
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback;
@@ -64,6 +73,36 @@ export const SessionDetailPage = () => {
   // Branches derived from the load error rather than stored as separate state.
   const misconfigured = isApiErrorCode(error, 'BACKEND_MISCONFIGURATION');
   const notFound = error instanceof ApiError && error.status === 404;
+
+  // Loaded independently of `session`: a failure here (or the session having
+  // no join code yet) must not block the rest of the page, which already
+  // renders fine from the primary load above.
+  const { data: joinCodeStatus, reload: reloadJoinCode } =
+    useAsyncData<SessionJoinCodeStatus>(
+      () =>
+        sessionUid === undefined
+          ? Promise.reject(new ApiError('NOT_FOUND', 'No session id.', 404))
+          : adminApi.getSessionJoinCode(sessionUid),
+      [sessionUid],
+    );
+
+  useEffect(() => {
+    const id = window.setInterval(reloadJoinCode, JOIN_CODE_POLL_MS);
+    return () => {
+      window.clearInterval(id);
+    };
+  }, [reloadJoinCode]);
+
+  // `SessionJoinCodeStatus` isn't a true discriminated union (`joinCode`'s
+  // nullability isn't tied to `status` in the type), so narrow explicitly
+  // rather than asserting non-null in the JSX below.
+  const joinCode =
+    joinCodeStatus !== null &&
+    joinCodeStatus.status === 'ok' &&
+    joinCodeStatus.joinCode !== null
+      ? joinCodeStatus.joinCode
+      : null;
+  const sessionJoinUrl = joinCode !== null ? buildJoinUrl(joinCode) : null;
 
   const [startConfirmOpen, setStartConfirmOpen] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -203,6 +242,50 @@ export const SessionDetailPage = () => {
             <Typography>{formatDateTime(session.createdAt)}</Typography>
           </FieldRow>
         </Stack>
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
+        <Typography variant="h6" component="h2" sx={{ mb: 2 }}>
+          Join session
+        </Typography>
+        {joinCodeStatus === null ? (
+          <Typography variant="body2" color="text.secondary">
+            Join code unavailable.
+          </Typography>
+        ) : joinCodeStatus.status === 'no-join-scopes' ? (
+          <Typography variant="body2" color="text.secondary">
+            No join code scopes configured for this session.
+          </Typography>
+        ) : joinCodeStatus.status === 'not-active' ||
+          joinCode === null ||
+          sessionJoinUrl === null ? (
+          <Typography variant="body2" color="text.secondary">
+            Session is not currently active — no join code available.
+          </Typography>
+        ) : (
+          <Stack spacing={1.5}>
+            <Stack direction="row" alignItems="center" spacing={0.5}>
+              <Button
+                variant="contained"
+                startIcon={<OpenInNewIcon />}
+                component="a"
+                href={sessionJoinUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open live captions
+              </Button>
+              <CopyIconButton value={sessionJoinUrl} label="join link" />
+            </Stack>
+            <Stack direction="row" alignItems="center" spacing={0.5}>
+              <Typography variant="body2" color="text.secondary">
+                Join code <strong>{joinCode}</strong> · rotates every few
+                minutes
+              </Typography>
+              <CopyIconButton value={joinCode} label="join code" />
+            </Stack>
+          </Stack>
+        )}
       </Paper>
 
       <Stack direction="row" spacing={2}>
