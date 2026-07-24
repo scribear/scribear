@@ -76,7 +76,7 @@ interface AppDependencies extends BaseDependencies {
   transcriptionOrchestratorService: TranscriptionOrchestratorService;
   transcriptionStreamController: TranscriptionStreamController;
 
-  // Demo caption room (dev/staging only)
+  // Demo caption room
   demoCaptionSource: DemoCaptionSource;
 }
 

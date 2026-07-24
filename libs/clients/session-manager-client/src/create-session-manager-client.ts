@@ -1,3 +1,4 @@
+import { createDemoRoomClient } from './demo-room-client.js';
 import { createDeviceManagementClient } from './device-management-client.js';
 import { createProbesClient } from './probes-client.js';
 import { createRoomManagementClient } from './room-management-client.js';
@@ -19,6 +20,7 @@ function createSessionManagerClient(baseUrl: string) {
     deviceManagement: createDeviceManagementClient(baseUrl),
     scheduleManagement: createScheduleManagementClient(baseUrl),
     sessionAuth: createSessionAuthClient(baseUrl),
+    demoRoom: createDemoRoomClient(baseUrl),
   };
 }
 

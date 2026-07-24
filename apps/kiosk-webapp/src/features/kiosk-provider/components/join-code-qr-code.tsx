@@ -2,8 +2,11 @@ import Box from '@mui/material/Box';
 
 import { QRCodeSVG } from 'qrcode.react';
 
+// Trailing slash is required: the reverse proxy serves the client webapp at
+// `/client/`, and a request to `/client` (no slash) 404s. A scanned QR encodes
+// this verbatim, so the slash is what makes the scanned link resolve.
 const CLIENT_WEBAPP_URL =
-  import.meta.env.VITE_CLIENT_WEBAPP_URL ?? `${window.location.origin}/client`;
+  import.meta.env.VITE_CLIENT_WEBAPP_URL ?? `${window.location.origin}/client/`;
 
 /**
  * Builds a client webapp URL with the join code embedded as a URL config

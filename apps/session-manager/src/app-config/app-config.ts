@@ -37,15 +37,15 @@ const CONFIG_SCHEMA = Type.Object({
   }),
   DEVICE_ONLINE_TTL_SEC: Type.Integer({ minimum: 1, default: 180 }),
 
-  // Dev/staging-only demo caption room (see
-  // apps/node-server/PLAN-Demo-CAPTION_ROOM.md). Off by default so a
-  // production instance never seeds a real, joinable session; enabled
-  // explicitly in the dev and staging deployments. env-schema coerces the
-  // strings "true"/"false" only - "1"/"0"/"" are rejected at boot.
-  DEMO_ROOM_ENABLED: Type.Boolean({ default: false }),
-  // Session UID the demo session is seeded with. Must match the Node
-  // Server's DEMO_SESSION_UID, so both services default to (and are
-  // configured with) the same value.
+  // Demo caption room (see apps/node-server/PLAN-Demo-CAPTION_ROOM.md): seeds a
+  // joinable, open-ended session so the webapps can be exercised end-to-end. On
+  // by default in every environment (including production); set
+  // DEMO_ROOM_ENABLED=false to turn it off. env-schema coerces the strings
+  // "true"/"false" only - "1"/"0"/"" are rejected at boot.
+  DEMO_ROOM_ENABLED: Type.Boolean({ default: true }),
+  // Session UID the demo session is seeded with. Must match the Node Server's
+  // DEMO_SESSION_UID; both services share the same built-in default, so neither
+  // normally needs this set - override only if you change both.
   DEMO_SESSION_UID: Type.String({ default: DEFAULT_DEMO_SESSION_UID }),
 });
 

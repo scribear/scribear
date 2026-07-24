@@ -10,6 +10,7 @@ import type {
 } from '#src/app-config/app-config.js';
 import type { DBClient, DBClientConfig } from '#src/db/db-client.js';
 import type { DemoRoomSeeder } from '#src/server/features/demo-room/demo-room-seeder.js';
+import type { DemoRoomController } from '#src/server/features/demo-room/demo-room.controller.js';
 import type { DeviceManagementController } from '#src/server/features/device-management/device-management.controller.js';
 import type { DeviceManagementRepository } from '#src/server/features/device-management/device-management.repository.js';
 import type { DeviceManagementService } from '#src/server/features/device-management/device-management.service.js';
@@ -101,8 +102,9 @@ interface AppDependencies extends BaseDependencies {
   sessionAuthService: SessionAuthService;
   sessionAuthRepository: SessionAuthRepository;
 
-  // Demo caption room (dev/staging only)
+  // Demo caption room
   demoRoomSeeder: DemoRoomSeeder;
+  demoRoomController: DemoRoomController;
 }
 
 /**

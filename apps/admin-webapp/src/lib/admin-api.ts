@@ -109,6 +109,20 @@ export interface HealthComponent {
   detail?: string;
 }
 
+/**
+ * Status of the demo caption room. `enabled` reflects the
+ * server flag; `active` means the seeded session is currently joinable; a
+ * non-null `joinCode` is a currently-valid code (it rotates ~every 5 min, so
+ * the dashboard re-polls to keep it fresh).
+ */
+export interface DemoRoomStatus {
+  enabled: boolean;
+  sessionUid: string;
+  active: boolean;
+  roomName: string | null;
+  joinCode: string | null;
+}
+
 export interface HealthReport {
   bff: string;
   /** Every checked dependency. A list rather than named fields so the
@@ -468,6 +482,11 @@ export class AdminApiClient {
   // ---- Config check ----
   configCheck(): Promise<ConfigCheckReport> {
     return this._request('GET', '/config-check');
+  }
+
+  // ---- Demo caption room ----
+  demoRoom(): Promise<DemoRoomStatus> {
+    return this._request('GET', '/demo-room/status');
   }
 
   // ---- Fleet telemetry ----

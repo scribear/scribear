@@ -143,7 +143,7 @@ export class TranscriptionOrchestratorService {
   private _sessions = new Map<string, SessionState>();
   /**
    * Status overrides for sessions that have no real upstream - only the
-   * dev/staging demo caption room (see `demo-room/`). Kept separate from
+   * demo caption room (see `demo-room/`). Kept separate from
    * `_sessions` so nothing that iterates real session state (e.g.
    * `sessionSnapshots`, which dereferences `state.upstream`) ever sees a
    * session without an upstream connection.
@@ -195,7 +195,7 @@ export class TranscriptionOrchestratorService {
 
   /**
    * Register a status override for a session with no real upstream. Used only
-   * by the dev/staging demo caption room, which publishes transcripts to
+   * by the demo caption room, which publishes transcripts to
    * {@link TranscriptChannel} directly and needs joining clients to see the
    * session as connected rather than "waiting for source". Ignored for any
    * session that also has real source connections (`_sessions` wins in

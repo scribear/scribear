@@ -15,6 +15,7 @@ import type {
   ConfigCheckConfig,
   ConfigCheckService,
 } from '#src/server/features/config-check/config-check.service.js';
+import type { DemoRoomController } from '#src/server/features/demo-room/demo-room.controller.js';
 import type { DevicesController } from '#src/server/features/devices/devices.controller.js';
 import type { FleetController } from '#src/server/features/fleet/fleet.controller.js';
 import type { HealthController } from '#src/server/features/health/health.controller.js';
@@ -102,6 +103,9 @@ interface AppDependencies extends BaseDependencies {
 
   // Scheduling
   schedulingController: SchedulingController;
+
+  // Demo caption room
+  demoRoomController: DemoRoomController;
 
   // Audit
   auditController: AuditController;

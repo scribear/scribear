@@ -155,9 +155,9 @@ function registerDependencies(
       lifetime: Lifetime.SCOPED,
     }),
 
-    // Demo caption room (dev/staging only). Constructed regardless, but a no-op
-    // unless `demoRoomConfig.enabled`; `createServer` only resolves and starts
-    // it when the flag is set.
+    // Demo caption room. Constructed regardless, but a no-op unless
+    // `demoRoomConfig.enabled` (the default); `createServer` only resolves and
+    // starts it when enabled.
     demoCaptionSource: asClass(DemoCaptionSource, {
       lifetime: Lifetime.SINGLETON,
     }),

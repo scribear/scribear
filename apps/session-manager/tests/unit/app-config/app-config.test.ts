@@ -141,8 +141,22 @@ describe('AppConfig', () => {
   });
 
   describe('demo room configuration', (it) => {
-    it('is disabled with the default session uid when unset', () => {
-      // Act - both vars are absent, the production default.
+    it('is enabled with the default session uid when unset', () => {
+      // Act - both vars are absent; the demo room is on by default.
+      const config = new AppConfig(NO_DOTENV_FILE);
+
+      // Assert
+      expect(config.demoRoomConfig).toStrictEqual({
+        enabled: true,
+        sessionUid: 'deadbeef-0000-4000-8000-000000000001',
+      });
+    });
+
+    it('can be turned off with DEMO_ROOM_ENABLED=false', () => {
+      // Arrange
+      process.env['DEMO_ROOM_ENABLED'] = 'false';
+
+      // Act
       const config = new AppConfig(NO_DOTENV_FILE);
 
       // Assert

@@ -22,6 +22,7 @@ import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 
+import { DemoRoomCard } from './demo-room-card';
 import { FleetPanel } from './fleet-panel';
 
 type HealthColor = 'success' | 'warning' | 'error' | 'default';
@@ -169,6 +170,8 @@ export const DashboardPage = () => {
           Health status unavailable.
         </Typography>
       )}
+
+      <DemoRoomCard />
 
       <FleetPanel />
 

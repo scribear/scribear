@@ -11,7 +11,7 @@ import {
 } from './demo-room.constants.js';
 
 /**
- * Dev/staging-only boot-time seeder for a joinable "demo caption room".
+ * Boot-time seeder for a joinable "demo caption room".
  *
  * This is the Session Manager half of the demo caption room; the Node Server
  * half (`DemoCaptionSource`) publishes a looping fixture caption stream for a
@@ -33,8 +33,8 @@ import {
  *      for a developer to obtain a code to hand to a client/kiosk/standalone
  *      webapp.
  *
- * Never constructed when the feature is off; a production instance never
- * seeds a real, joinable session (see `create-server.ts`).
+ * Enabled by default; when `DEMO_ROOM_ENABLED=false` it is never resolved and
+ * no session is seeded (see `create-server.ts`).
  */
 export class DemoRoomSeeder {
   private readonly _logger: AppDependencies['logger'];

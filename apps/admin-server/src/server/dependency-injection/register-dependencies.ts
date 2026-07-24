@@ -18,6 +18,7 @@ import { AuditController } from '#src/server/features/audit/audit.controller.js'
 import { AuthController } from '#src/server/features/auth/auth.controller.js';
 import { ConfigCheckController } from '#src/server/features/config-check/config-check.controller.js';
 import { ConfigCheckService } from '#src/server/features/config-check/config-check.service.js';
+import { DemoRoomController } from '#src/server/features/demo-room/demo-room.controller.js';
 import { DevicesController } from '#src/server/features/devices/devices.controller.js';
 import { FleetController } from '#src/server/features/fleet/fleet.controller.js';
 import { HealthController } from '#src/server/features/health/health.controller.js';
@@ -120,6 +121,10 @@ function registerDependencies(
 
     // Scheduling
     schedulingController: asClass(SchedulingController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+
+    demoRoomController: asClass(DemoRoomController, {
       lifetime: Lifetime.SCOPED,
     }),
 
