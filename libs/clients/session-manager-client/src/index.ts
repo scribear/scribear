@@ -7,3 +7,4 @@ export { createRoomManagementClient } from './room-management-client.js';
 export { createDeviceManagementClient } from './device-management-client.js';
 export { createScheduleManagementClient } from './schedule-management-client.js';
 export { createSessionAuthClient } from './session-auth-client.js';
+export { createDemoRoomClient } from './demo-room-client.js';

@@ -84,13 +84,13 @@ services:
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
-      # Demo caption room (dev/staging only). Seeds a joinable demo session
-      # whose uid the Node Server publishes a looping fixture caption stream
-      # into - see apps/session-manager/.env.example and
-      # apps/node-server/.env.example. Defaulted "false"; set true only in a
-      # dev or staging .env, never in production.
-      DEMO_ROOM_ENABLED: ${DEMO_ROOM_ENABLED:-false}
-      DEMO_SESSION_UID: ${DEMO_SESSION_UID:-}
+      # Demo caption room. Seeds a joinable demo session whose uid the Node
+      # Server publishes a looping fixture caption stream into - see
+      # apps/session-manager/.env.example. On by default; set
+      # DEMO_ROOM_ENABLED=false in the deployment .env to turn it off. The
+      # session uid uses a built-in default shared with the Node Server, so it
+      # does not need to be passed here.
+      DEMO_ROOM_ENABLED: ${DEMO_ROOM_ENABLED:-true}
     depends_on:
       scribear-db:
         condition: service_healthy
@@ -166,13 +166,13 @@ services:
       # sets to the container name, so scaling this service gives each replica
       # a distinct identity with no further configuration.
       REDIS_URL: ${NODE_SERVER_REDIS_URL:-}
-      # Demo caption room (dev/staging only). When true, this Node Server
-      # auto-emits a looping fixture caption stream for DEMO_SESSION_UID - see
-      # apps/node-server/.env.example. Defaulted "false"; set true only in a
-      # dev or staging .env, never in production. DEMO_SESSION_UID must match
-      # the value given to the session-manager service above.
-      DEMO_ROOM_ENABLED: ${DEMO_ROOM_ENABLED:-false}
-      DEMO_SESSION_UID: ${DEMO_SESSION_UID:-}
+      # Demo caption room. When enabled, this Node Server auto-emits a looping
+      # fixture caption stream for the demo session - see
+      # apps/node-server/.env.example. On by default; set DEMO_ROOM_ENABLED=false
+      # in the deployment .env to turn it off. The session uid uses a built-in
+      # default shared with the session-manager service above, so it does not
+      # need to be passed here.
+      DEMO_ROOM_ENABLED: ${DEMO_ROOM_ENABLED:-true}
     depends_on:
       transcription-service:
         condition: service_healthy

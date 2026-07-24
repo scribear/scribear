@@ -305,6 +305,12 @@ export class SessionManagerGatewayService {
     });
   }
 
+  // ---- Demo room ----
+
+  getDemoRoomStatus() {
+    return this._client.demoRoom.status({ headers: this._authHeaders() });
+  }
+
   // ---- Probes (unauthenticated upstream) ----
 
   readiness() {

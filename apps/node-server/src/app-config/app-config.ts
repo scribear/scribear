@@ -24,14 +24,16 @@ const CONFIG_SCHEMA = Type.Object({
   // is what keeps a deployment that predates B1.7 booting unchanged.
   REDIS_URL: Type.String({ default: '' }),
   NODE_INSTANCE_ID: Type.String({ default: '' }),
-  // Dev/staging-only demo caption room (see PLAN-Demo-CAPTION_ROOM.md). Off by
-  // default so a production instance never emits synthetic captions; enabled
-  // explicitly in the dev and staging deployments. env-schema coerces the
-  // strings "true"/"false" only - "1"/"0"/"" are rejected at boot.
-  DEMO_ROOM_ENABLED: Type.Boolean({ default: false }),
+  // Demo caption room (see PLAN-Demo-CAPTION_ROOM.md): emits a looping,
+  // synthetic caption stream that needs no microphone, source device, or
+  // transcription-service. On by default in every environment (including
+  // production) so the webapps always have something to show; set
+  // DEMO_ROOM_ENABLED=false to turn it off. env-schema coerces the strings
+  // "true"/"false" only - "1"/"0"/"" are rejected at boot.
+  DEMO_ROOM_ENABLED: Type.Boolean({ default: true }),
   // Session UID the demo captions are published for. Must match the session the
-  // Session Manager seeds, so both services default to (and are configured
-  // with) the same value.
+  // Session Manager seeds; both services share the same built-in default, so
+  // neither normally needs this set - override only if you change both.
   DEMO_SESSION_UID: Type.String({ default: DEFAULT_DEMO_SESSION_UID }),
 });
 
