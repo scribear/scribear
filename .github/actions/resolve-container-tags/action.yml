@@ -4,9 +4,18 @@ inputs:
   version_file:
     description: "Path to package.json or pyproject.toml used for main release tags."
     required: true
+  publish_pr_images:
+    description: >
+      Set to "true" to publish PR-<n> images again. Off by default because
+      nothing consumes them; a PR build still compiles the image, it just does
+      not push it. To re-enable, set the repository variable
+      PUBLISH_PR_IMAGES to "true" (Settings > Secrets and variables > Actions >
+      Variables) - no code change needed.
+    required: false
+    default: "false"
 outputs:
   tags:
-    description: "Newline-delimited Docker tags."
+    description: "Newline-delimited Docker tags. Empty means build without publishing."
     value: ${{ steps.resolve.outputs.tags }}
 runs:
   using: "composite"
@@ -19,6 +28,7 @@ runs:
         GITHUB_REF: ${{ github.ref }}
         GITHUB_SHA: ${{ github.sha }}
         PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+        PUBLISH_PR_IMAGES: ${{ inputs.publish_pr_images }}
         VERSION_FILE: ${{ inputs.version_file }}
       run: |
         python3 <<'PY'
@@ -50,7 +60,8 @@ runs:
             return str(version)
 
         if event_name == "pull_request":
-            if pr_number:
+            # No tags means "build but do not publish" - see build-container.
+            if pr_number and os.environ.get("PUBLISH_PR_IMAGES") == "true":
                 tags.append(f"PR-{pr_number}")
         elif event_name == "push" and github_ref == "refs/heads/staging":
             tags.extend(["staging", f"staging-{short_sha}"])

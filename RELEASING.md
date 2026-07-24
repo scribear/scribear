@@ -11,16 +11,14 @@ This repository follows the staging and versioning workflow proposed in issue `#
 
 ## Container registry
 
-- Images are published to the **GitHub Container Registry (GHCR)** at `ghcr.io/scribear/<service>`.
-- During the migration off Docker Hub, CI also mirrors every image to `scribear/<service>` on Docker Hub (`docker.io`). Docker Hub is deprecated and will be turned off once all consumers pull from GHCR.
-- GHCR pushes authenticate with the built-in `GITHUB_TOKEN` (`packages: write`); no separate registry credentials are required for GHCR.
-- The deployment stack selects the registry via `IMAGE_REGISTRY` in `deployment/.env` (default `ghcr.io/scribear`; set to `scribear` to fall back to Docker Hub).
+- Images are published to the **GitHub Container Registry (GHCR)** at `ghcr.io/scribear/<service>`, and nowhere else.
+- Docker Hub is no longer a publish target. The `scribear/<service>` images there are frozen at whatever was last pushed before the cutover — do not pull them, as they will silently serve stale code rather than fail.
+- GHCR pushes authenticate with the built-in `GITHUB_TOKEN` (`packages: write`); no separate registry credentials are required.
+- The deployment stack selects the registry via `IMAGE_REGISTRY` in `deployment/.env`, which defaults to `ghcr.io/scribear`.
 
 ## Container tags
 
-Tags below are published identically to both registries during the transition.
-
-- Pull requests to `staging` or `main` build changed containers with the `PR-<number>` tag.
+- Pull requests to `staging` or `main` build changed containers but publish nothing — the build proves the image compiles, and nothing consumed the old `PR-<number>` tags. To publish them again, set the repository variable `PUBLISH_PR_IMAGES` to `true` (Settings → Secrets and variables → Actions → Variables); no code change is needed.
 - Pushes to `staging` build changed containers with the `staging` and `staging-<commit-sha>` tags.
 - Pushes to `main` build changed containers with the `latest` and `v<major>.<minor>.<patch>` tags.
 
