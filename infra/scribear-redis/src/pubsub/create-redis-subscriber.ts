@@ -73,9 +73,10 @@ export function createRedisSubscriber<
       // lost before it lands) is otherwise an unhandled rejection, which under
       // Node's default crashes the process. The `error` listener above handles
       // the connection-level event; this handles the command promise.
-      redis.subscribe(channelKey).catch((err: Error) => {
+      redis.subscribe(channelKey).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
         console.warn(
-          `[redis-subscriber] failed to subscribe to "${channelKey}": ${err.message}`,
+          `[redis-subscriber] failed to subscribe to "${channelKey}": ${message}`,
         );
       });
     },
@@ -83,9 +84,10 @@ export function createRedisSubscriber<
     unsubscribe(...keyArgs: TArgs): void {
       const channelKey = channelDef.key(...keyArgs);
       listeners.delete(channelKey);
-      redis.unsubscribe(channelKey).catch((err: Error) => {
+      redis.unsubscribe(channelKey).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
         console.warn(
-          `[redis-subscriber] failed to unsubscribe from "${channelKey}": ${err.message}`,
+          `[redis-subscriber] failed to unsubscribe from "${channelKey}": ${message}`,
         );
       });
     },

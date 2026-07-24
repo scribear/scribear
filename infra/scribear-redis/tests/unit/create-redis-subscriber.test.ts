@@ -189,9 +189,7 @@ describe('createRedisSubscriber', () => {
     expect(() =>
       mockRedisInstance.emit('error', new Error('WRONGPASS')),
     ).not.toThrow();
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('WRONGPASS'),
-    );
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('WRONGPASS'));
   });
 
   it('should swallow a rejected subscribe rather than leak an unhandled rejection', async () => {

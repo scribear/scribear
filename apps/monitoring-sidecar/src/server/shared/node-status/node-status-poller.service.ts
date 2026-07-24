@@ -45,7 +45,10 @@ export class NodeStatusPollerService extends AbsoluteStatusPoller<NodeStatusBody
   // sees a first parameter named `nodeStatusPollerConfig`, matching the
   // registration key. Without it the class inherits the base constructor whose
   // parameter is `config`, which is not registered, and resolution fails with
-  // `Could not resolve 'config'`. The sibling pollers do the same.
+  // `Could not resolve 'config'`. The sibling pollers do the same. It forwards
+  // to super unchanged, which reads as useless to eslint but is load-bearing
+  // for DI — the parameter name is the whole point.
+  // eslint-disable-next-line @typescript-eslint/no-useless-constructor
   constructor(
     nodeStatusPollerConfig: NodeStatusPollerConfig,
     metricsRegistry: MetricsRegistry,
