@@ -1,8 +1,10 @@
 import type { Static } from 'typebox';
 import { Value } from 'typebox/value';
 
+import type { BaseLogger } from '@scribear/base-fastify-server';
 import { STATUS_SCHEMA } from '@scribear/node-server-schema';
 
+import type { MetricsRegistry } from '#src/server/shared/metrics/metrics-registry.service.js';
 import {
   AbsoluteStatusPoller,
   type AbsoluteStatusPollerConfig,
@@ -38,6 +40,19 @@ const SERIES_KEY_SEPARATOR = '/';
 export class NodeStatusPollerService extends AbsoluteStatusPoller<NodeStatusBody> {
   /** Sessions present in the previous poll, so vanished ones can be removed. */
   private _knownSessions = new Set<string>();
+
+  // Own constructor solely so Awilix (CLASSIC mode, resolves by parameter name)
+  // sees a first parameter named `nodeStatusPollerConfig`, matching the
+  // registration key. Without it the class inherits the base constructor whose
+  // parameter is `config`, which is not registered, and resolution fails with
+  // `Could not resolve 'config'`. The sibling pollers do the same.
+  constructor(
+    nodeStatusPollerConfig: NodeStatusPollerConfig,
+    metricsRegistry: MetricsRegistry,
+    logger: BaseLogger,
+  ) {
+    super(nodeStatusPollerConfig, metricsRegistry, logger);
+  }
 
   protected _parseBody(parsed: unknown): NodeStatusBody | null {
     return Value.Check(STATUS_BODY_SCHEMA, parsed) ? parsed : null;
