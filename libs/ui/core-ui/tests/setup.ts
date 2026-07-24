@@ -8,3 +8,16 @@ import { afterEach } from 'vitest';
 afterEach(() => {
   cleanup();
 });
+
+// jsdom doesn't implement matchMedia, which MUI's useMediaQuery (used by
+// AppLayout's responsive header) calls. Provide a stub that reports no match.
+globalThis.matchMedia ??= ((query: string) => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  addListener: () => {},
+  removeListener: () => {},
+  dispatchEvent: () => false,
+})) as unknown as typeof matchMedia;

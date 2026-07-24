@@ -184,6 +184,10 @@ export const AppLayout = ({
         }}
         slotProps={{
           paper: {
+            // The temporary drawer traps focus, so expose it as a modal dialog
+            // named by its "Menu" heading (MUI Drawer adds no role on its own).
+            role: 'dialog',
+            'aria-modal': true,
             'aria-labelledby': drawerTitleId,
             sx: {
               width: '30rem',
