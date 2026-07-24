@@ -1,3 +1,5 @@
+import { useId } from 'react';
+
 import Box from '@mui/material/Box';
 import Button, { type ButtonProps } from '@mui/material/Button';
 import Modal from '@mui/material/Modal';
@@ -50,9 +52,13 @@ export const ChoiceModal = ({
   onRightAction,
   children,
 }: ChoiceModalProps) => {
+  const messageId = useId();
   return (
     <Modal open={isOpen} onClose={onCancel}>
       <Paper
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={messageId}
         sx={{
           position: 'absolute',
           top: '50%',
@@ -63,7 +69,7 @@ export const ChoiceModal = ({
           p: 4,
         }}
       >
-        <Typography textAlign="center" pb={4}>
+        <Typography id={messageId} textAlign="center" pb={4}>
           {message}
         </Typography>
         {children ? <Box sx={{ pb: 4 }}>{children}</Box> : null}

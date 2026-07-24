@@ -40,6 +40,7 @@ export const LineHeightControl = ({
         </Typography>
         <Slider
           aria-label="Line height control"
+          getAriaValueText={(v) => `${v.toString()}× line height`}
           valueLabelDisplay="auto"
           min={TRANSCRIPTION_DISPLAY_CONFG.lineHeightMultipler.min}
           max={TRANSCRIPTION_DISPLAY_CONFG.lineHeightMultipler.max}

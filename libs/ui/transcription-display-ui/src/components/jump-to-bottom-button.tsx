@@ -22,6 +22,7 @@ export const JumpToBottomButton = ({
     <IconButton
       color="transcriptionColor"
       onClick={onClick}
+      aria-label="Jump to latest transcription"
       sx={{
         visibility: visible ? 'visible' : 'hidden',
         alignSelf: 'end',
