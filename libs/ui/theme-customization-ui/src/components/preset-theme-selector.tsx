@@ -87,6 +87,10 @@ export const PresetThemeSelector = ({
                     borderColor: theme.accentColor,
                     backgroundColor: theme.backgroundColor,
                     borderRadius: 1,
+                    // Neutral ring so the swatch boundary is always perceivable,
+                    // even when the accent border has near-zero contrast with the
+                    // swatch background (e.g. Pitch Black's black-on-black). SC 1.4.11
+                    boxShadow: (t) => `0 0 0 1px ${t.palette.divider}`,
                   }}
                 >
                   <Typography

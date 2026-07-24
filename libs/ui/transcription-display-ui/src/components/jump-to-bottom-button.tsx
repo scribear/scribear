@@ -29,7 +29,14 @@ export const JumpToBottomButton = ({
         marginLeft: 2,
         border: 'solid',
         borderWidth: '0.25em',
-        borderColor: (theme) => theme.palette.primary.main,
+        // Use the transcription color (which clears contrast against the
+        // background) rather than the accent, whose 3:1 non-text contrast fails
+        // in the Default theme and many presets. SC 1.4.11. The palette
+        // augmentation types this slot loosely, but CustomThemeProvider always
+        // sets `.main`; fall back to the accent if somehow absent.
+        borderColor: (theme) =>
+          (theme.palette.transcriptionColor as { main: string } | undefined)
+            ?.main ?? theme.palette.primary.main,
       }}
     >
       <KeyboardDoubleArrowDownIcon fontSize="inherit" />

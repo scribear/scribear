@@ -6,6 +6,7 @@ import type { ThemeColors } from '@scribear/theme-customization-store';
 import { AccentColorSelector } from './color-controls/accent-color-selector.js';
 import { BackgroundColorSelector } from './color-controls/background-color-selector.js';
 import { TranscriptionColorSelector } from './color-controls/transcription-color-selector.js';
+import { ContrastReadout } from './contrast-readout.js';
 import { PresetThemeSelector } from './preset-theme-selector.js';
 
 /**
@@ -54,6 +55,11 @@ export const ThemeCustomizationMenu = ({
       <TranscriptionColorSelector
         transcriptionColor={transcriptionColor}
         setTranscriptionColor={setTranscriptionColor}
+      />
+      <ContrastReadout
+        backgroundColor={backgroundColor}
+        accentColor={accentColor}
+        transcriptionColor={transcriptionColor}
       />
       <PresetThemeSelector applyPresetTheme={applyPresetTheme} />
     </DrawerMenuGroup>
