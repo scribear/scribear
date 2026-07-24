@@ -323,6 +323,23 @@ export class SessionManagerGatewayService {
     return this._client.demoRoom.status({ headers: this._authHeaders() });
   }
 
+  // ---- Database schema ----
+
+  /**
+   * What schema version the Session Manager container expects, and what the
+   * database it is pointed at has applied. Read by the Config Check.
+   *
+   * Takes a `RequestInit` so the caller can impose a timeout: unlike the routes
+   * above, this one is called on a page an operator is already waiting on, and
+   * `createEndpointClient` issues a bare `fetch` with no `AbortSignal` of its own.
+   */
+  getSchemaStatus(init?: RequestInit) {
+    return this._client.database.schemaStatus(
+      { headers: this._authHeaders() },
+      init,
+    );
+  }
+
   // ---- Probes (unauthenticated upstream) ----
 
   readiness() {

@@ -1,3 +1,9 @@
+import {
+  LATEST_MIGRATION,
+  MIGRATION_TABLE,
+  type SchemaState,
+} from '@scribear/scribear-db';
+
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
 
 /**
@@ -116,6 +122,12 @@ export interface ConfigCheckConfig {
   azureClientId: string;
   azureClientSecret: string;
   allowedGroup: string;
+  /**
+   * Bound on asking session-manager what schema version it expects. Shared with
+   * the health rollup's timeout, since both are questions an operator is waiting
+   * on and a hung sibling service must not hold this page open.
+   */
+  upstreamTimeoutMs: number;
 }
 
 const PLACEHOLDER_MARKER = 'CHANGEME';
@@ -501,17 +513,20 @@ export class ConfigCheckService {
   private _fleetTelemetryService: AppDependencies['fleetTelemetryService'];
   private _healthCheckerService: AppDependencies['healthCheckerService'];
   private _dbClient: AppDependencies['dbClient'];
+  private _sessionManagerGatewayService: AppDependencies['sessionManagerGatewayService'];
 
   constructor(
     configCheckConfig: ConfigCheckConfig,
     fleetTelemetryService: AppDependencies['fleetTelemetryService'],
     healthCheckerService: AppDependencies['healthCheckerService'],
     dbClient: AppDependencies['dbClient'],
+    sessionManagerGatewayService: AppDependencies['sessionManagerGatewayService'],
   ) {
     this._config = configCheckConfig;
     this._fleetTelemetryService = fleetTelemetryService;
     this._healthCheckerService = healthCheckerService;
     this._dbClient = dbClient;
+    this._sessionManagerGatewayService = sessionManagerGatewayService;
   }
 
   async check(): Promise<ConfigCheckReport> {
@@ -733,6 +748,11 @@ export class ConfigCheckService {
    * unconfigured database is not meaningfully "unreachable", and an unreachable
    * one cannot be asked about its schema. Every finding carries a `docUrl` so
    * the fix is one click away rather than a search through the deployment guide.
+   *
+   * Past the reachability gate there are two independent schemas to report on and
+   * both are: admin-server's own audit tables, which it migrates itself at
+   * startup, and the shared schema `infra/scribear-db` owns, which the
+   * `db-migrate` job applies. They fail separately and are fixed separately.
    */
   private async _checkDatabase(env: DeploymentEnv): Promise<ConfigFinding[]> {
     const { dbHost, dbName, dbUser } = this._config;
@@ -786,8 +806,10 @@ export class ConfigCheckService {
       ];
     }
 
+    const findings: ConfigFinding[] = [];
+
     if (!(await this._databaseHasSchema())) {
-      return [
+      findings.push(
         finding(
           {
             id: 'database-schema-missing',
@@ -806,10 +828,188 @@ export class ConfigCheckService {
           },
           env,
         ),
+      );
+    }
+
+    findings.push(...(await this._checkSharedSchemaVersion(env)));
+
+    return findings;
+  }
+
+  /**
+   * Is the shared schema at the version the running containers were built
+   * against?
+   *
+   * This is the check that closes the gap the rest of the page could only hint
+   * at. Until migrations ran inside the stack, applying them was a separate
+   * manual step against a database no service could vouch for, and getting it
+   * wrong showed up as `services-failing` with a `database: fail` — a symptom
+   * three inferences away from "migrations were never run". Here the question is
+   * asked directly, and asked of two independent sources:
+   *
+   * - the **database**, read through `readSchemaState`, which says what has
+   *   actually been applied;
+   * - the **session-manager container**, which says what schema the code
+   *   currently serving traffic was compiled against.
+   *
+   * Comparing the second against admin-server's own build is the only way to see
+   * a half-finished upgrade, where one service was pulled and another was not.
+   * Nothing else in the stack can observe that: every service knows its own
+   * version and no service knows anyone else's.
+   */
+  private async _checkSharedSchemaVersion(
+    env: DeploymentEnv,
+  ): Promise<ConfigFinding[]> {
+    const [state, reportedLatest] = await Promise.all([
+      this._readSharedSchemaState(),
+      this._readSessionManagerSchemaVersion(),
+    ]);
+
+    if (state === null) {
+      // The migration table could not be read on a database that answered
+      // `SELECT 1`. Almost always a permissions problem, and reporting it as
+      // "never migrated" would send an operator to run migrations that would
+      // fail for the same reason.
+      return [
+        finding(
+          {
+            id: 'schema-version-unreadable',
+            category: 'services',
+            title: 'The applied schema version could not be read',
+            detail: `The database answered, but reading ${MIGRATION_TABLE} failed. Usually DB_USER lacks rights on the public schema.`,
+            remediation:
+              'Check that DB_USER in deployment/.env owns (or can read) the ScribeAR database, then re-check.',
+            docUrl: DOC.postgres,
+          },
+          {
+            development: 'advisory',
+            staging: 'warning',
+            production: 'warning',
+          },
+          env,
+        ),
       ];
     }
 
-    return [];
+    const findings: ConfigFinding[] = [];
+
+    if (!state.initialized) {
+      findings.push(
+        finding(
+          {
+            id: 'schema-never-migrated',
+            category: 'services',
+            title: 'The database has never been migrated',
+            detail: `${MIGRATION_TABLE} does not exist, so none of the ${String(state.expected.length)} migrations this deployment ships have been applied. session-manager cannot serve anything and is failing its readiness probe.`,
+            remediation:
+              'Run `docker compose up -d` in deployment/ — the db-migrate job applies the schema before the services start. To apply migrations on their own, run deployment/run-migrator.sh.',
+            docUrl: DOC.migrations,
+          },
+          {
+            development: 'critical',
+            staging: 'critical',
+            production: 'critical',
+          },
+          env,
+        ),
+      );
+    } else if (state.pending.length > 0) {
+      findings.push(
+        finding(
+          {
+            id: 'schema-migrations-pending',
+            category: 'services',
+            title: `${String(state.pending.length)} database migration(s) have not been applied`,
+            detail: `The database is at ${state.latestApplied || 'no migration'} and this deployment expects ${state.latestExpected}. First unapplied: ${state.pending[0] ?? ''}. session-manager fails its readiness probe until they are applied, so the stack is only partly serving.`,
+            remediation:
+              'Run `docker compose up -d` in deployment/, or deployment/run-migrator.sh to apply them without touching the running services.',
+            docUrl: DOC.migrations,
+          },
+          {
+            development: 'warning',
+            staging: 'critical',
+            production: 'critical',
+          },
+          env,
+        ),
+      );
+    }
+
+    if (state.unknown.length > 0) {
+      findings.push(
+        finding(
+          {
+            id: 'schema-ahead-of-containers',
+            category: 'services',
+            title: 'The database schema is newer than the running images',
+            detail: `${String(state.unknown.length)} applied migration(s) are unknown to this build, the newest being ${state.unknown[state.unknown.length - 1] ?? ''}. This is what a rollback looks like: the images were moved back and the schema was not. Nothing is broken as long as the older code's queries still fit the newer schema.`,
+            remediation:
+              'Expected after a rollback. If it was not deliberate, check IMAGE_TAG in deployment/.env against the version the database was migrated to.',
+            docUrl: DOC.migrations,
+          },
+          {
+            development: 'advisory',
+            staging: 'warning',
+            production: 'warning',
+          },
+          env,
+        ),
+      );
+    }
+
+    // Skipped rather than guessed at when session-manager did not answer:
+    // `services-unreachable` already reports that, and two findings for one cause
+    // is the pattern this page avoids.
+    if (reportedLatest !== null && reportedLatest !== LATEST_MIGRATION) {
+      findings.push(
+        finding(
+          {
+            id: 'schema-version-skew',
+            category: 'services',
+            title: 'The containers disagree about the schema version',
+            detail: `session-manager expects ${reportedLatest || 'no migrations'} and admin-server was built against ${LATEST_MIGRATION}. Every service in a deployment should come from one IMAGE_TAG, so this means an upgrade only partly completed — and it makes the pending-migration counts above unreliable, since they are measured against admin-server's idea of the schema.`,
+            remediation:
+              'Run `docker compose up -d` in deployment/ to pull every service to the same IMAGE_TAG, then re-check.',
+            docUrl: DOC.deployment,
+          },
+          {
+            development: 'warning',
+            staging: 'critical',
+            production: 'critical',
+          },
+          env,
+        ),
+      );
+    }
+
+    return findings;
+  }
+
+  /** Applied-vs-expected migrations, or null when the table cannot be read. */
+  private async _readSharedSchemaState(): Promise<SchemaState | null> {
+    try {
+      return await this._dbClient.scribearSchemaState();
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The schema version session-manager reports, or null when it could not be
+   * asked — unreachable, timed out, or rejecting admin-server's key. All three
+   * are already reported by other checks, so they are not re-diagnosed here.
+   */
+  private async _readSessionManagerSchemaVersion(): Promise<string | null> {
+    try {
+      const [response] =
+        await this._sessionManagerGatewayService.getSchemaStatus({
+          signal: AbortSignal.timeout(this._config.upstreamTimeoutMs),
+        });
+      if (response?.status !== 200) return null;
+      return response.data.latestExpected;
+    } catch {
+      return null;
+    }
   }
 
   /**

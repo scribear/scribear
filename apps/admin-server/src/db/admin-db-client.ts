@@ -1,6 +1,8 @@
 import { Kysely, PostgresDialect, sql } from 'kysely';
 import pg from 'pg';
 
+import { type SchemaState, readSchemaState } from '@scribear/scribear-db';
+
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
 
 import type { AdminDB } from './admin-db.types.js';
@@ -103,6 +105,20 @@ export class AdminDbClient {
       reg: string | null;
     }>`SELECT to_regclass('public.admin_audit_log') AS reg`.execute(this._db);
     return result.rows[0]?.reg != null;
+  }
+
+  /**
+   * State of the **shared** ScribeAR schema — the one `infra/scribear-db` owns
+   * and session-manager queries — not admin-server's own audit tables.
+   *
+   * admin-server has no business migrating that schema, but it is the one service
+   * with both a database connection and a page to report on, and the comparison
+   * is what the Config Check needs. `readSchemaState` is read-only by
+   * construction, so asking cannot create the migration tables it is asking
+   * about.
+   */
+  async scribearSchemaState(): Promise<SchemaState> {
+    return await readSchemaState(this._db);
   }
 
   /**

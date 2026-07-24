@@ -10,6 +10,6 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     // Configure Vitest to treat each folder containing a vitest.config.ts file a separate project
-    projects: ['./{apps,libs}/*/vitest.config.ts'],
+    projects: ['./{apps,infra,libs}/*/vitest.config.ts'],
   },
 });

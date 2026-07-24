@@ -9,6 +9,7 @@ import type {
   DemoRoomConfig,
 } from '#src/app-config/app-config.js';
 import type { DBClient, DBClientConfig } from '#src/db/db-client.js';
+import type { DatabaseController } from '#src/server/features/database/database.controller.js';
 import type { DemoRoomSeeder } from '#src/server/features/demo-room/demo-room-seeder.js';
 import type { DemoRoomController } from '#src/server/features/demo-room/demo-room.controller.js';
 import type { DeviceManagementController } from '#src/server/features/device-management/device-management.controller.js';
@@ -105,6 +106,9 @@ interface AppDependencies extends BaseDependencies {
   // Demo caption room
   demoRoomSeeder: DemoRoomSeeder;
   demoRoomController: DemoRoomController;
+
+  // Database schema state
+  databaseController: DatabaseController;
 }
 
 /**
