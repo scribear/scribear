@@ -66,6 +66,4 @@ jobs:
           build_args: ${{ matrix.build_args }}
           cache_variant: ${{ github.ref_name }}
           custom_tags: ${{ steps.tags.outputs.tags }}
-          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
