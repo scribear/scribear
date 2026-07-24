@@ -1,7 +1,10 @@
-import Box from '@mui/material/Box';
-import Modal from '@mui/material/Modal';
-import Paper from '@mui/material/Paper';
-import Typography from '@mui/material/Typography';
+import { useId } from 'react';
+
+import CloseIcon from '@mui/icons-material/Close';
+import Dialog from '@mui/material/Dialog';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import IconButton from '@mui/material/IconButton';
 
 /**
  * Props for {@link ProviderConfigContainer}.
@@ -16,31 +19,36 @@ interface ProviderConfigContainer {
 }
 
 /**
- * Generic modal shell for provider configuration menus. Renders a centered
- * MUI `Paper` modal with a title derived from `displayName` and a slot for
- * form content.
+ * Generic modal shell for provider configuration menus. A proper MUI `Dialog`
+ * (role="dialog" + focus trap) named by its title, with an explicit, visible
+ * close button so it can be dismissed by keyboard/AT without relying on a
+ * backdrop click.
  */
 export const ProviderConfigContainer = ({
   displayName,
   children,
   onClose,
 }: ProviderConfigContainer) => {
+  const titleId = useId();
   return (
-    <Modal open onClose={onClose}>
-      <Paper
-        sx={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          width: '100%',
-          maxWidth: 800,
-          p: 4,
-        }}
-      >
-        <Typography variant="h5">{displayName} Settings</Typography>
-        <Box paddingTop={4}>{children}</Box>
-      </Paper>
-    </Modal>
+    <Dialog
+      open
+      onClose={onClose}
+      fullWidth
+      maxWidth="md"
+      aria-labelledby={titleId}
+    >
+      <DialogTitle id={titleId} sx={{ pr: 6 }}>
+        {displayName} Settings
+        <IconButton
+          aria-label="Close"
+          onClick={onClose}
+          sx={{ position: 'absolute', right: 8, top: 8 }}
+        >
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent>{children}</DialogContent>
+    </Dialog>
   );
 };

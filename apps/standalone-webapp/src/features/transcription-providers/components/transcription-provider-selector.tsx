@@ -3,11 +3,12 @@ import { useState } from 'react';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import SettingsIcon from '@mui/icons-material/Settings';
 import IconButton from '@mui/material/IconButton';
-import Menu from '@mui/material/Menu';
-import MenuItem from '@mui/material/MenuItem';
-import Stack from '@mui/material/Stack';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemText from '@mui/material/ListItemText';
+import Popover from '@mui/material/Popover';
 import Tooltip from '@mui/material/Tooltip';
-import Typography from '@mui/material/Typography';
 
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
@@ -34,8 +35,11 @@ interface TranscriptionProviderOptionProps {
 }
 
 /**
- * A single row within the provider selector dropdown. Renders the provider
- * display name as a selectable menu item alongside a settings icon button.
+ * A single row within the provider selector list. The provider name is a
+ * selectable button and the settings gear is a separate, individually-labelled
+ * button rendered as the row's secondary action — both are in the normal tab
+ * order (unlike a `role="menu"`, which would hide the non-`menuitem` gear from
+ * arrow-key navigation).
  */
 const TranscriptionProviderOption = ({
   id,
@@ -43,19 +47,26 @@ const TranscriptionProviderOption = ({
   onSelectProvider,
   onConfigureProvider,
 }: TranscriptionProviderOptionProps) => {
+  const name = getProviderDisplayName(id);
   return (
-    <Stack direction="row" alignItems="center" justifyContent="space-between">
-      <MenuItem
-        onClick={onSelectProvider}
-        sx={{ width: '100%', p: 2 }}
-        selected={selected}
-      >
-        <Typography>{getProviderDisplayName(id)}</Typography>
-      </MenuItem>
-      <IconButton onClick={onConfigureProvider} sx={{ p: 2, borderRadius: 0 }}>
-        <SettingsIcon />
-      </IconButton>
-    </Stack>
+    <ListItem
+      disablePadding
+      secondaryAction={
+        <Tooltip title={`Configure ${name}`}>
+          <IconButton
+            edge="end"
+            aria-label={`Configure ${name}`}
+            onClick={onConfigureProvider}
+          >
+            <SettingsIcon />
+          </IconButton>
+        </Tooltip>
+      }
+    >
+      <ListItemButton selected={selected} onClick={onSelectProvider}>
+        <ListItemText primary={name} />
+      </ListItemButton>
+    </ListItem>
   );
 };
 
@@ -86,12 +97,18 @@ export const TranscriptionProviderSelector = () => {
 
   return (
     <>
-      <Tooltip title="Switch or config providers">
-        <IconButton color="inherit" onClick={showSelectorMenu}>
+      <Tooltip title="Switch or configure providers">
+        <IconButton
+          color="inherit"
+          aria-label="Switch or configure providers"
+          aria-haspopup="true"
+          aria-expanded={isSelectorMenuOpen}
+          onClick={showSelectorMenu}
+        >
           <ExpandMoreIcon />
         </IconButton>
       </Tooltip>
-      <Menu
+      <Popover
         open={isSelectorMenuOpen}
         anchorEl={selectorMenuAnchorEl}
         onClose={hideSelectorMenu}
@@ -104,30 +121,33 @@ export const TranscriptionProviderSelector = () => {
           horizontal: 'center',
         }}
       >
-        {Object.values(ProviderId).map((id) => (
-          <TranscriptionProviderOption
-            key={id}
-            id={id}
-            selected={id === targetProviderId}
-            onSelectProvider={() => {
-              handleSelectProvider(id);
-            }}
-            onConfigureProvider={() => {
-              hideSelectorMenu();
-              dispatch(openConfigMenu(id));
-            }}
-          />
-        ))}
-        <MenuItem
-          onClick={() => {
-            handleSelectProvider(null);
-          }}
-          sx={{ width: '100%', p: 2 }}
-          selected={targetProviderId === null}
-        >
-          <Typography>No Provider</Typography>
-        </MenuItem>
-      </Menu>
+        <List>
+          {Object.values(ProviderId).map((id) => (
+            <TranscriptionProviderOption
+              key={id}
+              id={id}
+              selected={id === targetProviderId}
+              onSelectProvider={() => {
+                handleSelectProvider(id);
+              }}
+              onConfigureProvider={() => {
+                hideSelectorMenu();
+                dispatch(openConfigMenu(id));
+              }}
+            />
+          ))}
+          <ListItem disablePadding>
+            <ListItemButton
+              selected={targetProviderId === null}
+              onClick={() => {
+                handleSelectProvider(null);
+              }}
+            >
+              <ListItemText primary="No Provider" />
+            </ListItemButton>
+          </ListItem>
+        </List>
+      </Popover>
     </>
   );
 };

@@ -29,7 +29,15 @@ export const JoinCodeQrCode = ({ joinCode }: JoinCodeQrCodeProps) => {
 
   return (
     <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-      <QRCodeSVG value={joinUrl} size={200} />
+      {/* size is the intrinsic/max px; the style lets it shrink to fit a narrow
+          panel (max 200px, square via the SVG viewBox) instead of overflowing.
+          `title` gives the QR a text alternative for assistive technology. */}
+      <QRCodeSVG
+        value={joinUrl}
+        size={200}
+        title={`QR code to join session, code ${joinCode}`}
+        style={{ width: '100%', height: 'auto', maxWidth: 200 }}
+      />
     </Box>
   );
 };
