@@ -94,9 +94,54 @@ services:
     depends_on:
       scribear-db:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
     networks:
       - backend
     restart: unless-stopped
+
+  # Database migrations, as a one-shot job rather than a script on the host.
+  #
+  # Same image and tag as session-manager, running its second entry point
+  # (apps/session-manager/src/migrate.ts). That is the whole design: the service
+  # that owns this schema applies it, from the artifact the deployment is
+  # actually pinned to, so the schema and the code querying it can never
+  # disagree. It replaces run-migrator.sh's `git clone` of `staging` into a
+  # throwaway container, which applied whatever that branch happened to hold -
+  # and only on a database with no tables at all, so every upgrade after the
+  # first silently migrated nothing.
+  #
+  # `service_completed_successfully` above and on admin-server makes it
+  # fail-closed and correctly ordered: migrations finish before anything queries
+  # the schema, and a migration that fails means those services never start,
+  # with the reason in `docker compose logs db-migrate` rather than spread across
+  # two crash loops. It is idempotent - `docker compose up -d` re-runs it every
+  # time and it exits in a second when there is nothing pending.
+  #
+  # Only the DB_* variables, deliberately: the job needs no other secret, so it
+  # still works in a deployment that has not set them.
+  db-migrate:
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/session-manager:${IMAGE_TAG:-latest}
+    command: ["node", "dist/migrate.mjs"]
+    environment:
+      DB_HOST: ${DB_HOST:-scribear-db}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+    depends_on:
+      scribear-db:
+        condition: service_healthy
+    networks:
+      - backend
+    # A job, not a service: it must run to completion once, and a restart policy
+    # would fight `service_completed_successfully`.
+    restart: "no"
+    # The image's own healthcheck wgets session-manager's liveness route on port
+    # 80, which this container never listens on, so without this it would sit
+    # permanently "unhealthy" in `docker compose ps` after a successful run.
+    healthcheck:
+      disable: true
 
   admin-server:
     image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/admin-server:${IMAGE_TAG:-latest}
@@ -137,6 +182,11 @@ services:
         condition: service_healthy
       scribear-db:
         condition: service_healthy
+      # admin-server migrates its own audit-log tables on startup, but its
+      # Config Check reads the shared schema's migration state, so it should not
+      # start before the migrator has had its say.
+      db-migrate:
+        condition: service_completed_successfully
     networks:
       - frontend
       - backend

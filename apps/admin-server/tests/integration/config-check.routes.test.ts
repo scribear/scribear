@@ -72,7 +72,13 @@ describe('Config check route', () => {
       expect(body.data.environmentSource).toBe('explicit');
     });
 
-    it('reports only the telemetry advisory, which is switched off here', async () => {
+    // Two findings, and both are properties of this fixture rather than of the
+    // configuration: telemetry is switched off above, and the test database is a
+    // plain Postgres carrying only admin-server's own audit tables — the shared
+    // schema `infra/scribear-db` owns has deliberately never been migrated here,
+    // since applying it would mean building that image (pg_cron, pg_trgm) to
+    // test a route that has nothing to do with it.
+    it('reports the telemetry advisory and the unmigrated shared schema', async () => {
       const res = await server.fastify.inject({
         method: 'GET',
         url: URL,
@@ -81,7 +87,38 @@ describe('Config check route', () => {
 
       expect(
         res.json<ConfigCheckBody>().data.findings.map((f) => f.id),
-      ).toEqual(['fleet-telemetry-disabled']);
+      ).toEqual(['fleet-telemetry-disabled', 'schema-never-migrated']);
+    });
+
+    it('states the schema finding with a fix and a wiki link', async () => {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: URL,
+        headers: { cookie },
+      });
+
+      const found = res
+        .json<ConfigCheckBody>()
+        .data.findings.find((f) => f.id === 'schema-never-migrated');
+      expect(found?.severity).toBe('critical');
+      expect(found?.remediation).toContain('docker compose up -d');
+      expect(found?.docUrl).toContain('github.com/scribear/scribear/wiki');
+    });
+
+    // The version comparison needs an answer from session-manager, and the stub
+    // above answers every URL with a readiness body. A body that does not match
+    // the schema route's contract must read as "could not be asked", not as a
+    // version mismatch.
+    it('does not invent a version skew from an unparseable answer', async () => {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: URL,
+        headers: { cookie },
+      });
+
+      expect(
+        res.json<ConfigCheckBody>().data.findings.map((f) => f.id),
+      ).not.toContain('schema-version-skew');
     });
   });
 

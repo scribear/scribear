@@ -20,8 +20,10 @@
     "dev": "tsc --build --watch",
     "format": "prettier --check ./src",
     "format:fix": "prettier --write ./src",
-    "lint": "eslint ./src",
-    "lint:fix": "eslint ./src --fix",
+    "lint": "eslint ./src ./tests",
+    "lint:fix": "eslint ./src ./tests --fix",
+    "test:dev": "vitest --ui --coverage",
+    "test:unit": "vitest run --project unit",
     "migrate:up": "npm run build && node ./dist/src/scripts/migrate.js",
     "migrate:down": "npm run build && node ./dist/src/scripts/migrate.js down",
     "generate:types": "npm run build && node ./dist/src/scripts/generate-types.js"
