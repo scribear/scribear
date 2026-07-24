@@ -1,9 +1,4 @@
-import {
-  type SyntheticEvent,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
+import { type SyntheticEvent, useEffect, useMemo, useState } from 'react';
 
 import AddIcon from '@mui/icons-material/Add';
 import Alert from '@mui/material/Alert';
@@ -19,6 +14,7 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import FormControl from '@mui/material/FormControl';
 import FormControlLabel from '@mui/material/FormControlLabel';
+import FormHelperText from '@mui/material/FormHelperText';
 import Grid from '@mui/material/Grid';
 import InputLabel from '@mui/material/InputLabel';
 import ListItemText from '@mui/material/ListItemText';
@@ -60,6 +56,11 @@ import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
+
+import {
+  diffAutoWindowUpdate,
+  diffScheduleUpdate,
+} from './room-scheduling-form-utils';
 
 const DAYS_OF_WEEK: readonly DayOfWeek[] = [
   'SUN',
@@ -113,19 +114,14 @@ function isoToLocalInput(iso: string): string {
   return `${year}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function sameStringArray(a: readonly string[], b: readonly string[]): boolean {
-  if (a.length !== b.length) return false;
-  const sa = [...a].sort();
-  const sb = [...b].sort();
-  return sa.every((v, i) => v === sb[i]);
-}
-
 interface MultiSelectFieldProps<T extends string> {
   label: string;
   options: readonly T[];
   value: T[];
   onChange: (value: T[]) => void;
   disabled: boolean;
+  error?: boolean;
+  helperText?: string;
 }
 
 function MultiSelectField<T extends string>({
@@ -134,10 +130,13 @@ function MultiSelectField<T extends string>({
   value,
   onChange,
   disabled,
+  error = false,
+  helperText,
 }: MultiSelectFieldProps<T>) {
   const labelId = `multiselect-${label.replace(/\s+/g, '-').toLowerCase()}`;
+  const helperId = `${labelId}-helper`;
   return (
-    <FormControl fullWidth margin="normal" disabled={disabled}>
+    <FormControl fullWidth margin="normal" disabled={disabled} error={error}>
       <InputLabel id={labelId}>{label}</InputLabel>
       <Select<T[]>
         labelId={labelId}
@@ -149,6 +148,7 @@ function MultiSelectField<T extends string>({
           onChange(typeof v === 'string' ? (v.split(',') as T[]) : v);
         }}
         renderValue={(selected) => selected.join(', ')}
+        {...(helperText ? { 'aria-describedby': helperId } : {})}
       >
         {options.map((opt) => (
           <MenuItem key={opt} value={opt}>
@@ -157,6 +157,9 @@ function MultiSelectField<T extends string>({
           </MenuItem>
         ))}
       </Select>
+      {helperText && (
+        <FormHelperText id={helperId}>{helperText}</FormHelperText>
+      )}
     </FormControl>
   );
 }
@@ -249,12 +252,14 @@ const ScheduleDialog = ({
         },
   );
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [daysError, setDaysError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [misconfigured, setMisconfigured] = useState(false);
 
   const handleSubmit = () => {
     setJsonError(null);
     if (form.frequency !== 'ONCE' && form.daysOfWeek.length === 0) {
+      setDaysError(true);
       showError('Select at least one day of week for a recurring schedule.');
       return;
     }
@@ -322,38 +327,21 @@ const ScheduleDialog = ({
           setSubmitting(false);
         });
     } else {
-      const body: UpdateScheduleBody = { scheduleUid: schedule.uid };
-      if (form.name !== schedule.name) body.name = form.name;
-      if (activeStartIso !== schedule.activeStart) {
-        body.activeStart = activeStartIso;
-      }
-      if (activeEndIso !== schedule.activeEnd) body.activeEnd = activeEndIso;
-      if (form.localStartTime !== schedule.localStartTime.slice(0, 5)) {
-        body.localStartTime = form.localStartTime;
-      }
-      if (form.localEndTime !== schedule.localEndTime.slice(0, 5)) {
-        body.localEndTime = form.localEndTime;
-      }
-      if (form.frequency !== schedule.frequency)
-        body.frequency = form.frequency;
-      if (JSON.stringify(daysOfWeek) !== JSON.stringify(schedule.daysOfWeek)) {
-        body.daysOfWeek = daysOfWeek;
-      }
-      if (!sameStringArray(form.joinCodeScopes, schedule.joinCodeScopes)) {
-        body.joinCodeScopes = form.joinCodeScopes;
-      }
-      if (
-        form.transcriptionProviderId !==
-        (schedule.transcriptionProviderId ?? '')
-      ) {
-        body.transcriptionProviderId = form.transcriptionProviderId;
-      }
-      if (
-        JSON.stringify(transcriptionStreamConfig) !==
-        JSON.stringify(schedule.transcriptionStreamConfig ?? {})
-      ) {
-        body.transcriptionStreamConfig = transcriptionStreamConfig;
-      }
+      const body: UpdateScheduleBody = {
+        scheduleUid: schedule.uid,
+        ...diffScheduleUpdate(schedule, {
+          name: form.name,
+          activeStart: activeStartIso,
+          activeEnd: activeEndIso,
+          localStartTime: form.localStartTime,
+          localEndTime: form.localEndTime,
+          frequency: form.frequency,
+          daysOfWeek,
+          joinCodeScopes: form.joinCodeScopes,
+          transcriptionProviderId: form.transcriptionProviderId,
+          transcriptionStreamConfig,
+        }),
+      };
       adminApi
         .updateSchedule(body)
         .then(() => {
@@ -421,8 +409,15 @@ const ScheduleDialog = ({
           value={form.daysOfWeek}
           onChange={(v) => {
             setForm((f) => ({ ...f, daysOfWeek: v }));
+            setDaysError(false);
           }}
           disabled={form.frequency === 'ONCE'}
+          error={daysError}
+          helperText={
+            daysError
+              ? 'Select at least one day of week for a recurring schedule.'
+              : ''
+          }
         />
         <Stack direction="row" spacing={2}>
           <TextField
@@ -584,12 +579,14 @@ const AutoWindowDialog = ({
         },
   );
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [daysError, setDaysError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [misconfigured, setMisconfigured] = useState(false);
 
   const handleSubmit = () => {
     setJsonError(null);
     if (form.daysOfWeek.length === 0) {
+      setDaysError(true);
       showError('Select at least one day of week.');
       return;
     }
@@ -654,32 +651,19 @@ const AutoWindowDialog = ({
           setSubmitting(false);
         });
     } else {
-      const body: UpdateAutoWindowBody = { windowUid: autoWindow.uid };
-      if (form.localStartTime !== autoWindow.localStartTime.slice(0, 5)) {
-        body.localStartTime = form.localStartTime;
-      }
-      if (form.localEndTime !== autoWindow.localEndTime.slice(0, 5)) {
-        body.localEndTime = form.localEndTime;
-      }
-      if (!sameStringArray(form.daysOfWeek, autoWindow.daysOfWeek)) {
-        body.daysOfWeek = form.daysOfWeek;
-      }
-      if (activeStartIso !== autoWindow.activeStart) {
-        body.activeStart = activeStartIso;
-      }
-      if (activeEndIso !== autoWindow.activeEnd) body.activeEnd = activeEndIso;
-      if (!sameStringArray(form.joinCodeScopes, autoWindow.joinCodeScopes)) {
-        body.joinCodeScopes = form.joinCodeScopes;
-      }
-      if (form.transcriptionProviderId !== autoWindow.transcriptionProviderId) {
-        body.transcriptionProviderId = form.transcriptionProviderId;
-      }
-      if (
-        JSON.stringify(transcriptionStreamConfig) !==
-        JSON.stringify(autoWindow.transcriptionStreamConfig)
-      ) {
-        body.transcriptionStreamConfig = transcriptionStreamConfig;
-      }
+      const body: UpdateAutoWindowBody = {
+        windowUid: autoWindow.uid,
+        ...diffAutoWindowUpdate(autoWindow, {
+          localStartTime: form.localStartTime,
+          localEndTime: form.localEndTime,
+          daysOfWeek: form.daysOfWeek,
+          activeStart: activeStartIso,
+          activeEnd: activeEndIso,
+          joinCodeScopes: form.joinCodeScopes,
+          transcriptionProviderId: form.transcriptionProviderId,
+          transcriptionStreamConfig,
+        }),
+      };
       adminApi
         .updateAutoWindow(body)
         .then(() => {
@@ -743,8 +727,11 @@ const AutoWindowDialog = ({
           value={form.daysOfWeek}
           onChange={(v) => {
             setForm((f) => ({ ...f, daysOfWeek: v }));
+            setDaysError(false);
           }}
           disabled={false}
+          error={daysError}
+          helperText={daysError ? 'Select at least one day of week.' : ''}
         />
         <TextField
           label="Active start"
@@ -1058,7 +1045,9 @@ export const RoomSchedulingPage = () => {
       windowsError !== null &&
       !isApiErrorCode(windowsError, 'BACKEND_MISCONFIGURATION')
     ) {
-      showError(errorMessage(windowsError, 'Failed to load auto-session windows.'));
+      showError(
+        errorMessage(windowsError, 'Failed to load auto-session windows.'),
+      );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [windowsError]);
@@ -1121,7 +1110,7 @@ export const RoomSchedulingPage = () => {
   if (loading && room === null) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-        <CircularProgress />
+        <CircularProgress aria-label="Loading room" />
       </Box>
     );
   }
@@ -1227,7 +1216,7 @@ export const RoomSchedulingPage = () => {
             {schedulesLoading ? (
               <TableRow>
                 <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                  <CircularProgress size={28} />
+                  <CircularProgress size={28} aria-label="Loading schedules" />
                 </TableCell>
               </TableRow>
             ) : schedules.length === 0 ? (
@@ -1335,7 +1324,10 @@ export const RoomSchedulingPage = () => {
             {windowsLoading ? (
               <TableRow>
                 <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
-                  <CircularProgress size={28} />
+                  <CircularProgress
+                    size={28}
+                    aria-label="Loading auto-session windows"
+                  />
                 </TableCell>
               </TableRow>
             ) : windows.length === 0 ? (

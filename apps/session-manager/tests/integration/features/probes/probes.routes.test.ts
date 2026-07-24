@@ -59,6 +59,10 @@ describe('Probes Routes', () => {
           staleAfterMs: 24 * 60 * 60 * 1000,
           maxRoomsPerTick: 1000,
         },
+        demoRoomConfig: {
+          enabled: false,
+          sessionUid: 'deadbeef-0000-4000-8000-000000000001',
+        },
       } as unknown as AppConfig;
       const { fastify } = await createServer(brokenConfig);
       await fastify.ready();

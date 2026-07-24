@@ -15,8 +15,9 @@
     "dev": "vite",
     "format": "prettier --check ./src",
     "format:fix": "prettier --write ./src",
-    "lint": "eslint ./src",
-    "lint:fix": "eslint ./src --fix"
+    "lint": "eslint ./src ./tests",
+    "lint:fix": "eslint ./src ./tests --fix",
+    "test:unit": "vitest run --project unit"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -31,7 +32,12 @@
   },
   "devDependencies": {
     "@eslint-react/eslint-plugin": "5.18.0",
+    "@testing-library/jest-dom": "7.0.0",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
     "eslint-plugin-react-hooks": "7.1.1",
-    "eslint-plugin-react-refresh": "0.5.3"
+    "eslint-plugin-react-refresh": "0.5.3",
+    "jest-axe": "10.0.0",
+    "jsdom": "29.1.1"
   }
 }

@@ -10,7 +10,12 @@ export default mergeConfig(
         // Process entrypoint: bootstraps and starts the server. It has no unit-
         // testable logic and is exercised by the integration suite, so exclude
         // it rather than report it as uncovered.
-        exclude: ['src/index.ts'],
+        //
+        // The demo-room fixture generator is a standalone Python dev tool that
+        // lives beside the fixture it produces; it is not application source
+        // and must not be fed to the JS coverage instrumenter. The same goes
+        // for the JSON fixtures it emits — data, not code.
+        exclude: ['src/index.ts', '**/*.py', '**/*.json'],
       },
       projects: [
         {

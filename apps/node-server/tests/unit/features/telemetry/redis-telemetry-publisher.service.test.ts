@@ -41,8 +41,8 @@ class FakeRedis {
   execError: Error | null = null;
   /** Resolves the in-flight `exec` when set, so overlap can be exercised. */
   releaseExec: (() => void) | null = null;
-  quit = vi.fn(async () => 'OK');
-  publish = vi.fn(async () => 0);
+  quit = vi.fn(() => Promise.resolve('OK'));
+  publish = vi.fn(() => Promise.resolve(0));
 
   private _handlers = new Map<string, (arg?: unknown) => void>();
   on = vi.fn((event: string, handler: (arg?: unknown) => void) => {
@@ -344,8 +344,9 @@ describe('RedisTelemetryPublisher failure handling', (it) => {
     // Assert
     expect(h.redis.commands.length).toBe(commandsAfterFirst);
 
-    // Cleanup - let the first beat finish.
-    h.redis.releaseExec?.();
+    // Cleanup - let the first beat finish. `exec` always reassigns
+    // `releaseExec` to the in-flight resolver, so it is non-null here.
+    h.redis.releaseExec();
     await first;
   });
 });

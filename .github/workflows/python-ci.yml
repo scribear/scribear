@@ -20,7 +20,7 @@ jobs:
       transcription_service: ${{ steps.filter.outputs.transcription_service }}
       image_matrix: ${{ steps.image_matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Detect Changed Paths
         id: filter
@@ -39,7 +39,7 @@ jobs:
     if: needs.changes.outputs.transcription_service == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Python
         uses: ./.github/actions/setup-python
 
@@ -52,7 +52,7 @@ jobs:
     if: needs.changes.outputs.transcription_service == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Python
         uses: ./.github/actions/setup-python
 
@@ -66,7 +66,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Python
         uses: ./.github/actions/setup-python
 
@@ -92,7 +92,7 @@ jobs:
     name: docker-build (${{ matrix.image_name }})
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Resolve image tags
         id: tags
@@ -118,7 +118,7 @@ jobs:
     if: needs.changes.outputs.transcription_service == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Python
         uses: ./.github/actions/setup-python
 

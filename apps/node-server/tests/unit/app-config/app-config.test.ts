@@ -24,7 +24,12 @@ const VALID_ENV: Record<string, string> = {
  * cleared before each test so the defaults are what is exercised, and restored
  * afterwards like the rest.
  */
-const OPTIONAL_ENV_KEYS = ['REDIS_URL', 'NODE_INSTANCE_ID'];
+const OPTIONAL_ENV_KEYS = [
+  'REDIS_URL',
+  'NODE_INSTANCE_ID',
+  'DEMO_ROOM_ENABLED',
+  'DEMO_SESSION_UID',
+];
 const ENV_KEYS = [...Object.keys(VALID_ENV), ...OPTIONAL_ENV_KEYS];
 
 // A path that does not exist, used to disable dotenv file loading so validation
@@ -176,6 +181,42 @@ describe('AppConfig', () => {
 
       // Assert
       expect(config.baseConfig.isDevelopment).toBe(false);
+    });
+  });
+
+  describe('demo room configuration', (it) => {
+    it('is disabled with the default session uid when unset', () => {
+      // Act - both vars are absent, the production default.
+      const config = new AppConfig(NO_DOTENV_FILE);
+
+      // Assert
+      expect(config.demoRoomConfig).toStrictEqual({
+        enabled: false,
+        sessionUid: 'deadbeef-0000-4000-8000-000000000001',
+      });
+    });
+
+    it('maps an explicit enable flag and session uid', () => {
+      // Arrange
+      process.env['DEMO_ROOM_ENABLED'] = 'true';
+      process.env['DEMO_SESSION_UID'] = 'aaaaaaaa-0000-4000-8000-000000000002';
+
+      // Act
+      const config = new AppConfig(NO_DOTENV_FILE);
+
+      // Assert
+      expect(config.demoRoomConfig).toStrictEqual({
+        enabled: true,
+        sessionUid: 'aaaaaaaa-0000-4000-8000-000000000002',
+      });
+    });
+
+    it('rejects a non-boolean enable flag (only true/false are accepted)', () => {
+      // Arrange - env-schema coerces "true"/"false" but not "1".
+      process.env['DEMO_ROOM_ENABLED'] = '1';
+
+      // Act / Assert
+      expect(() => new AppConfig(NO_DOTENV_FILE)).toThrow();
     });
   });
 

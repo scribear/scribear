@@ -44,6 +44,14 @@ import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
 
+import type { CommonFormState } from './schedule-form-utils';
+import {
+  dateToInput,
+  describeSchedule,
+  describeWindow,
+  resolveActiveRange,
+} from './schedule-form-utils';
+
 /** Academic day letters: R is Thursday, U is Sunday. */
 const DAY_TOGGLES: readonly {
   value: DayOfWeek;
@@ -70,65 +78,8 @@ const FREQUENCIES: readonly ScheduleFrequency[] = [
 ];
 const RANGE_DAYS = 90;
 
-/**
- * A schedule's `activeStart` must be strictly in the future server-side, so one
- * starting today is anchored slightly ahead of now. Occurrences starting before
- * the anchor are not materialized, so keep the lead small. Windows have no such
- * rule and are anchored at midnight, which keeps today's open hours intact.
- */
-const START_LEAD_MS = 30_000;
-
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback;
-}
-
-function pad2(n: number): string {
-  return String(n).padStart(2, '0');
-}
-
-/** Formats a Date as a browser-local `type="date"` input value. */
-function dateToInput(d: Date): string {
-  return `${String(d.getFullYear())}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-
-/**
- * Parses a `type="date"` input value as browser-local midnight. Avoids
- * `new Date(value)`, which reads bare `yyyy-mm-dd` as UTC.
- */
-function dateInputToLocalMidnight(value: string): Date | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (m === null) return null;
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function hhmm(localTime: string): string {
-  return localTime.slice(0, 5);
-}
-
-function describeSchedule(s: SessionSchedule): string {
-  const days =
-    s.daysOfWeek === null || s.daysOfWeek.length === 0
-      ? ''
-      : ` ${s.daysOfWeek.join(', ')}`;
-  return `${s.name} — ${s.frequency}${days} ${hhmm(s.localStartTime)}–${hhmm(s.localEndTime)}`;
-}
-
-function describeWindow(w: AutoSessionWindow): string {
-  return `${w.daysOfWeek.join(', ')} ${hhmm(w.localStartTime)}–${hhmm(w.localEndTime)}`;
-}
-
-/** Fields the schedule form and the window form have in common. */
-interface CommonFormState {
-  daysOfWeek: DayOfWeek[];
-  localStartTime: string;
-  localEndTime: string;
-  startsOn: string;
-  indefinite: boolean;
-  endsOn: string;
-  joinCodeScopes: SessionScope[];
-  transcriptionProviderId: string;
-  transcriptionStreamConfig: string;
 }
 
 interface ScheduleFormState extends CommonFormState {
@@ -169,86 +120,63 @@ function emptyWindowForm(): WindowFormState {
   };
 }
 
-type RangeResult =
-  | { ok: true; activeStart: string; activeEnd: string | null }
-  | { ok: false; error: string };
-
-/**
- * Turns the two date inputs into the ISO instants the API wants.
- * `anchorToFuture` covers the schedule endpoint's strictly-in-the-future rule.
- */
-function resolveActiveRange(
-  form: CommonFormState,
-  anchorToFuture: boolean,
-): RangeResult {
-  const startDay = dateInputToLocalMidnight(form.startsOn);
-  if (startDay === null)
-    return { ok: false, error: 'Enter a valid start date.' };
-
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  if (startDay.getTime() < todayStart.getTime()) {
-    return { ok: false, error: 'The start date must be today or later.' };
-  }
-
-  const activeStartMs = anchorToFuture
-    ? Math.max(startDay.getTime(), Date.now() + START_LEAD_MS)
-    : startDay.getTime();
-
-  if (form.indefinite) {
-    return {
-      ok: true,
-      activeStart: new Date(activeStartMs).toISOString(),
-      activeEnd: null,
-    };
-  }
-
-  const endDay = dateInputToLocalMidnight(form.endsOn);
-  if (endDay === null) {
-    return {
-      ok: false,
-      error: 'Enter a valid end date, or tick "No end date".',
-    };
-  }
-  // Inclusive: occurrences on the end date itself still materialize.
-  endDay.setHours(23, 59, 59, 999);
-  if (endDay.getTime() <= activeStartMs) {
-    return { ok: false, error: 'The end date must be after the start date.' };
-  }
-  return {
-    ok: true,
-    activeStart: new Date(activeStartMs).toISOString(),
-    activeEnd: endDay.toISOString(),
-  };
-}
-
 interface DayTogglesProps {
+  idPrefix: string;
   value: DayOfWeek[];
   onChange: (days: DayOfWeek[]) => void;
   disabled: boolean;
+  error?: boolean;
 }
 
-const DayToggles = ({ value, onChange, disabled }: DayTogglesProps) => (
-  <Box>
-    <Typography variant="body2" color="text.secondary" gutterBottom>
-      Days
-    </Typography>
-    <ToggleButtonGroup
-      value={value}
-      onChange={(_e, next: DayOfWeek[]) => {
-        onChange(next);
-      }}
-      disabled={disabled}
-      size="small"
-    >
-      {DAY_TOGGLES.map((d) => (
-        <ToggleButton key={d.value} value={d.value} aria-label={d.name}>
-          {d.letter}
-        </ToggleButton>
-      ))}
-    </ToggleButtonGroup>
-  </Box>
-);
+const DayToggles = ({
+  idPrefix,
+  value,
+  onChange,
+  disabled,
+  error = false,
+}: DayTogglesProps) => {
+  const labelId = `${idPrefix}-days-label`;
+  const errorId = `${idPrefix}-days-error`;
+  return (
+    <Box>
+      <Typography
+        id={labelId}
+        variant="body2"
+        color={error ? 'error' : 'text.secondary'}
+        gutterBottom
+      >
+        Days
+      </Typography>
+      <ToggleButtonGroup
+        value={value}
+        onChange={(_e, next: DayOfWeek[]) => {
+          onChange(next);
+        }}
+        disabled={disabled}
+        size="small"
+        aria-labelledby={labelId}
+        aria-invalid={error || undefined}
+        aria-describedby={error ? errorId : undefined}
+      >
+        {DAY_TOGGLES.map((d) => (
+          <ToggleButton key={d.value} value={d.value} aria-label={d.name}>
+            {d.letter}
+          </ToggleButton>
+        ))}
+      </ToggleButtonGroup>
+      {error && (
+        <Typography
+          id={errorId}
+          variant="caption"
+          color="error"
+          display="block"
+        >
+          Pick at least one day of the week.
+        </Typography>
+      )}
+    </Box>
+  );
+};
 
 interface TimeRangeFieldsProps {
   form: CommonFormState;
@@ -454,6 +382,7 @@ export const ScheduleStep = ({
   const [windowForm, setWindowForm] =
     useState<WindowFormState>(emptyWindowForm);
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [daysError, setDaysError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [misconfigured, setMisconfigured] = useState(false);
 
@@ -534,6 +463,7 @@ export const ScheduleStep = ({
       scheduleForm.frequency !== 'ONCE' &&
       scheduleForm.daysOfWeek.length === 0
     ) {
+      setDaysError(true);
       showError('Pick at least one day of the week.');
       return;
     }
@@ -588,6 +518,7 @@ export const ScheduleStep = ({
     setJsonError(null);
 
     if (windowForm.daysOfWeek.length === 0) {
+      setDaysError(true);
       showError('Pick at least one day of the week.');
       return;
     }
@@ -685,7 +616,10 @@ export const ScheduleStep = ({
 
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-          <CircularProgress size={24} />
+          <CircularProgress
+            size={24}
+            aria-label="Loading this room's schedule"
+          />
         </Box>
       ) : (
         hasExisting && (
@@ -713,6 +647,7 @@ export const ScheduleStep = ({
         onChange={(e) => {
           setMode(e.target.value as Mode);
           setJsonError(null);
+          setDaysError(false);
         }}
       >
         <FormControlLabel
@@ -763,11 +698,14 @@ export const ScheduleStep = ({
           />
           <Box>
             <DayToggles
+              idPrefix="kiosk-schedule"
               value={scheduleForm.daysOfWeek}
               onChange={(days) => {
                 patchSchedule({ daysOfWeek: days });
+                setDaysError(false);
               }}
               disabled={scheduleForm.frequency === 'ONCE'}
+              error={daysError}
             />
             {scheduleForm.frequency === 'ONCE' && (
               <Typography variant="caption" color="text.secondary">
@@ -828,11 +766,14 @@ export const ScheduleStep = ({
       {mode === 'auto' && (
         <Stack spacing={2}>
           <DayToggles
+            idPrefix="kiosk-window"
             value={windowForm.daysOfWeek}
             onChange={(days) => {
               patchWindow({ daysOfWeek: days });
+              setDaysError(false);
             }}
             disabled={false}
+            error={daysError}
           />
           <TimeRangeFields
             form={windowForm}

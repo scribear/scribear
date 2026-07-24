@@ -428,6 +428,17 @@ export class AdminApiClient {
       this._onUnauthorized?.();
     }
 
+    if (res.ok) {
+      // A 2xx status whose body isn't a valid `{ ok: true, data }` envelope
+      // (unparseable JSON, or an unexpected `ok: false`). Distinct code so
+      // callers can't mistake this for a real declared backend error.
+      throw new ApiError(
+        'INVALID_RESPONSE',
+        'The server returned an unexpected response.',
+        res.status,
+      );
+    }
+
     const err =
       json && !json.ok
         ? json.error

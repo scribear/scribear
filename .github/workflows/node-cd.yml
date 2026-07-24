@@ -19,7 +19,7 @@ jobs:
       workspaces: ${{ steps.changes.outputs.workspaces }}
       has_changes: ${{ steps.changes.outputs.has_changes }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Detect Changed Workspaces
         id: changes
@@ -89,7 +89,7 @@ jobs:
             version_file: apps/admin-webapp/package.json
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Resolve image tags
         id: tags
@@ -115,7 +115,7 @@ jobs:
     if: contains(needs.changes.outputs.workspaces, 'apps/standalone-webapp') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-node
 
       - name: Run build

@@ -102,6 +102,24 @@ export const ActivationCodeDisplay = ({
           ? 'This code has expired.'
           : `Expires in ${formatRemaining(remainingMs)}`}
       </Typography>
+      {/* The visible countdown above ticks every second and deliberately has
+          no live region — announcing it that often would spam a screen
+          reader. This region's content only ever changes once, on the
+          valid -> expired transition, so it announces that one meaningful
+          status change without the per-second noise. */}
+      <Box
+        aria-live="polite"
+        sx={{
+          position: 'absolute',
+          width: 1,
+          height: 1,
+          overflow: 'hidden',
+          clip: 'rect(0 0 0 0)',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {expired ? 'This code has expired.' : ''}
+      </Box>
     </Paper>
   );
 };

@@ -5,11 +5,13 @@ import { LogLevel } from '@scribear/base-fastify-server';
 import type {
   AppConfig,
   BaseConfig,
+  DemoRoomConfig,
   SessionManagerClientConfig,
   TelemetryPublisherConfig,
   TranscriptionServiceClientConfig,
 } from '#src/app-config/app-config.js';
 import createServer from '#src/server/create-server.js';
+import { DEFAULT_DEMO_SESSION_UID } from '#src/server/features/demo-room/demo-room.constants.js';
 import type { ServiceAuthConfig } from '#src/server/shared/services/service-auth.service.js';
 import type { SessionTokenConfig } from '#src/server/shared/services/session-token.service.js';
 
@@ -35,6 +37,7 @@ export interface TestAppConfigOverrides {
   sessionManagerClientConfig?: Partial<SessionManagerClientConfig>;
   transcriptionServiceClientConfig?: Partial<TranscriptionServiceClientConfig>;
   telemetryPublisherConfig?: Partial<TelemetryPublisherConfig>;
+  demoRoomConfig?: Partial<DemoRoomConfig>;
 }
 
 /**
@@ -89,6 +92,13 @@ export function buildTestAppConfig(
       redisUrl: '',
       nodeInstanceId: 'test-node-instance',
       ...overrides.telemetryPublisherConfig,
+    },
+    // Off by default so the demo caption source is neither constructed nor
+    // started for suites that don't opt in.
+    demoRoomConfig: {
+      enabled: false,
+      sessionUid: DEFAULT_DEMO_SESSION_UID,
+      ...overrides.demoRoomConfig,
     },
   } as unknown as AppConfig;
 }

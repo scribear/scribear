@@ -213,14 +213,17 @@ export const RoomsListPage = () => {
     hasMore,
     loadMore,
     reload,
-  } = useAsyncList<Room>((cursor) => {
-    const query: { search?: string; cursor?: string; limit: number } = {
-      limit: PAGE_LIMIT,
-    };
-    if (search !== '') query.search = search;
-    if (cursor !== undefined) query.cursor = cursor;
-    return adminApi.listRooms(query);
-  }, [search]);
+  } = useAsyncList<Room>(
+    (cursor) => {
+      const query: { search?: string; cursor?: string; limit: number } = {
+        limit: PAGE_LIMIT,
+      };
+      if (search !== '') query.search = search;
+      if (cursor !== undefined) query.cursor = cursor;
+      return adminApi.listRooms(query);
+    },
+    [search],
+  );
 
   const misconfigured = isApiErrorCode(error, 'BACKEND_MISCONFIGURATION');
 

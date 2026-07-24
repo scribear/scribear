@@ -27,9 +27,9 @@ import { NameWithUid } from '#src/components/name-with-uid';
 import type { ReregisterDeviceResult } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
-import { useAsyncData } from '#src/lib/use-async-data';
 import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
+import { useAsyncData } from '#src/lib/use-async-data';
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback;
@@ -172,7 +172,8 @@ export const DeviceDetailPage = () => {
   // back to showing the raw room uid.
   const roomUid = device?.roomUid ?? null;
   const { data: room } = useAsyncData<Room | null>(
-    () => (roomUid === null ? Promise.resolve(null) : adminApi.getRoom(roomUid)),
+    () =>
+      roomUid === null ? Promise.resolve(null) : adminApi.getRoom(roomUid),
     [roomUid],
   );
 

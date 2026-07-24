@@ -24,8 +24,8 @@ import type {
 } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError } from '#src/lib/api-error';
-import { useAsyncData } from '#src/lib/use-async-data';
 import { useToast } from '#src/lib/toast-context';
+import { useAsyncData } from '#src/lib/use-async-data';
 
 /**
  * Severity presentation, most severe first. The order of this array is the

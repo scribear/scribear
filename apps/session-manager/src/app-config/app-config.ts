@@ -5,6 +5,7 @@ import type { Static } from 'typebox';
 import { LogLevel } from '@scribear/base-fastify-server';
 
 import type { DBClientConfig } from '#src/db/db-client.js';
+import { DEFAULT_DEMO_SESSION_UID } from '#src/server/features/demo-room/demo-room.constants.js';
 import {
   DEFAULT_MATERIALIZATION_WORKER_CONFIG,
   type MaterializationWorkerConfig,
@@ -35,6 +36,17 @@ const CONFIG_SCHEMA = Type.Object({
     default: 60,
   }),
   DEVICE_ONLINE_TTL_SEC: Type.Integer({ minimum: 1, default: 180 }),
+
+  // Dev/staging-only demo caption room (see
+  // apps/node-server/PLAN-Demo-CAPTION_ROOM.md). Off by default so a
+  // production instance never seeds a real, joinable session; enabled
+  // explicitly in the dev and staging deployments. env-schema coerces the
+  // strings "true"/"false" only - "1"/"0"/"" are rejected at boot.
+  DEMO_ROOM_ENABLED: Type.Boolean({ default: false }),
+  // Session UID the demo session is seeded with. Must match the Node
+  // Server's DEMO_SESSION_UID, so both services default to (and are
+  // configured with) the same value.
+  DEMO_SESSION_UID: Type.String({ default: DEFAULT_DEMO_SESSION_UID }),
 });
 
 export interface BaseConfig {
@@ -42,6 +54,13 @@ export interface BaseConfig {
   logLevel: LogLevel;
   port: number;
   host: string;
+}
+
+export interface DemoRoomConfig {
+  /** When false, the demo room seeder is never constructed or run. */
+  enabled: boolean;
+  /** Session UID the seeded demo session is created with. */
+  sessionUid: string;
 }
 
 export class AppConfig {
@@ -94,6 +113,13 @@ export class AppConfig {
 
   get materializationWorkerConfig(): MaterializationWorkerConfig {
     return DEFAULT_MATERIALIZATION_WORKER_CONFIG;
+  }
+
+  get demoRoomConfig(): DemoRoomConfig {
+    return {
+      enabled: this._env.DEMO_ROOM_ENABLED,
+      sessionUid: this._env.DEMO_SESSION_UID,
+    };
   }
 
   constructor(path?: string) {

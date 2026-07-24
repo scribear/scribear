@@ -59,6 +59,26 @@ async function createServer(config: AppConfig) {
     await materializationWorker.stop();
   });
 
+  // Demo caption room (dev/staging only). Resolved solely when enabled so a
+  // production instance never seeds a real, joinable session. Idempotently
+  // ensures a demo room/device/session exist and logs a current join code;
+  // see `apps/node-server/PLAN-Demo-CAPTION_ROOM.md`.
+  if (config.demoRoomConfig.enabled) {
+    const demoRoomSeeder =
+      dependencyContainer.resolve<AppDependencies['demoRoomSeeder']>(
+        'demoRoomSeeder',
+      );
+    fastify.addHook('onReady', async () => {
+      // A seeding failure (e.g. a transient DB error) must not take down an
+      // otherwise-healthy dev/staging instance over a demo feature.
+      try {
+        await demoRoomSeeder.seed();
+      } catch (err) {
+        logger.error({ err }, 'demo caption room: seeding failed');
+      }
+    });
+  }
+
   // Drain the pg pool on shutdown. Without this, in-flight idle clients
   // surface a fatal admin-shutdown error (Postgres 57P01) when the database
   // shuts down before us, and pg-pool re-emits that as an unhandled `error`

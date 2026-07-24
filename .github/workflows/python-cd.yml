@@ -19,7 +19,7 @@ jobs:
       transcription_service: ${{ steps.filter.outputs.transcription_service }}
       image_matrix: ${{ steps.image_matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Detect changed paths
         id: filter
         uses: dorny/paths-filter@v3
@@ -44,7 +44,7 @@ jobs:
     name: docker-build (${{ matrix.image_name }})
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Resolve image tags
         id: tags

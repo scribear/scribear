@@ -5,6 +5,7 @@ import type { Static } from 'typebox';
 
 import { LogLevel } from '@scribear/base-fastify-server';
 
+import { DEFAULT_DEMO_SESSION_UID } from '#src/server/features/demo-room/demo-room.constants.js';
 import type { ServiceAuthConfig } from '#src/server/shared/services/service-auth.service.js';
 import type { SessionTokenConfig } from '#src/server/shared/services/session-token.service.js';
 
@@ -23,6 +24,15 @@ const CONFIG_SCHEMA = Type.Object({
   // is what keeps a deployment that predates B1.7 booting unchanged.
   REDIS_URL: Type.String({ default: '' }),
   NODE_INSTANCE_ID: Type.String({ default: '' }),
+  // Dev/staging-only demo caption room (see PLAN-Demo-CAPTION_ROOM.md). Off by
+  // default so a production instance never emits synthetic captions; enabled
+  // explicitly in the dev and staging deployments. env-schema coerces the
+  // strings "true"/"false" only - "1"/"0"/"" are rejected at boot.
+  DEMO_ROOM_ENABLED: Type.Boolean({ default: false }),
+  // Session UID the demo captions are published for. Must match the session the
+  // Session Manager seeds, so both services default to (and are configured
+  // with) the same value.
+  DEMO_SESSION_UID: Type.String({ default: DEFAULT_DEMO_SESSION_UID }),
 });
 
 export interface BaseConfig {
@@ -40,6 +50,13 @@ export interface SessionManagerClientConfig {
 export interface TranscriptionServiceClientConfig {
   baseUrl: string;
   apiKey: string;
+}
+
+export interface DemoRoomConfig {
+  /** When false, the demo caption source is never constructed or started. */
+  enabled: boolean;
+  /** Session UID captions are published for; matches the seeded session. */
+  sessionUid: string;
 }
 
 export interface TelemetryPublisherConfig {
@@ -75,6 +92,13 @@ export class AppConfig {
   get serviceAuthConfig(): ServiceAuthConfig {
     return {
       serviceApiKey: this._env.NODE_SERVER_SERVICE_API_KEY,
+    };
+  }
+
+  get demoRoomConfig(): DemoRoomConfig {
+    return {
+      enabled: this._env.DEMO_ROOM_ENABLED,
+      sessionUid: this._env.DEMO_SESSION_UID,
     };
   }
 
