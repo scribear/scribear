@@ -247,6 +247,110 @@ describe('SessionAuthService', () => {
     });
   });
 
+  describe('fetchJoinCodeForAdmin', (it) => {
+    it("returns 'SESSION_NOT_FOUND' when the session does not exist", async () => {
+      // Arrange
+      mockRepo.lockSession.mockResolvedValue(undefined);
+
+      // Act
+      const result = await service.fetchJoinCodeForAdmin(SESSION_UID, NOW);
+
+      // Assert
+      expect(result).toBe('SESSION_NOT_FOUND');
+    });
+
+    it("returns 'SESSION_NOT_FOUND' when the session row vanishes after the lock", async () => {
+      // Arrange - defensive branch, same as fetchJoinCodes.
+      mockRepo.lockSession.mockResolvedValue({ uid: SESSION_UID });
+      mockRepo.findSessionForAuth.mockResolvedValue(undefined);
+
+      // Act
+      const result = await service.fetchJoinCodeForAdmin(SESSION_UID, NOW);
+
+      // Assert
+      expect(result).toBe('SESSION_NOT_FOUND');
+    });
+
+    it("returns 'JOIN_CODE_SCOPES_EMPTY' when the session has no join code scopes", async () => {
+      // Arrange
+      mockRepo.findSessionForAuth.mockResolvedValue({
+        ...ACTIVE_SESSION,
+        joinCodeScopes: [],
+      });
+
+      // Act
+      const result = await service.fetchJoinCodeForAdmin(SESSION_UID, NOW);
+
+      // Assert
+      expect(result).toBe('JOIN_CODE_SCOPES_EMPTY');
+    });
+
+    it("returns 'SESSION_NOT_CURRENTLY_ACTIVE' when the session has not started", async () => {
+      // Arrange
+      mockRepo.findSessionForAuth.mockResolvedValue(NOT_YET_STARTED_SESSION);
+
+      // Act
+      const result = await service.fetchJoinCodeForAdmin(SESSION_UID, NOW);
+
+      // Assert
+      expect(result).toBe('SESSION_NOT_CURRENTLY_ACTIVE');
+    });
+
+    it("returns 'SESSION_NOT_CURRENTLY_ACTIVE' when the session has ended", async () => {
+      // Arrange
+      mockRepo.findSessionForAuth.mockResolvedValue(ENDED_SESSION);
+
+      // Act
+      const result = await service.fetchJoinCodeForAdmin(SESSION_UID, NOW);
+
+      // Assert
+      expect(result).toBe('SESSION_NOT_CURRENTLY_ACTIVE');
+    });
+
+    it('mints a fresh code when none is active', async () => {
+      // Arrange
+      mockRepo.findSessionForAuth.mockResolvedValue(ACTIVE_SESSION);
+      mockRepo.findActiveJoinCodes.mockResolvedValue([]);
+      mockRepo.insertJoinCode.mockImplementation((_db, data) =>
+        Promise.resolve(data),
+      );
+
+      // Act
+      const result = await service.fetchJoinCodeForAdmin(SESSION_UID, NOW);
+
+      // Assert
+      if (typeof result === 'string') {
+        throw new Error('expected a join code result');
+      }
+      expect(result.joinCode).toMatch(/^[A-Z0-9]{8}$/);
+      expect(result.validEnd).toEqual(new Date(NOW.getTime() + 5 * 60_000));
+      expect(mockRepo.insertJoinCode).toHaveBeenCalledTimes(1);
+    });
+
+    it('reuses (does not re-mint) an already-active code', async () => {
+      // Arrange - idempotent within the code's lifetime, same as ensureCurrentJoinCode.
+      const existing = {
+        joinCode: 'ABC12345',
+        sessionUid: SESSION_UID,
+        validStart: new Date(NOW.getTime() - 60_000),
+        validEnd: new Date(NOW.getTime() + 4 * 60_000),
+      };
+      mockRepo.findSessionForAuth.mockResolvedValue(ACTIVE_SESSION);
+      mockRepo.findActiveJoinCodes.mockResolvedValue([existing]);
+
+      // Act
+      const result = await service.fetchJoinCodeForAdmin(SESSION_UID, NOW);
+
+      // Assert
+      if (typeof result === 'string') {
+        throw new Error('expected a join code result');
+      }
+      expect(result.joinCode).toBe(existing.joinCode);
+      expect(result.validEnd).toEqual(existing.validEnd);
+      expect(mockRepo.insertJoinCode).not.toHaveBeenCalled();
+    });
+  });
+
   describe('exchangeDeviceToken', (it) => {
     it("returns 'SESSION_NOT_FOUND' when the session does not exist", async () => {
       // Arrange

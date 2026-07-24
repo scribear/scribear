@@ -133,3 +133,14 @@ export const END_SESSION_EARLY_ROUTE = {
   method: 'POST' as const,
   url: `${P_SESSIONS}/end-early`,
 };
+
+// A read from the BFF's perspective — it mints a join code on demand but is
+// idempotent within the code's lifetime, matching `demo-room/status`'s GET
+// convention despite side-effecting server-side.
+export const GET_SESSION_JOIN_CODE_INPUT = {
+  params: GET_SESSION_SCHEMA.params,
+};
+export const GET_SESSION_JOIN_CODE_ROUTE = {
+  method: 'GET' as const,
+  url: `${P_SESSIONS}/:sessionUid/join-code`,
+};

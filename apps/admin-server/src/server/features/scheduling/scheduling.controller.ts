@@ -16,6 +16,7 @@ import type {
   GET_AUTO_SESSION_WINDOW_INPUT,
   GET_SCHEDULE_INPUT,
   GET_SESSION_INPUT,
+  GET_SESSION_JOIN_CODE_INPUT,
   LIST_AUTO_SESSION_WINDOWS_INPUT,
   LIST_SCHEDULES_INPUT,
   START_SESSION_EARLY_INPUT,
@@ -87,6 +88,17 @@ export class SchedulingController {
     res: BaseFastifyReply,
   ) {
     this._gateway.respond(req, res, await this._gateway.getSession(req.params));
+  }
+
+  async getSessionJoinCode(
+    req: BaseFastifyRequest<typeof GET_SESSION_JOIN_CODE_INPUT>,
+    res: BaseFastifyReply,
+  ) {
+    this._gateway.respond(
+      req,
+      res,
+      await this._gateway.getSessionJoinCode(req.params),
+    );
   }
 
   // ---- Mutations (require read-write + CSRF) ----

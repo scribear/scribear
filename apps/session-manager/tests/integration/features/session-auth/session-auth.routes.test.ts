@@ -257,6 +257,197 @@ describe('Session Auth Routes', () => {
     });
   });
 
+  describe('POST /admin-fetch-join-code', (it) => {
+    it('returns 400 when the admin key header is missing entirely', async () => {
+      // Arrange - the header itself is required by the schema, so an absent
+      // header fails validation before adminApiKeyHook ever runs (matches the
+      // convention in schedule-management.routes.test.ts, which only asserts
+      // 401 for a *wrong* key, not a missing one).
+      const { sessionUid } = await setupActiveSession();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/admin-fetch-join-code`,
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('returns 401 when the admin key is wrong', async () => {
+      // Arrange
+      const { sessionUid } = await setupActiveSession();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/admin-fetch-join-code`,
+        headers: { authorization: 'Bearer wrong-key' },
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(401);
+    });
+
+    it('returns 404 when the session does not exist', async () => {
+      // Arrange / Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/admin-fetch-join-code`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid: NULL_UUID },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(404);
+      expect(res.json<{ code: string }>().code).toBe('SESSION_NOT_FOUND');
+    });
+
+    it("returns status 'no-join-scopes' when the session has empty joinCodeScopes", async () => {
+      // Arrange
+      const { sessionUid } = await setupActiveSession({ joinCodeScopes: [] });
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/admin-fetch-join-code`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      const body = res.json<{
+        status: string;
+        joinCode: string | null;
+        validEnd: string | null;
+      }>();
+      expect(body.status).toBe('no-join-scopes');
+      expect(body.joinCode).toBeNull();
+      expect(body.validEnd).toBeNull();
+    });
+
+    it("returns status 'not-active' when the session has not started", async () => {
+      // Arrange
+      const { sessionUid } = await setupActiveSession();
+      await dbContext.db
+        .updateTable('sessions')
+        .set({
+          scheduled_start_time: new Date(Date.now() + 60 * 60 * 1000),
+          scheduled_end_time: new Date(Date.now() + 2 * 60 * 60 * 1000),
+        })
+        .where('uid', '=', sessionUid)
+        .execute();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/admin-fetch-join-code`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      expect(res.json<{ status: string }>().status).toBe('not-active');
+    });
+
+    it("returns status 'not-active' when the session has ended", async () => {
+      // Arrange
+      const { sessionUid } = await setupActiveSession();
+      await endSessionEarly(sessionUid);
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/admin-fetch-join-code`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      expect(res.json<{ status: string }>().status).toBe('not-active');
+    });
+
+    it("returns status 'ok' with a fresh code on the first call", async () => {
+      // Arrange
+      const { sessionUid } = await setupActiveSession();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/admin-fetch-join-code`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      const body = res.json<{
+        status: string;
+        joinCode: string | null;
+        validEnd: string | null;
+      }>();
+      expect(body.status).toBe('ok');
+      expect(body.joinCode).toMatch(/^[A-Z0-9]{8}$/);
+      expect(body.validEnd).toEqual(expect.any(String));
+    });
+
+    it('is idempotent across repeated calls within the code lifetime', async () => {
+      // Arrange
+      const { sessionUid } = await setupActiveSession();
+      const first = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/admin-fetch-join-code`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid },
+      });
+
+      // Act
+      const second = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/admin-fetch-join-code`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid },
+      });
+
+      // Assert
+      const firstBody = first.json<{ joinCode: string }>();
+      const secondBody = second.json<{ joinCode: string }>();
+      expect(secondBody.joinCode).toBe(firstBody.joinCode);
+    });
+
+    it('mints the same current code a device would get from fetch-join-code', async () => {
+      // Arrange - the admin route and the device route must agree, since the
+      // console's link has to actually work for a device that later joins.
+      const { token, sessionUid } = await setupActiveSession();
+
+      // Act
+      const adminRes = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/admin-fetch-join-code`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid },
+      });
+      const deviceRes = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/fetch-join-code`,
+        headers: { cookie: `DEVICE_TOKEN=${token}` },
+        body: { sessionUid },
+      });
+
+      // Assert
+      const adminCode = adminRes.json<{ joinCode: string }>().joinCode;
+      const deviceCode = deviceRes.json<{ current: { joinCode: string } }>()
+        .current.joinCode;
+      expect(adminCode).toBe(deviceCode);
+    });
+  });
+
   describe('POST /exchange-device-token', (it) => {
     it('returns 401 when the device cookie is missing', async () => {
       // Arrange / Act

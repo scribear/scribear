@@ -1,4 +1,12 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, vi } from 'vitest';
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  inject,
+  vi,
+} from 'vitest';
 
 import type { HealthComponent } from '#src/server/features/health/health.service.js';
 import {
@@ -117,10 +125,18 @@ describe('Health route', () => {
       expect(body.data.components.map((c) => c.name).sort()).toEqual([
         'database',
         'node-server',
+        'redis',
         'session-manager',
         'transcription-service',
       ]);
-      expect(body.data.components.every((c) => c.status === 'ok')).toBe(true);
+      // redis is not-configured by default in this suite's server (REDIS_URL
+      // unset) — every OTHER component must still be ok.
+      expect(
+        body.data.components
+          .filter((c) => c.name !== 'redis')
+          .every((c) => c.status === 'ok'),
+      ).toBe(true);
+      expect(componentNamed(body, 'redis').status).toBe('not-configured');
     });
 
     it('stays 200 when a dependency is down', async () => {
@@ -237,5 +253,114 @@ describe('Health route', () => {
       expect(componentNamed(body, 'transcription-service').status).toBe('ok');
       expect(componentNamed(body, 'database').status).toBe('ok');
     });
+  });
+});
+
+/** Stubs every probe target as healthy, so these Redis-focused suites don't
+ * also have to reason about the other three components. */
+function stubHealthyProbes() {
+  vi.stubGlobal('fetch', (url: string) => {
+    for (const base of [
+      TEST_SM_BASE_URL,
+      TEST_NODE_BASE_URL,
+      TEST_TS_BASE_URL,
+    ]) {
+      if (url.startsWith(base)) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ status: 'ok' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        );
+      }
+    }
+    return Promise.reject(new Error('unexpected fetch in redis-focused suite'));
+  });
+}
+
+describe('Health route, redis unreachable', (it) => {
+  const server = useServer({
+    // A port nothing listens on: with the telemetry client's offline queue
+    // disabled, the first command fails immediately rather than hanging for
+    // a connection that will never succeed. Matches fleet.routes.test.ts.
+    fleetTelemetryConfig: { redisUrl: 'redis://127.0.0.1:1' },
+  });
+  let cookie = '';
+
+  beforeAll(async () => {
+    cookie = (await login(server.fastify)).cookie;
+  });
+
+  beforeEach(() => {
+    stubHealthyProbes();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('reports the redis component as unreachable, not not-configured', async () => {
+    // Act
+    const res = await server.fastify.inject({
+      method: 'GET',
+      url: URL,
+      headers: { cookie },
+    });
+    const body = res.json<HealthBody>();
+
+    // Assert
+    expect(res.statusCode).toBe(200);
+    const redis = body.data.components.find((c) => c.name === 'redis');
+    expect(redis?.status).toBe('unreachable');
+  });
+});
+
+describe('Health route, redis configured (real backplane)', (it) => {
+  const server = useServer({
+    fleetTelemetryConfig: { redisUrl: inject('redisUrl') },
+  });
+  let cookie = '';
+
+  beforeAll(async () => {
+    cookie = (await login(server.fastify)).cookie;
+
+    // fleetTelemetryService's Redis client is built lazily, on the first
+    // request that resolves it — the client's offline queue is disabled, so a
+    // request racing ahead of the connection's own `ready` event reports
+    // `unreachable` once. Matches fleet.routes.test.ts's warm-up.
+    await vi.waitFor(async () => {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: URL,
+        headers: { cookie },
+      });
+      const body = res.json<HealthBody>();
+      const redis = body.data.components.find((c) => c.name === 'redis');
+      expect(redis?.status).toBe('ok');
+    });
+  });
+
+  beforeEach(() => {
+    stubHealthyProbes();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('reports the redis component as ok with a latency', async () => {
+    // Act
+    const res = await server.fastify.inject({
+      method: 'GET',
+      url: URL,
+      headers: { cookie },
+    });
+    const body = res.json<HealthBody>();
+
+    // Assert
+    expect(res.statusCode).toBe(200);
+    const redis = body.data.components.find((c) => c.name === 'redis');
+    expect(redis?.status).toBe('ok');
+    expect(redis?.latencyMs).toBeGreaterThanOrEqual(0);
   });
 });

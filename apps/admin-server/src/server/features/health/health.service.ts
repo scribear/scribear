@@ -11,12 +11,20 @@ import type { AppDependencies } from '#src/server/dependency-injection/app-depen
  * - `fail` — answered, and said it was unhealthy (a 503 readiness).
  * - `unreachable` — did not answer at all: refused, timed out, or returned
  *   something unrecognizable.
+ * - `not-configured` — the dependency is optional and intentionally unset.
+ *   Not counted against the top-bar rollup's overall status: an operator who
+ *   never configured it should not see "Degraded".
  *
  * The distinction that matters operationally is `fail` vs `unreachable`: the
  * first means the service is running and telling you what is wrong, the second
  * means you cannot even ask.
  */
-export type ComponentStatus = 'ok' | 'degraded' | 'unreachable' | 'fail';
+export type ComponentStatus =
+  | 'ok'
+  | 'degraded'
+  | 'unreachable'
+  | 'fail'
+  | 'not-configured';
 
 export interface HealthComponent {
   /** Stable identifier, matching the compose service name where there is one. */
@@ -69,13 +77,16 @@ interface ReadinessBody {
 export class HealthCheckerService {
   private _config: HealthCheckerConfig;
   private _dbClient: AppDependencies['dbClient'];
+  private _fleetTelemetryService: AppDependencies['fleetTelemetryService'];
 
   constructor(
     healthCheckerConfig: HealthCheckerConfig,
     dbClient: AppDependencies['dbClient'],
+    fleetTelemetryService: AppDependencies['fleetTelemetryService'],
   ) {
     this._config = healthCheckerConfig;
     this._dbClient = dbClient;
+    this._fleetTelemetryService = fleetTelemetryService;
   }
 
   /**
@@ -86,11 +97,12 @@ export class HealthCheckerService {
    * timeouts is a 12-second admin dashboard.
    */
   async check(): Promise<HealthComponent[]> {
-    const [database, ...probed] = await Promise.all([
+    const [database, redis, ...probed] = await Promise.all([
       this._checkDatabase(),
+      this._checkRedis(),
       ...this._config.targets.map((target) => this._checkProbe(target)),
     ]);
-    return [database, ...probed];
+    return [database, redis, ...probed];
   }
 
   private async _checkDatabase(): Promise<HealthComponent> {
@@ -105,6 +117,61 @@ export class HealthCheckerService {
         latencyMs: Date.now() - start,
         detail: err instanceof Error ? err.message : 'query failed',
       };
+    }
+  }
+
+  /**
+   * `redis` reuses the fleet-telemetry connection (`FleetTelemetryService`)
+   * rather than opening a second one. Unset `REDIS_URL` is reported as
+   * `not-configured`, not `unreachable` — it is an intentional deployment
+   * choice, not a failure.
+   *
+   * ioredis commands have no `AbortSignal` the way `fetch` does, so the
+   * timeout is a manual race rather than `_checkProbe`'s `AbortSignal.timeout`.
+   */
+  private async _checkRedis(): Promise<HealthComponent> {
+    if (!this._fleetTelemetryService.enabled) {
+      return {
+        name: 'redis',
+        status: 'not-configured',
+        latencyMs: 0,
+        detail: 'REDIS_URL is unset',
+      };
+    }
+
+    const start = Date.now();
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timeoutHandle = setTimeout(() => {
+        resolve('timeout');
+      }, this._config.timeoutMs);
+    });
+
+    try {
+      const result = await Promise.race([
+        this._fleetTelemetryService.ping(),
+        timeout,
+      ]);
+
+      if (result === 'timeout') {
+        return {
+          name: 'redis',
+          status: 'unreachable',
+          latencyMs: Date.now() - start,
+          detail: `no response within ${String(this._config.timeoutMs)}ms`,
+        };
+      }
+
+      return { name: 'redis', status: 'ok', latencyMs: result };
+    } catch (err) {
+      return {
+        name: 'redis',
+        status: 'unreachable',
+        latencyMs: Date.now() - start,
+        detail: err instanceof Error ? err.message : 'connection failed',
+      };
+    } finally {
+      clearTimeout(timeoutHandle);
     }
   }
 

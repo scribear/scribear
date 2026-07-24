@@ -1,5 +1,7 @@
 import type { BaseFastifyInstance } from '@scribear/base-fastify-server';
 import {
+  ADMIN_FETCH_JOIN_CODE_ROUTE,
+  ADMIN_FETCH_JOIN_CODE_SCHEMA,
   EXCHANGE_DEVICE_TOKEN_ROUTE,
   EXCHANGE_DEVICE_TOKEN_SCHEMA,
   EXCHANGE_JOIN_CODE_ROUTE,
@@ -11,6 +13,7 @@ import {
 } from '@scribear/session-manager-schema';
 
 import resolveHandler from '#src/server/dependency-injection/resolve-handler.js';
+import { adminApiKeyHook } from '#src/server/hooks/admin-api-key.hook.js';
 import { deviceTokenHook } from '#src/server/hooks/device-token.hook.js';
 
 export function sessionAuthRouter(fastify: BaseFastifyInstance) {
@@ -19,6 +22,13 @@ export function sessionAuthRouter(fastify: BaseFastifyInstance) {
     schema: FETCH_JOIN_CODE_SCHEMA,
     preHandler: deviceTokenHook,
     handler: resolveHandler('sessionAuthController', 'fetchJoinCode'),
+  });
+
+  fastify.route({
+    ...ADMIN_FETCH_JOIN_CODE_ROUTE,
+    schema: ADMIN_FETCH_JOIN_CODE_SCHEMA,
+    preHandler: adminApiKeyHook,
+    handler: resolveHandler('sessionAuthController', 'adminFetchJoinCode'),
   });
 
   fastify.route({

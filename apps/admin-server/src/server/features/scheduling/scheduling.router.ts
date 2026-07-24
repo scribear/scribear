@@ -24,6 +24,8 @@ import {
   GET_SCHEDULE_INPUT,
   GET_SCHEDULE_ROUTE,
   GET_SESSION_INPUT,
+  GET_SESSION_JOIN_CODE_INPUT,
+  GET_SESSION_JOIN_CODE_ROUTE,
   GET_SESSION_ROUTE,
   LIST_AUTO_SESSION_WINDOWS_INPUT,
   LIST_AUTO_SESSION_WINDOWS_ROUTE,
@@ -82,6 +84,13 @@ export function schedulingRouter(fastify: BaseFastifyInstance) {
     schema: GET_SESSION_INPUT,
     preHandler: readGuards,
     handler: resolveHandler('schedulingController', 'getSession'),
+  });
+
+  fastify.route({
+    ...GET_SESSION_JOIN_CODE_ROUTE,
+    schema: GET_SESSION_JOIN_CODE_INPUT,
+    preHandler: readGuards,
+    handler: resolveHandler('schedulingController', 'getSessionJoinCode'),
   });
 
   fastify.route({

@@ -49,6 +49,8 @@ class FakeRedis {
     Promise.resolve(keys.map((k) => this.values.get(k) ?? null)),
   );
 
+  ping = vi.fn(() => Promise.resolve('PONG'));
+
   set(key: string, value: unknown, indexKey: string, member: string): void {
     this.values.set(key, JSON.stringify(value));
     this.zsets.set(indexKey, [...(this.zsets.get(indexKey) ?? []), member]);
@@ -312,6 +314,33 @@ describe('FleetTelemetryService', () => {
       );
 
       await expect(service.snapshot()).rejects.toThrow(/disabled/);
+    });
+
+    it('rejects ping() rather than opening a connection', async () => {
+      const service = new FleetTelemetryService(
+        null,
+        createMockLogger() as unknown as AppDependencies['logger'],
+      );
+
+      await expect(service.ping()).rejects.toThrow(/disabled/);
+    });
+  });
+
+  describe('ping', (it) => {
+    it('issues a raw PING on the same connection and returns the elapsed ms', async () => {
+      const h = buildHarness();
+
+      const latencyMs = await h.service.ping();
+
+      expect(h.redis.ping).toHaveBeenCalledTimes(1);
+      expect(latencyMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('propagates a rejected PING rather than swallowing it', async () => {
+      const h = buildHarness();
+      h.redis.ping.mockRejectedValue(new Error('connection closed'));
+
+      await expect(h.service.ping()).rejects.toThrow('connection closed');
     });
   });
 });

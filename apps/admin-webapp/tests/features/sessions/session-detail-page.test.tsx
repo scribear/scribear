@@ -1,9 +1,8 @@
 import type { ReactElement } from 'react';
 
-import { beforeEach, describe, expect, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-
 import { Route, Routes } from 'react-router-dom';
+import { beforeEach, describe, expect, vi } from 'vitest';
 
 import { SessionDetailPage } from '#src/features/sessions/session-detail-page';
 import { adminApi } from '#src/lib/admin-api';
@@ -15,6 +14,7 @@ import { buildSession } from './fixtures';
 vi.mock('#src/lib/admin-api', () => ({
   adminApi: {
     getSession: vi.fn(),
+    getSessionJoinCode: vi.fn(),
   },
 }));
 
@@ -38,6 +38,13 @@ async function waitForLoad() {
 describe('SessionDetailPage', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    // Neutral default so tests unrelated to the join-code section don't have
+    // to stub it individually; overridden per-case below.
+    vi.mocked(adminApi.getSessionJoinCode).mockResolvedValue({
+      status: 'not-active',
+      joinCode: null,
+      validEnd: null,
+    });
   });
 
   describe('loading', (it) => {
@@ -69,9 +76,7 @@ describe('SessionDetailPage', () => {
       await waitForLoad();
 
       // Assert
-      expect(
-        await screen.findByText('Session not found.'),
-      ).toBeInTheDocument();
+      expect(await screen.findByText('Session not found.')).toBeInTheDocument();
     });
   });
 
@@ -109,9 +114,7 @@ describe('SessionDetailPage', () => {
       expect(
         await screen.findByText(/admin backend misconfiguration/i),
       ).toBeInTheDocument();
-      expect(
-        screen.queryByText('Session not found.'),
-      ).not.toBeInTheDocument();
+      expect(screen.queryByText('Session not found.')).not.toBeInTheDocument();
     });
   });
 
@@ -129,6 +132,83 @@ describe('SessionDetailPage', () => {
       // Assert
       expect(screen.getByText('CS 225 Lecture')).toBeInTheDocument();
       expect(screen.getByText('room-1')).toBeInTheDocument();
+    });
+  });
+
+  describe('join session', (it) => {
+    beforeEach(() => {
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({ name: 'CS 225 Lecture', roomUid: 'room-1' }),
+      );
+    });
+
+    it('shows a muted message when the session has no join code scopes', async () => {
+      // Arrange
+      vi.mocked(adminApi.getSessionJoinCode).mockResolvedValue({
+        status: 'no-join-scopes',
+        joinCode: null,
+        validEnd: null,
+      });
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      expect(
+        await screen.findByText(
+          'No join code scopes configured for this session.',
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('link', { name: /open live captions/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('shows a muted message when the session is not currently active', async () => {
+      // Arrange
+      vi.mocked(adminApi.getSessionJoinCode).mockResolvedValue({
+        status: 'not-active',
+        joinCode: null,
+        validEnd: null,
+      });
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      expect(
+        await screen.findByText(
+          'Session is not currently active — no join code available.',
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('shows the join code, copy buttons, and an open-live-captions link when active', async () => {
+      // Arrange
+      vi.mocked(adminApi.getSessionJoinCode).mockResolvedValue({
+        status: 'ok',
+        joinCode: 'ABC12345',
+        validEnd: '2026-08-01T00:05:00.000Z',
+      });
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      expect(await screen.findByText('ABC12345')).toBeInTheDocument();
+      const link = screen.getByRole('link', {
+        name: /open live captions/i,
+      });
+      expect(link).toHaveAttribute(
+        'href',
+        expect.stringContaining('/client/#config='),
+      );
+      expect(
+        screen.getAllByRole('button', { name: /copy join/i }),
+      ).toHaveLength(2);
     });
   });
 });

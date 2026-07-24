@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
@@ -8,6 +9,7 @@ import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
 import FormControl from '@mui/material/FormControl';
 import Grid from '@mui/material/Grid';
+import IconButton from '@mui/material/IconButton';
 import InputLabel from '@mui/material/InputLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
@@ -19,6 +21,9 @@ import Typography from '@mui/material/Typography';
 import { useNavigate } from 'react-router-dom';
 
 import type { MergedProvider } from '#src/lib/admin-api';
+import { adminApi } from '#src/lib/admin-api';
+import { buildJoinUrl } from '#src/lib/join-url';
+import { useToast } from '#src/lib/toast-context';
 
 import type { FleetFilter, FleetRow, FleetStatus } from './fleet-status';
 import {
@@ -143,10 +148,46 @@ const FleetFilterBar = ({
 
 const SessionCard = ({ session, status, event }: FleetRow) => {
   const navigate = useNavigate();
+  const { showError } = useToast();
   const p95 = pipelineP95(session);
+
+  const handleOpenClient = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    adminApi
+      .getSessionJoinCode(session.sessionUid)
+      .then((result) => {
+        if (result.status !== 'ok' || result.joinCode === null) {
+          showError('Session is not currently joinable.');
+          return;
+        }
+        window.open(
+          buildJoinUrl(result.joinCode),
+          '_blank',
+          'noopener,noreferrer',
+        );
+      })
+      .catch(() => {
+        showError('Failed to fetch join code.');
+      });
+  };
+
   return (
     <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
-      <Card variant="outlined">
+      <Card variant="outlined" sx={{ position: 'relative' }}>
+        <IconButton
+          size="small"
+          onClick={handleOpenClient}
+          aria-label="Open live captions"
+          sx={{
+            position: 'absolute',
+            top: 4,
+            right: 4,
+            zIndex: 1,
+            bgcolor: 'background.paper',
+          }}
+        >
+          <OpenInNewIcon fontSize="small" />
+        </IconButton>
         <CardActionArea
           onClick={() => {
             void navigate(`/sessions/${session.sessionUid}`);

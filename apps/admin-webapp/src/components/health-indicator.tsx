@@ -23,7 +23,13 @@ function overall(report: HealthReport | null): {
 } {
   if (!report) return { color: 'default', label: 'Unknown' };
 
-  const statuses = [report.bff, ...report.components.map((c) => c.status)];
+  // 'not-configured' components (e.g. redis with REDIS_URL unset) are an
+  // intentional deployment choice, not a fault — excluded here so an operator
+  // who never configured an optional dependency still sees "Healthy".
+  const statuses = [
+    report.bff,
+    ...report.components.map((c) => c.status),
+  ].filter((s) => s !== 'not-configured');
   if (statuses.every((s) => s === 'ok'))
     return { color: 'success', label: 'Healthy' };
   // 'fail' and 'unreachable' are hard down; 'degraded' is working-but-impaired.

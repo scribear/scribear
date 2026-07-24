@@ -12,6 +12,7 @@ const FAKE_TOKEN_EXPIRES = new Date('2026-04-27T12:05:00.000Z');
 describe('SessionAuthController', () => {
   let mockService: {
     fetchJoinCodes: Mock;
+    fetchJoinCodeForAdmin: Mock;
     exchangeDeviceToken: Mock;
     exchangeJoinCode: Mock;
     refreshSessionToken: Mock;
@@ -24,6 +25,7 @@ describe('SessionAuthController', () => {
   beforeEach(() => {
     mockService = {
       fetchJoinCodes: vi.fn(),
+      fetchJoinCodeForAdmin: vi.fn(),
       exchangeDeviceToken: vi.fn(),
       exchangeJoinCode: vi.fn(),
       refreshSessionToken: vi.fn(),
@@ -162,6 +164,79 @@ describe('SessionAuthController', () => {
           },
         }),
       );
+    });
+  });
+
+  describe('adminFetchJoinCode', (it) => {
+    it("throws 404 when the service returns 'SESSION_NOT_FOUND'", async () => {
+      // Arrange
+      mockService.fetchJoinCodeForAdmin.mockResolvedValue('SESSION_NOT_FOUND');
+      const mockReq = { body: { sessionUid: SESSION_UID } };
+
+      // Act + Assert
+      await expect(
+        controller.adminFetchJoinCode(mockReq as never, mockRes as never),
+      ).rejects.toMatchObject({
+        statusCode: 404,
+        code: 'SESSION_NOT_FOUND',
+      });
+    });
+
+    it("returns 200 with status 'not-active' when the service returns 'SESSION_NOT_CURRENTLY_ACTIVE'", async () => {
+      // Arrange
+      mockService.fetchJoinCodeForAdmin.mockResolvedValue(
+        'SESSION_NOT_CURRENTLY_ACTIVE',
+      );
+      const mockReq = { body: { sessionUid: SESSION_UID } };
+
+      // Act
+      await controller.adminFetchJoinCode(mockReq as never, mockRes as never);
+
+      // Assert
+      expect(mockCode).toHaveBeenCalledWith(200);
+      expect(mockSend).toHaveBeenCalledWith({
+        status: 'not-active',
+        joinCode: null,
+        validEnd: null,
+      });
+    });
+
+    it("returns 200 with status 'no-join-scopes' when the service returns 'JOIN_CODE_SCOPES_EMPTY'", async () => {
+      // Arrange
+      mockService.fetchJoinCodeForAdmin.mockResolvedValue(
+        'JOIN_CODE_SCOPES_EMPTY',
+      );
+      const mockReq = { body: { sessionUid: SESSION_UID } };
+
+      // Act
+      await controller.adminFetchJoinCode(mockReq as never, mockRes as never);
+
+      // Assert
+      expect(mockSend).toHaveBeenCalledWith({
+        status: 'no-join-scopes',
+        joinCode: null,
+        validEnd: null,
+      });
+    });
+
+    it("returns 200 with status 'ok' and an ISO-formatted validEnd on success", async () => {
+      // Arrange
+      mockService.fetchJoinCodeForAdmin.mockResolvedValue({
+        joinCode: 'AAAA1111',
+        validEnd: FAKE_VALID_END,
+      });
+      const mockReq = { body: { sessionUid: SESSION_UID } };
+
+      // Act
+      await controller.adminFetchJoinCode(mockReq as never, mockRes as never);
+
+      // Assert
+      expect(mockCode).toHaveBeenCalledWith(200);
+      expect(mockSend).toHaveBeenCalledWith({
+        status: 'ok',
+        joinCode: 'AAAA1111',
+        validEnd: FAKE_VALID_END.toISOString(),
+      });
     });
   });
 
