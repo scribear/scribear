@@ -19,6 +19,7 @@ import type { Session } from '@scribear/session-manager-schema';
 import { ConfirmDialog } from '#src/components/confirm-dialog';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { useAsyncData } from '#src/lib/use-async-data';
 import { useToast } from '#src/lib/toast-context';
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -47,69 +48,40 @@ export const SessionDetailPage = () => {
   const { sessionUid } = useParams<{ sessionUid: string }>();
   const { showSuccess, showError } = useToast();
 
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [misconfigured, setMisconfigured] = useState(false);
-  const [notFound, setNotFound] = useState(false);
+  const {
+    data: session,
+    loading,
+    error,
+    reload,
+  } = useAsyncData<Session>(
+    () =>
+      sessionUid === undefined
+        ? Promise.reject(new ApiError('NOT_FOUND', 'No session id.', 404))
+        : adminApi.getSession(sessionUid),
+    [sessionUid],
+  );
+
+  // Branches derived from the load error rather than stored as separate state.
+  const misconfigured = isApiErrorCode(error, 'BACKEND_MISCONFIGURATION');
+  const notFound = error instanceof ApiError && error.status === 404;
 
   const [startConfirmOpen, setStartConfirmOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [endConfirmOpen, setEndConfirmOpen] = useState(false);
   const [ending, setEnding] = useState(false);
 
-  const load = () => {
-    if (sessionUid === undefined) return;
-    setLoading(true);
-    setNotFound(false);
-    setMisconfigured(false);
-    adminApi
-      .getSession(sessionUid)
-      .then((s) => {
-        setSession(s);
-      })
-      .catch((err: unknown) => {
-        if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
-          setMisconfigured(true);
-        } else if (err instanceof ApiError && err.status === 404) {
-          setNotFound(true);
-        } else {
-          showError(errorMessage(err, 'Failed to load session.'));
-        }
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  };
-
+  // Any load failure that isn't misconfiguration or not-found is surfaced as a
+  // toast, once per error.
   useEffect(() => {
-    if (sessionUid === undefined) return;
-    const alive = { current: true };
-    setLoading(true);
-    setNotFound(false);
-    setMisconfigured(false);
-    adminApi
-      .getSession(sessionUid)
-      .then((s) => {
-        if (alive.current) setSession(s);
-      })
-      .catch((err: unknown) => {
-        if (!alive.current) return;
-        if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
-          setMisconfigured(true);
-        } else if (err instanceof ApiError && err.status === 404) {
-          setNotFound(true);
-        } else {
-          showError(errorMessage(err, 'Failed to load session.'));
-        }
-      })
-      .finally(() => {
-        if (alive.current) setLoading(false);
-      });
-    return () => {
-      alive.current = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionUid]);
+    if (
+      error !== null &&
+      !isApiErrorCode(error, 'BACKEND_MISCONFIGURATION') &&
+      !(error instanceof ApiError && error.status === 404)
+    ) {
+      showError(errorMessage(error, 'Failed to load session.'));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
+  }, [error]);
 
   const handleStartEarly = () => {
     if (sessionUid === undefined) return;
@@ -118,14 +90,10 @@ export const SessionDetailPage = () => {
       .startSessionEarly(sessionUid)
       .then(() => {
         showSuccess('Session started early.');
-        load();
+        reload();
       })
       .catch((err: unknown) => {
-        if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
-          setMisconfigured(true);
-        } else {
-          showError(errorMessage(err, 'Failed to start session early.'));
-        }
+        showError(errorMessage(err, 'Failed to start session early.'));
       })
       .finally(() => {
         setStarting(false);
@@ -140,14 +108,10 @@ export const SessionDetailPage = () => {
       .endSessionEarly(sessionUid)
       .then(() => {
         showSuccess('Session ended early.');
-        load();
+        reload();
       })
       .catch((err: unknown) => {
-        if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
-          setMisconfigured(true);
-        } else {
-          showError(errorMessage(err, 'Failed to end session early.'));
-        }
+        showError(errorMessage(err, 'Failed to end session early.'));
       })
       .finally(() => {
         setEnding(false);

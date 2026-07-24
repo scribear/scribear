@@ -13,7 +13,7 @@ function resolveHandler<
   const wrapper = async (req: FastifyRequest, res: FastifyReply) => {
     const routeController = req.diScope.resolve(
       controller,
-    ) as AppDependencies[C];
+    );
 
     if (
       !(method in routeController) ||

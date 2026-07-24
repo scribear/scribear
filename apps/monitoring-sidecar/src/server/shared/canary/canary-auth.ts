@@ -194,7 +194,7 @@ export class CanaryAuthClient {
     const body: unknown = await response.json().catch(() => null);
     const code =
       typeof body === 'object' && body !== null && 'code' in body
-        ? String((body as { code: unknown }).code)
+        ? String(body.code)
         : null;
     return new CanaryAuthError(
       `Failed to ${action}: HTTP ${String(response.status)}${code === null ? '' : ` (${code})`}.`,

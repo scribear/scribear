@@ -24,7 +24,7 @@ export const useDebouncedReduxValue = <T>(
   const [value, setValue] = useState<T>(reduxValue);
 
   useEffect(() => {
-    // eslint-disable-next-line @eslint-react/hooks-extra/no-direct-set-state-in-use-effect
+    // eslint-disable-next-line @eslint-react/set-state-in-effect, react-hooks/set-state-in-effect -- intentional sync of upstream Redux value into local state
     setValue(reduxValue);
   }, [reduxValue]);
 

@@ -127,7 +127,7 @@ export class ProbePollerService {
       if (!healthy) {
         const body: unknown = await response.json().catch(() => null);
         if (typeof body === 'object' && body !== null && 'checks' in body) {
-          const raw = (body as { checks: unknown }).checks;
+          const raw = body.checks;
           if (typeof raw === 'object' && raw !== null) {
             checks = {};
             for (const [k, v] of Object.entries(raw)) {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect } from 'react';
 
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
@@ -24,6 +24,7 @@ import type {
 } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError } from '#src/lib/api-error';
+import { useAsyncData } from '#src/lib/use-async-data';
 import { useToast } from '#src/lib/toast-context';
 
 /**
@@ -151,37 +152,20 @@ const FindingCard = ({
  */
 export const ConfigCheckPage = () => {
   const { showError } = useToast();
-  const [report, setReport] = useState<ConfigCheckReport | null>(null);
-  const [loading, setLoading] = useState(true);
-  // Bumped by "Re-run". A token rather than calling the loader directly so the
-  // fetch has exactly one owner, and its in-flight result can be discarded on
-  // unmount along with every other run.
-  const [reloadToken, setReloadToken] = useState(0);
+  const {
+    data: report,
+    loading,
+    error,
+    reload,
+  } = useAsyncData(() => adminApi.configCheck(), []);
 
-  const reload = useCallback(() => {
-    setReloadToken((n) => n + 1);
-  }, []);
-
+  // A failed run is surfaced as a toast; `report` keeps its last value (or null).
   useEffect(() => {
-    const alive = { current: true };
-    setLoading(true);
-    adminApi
-      .configCheck()
-      .then((r) => {
-        if (alive.current) setReport(r);
-      })
-      .catch((err: unknown) => {
-        if (alive.current)
-          showError(errorMessage(err, 'Failed to run the config check.'));
-      })
-      .finally(() => {
-        if (alive.current) setLoading(false);
-      });
-    return () => {
-      alive.current = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reloadToken]);
+    if (error !== null) {
+      showError(errorMessage(error, 'Failed to run the config check.'));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
+  }, [error]);
 
   if (loading && report === null) {
     return (

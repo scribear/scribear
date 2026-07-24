@@ -1,10 +1,8 @@
 import {
-  type TSchema,
   type TypeBoxTypeProvider,
   TypeBoxValidatorCompiler,
 } from '@fastify/type-provider-typebox';
 import fastifyPlugin from 'fastify-plugin';
-import type { FastifyRouteSchemaDef } from 'fastify/types/schema.js';
 
 import { BaseHttpError } from '../errors/http-errors.js';
 import type { BaseFastifyInstance } from '../types/base-fastify-types.js';
@@ -19,9 +17,7 @@ export default fastifyPlugin((fastify: BaseFastifyInstance) => {
   fastify.withTypeProvider<TypeBoxTypeProvider>();
 
   fastify.setValidatorCompiler((schemaDef) => {
-    const validator = TypeBoxValidatorCompiler(
-      schemaDef as FastifyRouteSchemaDef<TSchema>,
-    );
+    const validator = TypeBoxValidatorCompiler(schemaDef);
 
     return (...args) => {
       const result = validator(...args) as {

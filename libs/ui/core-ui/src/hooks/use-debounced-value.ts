@@ -26,7 +26,7 @@ export const useDebouncedValue = <T>(
   const [localValue, setLocalValue] = useState<T>(value);
 
   useEffect(() => {
-    // eslint-disable-next-line @eslint-react/hooks-extra/no-direct-set-state-in-use-effect -- intentional sync of upstream value into local state
+    // eslint-disable-next-line @eslint-react/set-state-in-effect, react-hooks/set-state-in-effect -- intentional sync of upstream value into local state
     setLocalValue(value);
   }, [value]);
 
