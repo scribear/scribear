@@ -3,6 +3,10 @@
 **/node_modules
 **/dist
 **/coverage
+# The webapps keep tsc's build info outside ./dist (vite would delete it there),
+# so exclude it explicitly - it is a local build artifact, and letting it into
+# the context would invalidate the `COPY . .` layer whenever a developer builds.
+**/*.tsbuildinfo
 transcription_service
 
 # Not inputs to any image build. Excluded so they neither bloat the context nor

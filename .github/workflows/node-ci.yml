@@ -101,6 +101,7 @@ jobs:
             infra/*/dist
             libs/*/dist
             libs/*/*/dist
+            apps/*/.tsbuildinfo
           key: tsbuild-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
           restore-keys: |
             tsbuild-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
