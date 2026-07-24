@@ -220,9 +220,9 @@ describe('Redis telemetry publisher — fleet event deltas', () => {
     it('round-trips a session status delta through real Redis pub/sub', async () => {
       // Arrange
       const received = new Promise<string>((resolve) => {
-        subscriber.once('message', (_channel, message: string) =>
-          resolve(message),
-        );
+        subscriber.once('message', (_channel, message: string) => {
+          resolve(message);
+        });
       });
       await subscriber.subscribe(FLEET_EVENTS_CHANNEL_KEY);
 

@@ -15,8 +15,8 @@
     "dev": "vite",
     "format": "prettier --check ./src",
     "format:fix": "prettier --write ./src",
-    "lint": "eslint ./src",
-    "lint:fix": "eslint ./src --fix",
+    "lint": "eslint ./src ./tests",
+    "lint:fix": "eslint ./src ./tests --fix",
     "test:unit": "vitest run --project unit"
   },
   "dependencies": {
