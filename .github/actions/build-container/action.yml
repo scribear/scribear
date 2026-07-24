@@ -11,9 +11,14 @@ inputs:
     description: "Path to the Dockerfile."
     required: true
   cache_variant:
-    description: "Cache variant to write to ('pr', 'staging', 'main'). All variants are always read from."
+    description: >
+      Branch whose build cache this run should write ('staging', 'main').
+      Leave empty to build read-only, which is what PR CI wants: every PR shared
+      a single `buildcache-pr` tag, so a PR almost always imported some other
+      PR's cache while still paying ~55s per image to export its own.
+      staging/main caches are read either way.
     required: false
-    default: 'pr'
+    default: ''
   custom_tags:
     description: "Optional newline-delimited tags to publish instead of the default metadata tags."
     required: false
@@ -79,6 +84,17 @@ runs:
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
+      with:
+        # Pull docker.io base images (node, nginx, postgres, nvidia/cuda) through
+        # Google's public mirror. Even authenticated, a Docker Personal account's
+        # hourly pull allowance does not cover a dozen images per run across many
+        # concurrent PRs - that is what produced the `429 Too Many Requests` on
+        # nvidia/cuda. BuildKit falls back to docker.io when the mirror lacks an
+        # image, so this is a pure win. Pushes are unaffected (mirrors are
+        # pull-only).
+        buildkitd-config-inline: |
+          [registry."docker.io"]
+            mirrors = ["mirror.gcr.io"]
 
     # Fork PRs run with a read-only GITHUB_TOKEN and no DockerHub secrets, so they
     # cannot log in, push, or write cache. Detect that case and build-only (which still
@@ -112,53 +128,23 @@ runs:
         username: ${{ github.actor }}
         password: ${{ inputs.github_token }}
 
-    # Build different platforms first using independent buildcaches without pushing.
-    #   This ensures buildcache isn't overwritten by other architectures, so builds can
-    #   actually take advantage of caching (vs buildcache always containing the wrong architecture image).
-    #   All variants are read from so feature branches benefit from staging and main caches.
-    - name: Build linux/amd64
+    # One build step, not two. The old build-then-push split existed so each
+    # architecture could own its buildcache tag instead of clobbering the other's;
+    # with the arm64 build disabled (see below) there is only one architecture, so
+    # the second invocation just replayed the first from local cache - ~17s and six
+    # more registry manifest reads per image, for nothing.
+    #
+    # Cache lives on GHCR only (GITHUB_TOKEN auth, no pull limits). The DockerHub
+    # cache reads that used to sit alongside these were 54 DockerHub requests per
+    # node-ci run before a single base image was pulled, which is a large part of
+    # what exhausted the account's pull allowance.
+    #
+    # `mode` is deliberately absent from cache-from: it is a cache-to option and
+    # was silently ignored on every one of these refs.
+    - name: Build and Push
       uses: docker/build-push-action@v6
       with:
-        push: false
-        context: ${{ inputs.build_context }}
-        file: ${{ inputs.dockerfile }}
-        platforms: "linux/amd64"
-        build-args: ${{ inputs.build_args }}
-        # Cache now lives on GHCR (GITHUB_TOKEN auth, no DockerHub pull limits).
-        # DockerHub cache reads remain during the migration so the first post-switch
-        # builds stay warm; drop them once the GHCR cache is populated.
-        cache-from: |
-          type=registry,mode=max,ref=ghcr.io/${{ inputs.image_name }}:buildcache-pr-linux-amd64
-          type=registry,mode=max,ref=ghcr.io/${{ inputs.image_name }}:buildcache-staging-linux-amd64
-          type=registry,mode=max,ref=ghcr.io/${{ inputs.image_name }}:buildcache-main-linux-amd64
-          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-pr-linux-amd64
-          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-staging-linux-amd64
-          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-main-linux-amd64
-        # No cache write on fork PRs — the read-only token cannot push to GHCR.
-        cache-to: ${{ steps.eligibility.outputs.can_push == 'true' && format('type=registry,mode=max,ref=ghcr.io/{0}:buildcache-{1}-linux-amd64', inputs.image_name, inputs.cache_variant) || '' }}
-
-    # Disable arm builds due to extremely slow github actions
-    # - name: Build linux/arm64
-    #   uses: docker/build-push-action@v6
-    #   with:
-    #     push: false
-    #     context: ${{ inputs.build_context }}
-    #     file: ${{ inputs.dockerfile }}
-    #     platforms: "linux/arm64"
-    #     cache-from: |
-    #       type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-pr-linux-arm64
-    #       type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-staging-linux-arm64
-    #       type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-main-linux-arm64
-    #     cache-to: type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-${{ inputs.cache_variant }}-linux-arm64
-
-    # After independent builds, combine all architectures and push.
-    #   A single multi-arch manifest is created rather than letting each architecture overwrite the tag.
-    #   Since the per-arch builds ran independently, this step can pull from all buildcaches.
-    - name: Push Images
-      if: steps.eligibility.outputs.can_push == 'true'
-      uses: docker/build-push-action@v6
-      with:
-        push: true
+        push: ${{ steps.eligibility.outputs.can_push == 'true' }}
         context: ${{ inputs.build_context }}
         file: ${{ inputs.dockerfile }}
         platforms: "linux/amd64"
@@ -167,12 +153,13 @@ runs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: |
-          type=registry,mode=max,ref=ghcr.io/${{ inputs.image_name }}:buildcache-pr-linux-amd64
-          type=registry,mode=max,ref=ghcr.io/${{ inputs.image_name }}:buildcache-staging-linux-amd64
-          type=registry,mode=max,ref=ghcr.io/${{ inputs.image_name }}:buildcache-main-linux-amd64
-          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-pr-linux-amd64
-          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-staging-linux-amd64
-          type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-main-linux-amd64
-        # type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-pr-linux-arm64
-        # type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-staging-linux-arm64
-        # type=registry,mode=max,ref=${{ inputs.image_name }}:buildcache-main-linux-arm64
+          type=registry,ref=ghcr.io/${{ inputs.image_name }}:buildcache-staging-linux-amd64
+          type=registry,ref=ghcr.io/${{ inputs.image_name }}:buildcache-main-linux-amd64
+        # Written only on a branch build (cache_variant set) and never on fork PRs,
+        # whose read-only token cannot push to GHCR.
+        cache-to: ${{ (inputs.cache_variant != '' && steps.eligibility.outputs.can_push == 'true') && format('type=registry,mode=max,ref=ghcr.io/{0}:buildcache-{1}-linux-amd64', inputs.image_name, inputs.cache_variant) || '' }}
+
+    # Disable arm builds due to extremely slow github actions.
+    # Restoring arm64 means going back to per-architecture build steps with
+    # separate buildcache tags, then a final manifest-only push - see git history
+    # for the shape that had.

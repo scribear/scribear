@@ -13,18 +13,37 @@ permissions:
   packages: write
   pull-requests: write
 
+# Pushing again to an open PR should abandon the previous run, not race it. Six
+# overlapping runs of the same PR were routine, each holding ~15 runners and
+# each pulling its own base images - a large part of why builds started hitting
+# registry rate limits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
       workspaces: ${{ steps.changes.outputs.workspaces }}
       has_changes: ${{ steps.changes.outputs.has_changes }}
+      image_matrix: ${{ steps.image_matrix.outputs.matrix }}
+      has_images: ${{ steps.image_matrix.outputs.has_images }}
     steps:
+      # fetch-depth: 0 so detect-changes can diff against the PR base commit.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Detect Changed Workspaces
         id: changes
         uses: ./.github/actions/detect-changes
+
+      - name: Resolve node image matrix
+        id: image_matrix
+        uses: ./.github/actions/node-image-matrix
+        with:
+          workspaces: ${{ steps.changes.outputs.workspaces }}
 
   format:
     needs: changes
@@ -38,13 +57,7 @@ jobs:
       - name: Check formatting
         env:
           WORKSPACES: ${{ needs.changes.outputs.workspaces }}
-        run: |
-          node -e "console.log(JSON.parse(process.env.WORKSPACES).join('\n'))" > /tmp/workspaces.txt
-          while IFS= read -r ws; do
-            echo "::group::$ws"
-            npm run format --workspace "$ws"
-            echo "::endgroup::"
-          done < /tmp/workspaces.txt
+        run: .github/scripts/run-workspaces.sh format
 
   lint:
     needs: changes
@@ -58,13 +71,7 @@ jobs:
       - name: Run linter
         env:
           WORKSPACES: ${{ needs.changes.outputs.workspaces }}
-        run: |
-          node -e "console.log(JSON.parse(process.env.WORKSPACES).join('\n'))" > /tmp/workspaces.txt
-          while IFS= read -r ws; do
-            echo "::group::$ws"
-            npm run lint --workspace "$ws"
-            echo "::endgroup::"
-          done < /tmp/workspaces.txt
+        run: .github/scripts/run-workspaces.sh lint
 
   build:
     needs: changes
@@ -75,16 +82,15 @@ jobs:
       - name: Setup Node
         uses: ./.github/actions/setup-node
 
+      # Serial on purpose. `tsc --build` also builds a workspace's referenced
+      # projects, so two concurrent invocations can race writing the same
+      # dist/ and .tsbuildinfo for a shared lib.
       - name: Run build
         env:
           WORKSPACES: ${{ needs.changes.outputs.workspaces }}
-        run: |
-          node -e "console.log(JSON.parse(process.env.WORKSPACES).join('\n'))" > /tmp/workspaces.txt
-          while IFS= read -r ws; do
-            echo "::group::$ws"
-            npm run build --workspace "$ws" --if-present
-            echo "::endgroup::"
-          done < /tmp/workspaces.txt
+          IF_PRESENT: "true"
+          CONCURRENCY: "1"
+        run: .github/scripts/run-workspaces.sh build
 
   test:
     needs: changes
@@ -95,16 +101,15 @@ jobs:
       - name: Setup Node
         uses: ./.github/actions/setup-node
 
+      # Serial on purpose. Vitest already runs its own worker pool per
+      # workspace; stacking workspaces on top would oversubscribe the runner
+      # and make timing-sensitive tests flaky.
       - name: Run unit tests
         env:
           WORKSPACES: ${{ needs.changes.outputs.workspaces }}
-        run: |
-          node -e "console.log(JSON.parse(process.env.WORKSPACES).join('\n'))" > /tmp/workspaces.txt
-          while IFS= read -r ws; do
-            echo "::group::$ws"
-            npm run test:unit --workspace "$ws" --if-present
-            echo "::endgroup::"
-          done < /tmp/workspaces.txt
+          IF_PRESENT: "true"
+          CONCURRENCY: "1"
+        run: .github/scripts/run-workspaces.sh test:unit
 
       - name: Code Coverage Report - Base Fastify Server Unit Tests
         if: contains(needs.changes.outputs.workspaces, 'libs/base-fastify-server')
@@ -150,56 +155,14 @@ jobs:
 
   docker-build:
     needs: [changes, format, lint, build, test]
-    if: needs.changes.outputs.has_changes == 'true'
+    if: needs.changes.outputs.has_images == 'true'
+    # Only the affected images get a runner. The matrix itself lives in
+    # .github/node-images.json so node-ci and node-cd cannot drift apart on
+    # which images exist.
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - image_name: scribear/scribear-db
-            build_context: infra/scribear-db
-            dockerfile: infra/scribear-db/Dockerfile
-            workspace: infra/scribear-db
-            version_file: infra/scribear-db/package.json
-          - image_name: scribear/scribear-nginx
-            build_context: infra/scribear-nginx
-            dockerfile: infra/scribear-nginx/Dockerfile
-            workspace: infra/scribear-nginx
-            version_file: infra/scribear-nginx/package.json
-          - image_name: scribear/client-webapp
-            build_context: .
-            dockerfile: apps/client-webapp/Dockerfile
-            workspace: apps/client-webapp
-            version_file: apps/client-webapp/package.json
-          - image_name: scribear/kiosk-webapp
-            build_context: .
-            dockerfile: apps/kiosk-webapp/Dockerfile
-            workspace: apps/kiosk-webapp
-            version_file: apps/kiosk-webapp/package.json
-          - image_name: scribear/standalone-webapp
-            build_context: .
-            dockerfile: apps/standalone-webapp/Dockerfile
-            workspace: apps/standalone-webapp
-            version_file: apps/standalone-webapp/package.json
-          - image_name: scribear/session-manager
-            build_context: .
-            dockerfile: apps/session-manager/Dockerfile
-            workspace: apps/session-manager
-            version_file: apps/session-manager/package.json
-          - image_name: scribear/node-server
-            build_context: .
-            dockerfile: apps/node-server/Dockerfile
-            workspace: apps/node-server
-            version_file: apps/node-server/package.json
-          - image_name: scribear/admin-server
-            build_context: .
-            dockerfile: apps/admin-server/Dockerfile
-            workspace: apps/admin-server
-            version_file: apps/admin-server/package.json
-          - image_name: scribear/admin-webapp
-            build_context: .
-            dockerfile: apps/admin-webapp/Dockerfile
-            workspace: apps/admin-webapp
-            version_file: apps/admin-webapp/package.json
+      matrix: ${{ fromJSON(needs.changes.outputs.image_matrix) }}
+    name: docker-build (${{ matrix.image_name }})
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -210,21 +173,24 @@ jobs:
         with:
           version_file: ${{ matrix.version_file }}
 
+      # cache_variant is deliberately unset: PR builds read the staging/main
+      # caches but write nothing. See build-container for why.
       - name: Build Container
-        if: contains(needs.changes.outputs.workspaces, matrix.workspace)
         uses: ./.github/actions/build-container
         with:
           image_name: ${{ matrix.image_name }}
           build_context: ${{ matrix.build_context }}
           dockerfile: ${{ matrix.dockerfile }}
-          cache_variant: pr
           custom_tags: ${{ steps.tags.outputs.tags }}
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
+  # Deliberately NOT downstream of docker-build. This job builds its own `:test`
+  # images with prepare-test-container and never consumed docker-build's output,
+  # so the dependency only forced it to sit idle for ~3 minutes first.
   integration-test:
-    needs: [changes, format, lint, build, test, docker-build]
+    needs: [changes, format, lint, build, test]
     if: needs.changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -287,17 +253,23 @@ jobs:
           package_name: "Node Server - Integration Tests"
           filename: "./apps/node-server/coverage/cobertura-coverage.xml"
 
+  # Also not downstream of docker-build, for the same reason: it builds the DB
+  # image it needs itself.
   check-database-types:
-    needs: [changes, docker-build]
+    needs: [changes]
     if: contains(needs.changes.outputs.workspaces, 'infra/scribear-db')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-node
 
+      # Unconditional: this job only runs when infra/scribear-db is affected,
+      # and every step below needs the image. It used to be gated on
+      # apps/session-manager, which is a different condition entirely - it
+      # happened to hold only because session-manager references scribear-db,
+      # so the dependent expansion always pulled it in.
       - name: Prepare Scribear DB Container
         uses: ./.github/actions/prepare-test-container
-        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
         with:
           image_name: scribear/scribear-db
           build_context: ./infra/scribear-db
@@ -353,7 +325,9 @@ jobs:
           (echo "Error: Generated database types are out of date. Run 'npm run generate:types' in infra/scribear-db and commit the changes." && exit 1)
 
   node-ci:
-    needs: [format, lint, build, test, docker-build, integration-test, check-database-types]
+    # `changes` is included so that a failure there fails the gate. Without it,
+    # every other job is skipped and "all skipped" reads as a pass.
+    needs: [changes, format, lint, build, test, docker-build, integration-test, check-database-types]
     if: always()
     runs-on: ubuntu-latest
     steps:

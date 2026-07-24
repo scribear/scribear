@@ -13,6 +13,12 @@ permissions:
   packages: write
   pull-requests: write
 
+# See node-ci: superseded runs should be cancelled, not left to compete for
+# runners and registry pull allowance.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -100,6 +106,8 @@ jobs:
         with:
           version_file: ${{ matrix.version_file }}
 
+      # cache_variant is deliberately unset: PR builds read the staging/main
+      # caches but write nothing. See build-container for why.
       - name: Build Container
         uses: ./.github/actions/build-container
         with:
@@ -107,14 +115,15 @@ jobs:
           build_context: ${{ matrix.build_context }}
           dockerfile: ${{ matrix.dockerfile }}
           build_args: ${{ matrix.build_args }}
-          cache_variant: pr
           custom_tags: ${{ steps.tags.outputs.tags }}
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
+  # Not downstream of docker-build: `make test_integration` is pure pytest and
+  # never touches a container image, so the dependency only delayed it.
   integration-test:
-    needs: [changes, format, lint, test, docker-build]
+    needs: [changes, format, lint, test]
     if: needs.changes.outputs.transcription_service == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -133,7 +142,9 @@ jobs:
           filename: "./transcription_service/coverage.xml"
 
   python-ci:
-    needs: [format, lint, test, docker-build, integration-test]
+    # `changes` is included so that a failure there fails the gate. Without it,
+    # every other job is skipped and "all skipped" reads as a pass.
+    needs: [changes, format, lint, test, docker-build, integration-test]
     if: always()
     runs-on: ubuntu-latest
     steps:
