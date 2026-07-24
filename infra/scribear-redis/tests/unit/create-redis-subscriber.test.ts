@@ -176,6 +176,46 @@ describe('createRedisSubscriber', () => {
     expect(warnSpy).toHaveBeenCalled();
   });
 
+  it('should register an error listener so a connection error does not crash the process', () => {
+    // A bare ioredis client emitting `error` with no listener throws and takes
+    // the process down. The factory owns its client, so it must listen itself -
+    // a telemetry backplane it cannot reach should cost events, not the server.
+    //
+    // Arrange
+    const warnSpy = vi.spyOn(console, 'warn').mockReturnValue(undefined);
+    createRedisSubscriber(TEST_CHANNEL_DEF, 'redis://localhost:6379');
+
+    // Act + Assert: emitting `error` must not throw (a listener is attached).
+    expect(() =>
+      mockRedisInstance.emit('error', new Error('WRONGPASS')),
+    ).not.toThrow();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('WRONGPASS'));
+  });
+
+  it('should swallow a rejected subscribe rather than leak an unhandled rejection', async () => {
+    // `redis.subscribe` rejects when auth fails or the connection drops before
+    // it lands. Discarded with `void`, that reject is an unhandled rejection,
+    // which under Node's default crashes the process - black-holing admin login.
+    //
+    // Arrange
+    mockRedisInstance.subscribe.mockRejectedValueOnce(new Error('WRONGPASS'));
+    const warnSpy = vi.spyOn(console, 'warn').mockReturnValue(undefined);
+    const subscriber = createRedisSubscriber(
+      TEST_CHANNEL_DEF,
+      'redis://localhost:6379',
+    );
+
+    // Act: the synchronous call must not throw, and the pending rejection must
+    // be caught on the next microtask rather than surfacing as unhandled.
+    subscriber.subscribe(vi.fn(), 'channel');
+    await Promise.resolve();
+
+    // Assert
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('failed to subscribe'),
+    );
+  });
+
   it('should call redis.disconnect on disconnect, not the graceful quit', async () => {
     // `quit` is an ordinary command: if the connection never established, it
     // queues behind the `subscribe` this class always issues and waits on a
