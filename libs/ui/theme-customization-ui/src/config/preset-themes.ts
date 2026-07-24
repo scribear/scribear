@@ -58,8 +58,10 @@ export const PRESET_THEMES: PresetThemeConfig[] = [
   },
   {
     id: 'sky-blue',
+    // Darkened background so white caption text clears AA (was #3499cb = 3.20:1,
+    // fails once the font shrinks below large-text size). #1c6a94 ≈ 4.6:1. SC 1.4.3
     name: 'Sky Blue',
-    backgroundColor: '#3499cb',
+    backgroundColor: '#1c6a94',
     accentColor: '#e2af8d',
     transcriptionColor: '#ffffff',
   },

@@ -19,6 +19,39 @@ violations (impact, rule id, help URL, offending selectors) prints to stdout.
 Chrome is auto-detected from `CHROME_PATH`, then `/usr/bin/google-chrome-stable`,
 `google-chrome`, `chromium-browser`, `chromium`.
 
+## Getting past the lock screens — mock server + authed scan
+
+`axe-scan.mjs` only ever sees each SPA's locked initial state. To scan the **real
+interactive UI** (the caption `role="log"` region, the settings drawer, the
+preference sliders, modals) you need to get past the join-code / device-activation
+gates. Two tools do that, and they do **not** need the session-manager, node-server,
+or transcription-service running — only *some* nginx (deploy_local or deploy_staging)
+up to serve the static frontend bundles:
+
+```bash
+# 1. Start the mock backend (proxies the deployed bundles, fakes the session/device
+#    REST API, and streams fake live captions over the transcription WebSocket).
+npm run a11y:mock          # http://127.0.0.1:8090  (proxies https://localhost)
+
+# 2. In another shell, drive each app past its gate and axe the resulting states.
+npm run a11y:axe:authed    # writes tools/a11y/results/authed-*.json
+```
+
+`mock-server.mjs` also works for **manual** screen-reader / braille testing: open
+`http://127.0.0.1:8090/client/` (use `127.0.0.1`, not `localhost`, to dodge HSTS),
+type **any** join code, and fake captions stream into the live region — exactly the
+P0 flow that needs NVDA/VoiceOver/Orca + a braille display. `.../kiosk/` accepts any
+activation code. `.../standalone/` runs entirely client-side (no mock needed). Env
+knobs are documented at the top of `mock-server.mjs`
+(`PORT`, `UPSTREAM`, `MOCK_DEVICE_REGISTERED`, `MOCK_CAPTION_MS`, `MOCK_NO_CAPTIONS`).
+
+> **Caveat — the authed scan reflects the *deployed* bundles, not your working tree.**
+> The mock proxies whatever nginx is serving (the built images), so source-level a11y
+> fixes in `libs/ui/*` / `apps/*` only show up after those frontends are rebuilt and
+> redeployed (or after you point `UPSTREAM` at a local `vite preview`/`vite build`
+> served on the same sub-paths). A finding here that matches a fix already in source
+> just means the deployment is behind — re-run after a rebuild to confirm it clears.
+
 ## Important limitations (read before trusting a green run)
 
 Automated tooling reliably catches only ~30–40% of WCAG 2.1 issues, and this

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
 import CloseIcon from '@mui/icons-material/Close';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
@@ -10,6 +10,7 @@ import AppBar from '@mui/material/AppBar';
 import Box from '@mui/material/Box';
 import Drawer from '@mui/material/Drawer';
 import IconButton from '@mui/material/IconButton';
+import Link from '@mui/material/Link';
 import Slide from '@mui/material/Slide';
 import Stack from '@mui/material/Stack';
 import Toolbar from '@mui/material/Toolbar';
@@ -55,6 +56,8 @@ export const AppLayout = ({
   headerBreakpoint = 'sm',
 }: AppLayoutProps) => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const drawerTitleId = useId();
+  const mainContentId = useId();
   const { isFullscreen, isSupported, toggleFullscreen } = useFullscreen();
 
   const theme = useTheme();
@@ -67,6 +70,7 @@ export const AppLayout = ({
       <Tooltip title="Open Menu">
         <IconButton
           color="inherit"
+          aria-label="Open Menu"
           onClick={() => {
             setIsDrawerOpen(true);
           }}
@@ -74,7 +78,8 @@ export const AppLayout = ({
           <MenuIcon />
         </IconButton>
       </Tooltip>
-      <Typography variant="h5" marginLeft={2}>
+      {/* Single app <h1> (visually h5-sized) so every app has one top-level heading. */}
+      <Typography variant="h5" component="h1" marginLeft={2}>
         ScribeAR
       </Typography>
     </Stack>
@@ -95,21 +100,35 @@ export const AppLayout = ({
             : 'Enable Header Autohide'
         }
       >
-        <IconButton color="inherit" onClick={onToggleHeaderHide}>
+        <IconButton
+          color="inherit"
+          aria-label={
+            isHeaderHideEnabled
+              ? 'Disable Header Autohide'
+              : 'Enable Header Autohide'
+          }
+          aria-pressed={isHeaderHideEnabled}
+          onClick={onToggleHeaderHide}
+        >
           {isHeaderHideEnabled ? <LockOpenIcon /> : <LockIcon />}
         </IconButton>
       </Tooltip>
 
       <Tooltip title={fullscreenTooltip}>
-        <IconButton
-          disabled={!isSupported}
-          color="inherit"
-          onClick={() => {
-            void toggleFullscreen();
-          }}
-        >
-          {isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
-        </IconButton>
+        {/* span wrapper so the Tooltip still works when the button is disabled */}
+        <span>
+          <IconButton
+            disabled={!isSupported}
+            color="inherit"
+            aria-label={fullscreenTooltip}
+            aria-pressed={isFullscreen}
+            onClick={() => {
+              void toggleFullscreen();
+            }}
+          >
+            {isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
+          </IconButton>
+        </span>
       </Tooltip>
     </Stack>
   );
@@ -165,6 +184,11 @@ export const AppLayout = ({
         }}
         slotProps={{
           paper: {
+            // The temporary drawer traps focus, so expose it as a modal dialog
+            // named by its "Menu" heading (MUI Drawer adds no role on its own).
+            role: 'dialog',
+            'aria-modal': true,
+            'aria-labelledby': drawerTitleId,
             sx: {
               width: '30rem',
               maxWidth: '100%',
@@ -180,12 +204,19 @@ export const AppLayout = ({
             p: 2,
           }}
         >
-          <Typography variant="h5" fontWeight={500}>
+          {/* Drawer title, level 2 under the app <h1>; also names the dialog. */}
+          <Typography
+            id={drawerTitleId}
+            variant="h5"
+            component="h2"
+            fontWeight={500}
+          >
             Menu
           </Typography>
           <Tooltip title="Close Menu">
             <IconButton
               color="inherit"
+              aria-label="Close Menu"
               onClick={() => {
                 setIsDrawerOpen(false);
               }}
@@ -197,15 +228,40 @@ export const AppLayout = ({
         {drawerContent}
       </Drawer>
 
+      {/* Skip link: first focusable element, visually hidden until focused, so
+          keyboard/AT users can jump straight to the captions/main content. SC 2.4.1 */}
+      <Link
+        href={`#${mainContentId}`}
+        sx={{
+          position: 'absolute',
+          left: 8,
+          top: -40,
+          zIndex: (t) => t.zIndex.tooltip + 1,
+          p: 1,
+          borderRadius: 1,
+          bgcolor: 'background.paper',
+          color: 'text.primary',
+          '&:focus-visible': { top: 8 },
+        }}
+      >
+        Skip to main content
+      </Link>
+
+      {/* unmountOnExit keeps the auto-hidden header's controls out of the tab
+          order while hidden (they are off-screen otherwise). Any keydown/mouse
+          activity re-reveals it via useInactivity. SC 2.4.3 */}
       <Slide
         appear={false}
         direction="down"
         in={!isHeaderHideEnabled || isUserActive}
+        unmountOnExit
       >
         <AppBar>{Header}</AppBar>
       </Slide>
 
-      <Box component="main">{children}</Box>
+      <Box component="main" id={mainContentId} tabIndex={-1}>
+        {children}
+      </Box>
     </Box>
   );
 };

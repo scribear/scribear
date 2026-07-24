@@ -18,6 +18,24 @@ const HEADER_HEIGHT = 36;
 const RESIZE_HANDLE_SIZE = 16;
 const VIS_LABEL_HEIGHT = 18;
 
+// Pixels moved/resized per arrow-key press on the (keyboard-operable) handles.
+const NUDGE_PX = 10;
+const ARROW_DELTAS: Record<string, [number, number]> = {
+  ArrowLeft: [-NUDGE_PX, 0],
+  ArrowRight: [NUDGE_PX, 0],
+  ArrowUp: [0, -NUDGE_PX],
+  ArrowDown: [0, NUDGE_PX],
+};
+
+// A focus-visible ring so the handles show keyboard focus (a bare Box has none).
+const HANDLE_FOCUS_SX = {
+  '&:focus-visible': {
+    outline: '2px solid',
+    outlineColor: 'primary.main',
+    outlineOffset: '-2px',
+  },
+} as const;
+
 export interface VisualizerPanelProps {
   analyserNode: AnalyserNode | null;
   frequencyEnabled: boolean;
@@ -75,6 +93,27 @@ export const VisualizerPanel = ({
   const { resizeDelta, onMouseDown: onResizeStart } =
     useResize(handleResizeCommit);
 
+  // Keyboard equivalents for the mouse-only drag/resize handles. (SC 2.1.1)
+  const handleDragKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      const delta = ARROW_DELTAS[event.key];
+      if (!delta) return;
+      event.preventDefault();
+      onPositionChange(targetX + delta[0], targetY + delta[1]);
+    },
+    [onPositionChange, targetX, targetY],
+  );
+
+  const handleResizeKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      const delta = ARROW_DELTAS[event.key];
+      if (!delta) return;
+      event.preventDefault();
+      onSizeChange(targetWidth + delta[0], targetHeight + delta[1]);
+    },
+    [onSizeChange, targetWidth, targetHeight],
+  );
+
   const visualX = actualX + (dragDelta?.x ?? 0);
   const visualY = actualY + (dragDelta?.y ?? 0);
   const visualWidth = Math.max(
@@ -111,9 +150,13 @@ export const VisualizerPanel = ({
         userSelect: 'none',
       }}
     >
-      {/* Drag handle */}
+      {/* Drag handle — mouse drag plus arrow-key move for keyboard users. */}
       <Box
+        role="button"
+        tabIndex={0}
+        aria-label="Move visualizer (use arrow keys)"
         onMouseDown={onDragStart}
+        onKeyDown={handleDragKeyDown}
         sx={{
           height: HEADER_HEIGHT,
           display: 'flex',
@@ -124,6 +167,7 @@ export const VisualizerPanel = ({
           borderBottom: 1,
           borderColor: 'divider',
           flexShrink: 0,
+          ...HANDLE_FOCUS_SX,
         }}
       >
         <Box
@@ -242,9 +286,13 @@ export const VisualizerPanel = ({
         )}
       </Box>
 
-      {/* Resize handle */}
+      {/* Resize handle — mouse drag plus arrow-key resize for keyboard users. */}
       <Box
+        role="button"
+        tabIndex={0}
+        aria-label="Resize visualizer (use arrow keys)"
         onMouseDown={onResizeStart}
+        onKeyDown={handleResizeKeyDown}
         sx={{
           position: 'absolute',
           bottom: 0,
@@ -259,6 +307,7 @@ export const VisualizerPanel = ({
           opacity: 0.3,
           color: 'text.primary',
           '&:hover': { opacity: 0.8 },
+          ...HANDLE_FOCUS_SX,
         }}
       >
         <svg width={10} height={10} viewBox="0 0 10 10">

@@ -75,6 +75,7 @@ export const VerticalPositionControl = ({
         </Typography>
         <Slider
           aria-label="Vertical position control"
+          getAriaValueText={(v) => `${v.toString()} pixels from top`}
           valueLabelDisplay="auto"
           min={minVerticalPositionPx}
           max={maxVerticalPositionPx}
@@ -88,8 +89,9 @@ export const VerticalPositionControl = ({
         </Typography>
       </Stack>
       <Typography
-        color="warning"
         sx={{
+          // warning.dark (not warning.main) to clear 4.5:1 on the light surface. SC 1.4.3
+          color: 'warning.dark',
           display: isDisabled ? 'block' : 'none',
           textAlign: 'center',
         }}

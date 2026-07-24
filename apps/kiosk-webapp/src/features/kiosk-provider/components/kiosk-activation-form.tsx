@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
@@ -21,6 +22,11 @@ export const KioskActivationForm = () => {
   const [activationCode, setActivationCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Derive loading rather than resetting it in an effect: a registration error
+  // is the async result of the last attempt, so the button stops loading as soon
+  // as one arrives instead of staying stuck disabled after a failure. (P4)
+  const isSubmitting = submitting && registrationError === null;
+
   const handleActivate = () => {
     setSubmitting(true);
     dispatch(activateDevice(activationCode));
@@ -34,12 +40,14 @@ export const KioskActivationForm = () => {
         value={activationCode}
         onChange={(e) => {
           setActivationCode(e.target.value);
-          setSubmitting(false);
         }}
         error={registrationError !== null}
-        helperText={registrationError ?? ''}
       />
-      <Button onClick={handleActivate} loading={submitting}>
+      {registrationError !== null && (
+        // role="alert" (MUI Alert default) announces the async failure. SC 4.1.3
+        <Alert severity="error">{registrationError}</Alert>
+      )}
+      <Button onClick={handleActivate} loading={isSubmitting}>
         Activate
       </Button>
     </Stack>
