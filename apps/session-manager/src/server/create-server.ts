@@ -7,6 +7,7 @@ import type { AppConfig } from '#src/app-config/app-config.js';
 
 import type { AppDependencies } from './dependency-injection/app-dependencies.js';
 import registerDependencies from './dependency-injection/register-dependencies.js';
+import { demoRoomRouter } from './features/demo-room/demo-room.router.js';
 import { deviceManagementRouter } from './features/device-management/device-management.router.js';
 import { probesRouter } from './features/probes/probes.router.js';
 import { roomManagementRouter } from './features/room-management/room-management.router.js';
@@ -48,6 +49,7 @@ async function createServer(config: AppConfig) {
   fastify.register(roomManagementRouter);
   fastify.register(scheduleManagementRouter);
   fastify.register(sessionAuthRouter);
+  fastify.register(demoRoomRouter);
 
   const materializationWorker = dependencyContainer.resolve<
     AppDependencies['materializationWorker']
@@ -59,10 +61,10 @@ async function createServer(config: AppConfig) {
     await materializationWorker.stop();
   });
 
-  // Demo caption room (dev/staging only). Resolved solely when enabled so a
-  // production instance never seeds a real, joinable session. Idempotently
-  // ensures a demo room/device/session exist and logs a current join code;
-  // see `apps/node-server/PLAN-Demo-CAPTION_ROOM.md`.
+  // Demo caption room. Resolved and run only when enabled - which is the
+  // default in every environment; set DEMO_ROOM_ENABLED=false to skip it.
+  // Idempotently ensures a demo room/device/session exist and logs a current
+  // join code; see `apps/node-server/PLAN-Demo-CAPTION_ROOM.md`.
   if (config.demoRoomConfig.enabled) {
     const demoRoomSeeder =
       dependencyContainer.resolve<AppDependencies['demoRoomSeeder']>(
@@ -70,7 +72,7 @@ async function createServer(config: AppConfig) {
       );
     fastify.addHook('onReady', async () => {
       // A seeding failure (e.g. a transient DB error) must not take down an
-      // otherwise-healthy dev/staging instance over a demo feature.
+      // otherwise-healthy instance over a demo feature.
       try {
         await demoRoomSeeder.seed();
       } catch (err) {

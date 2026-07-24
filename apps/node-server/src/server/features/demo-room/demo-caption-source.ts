@@ -141,7 +141,7 @@ export function buildDemoSchedule(utterances: readonly DemoUtterance[]): {
 }
 
 /**
- * Dev/staging-only source of a self-contained, looping caption stream.
+ * Source of a self-contained, looping caption stream.
  *
  * When enabled, it publishes the compiled fixture to `TranscriptChannel` for
  * the demo session on a self-correcting virtual clock - exactly the channel the

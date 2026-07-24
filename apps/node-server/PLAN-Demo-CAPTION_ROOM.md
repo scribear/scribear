@@ -1,5 +1,14 @@
 # PLAN: Demo caption room
 
+> **Update (post-implementation).** The demo room is now **enabled by default**
+> in every environment — set `DEMO_ROOM_ENABLED=false` to disable — and
+> `DEMO_SESSION_UID` is no longer passed through `deployment/compose.yml` (both
+> services use the same built-in default). The "off by default / dev-staging
+> only / prod safety" statements below describe the original design and are
+> superseded on those points. The admin console also surfaces the room's status
+> and a one-click join link. See the **Demo Caption Room** wiki page for current
+> usage.
+
 Status: **node-server side implemented and tested; Session Manager seeding is
 the remaining half.**
 

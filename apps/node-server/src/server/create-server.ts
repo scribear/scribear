@@ -53,9 +53,10 @@ async function createServer(config: AppConfig) {
     );
   }
 
-  // Demo caption room (dev/staging only). Resolved solely when enabled so a
-  // production instance never constructs it. It publishes a looping synthetic
-  // caption stream for the demo session; see PLAN-Demo-CAPTION_ROOM.md.
+  // Demo caption room. Resolved and started only when enabled - which is the
+  // default in every environment; set DEMO_ROOM_ENABLED=false to skip it. It
+  // publishes a looping synthetic caption stream for the demo session; see
+  // PLAN-Demo-CAPTION_ROOM.md.
   if (config.demoRoomConfig.enabled) {
     const demoCaptionSource =
       dependencyContainer.resolve<AppDependencies['demoCaptionSource']>(
