@@ -34,7 +34,12 @@ COPY --from=package-jsons /app/ .
 
 RUN npm ci --omit=dev
 
+# bundle.mjs is the server; migrate.mjs is the one-shot schema migrator this
+# image doubles as, run by deployment/compose.yml's `db-migrate` service. Both
+# come from the same build, which is the point: the schema is applied from the
+# same pinned artifact that queries it.
 COPY --from=build-env /app/apps/session-manager/dist/bundle.mjs /app/apps/session-manager/dist/bundle.mjs
+COPY --from=build-env /app/apps/session-manager/dist/migrate.mjs /app/apps/session-manager/dist/migrate.mjs
 
 WORKDIR /app/apps/session-manager
 

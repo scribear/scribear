@@ -26,6 +26,9 @@
       "path": "../../libs/clients/session-manager-client"
     },
     {
+      "path": "../../infra/scribear-db"
+    },
+    {
       "path": "../../infra/scribear-redis"
     }
   ]

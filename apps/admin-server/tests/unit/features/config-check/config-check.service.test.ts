@@ -1,5 +1,11 @@
 import { describe, expect, vi } from 'vitest';
 
+import {
+  LATEST_MIGRATION,
+  MIGRATION_NAMES,
+  type SchemaState,
+} from '@scribear/scribear-db';
+
 import type { ConfigCheckConfig } from '#src/server/features/config-check/config-check.service.js';
 import {
   ConfigCheckService,
@@ -23,6 +29,7 @@ const CLEAN: ConfigCheckConfig = {
   azureClientId: 'client-1',
   azureClientSecret: '0b4e8d2a7f16c395',
   allowedGroup: 'scribear-admins',
+  upstreamTimeoutMs: 3_000,
 };
 
 function check(overrides: Partial<ConfigCheckConfig> = {}) {
@@ -35,26 +42,54 @@ function ids(overrides: Partial<ConfigCheckConfig> = {}): string[] {
   return check(overrides).map((f) => f.id);
 }
 
-/** The two calls `_checkDatabase` makes; each test breaks one of them. */
+/** The three calls `_checkDatabase` makes; each test breaks one of them. */
 interface DbClientLike {
   ping: () => Promise<void>;
   hasAdminSchema: () => Promise<boolean>;
+  scribearSchemaState: () => Promise<SchemaState>;
 }
 
-/** A database that is up and migrated. */
+/**
+ * A shared schema at exactly the version this build expects — which, since the
+ * check compares against the real `MIGRATION_NAMES`, means the actual migration
+ * list. Tests that care about a *mismatch* spoil this with `schemaState()`.
+ */
+const CURRENT_SCHEMA: SchemaState = {
+  initialized: true,
+  applied: [...MIGRATION_NAMES],
+  expected: [...MIGRATION_NAMES],
+  pending: [],
+  unknown: [],
+  upToDate: true,
+  latestExpected: LATEST_MIGRATION,
+  latestApplied: LATEST_MIGRATION,
+};
+
+/** `CURRENT_SCHEMA` with the named fields replaced. */
+function schemaState(overrides: Partial<SchemaState> = {}): SchemaState {
+  return { ...CURRENT_SCHEMA, ...overrides };
+}
+
+/** A database that is up, and migrated on both schemas. */
 const REACHABLE_DB: DbClientLike = {
   ping: () => Promise.resolve(),
   hasAdminSchema: () => Promise.resolve(true),
+  scribearSchemaState: () => Promise.resolve(CURRENT_SCHEMA),
 };
 
 /**
  * A `ConfigCheckService` whose only live dependency is the database: fleet
- * telemetry is off and every probed service answers, so the findings from
- * `check()` are exactly the ones `_checkDatabase` produced.
+ * telemetry is off, every probed service answers, and session-manager reports the
+ * same schema version this build expects, so the findings from `check()` are
+ * exactly the ones `_checkDatabase` produced.
+ *
+ * `reportedLatest` is what session-manager answers with; `null` stands for a
+ * service that could not be asked at all.
  */
 function dbService(
   dbClient: DbClientLike,
   overrides: Partial<ConfigCheckConfig> = {},
+  reportedLatest: string | null = LATEST_MIGRATION,
 ): ConfigCheckService {
   type Args = ConstructorParameters<typeof ConfigCheckService>;
   return new ConfigCheckService(
@@ -62,14 +97,32 @@ function dbService(
     { enabled: false } as unknown as Args[1],
     { check: () => Promise.resolve([]) } as unknown as Args[2],
     dbClient as unknown as Args[3],
+    gateway(reportedLatest) as unknown as Args[4],
   );
+}
+
+/**
+ * A Session Manager gateway that reports `latest` as the schema version its
+ * container expects. `null` simulates a service that did not answer — the client
+ * returns a `[null, error]` tuple rather than throwing.
+ */
+function gateway(latest: string | null) {
+  return {
+    getSchemaStatus: () =>
+      Promise.resolve(
+        latest === null
+          ? [null, new Error('unreachable')]
+          : [{ status: 200, data: { latestExpected: latest } }, null],
+      ),
+  };
 }
 
 async function dbIds(
   dbClient: DbClientLike,
   overrides: Partial<ConfigCheckConfig> = {},
+  reportedLatest: string | null = LATEST_MIGRATION,
 ): Promise<string[]> {
-  const report = await dbService(dbClient, overrides).check();
+  const report = await dbService(dbClient, overrides, reportedLatest).check();
   return report.findings.map((f) => f.id);
 }
 
@@ -93,6 +146,7 @@ function healthService(components: HealthComponentLike[]): ConfigCheckService {
     { enabled: false } as unknown as Args[1],
     { check: () => Promise.resolve(components) } as unknown as Args[2],
     REACHABLE_DB as unknown as Args[3],
+    gateway(LATEST_MIGRATION) as unknown as Args[4],
   );
 }
 
@@ -401,10 +455,7 @@ describe('the database dependency', (it) => {
 
   it('flags a missing connection variable without trying to connect', async () => {
     const ping = vi.fn(() => Promise.resolve());
-    const found = await dbIds(
-      { ping, hasAdminSchema: () => Promise.resolve(true) },
-      { dbHost: '' },
-    );
+    const found = await dbIds({ ...REACHABLE_DB, ping }, { dbHost: '' });
 
     expect(found).toContain('database-not-configured');
     expect(ping).not.toHaveBeenCalled();
@@ -412,20 +463,65 @@ describe('the database dependency', (it) => {
 
   it('flags a configured but unreachable database', async () => {
     const found = await dbIds({
+      ...REACHABLE_DB,
       ping: () => Promise.reject(new Error('ECONNREFUSED')),
-      hasAdminSchema: () => Promise.resolve(true),
     });
 
     expect(found).toContain('database-unreachable');
   });
 
-  it('flags a reachable database whose schema was never migrated', async () => {
+  it('does not ask an unreachable database about its schema version', async () => {
+    const scribearSchemaState = vi.fn(() => Promise.resolve(CURRENT_SCHEMA));
+    await dbIds({
+      ...REACHABLE_DB,
+      ping: () => Promise.reject(new Error('ECONNREFUSED')),
+      scribearSchemaState,
+    });
+
+    expect(scribearSchemaState).not.toHaveBeenCalled();
+  });
+
+  it("flags a reachable database missing admin-server's own schema", async () => {
     const found = await dbIds({
-      ping: () => Promise.resolve(),
+      ...REACHABLE_DB,
       hasAdminSchema: () => Promise.resolve(false),
     });
 
     expect(found).toContain('database-schema-missing');
+  });
+
+  // The two schemas fail separately and are fixed separately: admin-server
+  // migrates its own tables at startup, the db-migrate job applies the shared
+  // schema. Reporting only the first would hide the one that stops the stack
+  // serving.
+  it('reports both schemas when both are missing', async () => {
+    const found = await dbIds({
+      ...REACHABLE_DB,
+      hasAdminSchema: () => Promise.resolve(false),
+      scribearSchemaState: () =>
+        Promise.resolve(
+          schemaState({
+            initialized: false,
+            applied: [],
+            pending: [...MIGRATION_NAMES],
+            upToDate: false,
+            latestApplied: '',
+          }),
+        ),
+    });
+
+    expect(found).toContain('database-schema-missing');
+    expect(found).toContain('schema-never-migrated');
+  });
+
+  it('says nothing about the shared schema when it is current', async () => {
+    const found = await dbIds(REACHABLE_DB);
+
+    expect(found).not.toContain('schema-never-migrated');
+    expect(found).not.toContain('schema-migrations-pending');
+    expect(found).not.toContain('schema-ahead-of-containers');
+    expect(found).not.toContain('schema-version-skew');
+    expect(found).not.toContain('schema-version-unreadable');
   });
 
   it('links each database finding to the deployment wiki', async () => {
@@ -435,6 +531,168 @@ describe('the database dependency', (it) => {
     );
 
     expect(finding?.docUrl).toContain('github.com/scribear/scribear/wiki');
+  });
+});
+
+/**
+ * The check the old deployment had no way to make: is the schema in the database
+ * the one the running images were built against? Until migrations moved into the
+ * stack this could only be inferred from a `database: fail` two steps away.
+ */
+describe('the shared schema version', (it) => {
+  /** A `SchemaState` where the newest `count` migrations were never applied. */
+  function behindBy(count: number): SchemaState {
+    const applied = MIGRATION_NAMES.slice(0, MIGRATION_NAMES.length - count);
+    const pending = MIGRATION_NAMES.slice(MIGRATION_NAMES.length - count);
+    return schemaState({
+      applied: [...applied],
+      pending: [...pending],
+      upToDate: false,
+      latestApplied: applied[applied.length - 1] ?? '',
+    });
+  }
+
+  function withState(
+    state: SchemaState,
+    overrides: Partial<ConfigCheckConfig> = {},
+    reportedLatest: string | null = LATEST_MIGRATION,
+  ): Promise<string[]> {
+    return dbIds(
+      { ...REACHABLE_DB, scribearSchemaState: () => Promise.resolve(state) },
+      overrides,
+      reportedLatest,
+    );
+  }
+
+  it('flags a database that has never been migrated', async () => {
+    const found = await withState(
+      schemaState({
+        initialized: false,
+        applied: [],
+        pending: [...MIGRATION_NAMES],
+        upToDate: false,
+        latestApplied: '',
+      }),
+    );
+
+    expect(found).toContain('schema-never-migrated');
+    // One statement of the problem, not two.
+    expect(found).not.toContain('schema-migrations-pending');
+  });
+
+  it('flags pending migrations and names the first one', async () => {
+    const report = await dbService({
+      ...REACHABLE_DB,
+      scribearSchemaState: () => Promise.resolve(behindBy(1)),
+    }).check();
+    const found = report.findings.find(
+      (f) => f.id === 'schema-migrations-pending',
+    );
+
+    expect(found).toBeTruthy();
+    expect(found?.detail).toContain(LATEST_MIGRATION);
+    expect(found?.remediation).toContain('run-migrator.sh');
+    expect(found?.docUrl).toContain('github.com/scribear/scribear/wiki');
+  });
+
+  // A missed migration is survivable on a dev box and stops a lecture in
+  // production, so it must not be reported at one severity.
+  it('is a warning in development and blocks production', async () => {
+    const report = await dbService(
+      {
+        ...REACHABLE_DB,
+        scribearSchemaState: () => Promise.resolve(behindBy(2)),
+      },
+      { declaredEnv: 'development', isDevelopment: true },
+    ).check();
+    const found = report.findings.find(
+      (f) => f.id === 'schema-migrations-pending',
+    );
+
+    expect(found?.severity).toBe('warning');
+    expect(found?.productionSeverity).toBe('critical');
+  });
+
+  // A rollback moves the images back and leaves the schema where it was. The
+  // older code's queries still work, so this is reportable, not broken - and
+  // never `critical`, or every rollback would light the page up red.
+  it('reports a schema ahead of the images without calling it critical', async () => {
+    const report = await dbService({
+      ...REACHABLE_DB,
+      scribearSchemaState: () =>
+        Promise.resolve(
+          schemaState({
+            applied: [...MIGRATION_NAMES, '00009999-from-a-newer-image'],
+            unknown: ['00009999-from-a-newer-image'],
+            latestApplied: '00009999-from-a-newer-image',
+          }),
+        ),
+    }).check();
+    const found = report.findings.find(
+      (f) => f.id === 'schema-ahead-of-containers',
+    );
+
+    expect(found).toBeTruthy();
+    expect(found?.productionSeverity).not.toBe('critical');
+    expect(found?.detail).toContain('00009999-from-a-newer-image');
+  });
+
+  it('flags containers built against different schema versions', async () => {
+    const report = await dbService(
+      REACHABLE_DB,
+      {},
+      '00000001-devices',
+    ).check();
+    const found = report.findings.find((f) => f.id === 'schema-version-skew');
+
+    expect(found).toBeTruthy();
+    expect(found?.detail).toContain('00000001-devices');
+    expect(found?.detail).toContain(LATEST_MIGRATION);
+  });
+
+  // `services-unreachable` already reports a service that will not answer.
+  // Guessing at its schema version would be a second finding for one cause.
+  it('says nothing about skew when session-manager cannot be asked', async () => {
+    const found = await withState(CURRENT_SCHEMA, {}, null);
+
+    expect(found).not.toContain('schema-version-skew');
+  });
+
+  // Reporting "never migrated" here would send an operator to run migrations
+  // that would fail for the same reason.
+  it('distinguishes an unreadable migration table from an unmigrated one', async () => {
+    const found = await dbIds({
+      ...REACHABLE_DB,
+      scribearSchemaState: () => Promise.reject(new Error('permission denied')),
+    });
+
+    expect(found).toContain('schema-version-unreadable');
+    expect(found).not.toContain('schema-never-migrated');
+  });
+
+  it('carries remediation on every schema finding', async () => {
+    const report = await dbService(
+      {
+        ...REACHABLE_DB,
+        scribearSchemaState: () =>
+          Promise.resolve(
+            schemaState({
+              ...behindBy(1),
+              unknown: ['00009999-from-a-newer-image'],
+            }),
+          ),
+      },
+      {},
+      '00000001-devices',
+    ).check();
+    const schemaFindings = report.findings.filter((f) =>
+      f.id.startsWith('schema-'),
+    );
+
+    expect(schemaFindings.length).toBe(3);
+    for (const f of schemaFindings) {
+      expect(f.remediation, `finding ${f.id} has no remediation`).toBeTruthy();
+    }
   });
 });
 

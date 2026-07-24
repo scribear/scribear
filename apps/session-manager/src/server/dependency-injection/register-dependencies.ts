@@ -7,6 +7,7 @@ import {
 } from 'awilix';
 
 import { DBClient } from '#src/db/db-client.js';
+import { DatabaseController } from '#src/server/features/database/database.controller.js';
 import { DemoRoomSeeder } from '#src/server/features/demo-room/demo-room-seeder.js';
 import { DemoRoomController } from '#src/server/features/demo-room/demo-room.controller.js';
 import { DeviceManagementController } from '#src/server/features/device-management/device-management.controller.js';
@@ -161,6 +162,11 @@ function registerDependencies(
     // route reports `enabled: false` when the feature is off), so unlike the
     // seeder it is not gated behind the flag at wiring time.
     demoRoomController: asClass(DemoRoomController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+
+    // Database schema state, for the admin console's Config Check.
+    databaseController: asClass(DatabaseController, {
       lifetime: Lifetime.SCOPED,
     }),
   } as NameAndRegistrationPair<AppDependencies>);

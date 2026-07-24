@@ -7,6 +7,7 @@ import type { AppConfig } from '#src/app-config/app-config.js';
 
 import type { AppDependencies } from './dependency-injection/app-dependencies.js';
 import registerDependencies from './dependency-injection/register-dependencies.js';
+import { databaseRouter } from './features/database/database.router.js';
 import { demoRoomRouter } from './features/demo-room/demo-room.router.js';
 import { deviceManagementRouter } from './features/device-management/device-management.router.js';
 import { probesRouter } from './features/probes/probes.router.js';
@@ -50,6 +51,7 @@ async function createServer(config: AppConfig) {
   fastify.register(scheduleManagementRouter);
   fastify.register(sessionAuthRouter);
   fastify.register(demoRoomRouter);
+  fastify.register(databaseRouter);
 
   const materializationWorker = dependencyContainer.resolve<
     AppDependencies['materializationWorker']

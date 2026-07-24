@@ -171,6 +171,9 @@ export class AppConfig {
       azureClientId: this._env.AZURE_CLIENT_ID,
       azureClientSecret: this._env.AZURE_CLIENT_SECRET,
       allowedGroup: this._env.ADMIN_ALLOWED_GROUP,
+      // Shared with the health rollup deliberately: both ask a sibling service a
+      // question an operator is waiting on, so one knob should bound both.
+      upstreamTimeoutMs: this._env.HEALTH_CHECK_TIMEOUT_SEC * SECOND_MS,
     };
   }
 

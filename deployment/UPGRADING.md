@@ -12,6 +12,95 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## 0.3.0 — migrations run themselves
+
+Every deploy now applies the database schema as part of `docker compose up
+-d`, instead of relying on someone remembering to run a separate script
+afterwards. Nothing new to add to `.env` — if you already run `docker compose
+up -d` for every upgrade, you get the new behaviour for free.
+
+### What was wrong before
+
+`run-migrator.sh` used to `docker run` a throwaway `node:24-alpine`
+container, `git clone` `https://github.com/scribear/scribear.git`, check out
+`staging`, `npm ci`, and run the migrator from that checkout — and it exited
+0 the moment the database had *any* table at all:
+
+```
+Tables detected! Database is already configured. Exiting setup...
+```
+
+That check was meant to skip a virgin database that did not need
+initialising, but it also skipped every database that already had a schema —
+which is every database after the first deploy. In practice the script only
+ever did anything once, on day one; every later release's migrations were
+silently never applied unless someone ran them by hand. It also always
+applied whatever `staging` held at that moment regardless of the `IMAGE_TAG`
+a deployment was actually pinned to, and it needed the bundled `scribear-db`
+container on the `backend` network, so it could not target an external
+Postgres, and it was the wrong tool for a locally built image since it
+applied the published schema instead of the working tree.
+
+### What runs now
+
+`compose.yml` gained a `db-migrate` service: the same image and `IMAGE_TAG`
+as `session-manager`, running a second entry point (`dist/migrate.mjs`) that
+applies whatever migrations are pending and exits. `session-manager` and
+`admin-server` both `depends_on: db-migrate: {condition:
+service_completed_successfully}`, so `docker compose up -d` migrates the
+schema before either service starts, and a failed migration means neither
+starts — the reason is in `docker compose logs db-migrate`, not scattered
+across two crash loops. It is idempotent: `docker compose up -d` re-runs it
+every time and it exits in about a second when nothing is pending.
+
+The migrations themselves are unchanged and the migration table is still
+`kysely_migration`, so an existing database needs no special handling — the
+job just picks up wherever it left off.
+
+`run-migrator.sh` is now a thin wrapper around the same job —
+`docker compose run --rm db-migrate` — for applying migrations on their own
+without starting the rest of the stack, or to see the migration output by
+itself. Nothing is cloned or installed at run time any more; it applies
+whatever the pinned `IMAGE_TAG` ships, which also means it now works against
+an external Postgres, since the job reads only the `DB_*` variables (see
+_Running Postgres or Redis outside the stack_ below, updated for this).
+
+### Readiness and the admin console now know when the schema is stale
+
+`GET /api/session-manager/v1/probes/readiness` reports the database and the
+schema as separate checks and returns 503 if either fails:
+
+```json
+{ "status": "fail", "checks": { "database": "ok", "schema": "fail" } }
+```
+
+`schema: "fail"` means this build ships migrations the database has not
+applied yet. A database *ahead* of the build — what a rollback looks like —
+is deliberately not treated as a failure; the service just runs with more
+schema than it uses. Once the schema catches up the service goes ready on its
+own, with no restart needed.
+
+A new admin-key-protected route, `GET
+/api/session-manager/v1/database/schema`, reports the full picture:
+`{ initialized, applied, expected, pending, unknown, upToDate, latestApplied,
+latestExpected }`. The admin console's **Config Check** uses it to raise:
+
+- `schema-never-migrated` — the migration table does not exist yet.
+- `schema-migrations-pending` — the database is behind this build.
+- `schema-ahead-of-containers` — the database is ahead of this build (a
+  rollback, most likely).
+- `schema-version-skew` — session-manager and admin-server were built
+  against different schema versions, which means they are running mixed
+  `IMAGE_TAG`s.
+- `schema-version-unreadable` — the database answered but the migration
+  table could not be read, usually a permissions problem.
+
+### Rollback
+
+Reverting `compose.yml` to the previous release drops `db-migrate` and the
+`depends_on` entries pointing at it; nothing here rewrites data or removes a
+migration, so the schema is simply left where it is.
+
 ## 0.2.0 — monitoring & fleet dashboard
 
 Adds the admin fleet dashboard, the monitoring sidecar, a Redis telemetry
@@ -277,27 +366,38 @@ DB_PASSWORD=<managed instance password>
 ```
 
 Removing the bundled service needs one more step than Redis, because
-`session-manager` and `admin-server` both `depends_on` it. Compose rejects a
-`depends_on` pointing at a service that no longer exists —
+`session-manager`, `admin-server` and `db-migrate` itself all `depends_on`
+it. Compose rejects a `depends_on` pointing at a service that no longer
+exists —
 
 ```
 service "admin-server" depends on undefined service "scribear-db": invalid compose project
 ```
 
-— so the override has to replace those too:
+— so the override has to replace those too. Keep `db-migrate` running — it is
+what applies the schema to the external instance — and only drop each
+service's dependency on the bundled container:
 
 ```yaml
 services:
   scribear-db: !reset null
 
-  session-manager:
+  db-migrate:
     depends_on: !override {}
 
+  session-manager:
+    depends_on: !override
+      db-migrate:
+        condition: service_completed_successfully
+
   admin-server:
-    # Keep the session-manager dependency; only drop the database one.
+    # Keep the session-manager and db-migrate dependencies; only drop the
+    # database one.
     depends_on: !override
       session-manager:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
 ```
 
 `!reset` and `!override` need Compose v2.24+ (`docker compose version`).
@@ -309,10 +409,12 @@ docker compose config | grep -E 'DB_HOST|REDIS_URL'
 docker compose config --services      # scribear-db and redis should be absent
 ```
 
-**Migrations.** `run-migrator.sh` targets the `scribear-db` container over the
-compose network, so it does not work against an external instance. Run the
-migrations from a checkout against your instance directly, or adapt the script's
-connection settings — see `infra/scribear-db`.
+**Migrations.** `run-migrator.sh` now runs the `db-migrate` job
+(`docker compose run --rm db-migrate`), which reads only the `DB_*` variables
+above, so it already works against the external instance — no adaptation
+needed. Just remember `db-migrate` is one of the services whose own
+`depends_on: scribear-db` has to be dropped in the override above; keep the
+job itself, only its dependency on the bundled container goes.
 
 **Networking.** The services must be able to reach the external hosts from
 inside their containers, which is a different question from whether the _host_

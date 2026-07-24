@@ -63,3 +63,5 @@ export * from './session-auth/routes/exchange-join-code.schema.js';
 export * from './session-auth/routes/refresh-session-token.schema.js';
 
 export * from './demo-room/routes/demo-room-status.schema.js';
+
+export * from './database/routes/schema-status.schema.js';
