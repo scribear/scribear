@@ -36,7 +36,11 @@ server {
   root /usr/share/nginx/html;
   index index.html;
 
-  location * {
+  # SPA fallback: `location /` (not `location *`, which nginx reads as a prefix
+  # match on the literal "*" and so never matches, 404-ing every deep link on a
+  # hard refresh). try_files serves the file if it exists, else index.html so
+  # the client-side router can handle the route.
+  location / {
     try_files $uri $uri/ /index.html;
   }
 

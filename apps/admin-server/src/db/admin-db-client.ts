@@ -1,4 +1,4 @@
-import { Kysely, PostgresDialect } from 'kysely';
+import { Kysely, PostgresDialect, sql } from 'kysely';
 import pg from 'pg';
 
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
@@ -81,6 +81,28 @@ export class AdminDbClient {
         ? error
         : new Error('Admin database migration failed', { cause: error });
     }
+  }
+
+  /**
+   * Cheapest possible round-trip, used by the Health/Config Check to tell a
+   * misconfigured or down database apart from a healthy one. Throws on any
+   * connection or auth failure, which the caller turns into a finding.
+   */
+  async ping() {
+    await sql`SELECT 1`.execute(this._db);
+  }
+
+  /**
+   * Whether admin-server's own schema has been migrated in, keyed off the one
+   * table it owns. `to_regclass` returns null (not an error) when the table is
+   * absent, so this distinguishes "reachable but not migrated" from
+   * "unreachable" without a try/catch of its own.
+   */
+  async hasAdminSchema(): Promise<boolean> {
+    const result = await sql<{
+      reg: string | null;
+    }>`SELECT to_regclass('public.admin_audit_log') AS reg`.execute(this._db);
+    return result.rows[0]?.reg != null;
   }
 
   /**

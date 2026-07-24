@@ -62,9 +62,15 @@ export const HealthIndicator = () => {
   const tip = report
     ? [
         `BFF: ${report.bff}`,
-        ...report.components.map(
-          (c) => `${c.name}: ${c.status} (${String(c.latencyMs)}ms)`,
-        ),
+        ...report.components.map((c) => {
+          // The cause beats the latency: a red "session-manager: fail" tells an
+          // operator nothing the detail ("database: fail") does not tell better.
+          const suffix =
+            c.detail !== undefined && c.detail !== ''
+              ? ` — ${c.detail}`
+              : ` (${String(c.latencyMs)}ms)`;
+          return `${c.name}: ${c.status}${suffix}`;
+        }),
       ].join(' · ')
     : 'Health unknown';
 

@@ -35,7 +35,7 @@ const NAV_ITEMS = [
   { label: 'Devices', to: '/devices', icon: <DevicesIcon /> },
   { label: 'Set up a kiosk', to: '/kiosk-setup', icon: <TabletIcon /> },
   { label: 'Audit log', to: '/audit', icon: <HistoryIcon /> },
-  { label: 'Config Check', to: '/config-check', icon: <FactCheckIcon /> },
+  { label: 'Deployment Check', to: '/config-check', icon: <FactCheckIcon /> },
 ];
 
 /**
