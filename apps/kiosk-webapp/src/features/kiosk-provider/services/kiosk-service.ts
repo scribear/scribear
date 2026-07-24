@@ -156,6 +156,15 @@ function jitter(baseMs: number, fraction: number): number {
 }
 
 /**
+ * Decode a base64url string (the encoding used by JWT segments) to its raw
+ * text. `atob` only accepts standard base64, so map the URL-safe alphabet
+ * back first; `atob` itself tolerates the missing `=` padding.
+ */
+function base64UrlDecode(value: string): string {
+  return atob(value.replaceAll('-', '+').replaceAll('_', '/'));
+}
+
+/**
  * Decode the `exp` claim of a JWT. Returns `null` if the token can't be
  * parsed (malformed or unsigned).
  */
@@ -163,7 +172,9 @@ function decodeJwtExpiryMs(token: string): number | null {
   const parts = token.split('.');
   if (parts.length < 2) return null;
   try {
-    const payload = JSON.parse(atob(parts[1] ?? '')) as { exp?: number };
+    const payload = JSON.parse(base64UrlDecode(parts[1] ?? '')) as {
+      exp?: number;
+    };
     if (typeof payload.exp !== 'number') return null;
     return payload.exp * 1000;
   } catch {
@@ -632,6 +643,10 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     this.emit('connectionStatus', SessionConnectionStatus.CONNECTING);
 
     const token = await this._fetchSessionToken(session.uid);
+    // A newer _enterActive / _enterIdle may have superseded this session while
+    // the token request was in flight. If so, that flow now owns the socket
+    // and token state - bail before clobbering it (and leaking a socket).
+    if (this._activeSession !== session) return;
     if (token === null) {
       this.emit('connectionStatus', SessionConnectionStatus.DISCONNECTED);
       // Fall back to IDLE; the schedule poll will re-trigger if the session
@@ -834,17 +849,22 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
    * token for device-authenticated sessions in the current schema.
    */
   private async _refreshSessionToken(sessionUid: string): Promise<void> {
-    if (this._socket === null) return;
+    const socket = this._socket;
+    if (socket === null) return;
     if (this._activeSession?.uid !== sessionUid) return;
 
     const token = await this._fetchSessionToken(sessionUid);
+    // Re-check after the await: teardown or a session switch may have swapped
+    // or dropped the socket while the token request was in flight. Comparing
+    // against the captured handle catches both (null, or a different socket).
+    if (this._socket !== socket) return;
     if (token === null) {
       // Refresh failed - drop the connection and let schedule sync recover.
       void this._enterIdle();
       return;
     }
     this._sessionToken = token;
-    this._socket.send({
+    socket.send({
       type: TranscriptionStreamClientMessageType.AUTH,
       sessionToken: token,
     });

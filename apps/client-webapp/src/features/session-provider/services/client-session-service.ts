@@ -86,6 +86,15 @@ function jitter(baseMs: number, fraction: number): number {
 }
 
 /**
+ * Decode a base64url string (the encoding used by JWT segments) to its raw
+ * text. `atob` only accepts standard base64, so map the URL-safe alphabet
+ * back first; `atob` itself tolerates the missing `=` padding.
+ */
+function base64UrlDecode(value: string): string {
+  return atob(value.replaceAll('-', '+').replaceAll('_', '/'));
+}
+
+/**
  * Decode the `exp` claim of a JWT. Returns `null` if the token can't be
  * parsed (malformed or unsigned).
  */
@@ -93,7 +102,9 @@ function decodeJwtExpiryMs(token: string): number | null {
   const parts = token.split('.');
   if (parts.length < 2) return null;
   try {
-    const payload = JSON.parse(atob(parts[1] ?? '')) as { exp?: number };
+    const payload = JSON.parse(base64UrlDecode(parts[1] ?? '')) as {
+      exp?: number;
+    };
     if (typeof payload.exp !== 'number') return null;
     return payload.exp * 1000;
   } catch {
@@ -182,14 +193,21 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
    */
   async joinSession(joinCode: string): Promise<void> {
     this._teardownActiveSession();
+    // _teardownActiveSession bumped _epoch; capture it so that a later teardown
+    // (a second joinSession, or a leaveSession) invalidates this in-flight
+    // exchange - otherwise a stale response would open a leaked socket and
+    // clobber the newer session.
+    const epoch = this._epoch;
     this._identity = null;
     this.emit('sessionIdentity', null);
     this.emit('joinError', null);
 
     const [response, error] =
       await this._sessionManagerClient.sessionAuth.exchangeJoinCode({
-        body: { joinCode },
+        body: { joinCode: joinCode.trim().toUpperCase() },
       });
+
+    if (epoch !== this._epoch) return;
 
     if (error instanceof NetworkError) {
       this.emit('joinError', JoinError.NETWORK_ERROR);
