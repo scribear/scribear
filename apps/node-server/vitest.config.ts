@@ -13,8 +13,9 @@ export default mergeConfig(
         //
         // The demo-room fixture generator is a standalone Python dev tool that
         // lives beside the fixture it produces; it is not application source
-        // and must not be fed to the JS coverage instrumenter.
-        exclude: ['src/index.ts', '**/*.py'],
+        // and must not be fed to the JS coverage instrumenter. The same goes
+        // for the JSON fixtures it emits — data, not code.
+        exclude: ['src/index.ts', '**/*.py', '**/*.json'],
       },
       projects: [
         {
