@@ -157,13 +157,20 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
         # it is answered without a request. This is also what makes the
         # endpoint safe to poll in a deployment that never configured lumen.
         env_var = self.config.api_key_env
-        if not env_var or not os.environ.get(env_var):
+        api_key = os.environ.get(env_var) if env_var else None
+        if not env_var or not api_key:
             return (False, None, f"api key env '{env_var}' is not set")
 
+        # `{base_url}` alone 404s; the models route is the cheapest endpoint
+        # that both requires and validates the bearer token, so it doubles as
+        # an auth check rather than just a bare-TCP liveness check.
+        url = self.config.base_url.rstrip("/") + "/models"
         try:
             started = time.monotonic()
             async with httpx.AsyncClient(timeout=PROBE_TIMEOUT_SEC) as client:
-                response = await client.get(self.config.base_url)
+                response = await client.get(
+                    url, headers={"Authorization": f"Bearer {api_key}"}
+                )
             latency_ms = (time.monotonic() - started) * 1000
         except (httpx.HTTPError, OSError) as error:
             # The class and message, because this is the operator's only clue
@@ -171,9 +178,15 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
             # failure need different fixes.
             return (False, None, f"{type(error).__name__}: {error}")
 
-        # Liveness, not correctness: a 401 or 404 still proves something is
-        # listening and routing, which is the question being asked. Only a 5xx
-        # says the upstream itself is broken.
+        # A bearer token is now on the request, so 401/403 is no longer mere
+        # liveness noise - it means the upstream rejected our key, which is
+        # exactly the failure an operator needs surfaced.
+        if response.status_code in (401, 403):
+            return (
+                False,
+                latency_ms,
+                f"upstream rejected API key ({response.status_code})",
+            )
         if response.status_code >= 500:
             return (
                 False,

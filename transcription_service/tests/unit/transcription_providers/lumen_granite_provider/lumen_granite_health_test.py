@@ -107,11 +107,12 @@ async def test_reports_ok_when_endpoint_answers(
     monkeypatch: pytest.MonkeyPatch,
 ):
     """
-    Test a reachable endpoint reports ok with a measured latency
+    Test a reachable, authenticated endpoint reports ok with a measured
+    latency, probing the models route with the bearer token attached
     """
     # Arrange
     monkeypatch.setenv(API_KEY_ENV, "secret")
-    _respond_with(mock_client_class, 200)
+    client = _respond_with(mock_client_class, 200)
 
     # Act
     health = await provider.describe_health()
@@ -123,20 +124,23 @@ async def test_reports_ok_when_endpoint_answers(
     assert health.probe_latency_ms is not None
     assert health.endpoint == BASE_URL
     assert health.detail is None
+    client.get.assert_awaited_once_with(
+        f"{BASE_URL}/models", headers={"Authorization": "Bearer secret"}
+    )
 
 
 @pytest.mark.asyncio
-async def test_treats_unauthorized_as_reachable(
+async def test_reports_down_when_upstream_rejects_the_key(
     provider: LumenGraniteProvider,
     mock_client_class: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ):
     """
-    Test a 401 still proves the endpoint is up
+    Test a 401 reports down and names the rejected key
 
-    The probe asks "is anything listening", not "is my key good". Calling a
-    reachable-but-rejecting endpoint down would send an operator hunting a
-    network fault when the answer is a credential.
+    The probe now sends the real bearer token, so a 401/403 is no longer
+    ambiguous liveness noise - it means the configured key is wrong, and an
+    operator should be pointed at the credential, not the network.
     """
     # Arrange
     monkeypatch.setenv(API_KEY_ENV, "secret")
@@ -146,8 +150,9 @@ async def test_treats_unauthorized_as_reachable(
     health = await provider.describe_health()
 
     # Assert
-    assert health.status == ProviderStatus.OK
-    assert health.reachable is True
+    assert health.status == ProviderStatus.DOWN
+    assert health.reachable is False
+    assert "401" in (health.detail or "")
 
 
 @pytest.mark.asyncio
