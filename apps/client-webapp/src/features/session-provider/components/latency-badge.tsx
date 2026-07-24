@@ -51,7 +51,6 @@ export const LatencyBadge = () => {
         zIndex: (theme) => theme.zIndex.tooltip,
         fontVariantNumeric: 'tabular-nums',
       }}
-      aria-label="Transcription latency (final / interim)"
     >
       <Typography variant="caption" component="div">
         Pipeline: {formatLatency(pipelineFinal)} /{' '}

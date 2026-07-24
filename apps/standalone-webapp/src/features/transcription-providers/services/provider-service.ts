@@ -114,6 +114,15 @@ export class ProviderService extends EventEmitter<ProviderServiceEvents> {
     });
 
     await provider.activateProvider(config);
+
+    // Guard the post-await boundary the same way as the load step above. Today
+    // both providers activate synchronously so this can't be superseded, but if
+    // a provider ever makes `activateProvider` async, a newer activation could
+    // have started meanwhile - bail so no stale follow-up work runs. (We do not
+    // call `deactivateProvider()` here: providers are cached singletons, so a
+    // superseding activation of the *same* id reuses this instance and tearing
+    // it down would kill the newer activation.)
+    if (this._activationToken !== token) return;
   }
 
   /**

@@ -37,6 +37,7 @@ export const FontSizeControl = ({
         </Typography>
         <Slider
           aria-label="Font size control"
+          getAriaValueText={(v) => `${v.toString()} pixels`}
           valueLabelDisplay="auto"
           min={TRANSCRIPTION_DISPLAY_CONFG.fontSizePx.min}
           max={TRANSCRIPTION_DISPLAY_CONFG.fontSizePx.max}

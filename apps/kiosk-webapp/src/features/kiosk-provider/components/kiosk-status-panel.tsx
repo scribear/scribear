@@ -44,7 +44,11 @@ export const KioskStatusPanel = () => {
         ) : (
           <Stack spacing={2}>
             {device && (
-              <Typography variant="h5">Device: {device.name}</Typography>
+              // Status lines, not section headings: keep the visual size but
+              // render as text so they don't pollute the heading outline. SC 1.3.1
+              <Typography variant="h5" component="p">
+                Device: {device.name}
+              </Typography>
             )}
             {room && <Typography>Room: {room.name}</Typography>}
             {lifecycle === KioskLifecycle.INITIALIZING && (
@@ -58,7 +62,11 @@ export const KioskStatusPanel = () => {
                 <Typography>Session: {activeSession.name}</Typography>
                 {activeSession.currentJoinCode && (
                   <>
-                    <Typography variant="h4" fontFamily="monospace">
+                    <Typography
+                      variant="h4"
+                      component="p"
+                      fontFamily="monospace"
+                    >
                       Join Code: {activeSession.currentJoinCode.joinCode}
                     </Typography>
                     <JoinCodeQrCode

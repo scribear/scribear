@@ -40,6 +40,7 @@ export const WordSpacingControl = ({
         </Typography>
         <Slider
           aria-label="Word spacing control"
+          getAriaValueText={(v) => `${v.toString()}em word spacing`}
           valueLabelDisplay="auto"
           min={TRANSCRIPTION_DISPLAY_CONFG.wordSpacingEm.min}
           max={TRANSCRIPTION_DISPLAY_CONFG.wordSpacingEm.max}

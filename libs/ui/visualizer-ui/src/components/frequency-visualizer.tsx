@@ -145,6 +145,7 @@ export const FrequencyVisualizer = ({
   return (
     <Box sx={{ bgcolor: 'action.selected', display: 'block', width, height }}>
       <canvas
+        aria-hidden="true"
         ref={canvasRef}
         width={width}
         height={height}

@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
@@ -36,6 +36,7 @@ export const DrawerMenuGroup = ({
   children,
 }: DrawerMenuGroupProps) => {
   const [isOpen, setIsOpen] = useState(false);
+  const contentId = useId();
 
   return (
     <Box>
@@ -47,20 +48,30 @@ export const DrawerMenuGroup = ({
       >
         <Stack direction="row" alignItems="center">
           <Stack sx={{ p: 1 }}>
-            <Icon color="inherit">{icon}</Icon>
+            {/* Decorative leading icon — the summary text is the real label. */}
+            <Icon color="inherit" aria-hidden="true">
+              {icon}
+            </Icon>
           </Stack>
-          <Typography>{summary}</Typography>
+          {/* Group heading. Level is reconciled by the app-wide heading pass (P3):
+              app <h1> -> drawer title <h2> -> group summary <h3>. */}
+          <Typography component="h3" variant="body1">
+            {summary}
+          </Typography>
         </Stack>
 
         <IconButton
           onClick={() => {
             setIsOpen(!isOpen);
           }}
+          aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${summary}`}
+          aria-expanded={isOpen}
+          aria-controls={contentId}
         >
           {isOpen ? <ExpandLess /> : <ExpandMore />}
         </IconButton>
       </Stack>
-      <Collapse in={isOpen}>
+      <Collapse in={isOpen} id={contentId}>
         <Stack sx={{ p: 2 }} direction="column" spacing={1}>
           {children}
         </Stack>
