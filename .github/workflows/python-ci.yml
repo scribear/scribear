@@ -32,9 +32,13 @@ jobs:
         id: filter
         uses: dorny/paths-filter@v3
         with:
+          # `.github/**` is included for the same reason detect-changes treats it
+          # as global: a change to the workflows and actions that define this
+          # pipeline should be exercised by it.
           filters: |
             transcription_service:
               - 'transcription_service/**'
+              - '.github/**'
 
       - name: Resolve transcription image matrix
         id: image_matrix
