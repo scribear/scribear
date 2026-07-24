@@ -30,6 +30,17 @@ export function createRedisSubscriber<
   const redis = new Redis(redisUrl, { enableReadyCheck: false });
   const listeners = new Map<string, (message: Static<T>) => void>();
 
+  // An ioredis client with no `error` listener treats a connection failure
+  // (unreachable host, WRONGPASS) as an unhandled error and takes the whole
+  // process down with it. For a consumer like the admin `/fleet/stream` path
+  // that is exactly backwards: a telemetry backplane it cannot reach should
+  // cost the stream its events, not crash the server that hosts it. This is
+  // the same guarantee `createTelemetryRedisClient` requires of its callers,
+  // made here because this factory owns its client rather than handing it out.
+  redis.on('error', (err: Error) => {
+    console.warn(`[redis-subscriber] connection error: ${err.message}`);
+  });
+
   redis.on('message', (channelKey: string, rawMessage: string) => {
     const listener = listeners.get(channelKey);
     if (!listener) return;
@@ -58,13 +69,25 @@ export function createRedisSubscriber<
     subscribe(listener: (message: Static<T>) => void, ...keyArgs: TArgs): void {
       const channelKey = channelDef.key(...keyArgs);
       listeners.set(channelKey, listener);
-      void redis.subscribe(channelKey);
+      // `.catch`, not `void`: a rejected SUBSCRIBE (auth failure, connection
+      // lost before it lands) is otherwise an unhandled rejection, which under
+      // Node's default crashes the process. The `error` listener above handles
+      // the connection-level event; this handles the command promise.
+      redis.subscribe(channelKey).catch((err: Error) => {
+        console.warn(
+          `[redis-subscriber] failed to subscribe to "${channelKey}": ${err.message}`,
+        );
+      });
     },
 
     unsubscribe(...keyArgs: TArgs): void {
       const channelKey = channelDef.key(...keyArgs);
       listeners.delete(channelKey);
-      void redis.unsubscribe(channelKey);
+      redis.unsubscribe(channelKey).catch((err: Error) => {
+        console.warn(
+          `[redis-subscriber] failed to unsubscribe from "${channelKey}": ${err.message}`,
+        );
+      });
     },
 
     disconnect(): Promise<void> {
