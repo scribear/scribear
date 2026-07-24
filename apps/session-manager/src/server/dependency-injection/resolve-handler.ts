@@ -11,9 +11,7 @@ function resolveHandler<
   M extends keyof AppDependencies[C],
 >(controller: C, method: M): AppDependencies[C][M] {
   const wrapper = async (req: FastifyRequest, res: FastifyReply) => {
-    const routeController = req.diScope.resolve(
-      controller,
-    ) as AppDependencies[C];
+    const routeController = req.diScope.resolve(controller);
 
     if (
       !(method in routeController) ||

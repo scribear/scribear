@@ -97,17 +97,6 @@ interface LongPollClientEvents<S extends BaseLongPollRouteSchema> {
   close: (reconnectInMs: number | null) => void;
 }
 
-/** Discriminated result of a single poll attempt, used internally. */
-type PollResult<S extends BaseLongPollRouteSchema> =
-  | {
-      kind: '200';
-      data: S['response'][200] extends TSchema
-        ? Static<S['response'][200]>
-        : never;
-    }
-  | { kind: '204' }
-  | { kind: 'error'; err: NetworkError | UnexpectedResponseError };
-
 /**
  * A self-managing long-poll client that handles the request loop, cursor
  * bookkeeping, and reconnection with exponential backoff.
@@ -249,12 +238,7 @@ export class LongPollClient<
         this._versionResponseKey
       ];
       if (typeof newVersion === 'number') this._currentVersion = newVersion;
-      this._emit(
-        'data',
-        result.data as PollResult<S> extends { kind: '200'; data: infer D }
-          ? D
-          : never,
-      );
+      this._emit('data', result.data);
     }
   }
 

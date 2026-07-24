@@ -87,7 +87,7 @@ export class DeviceManagementRepository {
       .where('devices.uid', '=', deviceUid)
       .executeTakeFirst();
 
-    return row ? mapDevice(row as DeviceRow) : undefined;
+    return row ? mapDevice(row) : undefined;
   }
 
   /**

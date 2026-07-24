@@ -74,7 +74,7 @@ function createBaseServer(
   return {
     logger,
     dependencyContainer,
-    fastify: fastify as BaseFastifyInstance,
+    fastify: fastify,
   };
 }
 

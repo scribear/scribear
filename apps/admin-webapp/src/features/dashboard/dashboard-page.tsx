@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 
 import AddIcon from '@mui/icons-material/Add';
 import DevicesIcon from '@mui/icons-material/Devices';
@@ -18,7 +18,8 @@ import { useNavigate } from 'react-router-dom';
 
 import type { HealthReport } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
-import { ApiError } from '#src/lib/api-error';
+import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { useAsyncData } from '#src/lib/use-async-data';
 import { useToast } from '#src/lib/toast-context';
 
 import { FleetPanel } from './fleet-panel';
@@ -76,63 +77,54 @@ const HealthTile = ({ label, status, detail }: HealthTileProps) => (
 export const DashboardPage = () => {
   const navigate = useNavigate();
   const { showError } = useToast();
-  const [health, setHealth] = useState<HealthReport | null>(null);
-  const [healthLoading, setHealthLoading] = useState(true);
-  const [pendingCount, setPendingCount] = useState<number | null>(null);
-  const [pendingLoading, setPendingLoading] = useState(true);
-  const [misconfigured, setMisconfigured] = useState(false);
+  const {
+    data: health,
+    loading: healthLoading,
+    error: healthError,
+  } = useAsyncData<HealthReport>(() => adminApi.health(), []);
+  const {
+    data: pendingDevices,
+    loading: pendingLoading,
+    error: pendingError,
+  } = useAsyncData(
+    () => adminApi.listDevices({ active: false, limit: 200 }),
+    [],
+  );
 
+  const pendingCount = pendingDevices?.items.length ?? null;
+  // A misconfiguration on either read raises the same banner; derived here
+  // rather than stored so both fetches feed it without shared effect state.
+  const misconfigured =
+    isApiErrorCode(healthError, 'BACKEND_MISCONFIGURATION') ||
+    isApiErrorCode(pendingError, 'BACKEND_MISCONFIGURATION');
+
+  // Any other load failure is surfaced as a toast, once per error.
   useEffect(() => {
-    const alive = { current: true };
-    adminApi
-      .health()
-      .then((res) => {
-        if (alive.current) setHealth(res);
-      })
-      .catch((err: unknown) => {
-        if (!alive.current) return;
-        if (
-          err instanceof ApiError &&
-          err.code === 'BACKEND_MISCONFIGURATION'
-        ) {
-          setMisconfigured(true);
-        } else {
-          showError(
-            err instanceof ApiError ? err.message : 'Failed to load health.',
-          );
-        }
-      })
-      .finally(() => {
-        if (alive.current) setHealthLoading(false);
-      });
-
-    adminApi
-      .listDevices({ active: false, limit: 200 })
-      .then((res) => {
-        if (alive.current) setPendingCount(res.items.length);
-      })
-      .catch((err: unknown) => {
-        if (!alive.current) return;
-        if (
-          err instanceof ApiError &&
-          err.code === 'BACKEND_MISCONFIGURATION'
-        ) {
-          setMisconfigured(true);
-        } else {
-          showError(
-            err instanceof ApiError ? err.message : 'Failed to load devices.',
-          );
-        }
-      })
-      .finally(() => {
-        if (alive.current) setPendingLoading(false);
-      });
-
-    return () => {
-      alive.current = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (
+      healthError !== null &&
+      !isApiErrorCode(healthError, 'BACKEND_MISCONFIGURATION')
+    ) {
+      showError(
+        healthError instanceof ApiError
+          ? healthError.message
+          : 'Failed to load health.',
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
+  }, [healthError]);
+  useEffect(() => {
+    if (
+      pendingError !== null &&
+      !isApiErrorCode(pendingError, 'BACKEND_MISCONFIGURATION')
+    ) {
+      showError(
+        pendingError instanceof ApiError
+          ? pendingError.message
+          : 'Failed to load devices.',
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
+  }, [pendingError]);
 
   return (
     <Box>

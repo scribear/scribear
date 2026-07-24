@@ -70,7 +70,7 @@ describe('SessionAuthService', () => {
     service = new SessionAuthService(
       createMockLogger() as never,
       mockRepo as never,
-      mockHashService as never,
+      mockHashService,
       mockTokenService as never,
     );
   });

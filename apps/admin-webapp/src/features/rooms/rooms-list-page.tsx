@@ -31,9 +31,10 @@ import type { Device, Room } from '@scribear/session-manager-schema';
 
 import { NameWithUid } from '#src/components/name-with-uid';
 import { adminApi } from '#src/lib/admin-api';
-import { ApiError } from '#src/lib/api-error';
+import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
+import { useAsyncList } from '#src/lib/use-async-list';
 
 const DEFAULT_TIMEZONE = 'America/Chicago';
 const PAGE_LIMIT = 25;
@@ -84,7 +85,7 @@ const CreateRoomDialog = ({ onClose, onCreated }: CreateRoomDialogProps) => {
     return () => {
       alive.current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, []);
 
   const handleSubmit = () => {
@@ -201,90 +202,41 @@ export const RoomsListPage = () => {
   const navigate = useNavigate();
   const { showError } = useToast();
   const { showUuids } = useSettings();
-  const [rooms, setRooms] = useState<Room[]>([]);
   const [search, setSearch] = useState('');
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const [misconfigured, setMisconfigured] = useState(false);
 
-  const load = (opts: { search: string; cursor?: string; append: boolean }) => {
-    if (opts.append) setLoadingMore(true);
-    else setLoading(true);
+  const {
+    items: rooms,
+    loading,
+    loadingMore,
+    error,
+    hasMore,
+    loadMore,
+    reload,
+  } = useAsyncList<Room>((cursor) => {
     const query: { search?: string; cursor?: string; limit: number } = {
       limit: PAGE_LIMIT,
     };
-    if (opts.search !== '') query.search = opts.search;
-    if (opts.cursor !== undefined) query.cursor = opts.cursor;
-    adminApi
-      .listRooms(query)
-      .then((res) => {
-        setMisconfigured(false);
-        setRooms((prev) => (opts.append ? [...prev, ...res.items] : res.items));
-        setNextCursor(res.nextCursor);
-      })
-      .catch((err: unknown) => {
-        if (
-          err instanceof ApiError &&
-          err.code === 'BACKEND_MISCONFIGURATION'
-        ) {
-          setMisconfigured(true);
-        } else {
-          showError(
-            err instanceof ApiError ? err.message : 'Failed to load rooms.',
-          );
-        }
-      })
-      .finally(() => {
-        setLoading(false);
-        setLoadingMore(false);
-      });
-  };
-
-  useEffect(() => {
-    const alive = { current: true };
-    setLoading(true);
-    const query: { search?: string; limit: number } = { limit: PAGE_LIMIT };
     if (search !== '') query.search = search;
-    adminApi
-      .listRooms(query)
-      .then((res) => {
-        if (!alive.current) return;
-        setMisconfigured(false);
-        setRooms(res.items);
-        setNextCursor(res.nextCursor);
-      })
-      .catch((err: unknown) => {
-        if (!alive.current) return;
-        if (
-          err instanceof ApiError &&
-          err.code === 'BACKEND_MISCONFIGURATION'
-        ) {
-          setMisconfigured(true);
-        } else {
-          showError(
-            err instanceof ApiError ? err.message : 'Failed to load rooms.',
-          );
-        }
-      })
-      .finally(() => {
-        if (alive.current) setLoading(false);
-      });
-    return () => {
-      alive.current = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (cursor !== undefined) query.cursor = cursor;
+    return adminApi.listRooms(query);
   }, [search]);
 
-  const handleLoadMore = () => {
-    if (nextCursor === null) return;
-    load({ search, cursor: nextCursor, append: true });
-  };
+  const misconfigured = isApiErrorCode(error, 'BACKEND_MISCONFIGURATION');
+
+  // Any non-misconfiguration load failure is surfaced as a toast, once per error.
+  useEffect(() => {
+    if (error !== null && !isApiErrorCode(error, 'BACKEND_MISCONFIGURATION')) {
+      showError(
+        error instanceof ApiError ? error.message : 'Failed to load rooms.',
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
+  }, [error]);
 
   const handleCreated = () => {
     setCreateOpen(false);
-    load({ search, append: false });
+    reload();
   };
 
   return (
@@ -390,9 +342,9 @@ export const RoomsListPage = () => {
         </Table>
       </TableContainer>
 
-      {nextCursor !== null && !loading && (
+      {hasMore && !loading && (
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-          <Button onClick={handleLoadMore} disabled={loadingMore}>
+          <Button onClick={loadMore} disabled={loadingMore}>
             {loadingMore ? 'Loading…' : 'Load more'}
           </Button>
         </Box>

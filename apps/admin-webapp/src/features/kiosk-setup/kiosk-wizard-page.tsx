@@ -30,6 +30,7 @@ import { ScheduleStep } from '#src/features/kiosk-setup/schedule-step';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
+import { useAsyncData } from '#src/lib/use-async-data';
 
 const DEFAULT_TIMEZONE = 'America/Chicago';
 const POLL_MS = 3000;
@@ -327,12 +328,30 @@ export const KioskWizardPage = () => {
   const [roomChoice, setRoomChoice] = useState<RoomChoice>('new');
   const [newRoomName, setNewRoomName] = useState('');
   const [newRoomTimezone, setNewRoomTimezone] = useState(DEFAULT_TIMEZONE);
-  const [existingRooms, setExistingRooms] = useState<Room[]>([]);
-  const [existingRoomsLoading, setExistingRoomsLoading] = useState(false);
   const [selectedRoomUid, setSelectedRoomUid] = useState('');
   const [roomUid, setRoomUid] = useState<string | null>(null);
   const [roomSubmitting, setRoomSubmitting] = useState(false);
+  // Set only by the create/add-room mutations; the room-list load's own
+  // misconfiguration is folded in via `roomStepMisconfigured` below.
   const [roomMisconfigured, setRoomMisconfigured] = useState(false);
+
+  // Existing rooms are loaded only once the operator picks "existing"; the
+  // fetcher no-ops (resolves []) otherwise.
+  const {
+    data: existingRoomsData,
+    loading: existingRoomsLoading,
+    error: existingRoomsError,
+  } = useAsyncData<Room[]>(
+    () =>
+      roomChoice === 'existing'
+        ? adminApi.listRooms({ limit: 200 }).then((res) => res.items)
+        : Promise.resolve([]),
+    [roomChoice],
+  );
+  const existingRooms = existingRoomsData ?? [];
+  const roomStepMisconfigured =
+    roomMisconfigured ||
+    isApiErrorCode(existingRoomsError, 'BACKEND_MISCONFIGURATION');
 
   // Step 2: schedule
   const [schedulesCreated, setSchedulesCreated] = useState(0);
@@ -381,31 +400,17 @@ export const KioskWizardPage = () => {
       });
   };
 
+  // Non-misconfiguration room-list failures are surfaced as a toast, once per
+  // error (misconfiguration is shown inline via `roomStepMisconfigured`).
   useEffect(() => {
-    if (roomChoice !== 'existing' || existingRooms.length > 0) return;
-    const alive = { current: true };
-    setExistingRoomsLoading(true);
-    adminApi
-      .listRooms({ limit: 200 })
-      .then((res) => {
-        if (alive.current) setExistingRooms(res.items);
-      })
-      .catch((err: unknown) => {
-        if (!alive.current) return;
-        if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
-          setRoomMisconfigured(true);
-        } else {
-          showError(errorMessage(err, 'Failed to load rooms.'));
-        }
-      })
-      .finally(() => {
-        if (alive.current) setExistingRoomsLoading(false);
-      });
-    return () => {
-      alive.current = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomChoice]);
+    if (
+      existingRoomsError !== null &&
+      !isApiErrorCode(existingRoomsError, 'BACKEND_MISCONFIGURATION')
+    ) {
+      showError(errorMessage(existingRoomsError, 'Failed to load rooms.'));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
+  }, [existingRoomsError]);
 
   const handleCreateRoom = () => {
     if (deviceUid === null) return;
@@ -556,7 +561,7 @@ export const KioskWizardPage = () => {
             selectedRoomUid={selectedRoomUid}
             setSelectedRoomUid={setSelectedRoomUid}
             roomSubmitting={roomSubmitting}
-            misconfigured={roomMisconfigured}
+            misconfigured={roomStepMisconfigured}
             onCreateRoom={handleCreateRoom}
             onAddToRoom={handleAddToRoom}
           />

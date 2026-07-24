@@ -226,8 +226,14 @@ export function decodeAudioFrame(
     }
     const value = bytes.subarray(valueStart, valueEnd);
 
+    // The `as number` casts here are load-bearing even though
+    // no-unnecessary-type-assertion flags them as redundant: removing them
+    // makes `key` (a plain number) get compared against the enum's literal
+    // member type instead, which trips @typescript-eslint/no-unsafe-enum-comparison.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
     if (key === (SafpFieldKey.CHUNK_ID as number)) {
       chunkId = textDecoder.decode(value);
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
     } else if (key === (SafpFieldKey.SENT_AT as number) && length === 8) {
       sentAt = new DataView(
         value.buffer,

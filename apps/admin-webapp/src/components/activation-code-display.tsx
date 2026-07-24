@@ -37,6 +37,7 @@ export const ActivationCodeDisplay = ({
 
   useEffect(() => {
     const tick = () => {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
       setRemainingMs(new Date(expiry).getTime() - Date.now());
     };
     tick();
