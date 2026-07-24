@@ -38,6 +38,7 @@ import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
+import { useAsyncList } from '#src/lib/use-async-list';
 import { useRoomNameLookup } from '#src/lib/use-room-name-lookup';
 
 const PAGE_LIMIT = 25;
@@ -160,16 +161,11 @@ export const DevicesListPage = () => {
   const { showError } = useToast();
   const { showUuids } = useSettings();
   const roomNames = useRoomNameLookup();
-  const [devices, setDevices] = useState<Device[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [roomFilter, setRoomFilter] = useState<RoomFilter>('all');
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
   const [registerDialogKey, setRegisterDialogKey] = useState(0);
-  const [misconfigured, setMisconfigured] = useState(false);
 
   const buildQuery = (cursor?: string) => {
     const query: {
@@ -186,68 +182,28 @@ export const DevicesListPage = () => {
     return query;
   };
 
-  const load = (opts: { cursor?: string; append: boolean }) => {
-    if (opts.append) setLoadingMore(true);
-    else setLoading(true);
-    adminApi
-      .listDevices(buildQuery(opts.cursor))
-      .then((res) => {
-        setMisconfigured(false);
-        setDevices((prev) =>
-          opts.append ? [...prev, ...res.items] : res.items,
-        );
-        setNextCursor(res.nextCursor);
-      })
-      .catch((err: unknown) => {
-        if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
-          setMisconfigured(true);
-        } else {
-          showError(errorMessage(err, 'Failed to load devices.'));
-        }
-      })
-      .finally(() => {
-        setLoading(false);
-        setLoadingMore(false);
-      });
-  };
+  const {
+    items: devices,
+    loading,
+    loadingMore,
+    error,
+    hasMore,
+    loadMore,
+    reload,
+  } = useAsyncList<Device>(
+    (cursor) => adminApi.listDevices(buildQuery(cursor)),
+    [search, statusFilter, roomFilter],
+  );
 
+  const misconfigured = isApiErrorCode(error, 'BACKEND_MISCONFIGURATION');
+
+  // Any non-misconfiguration load failure is surfaced as a toast, once per error.
   useEffect(() => {
-    const alive = { current: true };
-    // eslint-disable-next-line react-hooks/set-state-in-effect, @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
-    setLoading(true);
-    adminApi
-      .listDevices(buildQuery())
-      .then((res) => {
-        if (!alive.current) return;
-        setMisconfigured(false);
-        setDevices(res.items);
-        setNextCursor(res.nextCursor);
-      })
-      .catch((err: unknown) => {
-        if (!alive.current) return;
-        if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
-          setMisconfigured(true);
-        } else {
-          showError(errorMessage(err, 'Failed to load devices.'));
-        }
-      })
-      .finally(() => {
-        if (alive.current) setLoading(false);
-      });
-    return () => {
-      alive.current = false;
-    };
+    if (error !== null && !isApiErrorCode(error, 'BACKEND_MISCONFIGURATION')) {
+      showError(errorMessage(error, 'Failed to load devices.'));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
-  }, [search, statusFilter, roomFilter]);
-
-  const handleLoadMore = () => {
-    if (nextCursor === null) return;
-    load({ cursor: nextCursor, append: true });
-  };
-
-  const handleRegistered = () => {
-    load({ append: false });
-  };
+  }, [error]);
 
   const renderRoomCell = (roomUid: string | null) => {
     if (roomUid === null) return 'Unassigned';
@@ -419,9 +375,9 @@ export const DevicesListPage = () => {
         </Table>
       </TableContainer>
 
-      {nextCursor !== null && !loading && (
+      {hasMore && !loading && (
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-          <Button onClick={handleLoadMore} disabled={loadingMore}>
+          <Button onClick={loadMore} disabled={loadingMore}>
             {loadingMore ? 'Loading…' : 'Load more'}
           </Button>
         </Box>
@@ -433,7 +389,7 @@ export const DevicesListPage = () => {
         onClose={() => {
           setRegisterOpen(false);
         }}
-        onRegistered={handleRegistered}
+        onRegistered={reload}
       />
     </Box>
   );

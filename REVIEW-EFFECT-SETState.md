@@ -3,9 +3,9 @@
 Sites flagged by the `react-hooks/set-state-in-effect` / `@eslint-react/set-state-in-effect`
 rules (new in `eslint-plugin-react-hooks` 7.1 and `@eslint-react/eslint-plugin` 5, surfaced by
 [PR #144](https://github.com/scribear/scribear/pull/144), the ESLint 9→10 / eslint-react 2→5
-dependency bump). All 18 sites below are in `admin-webapp`.
+dependency bump). All 18 originally-flagged sites are in `admin-webapp`.
 
-17 of the 18 are the same "loading flag" data-fetching idiom:
+17 of the 18 were the same "loading flag" data-fetching idiom:
 
 ```ts
 useEffect(() => {
@@ -19,61 +19,62 @@ useEffect(() => {
 }, [deps]);
 ```
 
-The 18th (`activation-code-display.tsx:40`) is a different pattern — a countdown-timer effect that
-calls `setRemainingMs` from a `tick()` function invoked both immediately and on a `setInterval`, not
-a data-fetch loading flag.
+The 18th (`activation-code-display.tsx:40`) is a countdown-timer effect (`setInterval` tick), not a
+data-fetch loading flag.
 
 ## Resolution
 
-Decision taken: **introduce a shared `useAsyncData` hook** (`src/lib/use-async-data.ts`) that owns
-the `loading` / `error` / `data` transition plus the mounted-guard, and refactor the sites that fit
-it. The hook derives page-specific branches (not-found, misconfiguration, …) from its `error` return
-during render instead of storing them as separate effect-written state, and exposes `reload()` for
-post-mutation refresh. The single unavoidable synchronous `setState`-in-effect (the loading flag)
-lives **once**, inside the hook, suppressed there — so both `set-state-in-effect` rules stay live
-(errors, not disabled) for all new code elsewhere.
+Two shared hooks now own the loading/error/data transition and the mounted-guard that was
+hand-rolled across these pages:
 
-Not every flagged site fits that shape. Sites were converted only where `useAsyncData` cleanly
-models the fetch; the rest keep their per-line suppressions as **deliberate, documented exceptions**
-(not untriaged debt). "Correctness and behavior-preservation beat coverage" was the rule — a forced
-fit that changes behavior or fragments a coherent effect is worse than a suppressed line.
+- **`src/lib/use-async-data.ts`** — single-value fetch. Runs on mount and when `deps` change,
+  exposes `{ data, loading, error, reload }`. Callers derive page-specific branches (not-found,
+  misconfiguration, …) from `error` during render instead of storing them as effect-written state,
+  and use `reload()` for post-mutation refresh.
+- **`src/lib/use-async-list.ts`** — cursor-paginated sibling. Adds `loadingMore` / `hasMore` /
+  `loadMore()` for "Load more" append-style lists.
 
-### One behavior change on converted pages
+The one synchronous `setState`-in-effect the loading idiom needs lives **once**, inside each hook,
+suppressed there — so both `set-state-in-effect` rules stay live (errors, not disabled) for all new
+code elsewhere.
 
-On pages where a **mutation** handler previously set a `misconfigured`/`notFound` banner in its
-`catch`, that state no longer exists (it is now derived from the *load* `error`). A misconfiguration
-raised by a mutation now surfaces as a **toast** (carrying the API error's own message) rather than
-the persistent inline banner. This is arguably more correct — the banner was really about the load
-path — but it is a change, called out here for reviewers. The load-path banner behavior is
-unchanged.
+**Every data-fetch site has been migrated.** The only two remaining per-line suppressions are
+deliberate, documented exceptions where the hook model genuinely does not fit (see the table).
 
-## All flagged sites
+### Behavior changes on converted pages
+
+1. **Mutation-raised misconfiguration → toast.** Where a *mutation* handler previously set a
+   `misconfigured`/`notFound` banner in its `catch`, that state is now derived from the *load*
+   `error`. A misconfiguration raised by a mutation surfaces as a **toast** (with the API error's
+   message) rather than the persistent inline banner. Load-path banners are unchanged. (The kiosk
+   wizard is the exception: its room-step banner keeps exact behavior — the mutation-set flag is
+   preserved and combined with the derived load error via `roomStepMisconfigured`.)
+2. **Post-mutation refresh is a refetch.** A handful of handlers that updated a record *in place*
+   from a mutation's return value (`device-detail` rename, `room-scheduling` auto-session toggle)
+   now call `reload()`. Same end state, one extra request and a brief window showing the prior
+   value.
+
+## All originally-flagged sites
 
 | # | File : line | Status |
 |---|---|---|
-| 1 | `components/activation-code-display.tsx:40` | **Kept** — countdown timer, not a fetch; a legit `setInterval` tick loop. |
+| 1 | `components/activation-code-display.tsx:40` | **Kept** — countdown `setInterval` tick, not a fetch. |
 | 2 | `features/audit/audit-page.tsx:41` | **Resolved** — `useAsyncData`. |
 | 3 | `features/config-check/config-check-page.tsx:167` | **Resolved** — `useAsyncData` (hook's `reload()` drives the "Re-run" button). |
-| 4 | `features/devices/device-detail-page.tsx:171` | **Resolved** — `useAsyncData` (device fetch). |
-| 5 | `features/devices/device-detail-page.tsx:172` | **Resolved** — same effect. |
-| 6 | `features/devices/device-detail-page.tsx:173` | **Resolved** — same effect. |
+| 4–6 | `features/devices/device-detail-page.tsx:171–173` | **Resolved** — `useAsyncData` (device fetch). |
 | 7 | `features/devices/device-detail-page.tsx:201` | **Resolved** — `useAsyncData` (dependent room lookup). |
-| 8 | `features/devices/devices-list-page.tsx:216` | **Kept** — paginated: "Load more" appends into the same state via `setDevices(prev => [...prev, ...])`; `useAsyncData` owns its `data` and can't be appended to externally. |
-| 9 | `features/kiosk-setup/kiosk-wizard-page.tsx:387` | **Kept** — conditional once-only fetch guard (`roomChoice !== 'existing' \|\| existingRooms.length > 0`), and `roomMisconfigured` is shared state written by the effect *and* two mutation handlers. |
-| 10 | `features/kiosk-setup/schedule-step.tsx:473` | **Kept** — `Promise.all` of three endpoints into six states; `schedules`/`windows` are optimistically appended by create handlers and `autoEnabled`/form state are locally mutated. |
-| 11 | `features/rooms/room-detail-page.tsx:316` | **Resolved** — `useAsyncData` (main page). The `AddDeviceDialog`/`RenameRoomDialog` fetches are *not* flagged and keep their own mutation-driven `misconfigured`, so they were left as-is. |
-| 12 | `features/rooms/rooms-list-page.tsx:247` | **Kept** — paginated (same append pattern as devices-list). |
-| 13 | `features/scheduling/room-scheduling-page.tsx:1032` | **Kept** — one effect fires three parallel fetches into three slices; the `roomDetail` slice is mutated by handlers (`setRoom`), so it can't live inside `useAsyncData`. |
-| 14 | `features/scheduling/room-scheduling-page.tsx:1033` | **Kept** — same effect. |
-| 15 | `features/scheduling/room-scheduling-page.tsx:1034` | **Kept** — same effect. |
-| 16 | `features/sessions/session-detail-page.tsx:87` | **Resolved** — `useAsyncData` (reference conversion). |
-| 17 | `features/sessions/session-detail-page.tsx:88` | **Resolved** — same effect. |
-| 18 | `features/sessions/session-detail-page.tsx:89` | **Resolved** — same effect. |
+| 8 | `features/devices/devices-list-page.tsx:216` | **Resolved** — `useAsyncList` (cursor pagination). |
+| 9 | `features/kiosk-setup/kiosk-wizard-page.tsx:387` | **Resolved** — `useAsyncData`; fetcher no-ops until "existing" is picked; banner combined so mutation behavior is unchanged. |
+| 10 | `features/kiosk-setup/schedule-step.tsx:473` | **Kept** — `schedules`/`windows` are *optimistically appended* by the create handlers (no refetch) and `autoEnabled` is toggled locally; `useAsyncData` owns its `data` and can't model optimistic mutation. Converting would trade optimistic UI for a refetch. |
+| 11 | `features/rooms/room-detail-page.tsx:316` | **Resolved** — `useAsyncData` (main page). The dialogs' non-flagged fetches keep their own mutation-driven `misconfigured`. |
+| 12 | `features/rooms/rooms-list-page.tsx:247` | **Resolved** — `useAsyncList`. |
+| 13–15 | `features/scheduling/room-scheduling-page.tsx:1032–1034` | **Resolved** — three `useAsyncData` slices (room / schedules / windows); `loadSchedules`/`loadWindows` became `reload`s. Refetch-based, so it fits (unlike schedule-step). |
+| 16–18 | `features/sessions/session-detail-page.tsx:87–89` | **Resolved** — `useAsyncData` (reference conversion). |
 
-**Resolved:** 10 flagged sites across 5 files (audit, config-check, device-detail, room-detail,
-session-detail). **Kept** (deliberate, documented): 8 flagged sites across 6 files.
+**Resolved:** 16 of the 18 flagged sites. **Kept** (deliberate, documented): 2 — the countdown
+timer and schedule-step's optimistic-append effect.
 
-### Also migrated to `useAsyncData` (were not flagged, but a clean fit)
+### Also migrated (were not flagged, but a clean fit)
 
 - `features/dashboard/dashboard-page.tsx` — two parallel single-fetches; shared `misconfigured`
   banner derived from either error.
@@ -86,18 +87,17 @@ session-detail). **Kept** (deliberate, documented): 8 flagged sites across 6 fil
 - `features/auth/auth-provider.tsx` — bootstrap effect: two sequential fetches, imperative side
   effects (`setCsrfToken`, `setOnUnauthorized`), three state slices.
 
+## Pre-existing warnings (out of scope)
+
+`room-scheduling-page.tsx:236` and `:573` carry `@eslint-react/use-state` lazy-init warnings in the
+dialog form-state initializers. These predate this work and are unrelated to `set-state-in-effect`;
+left as-is.
+
 ## Duplicate vs. distinct: how the two rules overlap
 
 `react-hooks/set-state-in-effect` (error) and `@eslint-react/set-state-in-effect` (warning) are two
-independent rules, from two different plugins, that both target this same pattern. They do **not**
-always fire on the same line:
-
-- **11 of the 18 lines** are flagged by **both** rules on the same line.
-- **7 of the 18 lines** are flagged **only** by `@eslint-react/set-state-in-effect` — these are the
-  *second and third* synchronous `setState` calls in an effect that makes several in a row
-  (`react-hooks/set-state-in-effect` reports only the first offending call per effect;
-  `@eslint-react/set-state-in-effect` reports every one).
-
-This is why a kept site with several synchronous setters carries a both-id disable on the first and
-an `@eslint-react`-only disable on the rest; the `useAsyncData` hook follows the same convention
-internally.
+independent rules that both target this pattern but do **not** always fire on the same line:
+`react-hooks/set-state-in-effect` reports only the first offending call per effect;
+`@eslint-react/set-state-in-effect` reports every one. That is why a kept site with several
+synchronous setters carries a both-id disable on the first and an `@eslint-react`-only disable on
+the rest; the shared hooks follow the same convention internally.

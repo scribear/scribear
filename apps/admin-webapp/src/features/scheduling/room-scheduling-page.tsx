@@ -59,6 +59,7 @@ import type {
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
+import { useAsyncData } from '#src/lib/use-async-data';
 
 const DAYS_OF_WEEK: readonly DayOfWeek[] = [
   'SUN',
@@ -955,13 +956,8 @@ export const RoomSchedulingPage = () => {
   const navigate = useNavigate();
   const { showSuccess, showError } = useToast();
 
-  const [room, setRoom] = useState<Room | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [misconfigured, setMisconfigured] = useState(false);
   const [autoToggling, setAutoToggling] = useState(false);
 
-  const [schedules, setSchedules] = useState<SessionSchedule[]>([]);
-  const [schedulesLoading, setSchedulesLoading] = useState(true);
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] =
     useState<SessionSchedule | null>(null);
@@ -970,8 +966,6 @@ export const RoomSchedulingPage = () => {
   );
   const [deletingSchedule, setDeletingSchedule] = useState(false);
 
-  const [windows, setWindows] = useState<AutoSessionWindow[]>([]);
-  const [windowsLoading, setWindowsLoading] = useState(true);
   const [windowDialogOpen, setWindowDialogOpen] = useState(false);
   const [editingWindow, setEditingWindow] = useState<AutoSessionWindow | null>(
     null,
@@ -990,122 +984,98 @@ export const RoomSchedulingPage = () => {
     return [from.toISOString(), to.toISOString()];
   }, []);
 
-  const loadSchedules = () => {
-    if (roomUid === undefined) return;
-    setSchedulesLoading(true);
-    adminApi
-      .listSchedules({ roomUid, from: rangeFrom, to: rangeTo })
-      .then((res) => {
-        setSchedules(res.items);
-      })
-      .catch((err: unknown) => {
-        if (!isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
-          showError(errorMessage(err, 'Failed to load schedules.'));
-        }
-      })
-      .finally(() => {
-        setSchedulesLoading(false);
-      });
-  };
+  const {
+    data: room,
+    loading,
+    error: roomError,
+    reload: reloadRoom,
+  } = useAsyncData<Room>(
+    () =>
+      roomUid === undefined
+        ? Promise.reject(new ApiError('NOT_FOUND', 'No room id.', 404))
+        : adminApi.roomDetail(roomUid).then((res) => res.room),
+    [roomUid],
+  );
 
-  const loadWindows = () => {
-    if (roomUid === undefined) return;
-    setWindowsLoading(true);
-    adminApi
-      .listAutoWindows({ roomUid, from: rangeFrom, to: rangeTo })
-      .then((res) => {
-        setWindows(res.items);
-      })
-      .catch((err: unknown) => {
-        if (!isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
-          showError(errorMessage(err, 'Failed to load auto-session windows.'));
-        }
-      })
-      .finally(() => {
-        setWindowsLoading(false);
-      });
-  };
+  const {
+    data: schedulesData,
+    loading: schedulesLoading,
+    error: schedulesError,
+    reload: reloadSchedules,
+  } = useAsyncData<SessionSchedule[]>(
+    () =>
+      roomUid === undefined
+        ? Promise.resolve([])
+        : adminApi
+            .listSchedules({ roomUid, from: rangeFrom, to: rangeTo })
+            .then((res) => res.items),
+    [roomUid],
+  );
+  const schedules = schedulesData ?? [];
 
+  const {
+    data: windowsData,
+    loading: windowsLoading,
+    error: windowsError,
+    reload: reloadWindows,
+  } = useAsyncData<AutoSessionWindow[]>(
+    () =>
+      roomUid === undefined
+        ? Promise.resolve([])
+        : adminApi
+            .listAutoWindows({ roomUid, from: rangeFrom, to: rangeTo })
+            .then((res) => res.items),
+    [roomUid],
+  );
+  const windows = windowsData ?? [];
+
+  // Banner is derived from the room load; a misconfiguration raised by the
+  // auto-session toggle surfaces as a toast instead (see handleToggleAuto).
+  const misconfigured = isApiErrorCode(roomError, 'BACKEND_MISCONFIGURATION');
+
+  // Each load's non-misconfiguration failure is surfaced as a toast, once per
+  // error (schedule/window misconfigurations stay silent, as before).
   useEffect(() => {
-    const alive = { current: true };
-    if (roomUid === undefined) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect, @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
-    setLoading(true);
-    // eslint-disable-next-line @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
-    setSchedulesLoading(true);
-    // eslint-disable-next-line @eslint-react/set-state-in-effect -- tracked in REVIEW-EFFECT-SETState.md
-    setWindowsLoading(true);
-    adminApi
-      .roomDetail(roomUid)
-      .then((res) => {
-        if (!alive.current) return;
-        setMisconfigured(false);
-        setRoom(res.room);
-      })
-      .catch((err: unknown) => {
-        if (!alive.current) return;
-        if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
-          setMisconfigured(true);
-        } else {
-          showError(errorMessage(err, 'Failed to load room.'));
-        }
-      })
-      .finally(() => {
-        if (alive.current) setLoading(false);
-      });
-    adminApi
-      .listSchedules({ roomUid, from: rangeFrom, to: rangeTo })
-      .then((res) => {
-        if (alive.current) setSchedules(res.items);
-      })
-      .catch((err: unknown) => {
-        if (!alive.current) return;
-        if (!isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
-          showError(errorMessage(err, 'Failed to load schedules.'));
-        }
-      })
-      .finally(() => {
-        if (alive.current) setSchedulesLoading(false);
-      });
-    adminApi
-      .listAutoWindows({ roomUid, from: rangeFrom, to: rangeTo })
-      .then((res) => {
-        if (alive.current) setWindows(res.items);
-      })
-      .catch((err: unknown) => {
-        if (!alive.current) return;
-        if (!isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
-          showError(errorMessage(err, 'Failed to load auto-session windows.'));
-        }
-      })
-      .finally(() => {
-        if (alive.current) setWindowsLoading(false);
-      });
-    return () => {
-      alive.current = false;
-    };
+    if (
+      roomError !== null &&
+      !isApiErrorCode(roomError, 'BACKEND_MISCONFIGURATION')
+    ) {
+      showError(errorMessage(roomError, 'Failed to load room.'));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
-  }, [roomUid]);
+  }, [roomError]);
+  useEffect(() => {
+    if (
+      schedulesError !== null &&
+      !isApiErrorCode(schedulesError, 'BACKEND_MISCONFIGURATION')
+    ) {
+      showError(errorMessage(schedulesError, 'Failed to load schedules.'));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
+  }, [schedulesError]);
+  useEffect(() => {
+    if (
+      windowsError !== null &&
+      !isApiErrorCode(windowsError, 'BACKEND_MISCONFIGURATION')
+    ) {
+      showError(errorMessage(windowsError, 'Failed to load auto-session windows.'));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
+  }, [windowsError]);
 
   const handleToggleAuto = (_e: SyntheticEvent, checked: boolean) => {
     if (roomUid === undefined || room === null) return;
     setAutoToggling(true);
     adminApi
       .updateRoomScheduleConfig({ roomUid, autoSessionEnabled: checked })
-      .then((updated) => {
-        setRoom(updated);
+      .then(() => {
+        reloadRoom();
         showSuccess(
           checked ? 'Auto-sessions enabled.' : 'Auto-sessions disabled.',
         );
       })
       .catch((err: unknown) => {
-        if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
-          setMisconfigured(true);
-        } else {
-          showError(
-            errorMessage(err, 'Failed to update auto-session setting.'),
-          );
-        }
+        showError(errorMessage(err, 'Failed to update auto-session setting.'));
       })
       .finally(() => {
         setAutoToggling(false);
@@ -1119,7 +1089,7 @@ export const RoomSchedulingPage = () => {
       .deleteSchedule(deleteScheduleUid)
       .then(() => {
         showSuccess('Schedule deleted.');
-        loadSchedules();
+        reloadSchedules();
       })
       .catch((err: unknown) => {
         showError(errorMessage(err, 'Failed to delete schedule.'));
@@ -1137,7 +1107,7 @@ export const RoomSchedulingPage = () => {
       .deleteAutoWindow(deleteWindowUid)
       .then(() => {
         showSuccess('Auto-session window deleted.');
-        loadWindows();
+        reloadWindows();
       })
       .catch((err: unknown) => {
         showError(errorMessage(err, 'Failed to delete window.'));
@@ -1447,7 +1417,7 @@ export const RoomSchedulingPage = () => {
           }}
           onSaved={() => {
             setScheduleDialogOpen(false);
-            loadSchedules();
+            reloadSchedules();
           }}
         />
       )}
@@ -1461,7 +1431,7 @@ export const RoomSchedulingPage = () => {
           }}
           onSaved={() => {
             setWindowDialogOpen(false);
-            loadWindows();
+            reloadWindows();
           }}
         />
       )}
