@@ -1,4 +1,5 @@
 import envSchema from 'env-schema';
+import { randomBytes } from 'node:crypto';
 import { Type } from 'typebox';
 import type { Static } from 'typebox';
 
@@ -50,8 +51,13 @@ const CONFIG_SCHEMA = Type.Object({
   // and /fleet answers 503 rather than the BFF failing to boot.
   REDIS_URL: Type.String({ default: '' }),
 
-  // Session cookie signing + lifetimes
-  ADMIN_SESSION_SECRET: Type.String({ minLength: 32 }),
+  // Session cookie signing + lifetimes. Deliberately a plain string with an
+  // empty default rather than `minLength: 32`: a boot-time length rule would
+  // refuse to start over a weak secret, which is the opposite of this codebase's
+  // approach (see DEPLOYMENT_ENV above). The 32-character strength requirement
+  // is enforced by the Config Check instead — `admin-session-secret-missing` /
+  // `admin-session-secret-weak` — so a too-short secret is reported, not fatal.
+  ADMIN_SESSION_SECRET: Type.String({ default: '' }),
   ADMIN_SESSION_IDLE_TIMEOUT_MINUTES: Type.Integer({
     minimum: 1,
     default: 60,
@@ -95,6 +101,11 @@ export interface BaseConfig {
 export class AppConfig {
   private _isDevelopment: boolean;
   private _env: Static<typeof CONFIG_SCHEMA>;
+  /**
+   * Fallback cookie-signing secret, minted once per process. Used only when
+   * `ADMIN_SESSION_SECRET` is unset — see `cookieSecret`.
+   */
+  private _ephemeralCookieSecret = randomBytes(32).toString('hex');
 
   get baseConfig(): BaseConfig {
     return {
@@ -151,6 +162,9 @@ export class AppConfig {
       adminApiKey: this._env.ADMIN_API_KEY,
       adminSessionSecret: this._env.ADMIN_SESSION_SECRET,
       adminLocalCredentials: this._env.ADMIN_LOCAL_CREDENTIALS,
+      dbHost: this._env.DB_HOST,
+      dbName: this._env.DB_NAME,
+      dbUser: this._env.DB_USER,
       dbPassword: this._env.DB_PASSWORD,
       redisUrl: this._env.REDIS_URL,
       azureTenantId: this._env.AZURE_TENANT_ID,
@@ -178,9 +192,19 @@ export class AppConfig {
     };
   }
 
-  /** Secret used by `@fastify/cookie` to sign the session cookie. */
+  /**
+   * Secret used by `@fastify/cookie` to sign the session cookie.
+   *
+   * Falls back to a per-process random secret when `ADMIN_SESSION_SECRET` is
+   * unset, so a missing secret degrades to "sessions don't survive a restart"
+   * — already true of the in-memory session store — and is surfaced by the
+   * Config Check, rather than making `@fastify/cookie` throw the first time a
+   * signed cookie is set and taking the admin console down with it. A
+   * configured secret is used verbatim; its strength is graded by the Config
+   * Check, not enforced here.
+   */
   get cookieSecret(): string {
-    return this._env.ADMIN_SESSION_SECRET;
+    return this._env.ADMIN_SESSION_SECRET || this._ephemeralCookieSecret;
   }
 
   get localAuthConfig(): LocalAuthConfig {

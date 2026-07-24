@@ -12,6 +12,7 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import Divider from '@mui/material/Divider';
+import Link from '@mui/material/Link';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
@@ -139,6 +140,14 @@ const FindingCard = ({
           {finding.remediation}
         </Typography>
       )}
+
+      {finding.docUrl !== undefined && (
+        <Typography variant="body2" sx={{ ml: 4, mt: 0.5 }}>
+          <Link href={finding.docUrl} target="_blank" rel="noopener noreferrer">
+            Deployment guide for this step ↗
+          </Link>
+        </Typography>
+      )}
     </Paper>
   );
 };
@@ -199,7 +208,7 @@ export const ConfigCheckPage = () => {
         }}
       >
         <Typography variant="h5" sx={{ flexGrow: 1 }}>
-          Config Check
+          Deployment Check
         </Typography>
         <Chip
           label={report.environment}

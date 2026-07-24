@@ -1,7 +1,8 @@
-import { describe, expect } from 'vitest';
+import { describe, expect, vi } from 'vitest';
 
 import type { ConfigCheckConfig } from '#src/server/features/config-check/config-check.service.js';
 import {
+  ConfigCheckService,
   evaluateStaticChecks,
   resolveEnvironment,
 } from '#src/server/features/config-check/config-check.service.js';
@@ -13,6 +14,9 @@ const CLEAN: ConfigCheckConfig = {
   adminApiKey: 'a7f3c1e9d2b48065af13c9e7d0b2a4f6',
   adminSessionSecret: '9d41f0b7e6c25a83d9f14b07c6a2e5d803b1f7a49c6e2d05',
   adminLocalCredentials: 'engrit 4f9a2c7e1b83d05a',
+  dbHost: 'scribear-db',
+  dbName: 'scribear',
+  dbUser: 'scribear',
   dbPassword: 'e2b7d94a1c60f38b',
   redisUrl: 'redis://:5c9e1a7f3d824b60@redis:6379',
   azureTenantId: 'tenant-1',
@@ -29,6 +33,72 @@ function check(overrides: Partial<ConfigCheckConfig> = {}) {
 
 function ids(overrides: Partial<ConfigCheckConfig> = {}): string[] {
   return check(overrides).map((f) => f.id);
+}
+
+/** The two calls `_checkDatabase` makes; each test breaks one of them. */
+interface DbClientLike {
+  ping: () => Promise<void>;
+  hasAdminSchema: () => Promise<boolean>;
+}
+
+/** A database that is up and migrated. */
+const REACHABLE_DB: DbClientLike = {
+  ping: () => Promise.resolve(),
+  hasAdminSchema: () => Promise.resolve(true),
+};
+
+/**
+ * A `ConfigCheckService` whose only live dependency is the database: fleet
+ * telemetry is off and every probed service answers, so the findings from
+ * `check()` are exactly the ones `_checkDatabase` produced.
+ */
+function dbService(
+  dbClient: DbClientLike,
+  overrides: Partial<ConfigCheckConfig> = {},
+): ConfigCheckService {
+  type Args = ConstructorParameters<typeof ConfigCheckService>;
+  return new ConfigCheckService(
+    { ...CLEAN, ...overrides },
+    { enabled: false } as unknown as Args[1],
+    { check: () => Promise.resolve([]) } as unknown as Args[2],
+    dbClient as unknown as Args[3],
+  );
+}
+
+async function dbIds(
+  dbClient: DbClientLike,
+  overrides: Partial<ConfigCheckConfig> = {},
+): Promise<string[]> {
+  const report = await dbService(dbClient, overrides).check();
+  return report.findings.map((f) => f.id);
+}
+
+/** One row of the health rollup, as `HealthCheckerService.check()` returns. */
+interface HealthComponentLike {
+  name: string;
+  status: string;
+  latencyMs: number;
+  detail?: string;
+}
+
+/**
+ * A `ConfigCheckService` whose health rollup returns exactly `components` (and
+ * whose database is healthy), so `check()`'s findings are what
+ * `_checkServiceReachability` made of that rollup.
+ */
+function healthService(components: HealthComponentLike[]): ConfigCheckService {
+  type Args = ConstructorParameters<typeof ConfigCheckService>;
+  return new ConfigCheckService(
+    CLEAN,
+    { enabled: false } as unknown as Args[1],
+    { check: () => Promise.resolve(components) } as unknown as Args[2],
+    REACHABLE_DB as unknown as Args[3],
+  );
+}
+
+async function healthIds(components: HealthComponentLike[]): Promise<string[]> {
+  const report = await healthService(components).check();
+  return report.findings.map((f) => f.id);
 }
 
 describe('resolveEnvironment', () => {
@@ -132,6 +202,47 @@ describe('evaluateStaticChecks', () => {
       }).filter((f) => f.id === 'db-password-placeholder');
 
       expect(found?.severity).toBe('advisory');
+      expect(found?.productionSeverity).toBe('critical');
+    });
+  });
+
+  describe('the session secret', (it) => {
+    // Formerly a boot-time `minLength: 32`, which crashed the console over a
+    // weak secret instead of reporting it. These checks are why it can be
+    // relaxed to report-not-crash.
+    it('flags a missing secret', () => {
+      expect(ids({ adminSessionSecret: '' })).toContain(
+        'admin-session-secret-missing',
+      );
+    });
+
+    it('flags a secret shorter than 32 characters', () => {
+      expect(
+        ids({ adminSessionSecret: 'ajx82819xNUajcnajcjwkjkcnU' }),
+      ).toContain('admin-session-secret-weak');
+    });
+
+    it('accepts a 32-character secret', () => {
+      const found = ids({ adminSessionSecret: 'a'.repeat(32) });
+      expect(found).not.toContain('admin-session-secret-weak');
+      expect(found).not.toContain('admin-session-secret-missing');
+    });
+
+    // One mistake, one finding: a short placeholder is the placeholder check's,
+    // not also the length check's.
+    it('does not also flag a short placeholder as weak', () => {
+      const found = ids({ adminSessionSecret: 'CHANGEME' });
+      expect(found).toContain('admin-session-secret-placeholder');
+      expect(found).not.toContain('admin-session-secret-weak');
+    });
+
+    it('is a warning in staging but blocks production', () => {
+      const [found] = check({
+        declaredEnv: 'staging',
+        adminSessionSecret: 'ajx82819xNUajcnajcjwkjkcnU',
+      }).filter((f) => f.id === 'admin-session-secret-weak');
+
+      expect(found?.severity).toBe('warning');
       expect(found?.productionSeverity).toBe('critical');
     });
   });
@@ -277,5 +388,120 @@ describe('evaluateStaticChecks', () => {
         ).toBeTruthy();
       }
     });
+  });
+});
+
+describe('the database dependency', (it) => {
+  it('reports nothing when configured, reachable and migrated', async () => {
+    const found = await dbIds(REACHABLE_DB);
+    expect(found).not.toContain('database-not-configured');
+    expect(found).not.toContain('database-unreachable');
+    expect(found).not.toContain('database-schema-missing');
+  });
+
+  it('flags a missing connection variable without trying to connect', async () => {
+    const ping = vi.fn(() => Promise.resolve());
+    const found = await dbIds(
+      { ping, hasAdminSchema: () => Promise.resolve(true) },
+      { dbHost: '' },
+    );
+
+    expect(found).toContain('database-not-configured');
+    expect(ping).not.toHaveBeenCalled();
+  });
+
+  it('flags a configured but unreachable database', async () => {
+    const found = await dbIds({
+      ping: () => Promise.reject(new Error('ECONNREFUSED')),
+      hasAdminSchema: () => Promise.resolve(true),
+    });
+
+    expect(found).toContain('database-unreachable');
+  });
+
+  it('flags a reachable database whose schema was never migrated', async () => {
+    const found = await dbIds({
+      ping: () => Promise.resolve(),
+      hasAdminSchema: () => Promise.resolve(false),
+    });
+
+    expect(found).toContain('database-schema-missing');
+  });
+
+  it('links each database finding to the deployment wiki', async () => {
+    const report = await dbService(REACHABLE_DB, { dbHost: '' }).check();
+    const finding = report.findings.find(
+      (f) => f.id === 'database-not-configured',
+    );
+
+    expect(finding?.docUrl).toContain('github.com/scribear/scribear/wiki');
+  });
+});
+
+describe('the service health rollup', (it) => {
+  // The regression this guards: a service that is up but failing its own
+  // readiness used to leave this page saying "nothing to report" while the
+  // dashboard showed it red.
+  it('reports a service that is up but failing its readiness', async () => {
+    const report = await healthService([
+      {
+        name: 'session-manager',
+        status: 'fail',
+        latencyMs: 2,
+        detail: 'database: fail',
+      },
+    ]).check();
+    const failing = report.findings.find((f) => f.id === 'services-failing');
+
+    expect(failing).toBeTruthy();
+    // The failing service's own detail is carried through, verbatim.
+    expect(failing?.detail).toContain('session-manager (database: fail)');
+    expect(failing?.docUrl).toContain('github.com/scribear/scribear/wiki');
+  });
+
+  it('separates an unreachable service from a failing one', async () => {
+    const found = await healthIds([
+      {
+        name: 'node-server',
+        status: 'unreachable',
+        latencyMs: 500,
+        detail: 'connection failed',
+      },
+      {
+        name: 'session-manager',
+        status: 'fail',
+        latencyMs: 2,
+        detail: 'database: fail',
+      },
+    ]);
+
+    expect(found).toContain('services-unreachable');
+    expect(found).toContain('services-failing');
+  });
+
+  it('reports a degraded service below the severity of a failing one', async () => {
+    const report = await healthService([
+      {
+        name: 'transcription-service',
+        status: 'degraded',
+        latencyMs: 2,
+        detail: 'workers saturated',
+      },
+    ]).check();
+    const degraded = report.findings.find((f) => f.id === 'services-degraded');
+
+    expect(degraded).toBeTruthy();
+    expect(degraded?.severity).not.toBe('critical');
+  });
+
+  it('says nothing when every component is ok', async () => {
+    const found = await healthIds([
+      { name: 'database', status: 'ok', latencyMs: 1 },
+      { name: 'session-manager', status: 'ok', latencyMs: 2 },
+    ]);
+
+    expect(found).not.toContain('services-unreachable');
+    expect(found).not.toContain('services-failing');
+    expect(found).not.toContain('services-degraded');
   });
 });

@@ -157,6 +157,8 @@ export interface ConfigFinding {
   /** Never contains a secret value — the server reports classifications. */
   detail: string;
   remediation?: string;
+  /** Deep link to the relevant deployment wiki page, when the server set one. */
+  docUrl?: string;
 }
 
 export interface ConfigCheckReport {
