@@ -197,7 +197,15 @@ describe('Device Management Routes', () => {
     });
 
     it('paginates results using limit and cursor', async () => {
-      // Arrange
+      // Arrange - the assertions below count every device in the database, not
+      // just the three registered here, so the table has to start empty. The
+      // suite's own `afterEach` guarantees that between tests *in this file*;
+      // it guarantees nothing about a row another file left behind, and this
+      // test failed exactly that way once. Same order as the `useDb` truncation:
+      // rooms first, so nothing in room_devices still references a device.
+      await dbContext.db.deleteFrom('rooms').execute();
+      await dbContext.db.deleteFrom('devices').execute();
+
       await registerDevice('Device A');
       await registerDevice('Device B');
       await registerDevice('Device C');
