@@ -165,7 +165,12 @@ const DayToggles = ({
         ))}
       </ToggleButtonGroup>
       {error && (
-        <Typography id={errorId} variant="caption" color="error" display="block">
+        <Typography
+          id={errorId}
+          variant="caption"
+          color="error"
+          display="block"
+        >
           Pick at least one day of the week.
         </Typography>
       )}

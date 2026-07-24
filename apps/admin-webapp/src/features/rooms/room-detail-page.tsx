@@ -38,9 +38,9 @@ import { NameWithUid } from '#src/components/name-with-uid';
 import type { RoomDetail } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
-import { useAsyncData } from '#src/lib/use-async-data';
 import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
+import { useAsyncData } from '#src/lib/use-async-data';
 
 interface RenameRoomDialogProps {
   room: Room;

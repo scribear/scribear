@@ -1,9 +1,4 @@
-import {
-  type SyntheticEvent,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
+import { type SyntheticEvent, useEffect, useMemo, useState } from 'react';
 
 import AddIcon from '@mui/icons-material/Add';
 import Alert from '@mui/material/Alert';
@@ -62,7 +57,10 @@ import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 
-import { diffAutoWindowUpdate, diffScheduleUpdate } from './room-scheduling-form-utils';
+import {
+  diffAutoWindowUpdate,
+  diffScheduleUpdate,
+} from './room-scheduling-form-utils';
 
 const DAYS_OF_WEEK: readonly DayOfWeek[] = [
   'SUN',
@@ -159,7 +157,9 @@ function MultiSelectField<T extends string>({
           </MenuItem>
         ))}
       </Select>
-      {helperText && <FormHelperText id={helperId}>{helperText}</FormHelperText>}
+      {helperText && (
+        <FormHelperText id={helperId}>{helperText}</FormHelperText>
+      )}
     </FormControl>
   );
 }
@@ -1045,7 +1045,9 @@ export const RoomSchedulingPage = () => {
       windowsError !== null &&
       !isApiErrorCode(windowsError, 'BACKEND_MISCONFIGURATION')
     ) {
-      showError(errorMessage(windowsError, 'Failed to load auto-session windows.'));
+      showError(
+        errorMessage(windowsError, 'Failed to load auto-session windows.'),
+      );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [windowsError]);

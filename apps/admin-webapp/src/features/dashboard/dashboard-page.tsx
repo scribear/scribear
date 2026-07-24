@@ -19,8 +19,8 @@ import { useNavigate } from 'react-router-dom';
 import type { HealthReport } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
-import { useAsyncData } from '#src/lib/use-async-data';
 import { useToast } from '#src/lib/toast-context';
+import { useAsyncData } from '#src/lib/use-async-data';
 
 import { FleetPanel } from './fleet-panel';
 
