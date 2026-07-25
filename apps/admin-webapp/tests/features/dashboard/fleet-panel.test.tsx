@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, vi } from 'vitest';
 import { FleetPanel } from '#src/features/dashboard/fleet-panel';
 import { useFleet } from '#src/features/dashboard/use-fleet';
 import type {
+  AudioLevelStats,
   FleetSnapshot,
   SessionAudioSnapshot,
   SessionSnapshot,
@@ -12,6 +13,14 @@ import type {
 } from '#src/lib/admin-api';
 
 import { renderWithProviders } from '../../utils/render-with-providers';
+import {
+  buildAudioSnapshot,
+  buildLevels,
+  buildThroughputOnlySnapshot,
+  buildVadStats,
+  stageIngress,
+  stageVad,
+} from './audio-fixtures';
 
 vi.mock('#src/features/dashboard/use-fleet', () => ({
   useFleet: vi.fn(),
@@ -45,22 +54,20 @@ function buildSession(
   };
 }
 
+/**
+ * A published snapshot for one session, metered at ingress only — the graph
+ * every provider now reports (§12.3), minus the stages a case does not need.
+ * `levels` overrides land on the **headline** stage, since that is the one every
+ * card surface reads (§12.6).
+ */
 function buildAudio(
+  levels: Partial<AudioLevelStats> = {},
   overrides: Partial<SessionAudioSnapshot> = {},
 ): SessionAudioSnapshot {
-  return {
-    rmsDbfs: -23.4,
-    peakDbfs: -12.1,
-    clippingPct: 0,
-    silence: false,
-    noiseFloorDbfs: -65.0,
-    updatedAt: 1_000,
-    vadStats: null,
-    sessionUid: 'session-1',
-    roomUid: null,
-    transcriptionHost: 'ts-a',
+  return buildAudioSnapshot({
+    stages: [stageIngress({ levels: buildLevels(levels) })],
     ...overrides,
-  };
+  });
 }
 
 function mountFleet(
@@ -122,7 +129,7 @@ describe('FleetPanel audio roll-up', (it) => {
   it('does not show the unavailable notice once any session has audio', () => {
     mountFleet(
       [buildSession({ sessionUid: 'session-1' })],
-      [buildAudio({ sessionUid: 'session-1' })],
+      [buildAudio({}, { sessionUid: 'session-1' })],
     );
 
     expect(
@@ -135,7 +142,7 @@ describe('FleetPanel audio roll-up', (it) => {
     // − is not an escape — it rendered verbatim.
     mountFleet(
       [buildSession({ sessionUid: 'session-1' })],
-      [buildAudio({ sessionUid: 'session-1' })],
+      [buildAudio({}, { sessionUid: 'session-1' })],
     );
 
     const conventions = screen.getByLabelText('Audio conventions');
@@ -154,7 +161,7 @@ describe('SessionCard audio strip', (it) => {
     // clippingPct is a fraction: 0.05 is 5% of samples clipped, not 0.05%.
     mountFleet(
       [visibleSession({ sessionUid: 'session-1' })],
-      [buildAudio({ sessionUid: 'session-1', clippingPct: 0.05 })],
+      [buildAudio({ clippingPct: 0.05 }, { sessionUid: 'session-1' })],
     );
 
     expect(screen.getByText('clipping 5.00%')).toBeInTheDocument();
@@ -166,10 +173,97 @@ describe('SessionCard audio strip', (it) => {
     // contradict its own reason for being on screen.
     mountFleet(
       [visibleSession({ sessionUid: 'session-1' })],
-      [buildAudio({ sessionUid: 'session-1', clippingPct: 0.000005 })],
+      [buildAudio({ clippingPct: 0.000005 }, { sessionUid: 'session-1' })],
     );
 
     expect(screen.getByText('clipping <0.01%')).toBeInTheDocument();
+  });
+
+  it('reads the level from the headline stage, not from a deeper one', () => {
+    // §12.6: the strip must show the measurement closest to the source, the same
+    // one the chip beside it classified. Two stages with different levels is the
+    // only way to tell which one reached the screen.
+    mountFleet(
+      [visibleSession({ sessionUid: 'session-1' })],
+      [
+        buildAudioSnapshot({
+          sessionUid: 'session-1',
+          stages: [
+            stageIngress({ levels: buildLevels({ rmsDbfs: -23.4 }) }),
+            {
+              stage: 'asr_input',
+              label: 'ASR input (worker decode)',
+              depth: 2,
+              inputs: ['ingress'],
+              levels: buildLevels({ rmsDbfs: -41.2 }),
+              vad: null,
+              audioSeconds: 100,
+            },
+          ],
+        }),
+      ],
+    );
+
+    expect(screen.getByText('-23.4 dBFS')).toBeInTheDocument();
+    expect(screen.queryByText('-41.2 dBFS')).not.toBeInTheDocument();
+  });
+
+  it('renders the speech chip from whichever stage carries the detector', () => {
+    // The detector is a different measurement point from the headline stage, so
+    // a card that only looked at the headline would silently lose the VAD chip.
+    mountFleet(
+      [visibleSession({ sessionUid: 'session-1' })],
+      [
+        buildAudioSnapshot({
+          sessionUid: 'session-1',
+          stages: [
+            stageIngress(),
+            stageVad({ vad: buildVadStats({ speechActiveRatio: 0.12 }) }),
+          ],
+        }),
+      ],
+    );
+
+    expect(screen.getByText('speech 12%')).toBeInTheDocument();
+  });
+});
+
+describe('SessionCard with a throughput-only snapshot', (it) => {
+  beforeEach(() => {
+    vi.mocked(useFleet).mockReset();
+  });
+
+  it('says metering is unavailable rather than showing a bar at rest', () => {
+    // §12.8 point 1. A snapshot exists and no stage meters (the `debug`
+    // provider's shape), so there is no dBFS to draw. An empty strip reads as
+    // "nothing to report" and a bar at rest reads as silence; both are the false
+    // green this state exists to avoid. The seconds count is the honest signal
+    // available: audio is demonstrably flowing.
+    mountFleet(
+      [visibleSession({ sessionUid: 'session-1' })],
+      [buildThroughputOnlySnapshot({ sessionUid: 'session-1' })],
+    );
+
+    expect(
+      screen.getByText(/metering unavailable for this provider/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/33\.6 s of audio counted/)).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  it('shows the audio chip as unknown, not good and not crit', () => {
+    // The two false answers, both of which shipped at some point: `crit` was the
+    // §12.1 bug (a red chip on every healthy debug/lumen_granite session), and
+    // `good` would be the same bug inverted — a green chip asserted from zero
+    // level measurements.
+    mountFleet(
+      [visibleSession({ sessionUid: 'session-1' })],
+      [buildThroughputOnlySnapshot({ sessionUid: 'session-1' })],
+    );
+
+    expect(screen.getByText('audio: unknown')).toBeInTheDocument();
+    expect(screen.queryByText('audio: good')).not.toBeInTheDocument();
+    expect(screen.queryByText('audio: crit')).not.toBeInTheDocument();
   });
 });
 
@@ -228,12 +322,24 @@ describe('FleetPanel a11y', (it) => {
     const container = mountFleet(
       [visibleSession({ sessionUid: 'session-1' })],
       [
-        buildAudio({
-          sessionUid: 'session-1',
-          clippingPct: 0.05,
-          silence: true,
-        }),
+        buildAudio(
+          { clippingPct: 0.05, silence: true },
+          { sessionUid: 'session-1' },
+        ),
       ],
+    );
+
+    const results = await axe(container);
+
+    expect(results.violations).toHaveLength(0);
+  });
+
+  it('has no a11y violations in the throughput-only state', async () => {
+    // A different strip renders here (a caption instead of a meter), so the
+    // component-level axe pass on `AudioMeterBar` says nothing about it.
+    const container = mountFleet(
+      [visibleSession({ sessionUid: 'session-1' })],
+      [buildThroughputOnlySnapshot({ sessionUid: 'session-1' })],
     );
 
     const results = await axe(container);

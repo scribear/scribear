@@ -44,8 +44,11 @@ import {
   deriveAudioStatus,
   deriveSessionStatus,
   formatClippingPct,
+  headlineStage,
+  headlineVadStats,
   pipelineP95,
   setProviderKey,
+  sourceThroughputSeconds,
   useFilteredSessions,
 } from './fleet-status';
 import { useFleet } from './use-fleet';
@@ -79,7 +82,10 @@ const AUDIO_CONVENTIONS_TOOLTIP =
   'Noise floor is a 10th-percentile RMS over 1 s sub-windows, not an instantaneous floor. ' +
   `${PEAK_CONVENTION} ` +
   'Clipping counts samples at or above 0.99 of full scale in runs of at least two. ' +
-  'VAD fields show — when not measured, never 0.';
+  'VAD fields show — when not measured, never 0. ' +
+  'Levels are read at the measurement point closest to the source, so a green audio ' +
+  'chip says the source is sending good audio — a stalled ASR shows on the ' +
+  'connectivity chip and in the per-stage gap on the session page, not here.';
 
 /** Merged provider health, one chip per provider (`§B.4`'s "provider row"). */
 const ProviderStatusRow = ({ providers }: { providers: MergedProvider[] }) => {
@@ -234,6 +240,14 @@ const SessionCard = ({
   const navigate = useNavigate();
   const { showError } = useToast();
   const p95 = pipelineP95(session);
+  // One shared choice of "the" reading (§12.6): the lowest-depth stage carrying
+  // levels, the same stage `deriveAudioStatus` classified to produce the chip
+  // above. Picking it here independently would let the bar and the chip
+  // disagree on a graph with several metering points.
+  const headline = audio === undefined ? undefined : headlineStage(audio);
+  const vadStats = audio === undefined ? null : headlineVadStats(audio);
+  const throughputSeconds =
+    audio === undefined ? null : sourceThroughputSeconds(audio);
 
   const handleOpenClient = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -368,13 +382,28 @@ const SessionCard = ({
                 ? 'no audio reaching ASR'
                 : 'no audio telemetry'}
             </Typography>
+          ) : headline === undefined ? (
+            /*
+              A snapshot arrived, but no measurement point in it reports levels
+              — a provider that counts throughput only (§12.3: `debug` reports
+              `asr_input` with seconds and no meter). Saying so is the whole
+              point: an empty strip reads as "nothing to report" and a bar at
+              rest reads as silence, and both are the false-green §12.8 point 1
+              forbids. The seconds count, when there is one, is the honest
+              signal available here — audio is demonstrably flowing.
+            */
+            <Typography variant="caption" color="text.secondary">
+              metering unavailable for this provider
+              {throughputSeconds !== null &&
+                ` · ${throughputSeconds.toFixed(1)} s of audio counted`}
+            </Typography>
           ) : (
             <>
               <AudioMeterBar
-                rmsDbfs={audio.rmsDbfs}
-                peakDbfs={audio.peakDbfs}
+                rmsDbfs={headline.levels.rmsDbfs}
+                peakDbfs={headline.levels.peakDbfs}
                 status={audioStatus}
-                label={`Audio level for session ${session.sessionUid}`}
+                label={`Audio level for session ${session.sessionUid} at ${headline.label}`}
               />
               <Stack
                 direction="row"
@@ -382,22 +411,22 @@ const SessionCard = ({
                 useFlexGap
                 sx={{ flexWrap: 'wrap', mt: 0.5 }}
               >
-                {audio.silence && (
+                {headline.levels.silence && (
                   <Chip size="small" label="silent" color="error" />
                 )}
-                {audio.clippingPct > 0 && (
+                {headline.levels.clippingPct > 0 && (
                   <Chip
                     size="small"
-                    label={`clipping ${formatClippingPct(audio.clippingPct)}`}
+                    label={`clipping ${formatClippingPct(headline.levels.clippingPct)}`}
                     color="error"
                   />
                 )}
-                {audio.vadStats !== null &&
-                  audio.vadStats.vadEnabled &&
-                  audio.vadStats.speechActiveRatio !== null && (
+                {vadStats !== null &&
+                  vadStats.vadEnabled &&
+                  vadStats.speechActiveRatio !== null && (
                     <Chip
                       size="small"
-                      label={`speech ${String(Math.round(audio.vadStats.speechActiveRatio * 100))}%`}
+                      label={`speech ${String(Math.round(vadStats.speechActiveRatio * 100))}%`}
                       variant="outlined"
                     />
                   )}

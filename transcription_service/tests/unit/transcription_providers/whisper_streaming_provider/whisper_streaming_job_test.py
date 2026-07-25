@@ -1,8 +1,9 @@
 """
 Unit tests for WhisperStreamingProviderJob chunk-id ledger/latency
-correlation, and its per-batch VAD statistics (B2.2). Exercises pure
-bookkeeping (which chunk ids a transcript end time maps to, ledger pruning,
-VAD-stats accumulation) mostly without invoking the real Whisper model.
+correlation, its per-batch VAD statistics (B2.2), and the audio stage graph it
+reports (asr_input and vad). Exercises pure bookkeeping (which chunk ids a
+transcript end time maps to, ledger pruning, VAD-stats accumulation, cumulative
+per-stage seconds) mostly without invoking the real Whisper model.
 """
 
 # pylint: disable=protected-access
@@ -16,7 +17,13 @@ import pytest
 import soundfile as sf
 
 from src.transcription_provider_interface import (
+    STAGE_ASR_INPUT,
+    STAGE_INGRESS,
+    STAGE_VAD,
     AudioChunkPayload,
+    AudioStageReading,
+    TranscriptionJobCounter,
+    TranscriptionResult,
     TranscriptionSequence,
 )
 from src.transcription_providers.whisper_streaming_provider.whisper_streaming_config import (
@@ -125,21 +132,40 @@ def _wav_chunk(seconds: float, chunk_id: str = "a") -> AudioChunkPayload:
     return AudioChunkPayload(chunk_id=chunk_id, audio_bytes=buf.getvalue())
 
 
-def test_build_result_has_no_audio_stats_before_any_audio_decoded():
-    """The meter has not seen any samples yet, so audio_stats stays None."""
+def _stage(
+    result: TranscriptionResult, stage_id: str
+) -> AudioStageReading | None:
+    """The reading for `stage_id`, or None when this result reported none."""
+    return next((s for s in result.audio_stages if s.stage == stage_id), None)
+
+
+def test_asr_input_stage_reports_no_levels_before_any_audio_decoded():
+    """
+    The meter has no window yet, so the stage carries levels=None - "no data
+    yet", which must never be published as a measured silence. The stage is
+    reported all the same: "how much audio reached the ASR buffer" has an
+    answer (none) before any level reading exists, and it is the answer that
+    distinguishes a source fault from a pipeline fault.
+    """
     job = make_job()
     job._chunk_ledger = _one_second_ledger()
 
     result = job._build_result(None, None)
 
-    assert result.audio_stats is None
+    asr_input = _stage(result, STAGE_ASR_INPUT)
+    assert asr_input is not None
+    assert asr_input.levels is None
+    assert asr_input.audio_seconds == 0.0
+    # Declares what fed it, never its own depth - the publisher derives that.
+    assert asr_input.inputs == (STAGE_INGRESS,)
+    assert asr_input.vad is None
 
 
-def test_process_batch_populates_audio_stats():
+def test_asr_input_stage_reports_levels_once_audio_is_decoded():
     """
-    TranscriptionResult.audio_stats is populated after process_batch runs on
-    real (minimally-synthesized) audio - the meter fed the same decoded
-    samples _decode_audio already appends to the transcription buffer with.
+    The stage's levels come from the meter fed the same decoded samples
+    _decode_audio appends to the transcription buffer, so a batch of real
+    (minimally-synthesized) audio produces a reading rather than a hole.
     """
     job = make_job()
     log = MagicMock(spec=logging.Logger)
@@ -148,8 +174,39 @@ def test_process_batch_populates_audio_stats():
 
     result = job.process_batch(log, (whisper, MagicMock()), [_wav_chunk(0.5)])
 
-    assert result.audio_stats is not None
-    assert result.audio_stats.silence is True  # the chunk is silence
+    asr_input = _stage(result, STAGE_ASR_INPUT)
+    assert asr_input is not None
+    assert asr_input.levels is not None
+    assert asr_input.levels.silence is True  # the chunk is silence
+    assert asr_input.audio_seconds == pytest.approx(0.5)
+
+
+def test_asr_input_seconds_accumulate_across_batches_and_survive_a_drain():
+    """
+    The stage total is cumulative for the life of the session, which is the
+    only reason an ingress -> asr_input comparison means anything: the two ends
+    are sampled at different instants and only agree as running totals.
+
+    drain_counters() is deliberately called in between. AUDIO_SECONDS_DECODED
+    carries the same seconds but resets on every drain (per-execution deltas,
+    by contract), so a stage total read back from the counters would report
+    0.25 here instead of 0.75.
+    """
+    job = make_job()
+    log = MagicMock(spec=logging.Logger)
+    whisper = MagicMock()
+    whisper.transcribe.return_value = ([], None)
+
+    job.process_batch(log, (whisper, MagicMock()), [_wav_chunk(0.5, "a")])
+    drained = job.drain_counters()
+    result = job.process_batch(
+        log, (whisper, MagicMock()), [_wav_chunk(0.25, "b")]
+    )
+
+    assert drained[TranscriptionJobCounter.AUDIO_SECONDS_DECODED] == 0.5
+    asr_input = _stage(result, STAGE_ASR_INPUT)
+    assert asr_input is not None
+    assert asr_input.audio_seconds == pytest.approx(0.75)
 
 
 class TestVadStats:
@@ -263,8 +320,9 @@ class TestVadStats:
 
     def test_process_batch_populates_vad_stats_when_vad_is_on(self):
         """
-        End to end: process_batch on VAD-enabled audio surfaces vad_stats on
-        the TranscriptionResult, mirroring how audio_stats already does.
+        End to end: process_batch on VAD-enabled audio surfaces the detector
+        reading on the vad stage of the result, mirroring how the asr_input
+        stage carries the meter's.
         """
         job = make_job(vad_detector=True)
         log = MagicMock(spec=logging.Logger)
@@ -279,6 +337,142 @@ class TestVadStats:
             log, (whisper, vad_context), [_wav_chunk(0.5)]
         )
 
-        assert result.vad_stats is not None
-        assert result.vad_stats.vad_enabled is True
-        assert result.vad_stats.segment_count == 1
+        vad_stage = _stage(result, STAGE_VAD)
+        assert vad_stage is not None
+        assert vad_stage.inputs == (STAGE_ASR_INPUT,)
+        # A detector measures speech, not levels - a levels reading here would
+        # be a second, unattributed copy of the asr_input one.
+        assert vad_stage.levels is None
+        assert vad_stage.vad is not None
+        assert vad_stage.vad.vad_enabled is True
+        assert vad_stage.vad.segment_count == 1
+
+
+class TestAudioStageFunnel:
+    """
+    The per-stage seconds totals, which are what turn the stage graph into an
+    answer to "where did the audio go" rather than two unrelated numbers.
+    """
+
+    @staticmethod
+    def _vad_context(*range_lists):
+        """A VAD stand-in returning `range_lists[n]` on the nth detection."""
+        vad_context = MagicMock()
+        stream = vad_context.create_stream.return_value
+        stream.detect_speech_ranges.side_effect = list(range_lists)
+        return vad_context
+
+    @staticmethod
+    def _whisper():
+        """A Whisper stand-in that transcribes nothing, so nothing is purged."""
+        whisper = MagicMock()
+        whisper.transcribe.return_value = ([], None)
+        return whisper
+
+    def test_vad_passes_on_less_audio_than_was_decoded(self):
+        """
+        The gated case is the whole point of the graph: 0.5s decoded, 0.25s of
+        it speech, so the vad stage must report strictly less than asr_input.
+        Equal totals here would mean the detector's own gating is invisible on
+        the dashboard - "a detector eating the room" is the failure this edge
+        exists to catch.
+        """
+        # Arrange
+        job = make_job(vad_detector=True)
+        log = MagicMock(spec=logging.Logger)
+        vad_context = self._vad_context([(0, SAMPLE_RATE // 4)])
+
+        # Act
+        result = job.process_batch(
+            log, (self._whisper(), vad_context), [_wav_chunk(0.5)]
+        )
+
+        # Assert
+        asr_input = _stage(result, STAGE_ASR_INPUT)
+        vad_stage = _stage(result, STAGE_VAD)
+        assert asr_input is not None and vad_stage is not None
+        assert asr_input.audio_seconds == pytest.approx(0.5)
+        assert vad_stage.audio_seconds == pytest.approx(0.25)
+        assert vad_stage.audio_seconds < asr_input.audio_seconds
+
+    def test_speech_seconds_are_not_recounted_when_the_buffer_is_redetected(
+        self,
+    ):
+        """
+        The buffer is re-detected whole every job period, so successive passes
+        report the same early speech again. Summing each pass would make the
+        vad stage claim more audio passed on than was ever decoded - the one
+        thing a cumulative total may never do, and the reason the accumulator
+        is watermarked on absolute stream position.
+
+        Second pass sees the first 0.25s again plus a new 0.25s range, so the
+        total is 0.5s, not 0.75s.
+        """
+        # Arrange
+        job = make_job(vad_detector=True)
+        log = MagicMock(spec=logging.Logger)
+        quarter = SAMPLE_RATE // 4
+        vad_context = self._vad_context(
+            [(0, quarter)], [(0, quarter), (2 * quarter, 3 * quarter)]
+        )
+        whisper = self._whisper()
+
+        # Act
+        job.process_batch(log, (whisper, vad_context), [_wav_chunk(0.5, "a")])
+        result = job.process_batch(
+            log, (whisper, vad_context), [_wav_chunk(0.5, "b")]
+        )
+
+        # Assert
+        asr_input = _stage(result, STAGE_ASR_INPUT)
+        vad_stage = _stage(result, STAGE_VAD)
+        assert asr_input is not None and vad_stage is not None
+        assert asr_input.audio_seconds == pytest.approx(1.0)
+        assert vad_stage.audio_seconds == pytest.approx(0.5)
+        assert vad_stage.audio_seconds <= asr_input.audio_seconds
+
+    def test_vad_stage_with_the_detector_off_reports_the_audio_it_passed_on(
+        self,
+    ):
+        """
+        VAD off: no speech was measured (every VadStats field but vad_enabled
+        is None), yet the whole buffer really is handed to Whisper, so the
+        seconds past this point are the seconds decoded. Reporting None there
+        instead would blank the funnel for every deployment that runs without a
+        detector; reporting less would invent gating loss that never happened.
+        """
+        # Arrange
+        job = make_job(vad_detector=False)
+        log = MagicMock(spec=logging.Logger)
+
+        # Act
+        result = job.process_batch(
+            log, (self._whisper(), MagicMock()), [_wav_chunk(0.5)]
+        )
+
+        # Assert
+        asr_input = _stage(result, STAGE_ASR_INPUT)
+        vad_stage = _stage(result, STAGE_VAD)
+        assert asr_input is not None and vad_stage is not None
+        assert vad_stage.vad is not None
+        assert vad_stage.vad.vad_enabled is False
+        assert vad_stage.audio_seconds == pytest.approx(asr_input.audio_seconds)
+
+    def test_vad_stage_is_omitted_when_no_detection_pass_ran(self):
+        """
+        _vad_stats is None only when no VAD pass happened at all (empty
+        buffer), so there is no detector reading to publish. Emitting the stage
+        anyway - vad None, levels None, seconds only - would let a reader
+        compare the asr_input -> vad edge and charge the whole difference to
+        gating that never took place. An incomplete graph for one snapshot is
+        the honest form of that absence.
+        """
+        # Arrange
+        job = make_job(vad_detector=True)
+
+        # Act
+        result = job._build_result(None, None)
+
+        # Assert
+        assert _stage(result, STAGE_VAD) is None
+        assert _stage(result, STAGE_ASR_INPUT) is not None

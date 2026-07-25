@@ -21,7 +21,7 @@ class VadStats:
     engine behind it the way `AudioMeter` does: providers already depend on
     this package (`transcription_provider_interface`), never the other way
     around, so defining it in the provider package would make
-    `TranscriptionResult`'s `vad_stats` annotation a reverse import.
+    `AudioStageReading`'s `vad` annotation a reverse import.
     `AudioChunkPayload` sits next to it for the same reason - a plain shape
     with no behavior of its own, defined where every crosser of the
     worker/main-process boundary can reach it without an import cycle.
@@ -67,6 +67,61 @@ class AudioChunkPayload:
     audio_bytes: bytes
 
 
+@dataclass(frozen=True)
+class AudioStageReading:
+    """
+    One measurement point in a session's audio path
+
+    Audio telemetry is a graph of measurement points rather than a single
+    reading, because a single reading cannot answer the question operators
+    actually have - *where* did the audio stop being good. A level that is fine
+    at ingress and silent at the ASR's input is a pipeline fault; the same
+    numbers reported once, unattributed, are indistinguishable from a dead
+    microphone.
+
+    **A stage declares what fed it, not where it sits.** `inputs` names the
+    stage ids upstream of this one; the depth published alongside it is derived
+    from that graph by the stream controller (see `audio_stage_graph`). Workers
+    therefore need to know only their own immediate input - a VAD does not have
+    to know what fed the thing that fed it - and a topology with several
+    detectors, or one detector shared by several ASRs, describes itself without
+    anything holding a central pipeline definition.
+
+    Lives here rather than in a provider package for the same reason `VadStats`
+    and `AudioChunkPayload` do: providers depend on this package and never the
+    other way around, so this is the one place a shape crossing the
+    worker/main-process boundary can be defined without a reverse import. Like
+    them it holds plain Python scalars only, so it stays picklable across that
+    boundary.
+    """
+
+    #: Stable id for this measurement point, unique within a session. See
+    #: `audio_stages` for the ones the shipped providers use; the set is open.
+    stage: str
+    #: Operator-facing name. Carried on the reading rather than mapped in the
+    #: webapp so a provider that invents a stage id also supplies its label,
+    #: instead of surfacing as a raw identifier the UI has no string for.
+    label: str
+    #: Stage ids feeding this one. Empty means this is a source - audio enters
+    #: the observed system here.
+    inputs: tuple[str, ...]
+    #: Level readout over this point's current metering window, or None when
+    #: this point counts throughput but does not meter levels (a stage may
+    #: legitimately measure only how much audio passed it).
+    levels: AudioLevelStats | None
+    #: Voice-activity statistics produced at this point, or None when this
+    #: point runs no detector.
+    vad: VadStats | None
+    #: Seconds of audio that have passed this point since the session opened -
+    #: cumulative and monotonic, so a reader can compare totals across an edge
+    #: of the graph. None when this point cannot count it.
+    #:
+    #: Cumulative rather than per-window on purpose: a rate would have to agree
+    #: with the reader's polling interval to be comparable between two stages,
+    #: and the two stages do not share a clock.
+    audio_seconds: float | None
+
+
 @dataclass
 class TranscriptionResult:
     """
@@ -88,17 +143,14 @@ class TranscriptionResult:
     final_chunk_ids: list[str] = field(default_factory=list)
     in_progress_chunk_ids: list[str] = field(default_factory=list)
 
-    # Audio-level meter readout (B2.1) - Whisper-provider-specific, computed
-    # inside the worker process and carried out on the result the same way
-    # final_chunk_ids/in_progress_chunk_ids are. None for providers that
-    # don't meter audio (debug, lumen_granite) and for Whisper itself until
-    # its meter's rolling window has received its first samples.
-    audio_stats: AudioLevelStats | None = None
-
-    # VAD statistics (B2.2) - same Whisper-provider-specific treatment as
-    # audio_stats, but transient rather than backed by a persistent meter:
-    # recomputed each _transcribe_audio call. None for providers that don't
-    # run VAD (debug, lumen_granite), for Whisper when vad_detector is off,
-    # and for the batch in which _transcribe_audio's buffer was empty (no VAD
-    # ran at all that call).
-    vad_stats: VadStats | None = None
+    # Per-stage audio telemetry (B2.1/B2.2) measured inside the worker process
+    # and carried out on the result the same way final_chunk_ids/
+    # in_progress_chunk_ids are.
+    #
+    # Empty is a legitimate reading, not a gap: it means this provider measured
+    # nothing this batch. The stream controller always contributes the ingress
+    # stage on top of whatever a provider reports, so a session still publishes
+    # audio telemetry when this is empty - which is the whole reason ingress
+    # metering is not the provider's job. Providers add the stages only they can
+    # see: what their decode produced, and what their detector passed on.
+    audio_stages: tuple[AudioStageReading, ...] = ()

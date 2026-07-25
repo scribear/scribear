@@ -1,10 +1,13 @@
 import { useMemo } from 'react';
 
 import type {
+  AudioLevelStats,
+  AudioStage,
   FleetSnapshot,
   SessionAudioSnapshot,
   SessionSnapshot,
   SessionStatusEvent,
+  VadStats,
 } from '#src/lib/admin-api';
 
 /**
@@ -118,7 +121,274 @@ export const AUDIO_THRESHOLDS = {
   rmsDbfsHigh: -6,
   /** SNR below this (when VAD measured it) means poor signal-to-noise. */
   snrDbPoor: 10,
+  /**
+   * Seconds of difference across a stage edge below which no signal loss is
+   * reported (§12.6).
+   *
+   * A naive `upstream - downstream > 0` check would flag every healthy session.
+   * The two counters in one snapshot are read at different instants: ingress is
+   * sampled on the webserver at publish time, while a worker's counter only
+   * advances when a job runs, so at any instant a *perfectly healthy* pipeline
+   * has up to one job period of audio received-but-not-yet-decoded. 5 s is the
+   * largest `job_period_ms` the shipped provider configs use
+   * (`deployment/provider_config.template.json`: 5000 for whisper and debug,
+   * 3000 for lumen_granite), expressed in seconds.
+   *
+   * First-cut, like every constant above it: it is a bound on the *shipped*
+   * configuration, not a measured standing skew, and a deployment that raises
+   * `job_period_ms` past 5 s will see spurious loss on its `ingress` →
+   * `asr_input` edge until this follows it. Deliberately generous rather than
+   * tight — a false "audio is being lost" claim sends an operator to look for a
+   * fault that does not exist, which is the failure mode §12.1 exists to stop.
+   */
+  signalLossToleranceSec: 5,
 } as const;
+
+// ---- Stage graph (§12.2/§12.6) ----
+
+/**
+ * A stage that is known to carry levels / a detector.
+ *
+ * The narrowing is in the type rather than re-checked at every use site because
+ * `levels: null` and `vad: null` are *frequent* — most stages in the shipped
+ * graph have one of them null — so a caller that has already selected a metered
+ * stage should not have to prove it again, and a `!` or a `?? 0` at the point of
+ * rendering a dBFS figure is how a "not measured" becomes a displayed zero.
+ */
+export type MeteredStage = AudioStage & { levels: AudioLevelStats };
+/** @see {@link MeteredStage} */
+export type DetectorStage = AudioStage & { vad: VadStats };
+
+function isMetered(stage: AudioStage): stage is MeteredStage {
+  return stage.levels !== null;
+}
+
+function isDetector(stage: AudioStage): stage is DetectorStage {
+  return stage.vad !== null;
+}
+
+/**
+ * The stage that drives every audio status and chip: the **lowest-`depth` stage
+ * carrying `levels`**.
+ *
+ * That is the measurement closest to the source, so it is the one that answers
+ * failure mode C1 — "no audio reaching ASR" / mic muted, unplugged, or wrong
+ * input. A deeper stage's levels are downstream of anything the pipeline itself
+ * did to the audio, so classifying on those conflates a bad room with a broken
+ * worker; §12.8 point 1 is explicit that the audio axis now asserts only "the
+ * source is sending good audio", with pipeline faults showing on the
+ * connectivity chip and in the per-edge `audioSeconds` gap instead (D1).
+ *
+ * Exported because several surfaces need it — the card strip, the roll-up, the
+ * filter facet, the detail page — and they must not each pick differently: two
+ * surfaces disagreeing about which reading is "the" reading is exactly the class
+ * of defect `PEAK_CONVENTION` and `formatClippingPct` already exist to prevent.
+ *
+ * Returns `undefined` when no stage reports levels at all. That is a real state
+ * (a `debug`-provider session reports throughput only), not an error — see
+ * `classifyAudioSnapshot`. Ties at the same depth resolve by stage id so the
+ * answer is deterministic across renders; a graph with two metering sources at
+ * depth 1 has two equally valid answers to C1, and picking a stable one beats
+ * picking whichever the publisher happened to serialise first.
+ */
+export function headlineStage(
+  audio: SessionAudioSnapshot,
+): MeteredStage | undefined {
+  let best: MeteredStage | undefined;
+  for (const stage of audio.stages) {
+    if (!isMetered(stage)) continue;
+    if (
+      best === undefined ||
+      stage.depth < best.depth ||
+      (stage.depth === best.depth && stage.stage < best.stage)
+    ) {
+      best = stage;
+    }
+  }
+  return best;
+}
+
+/**
+ * The stage whose VAD statistics the surfaces render — the lowest-`depth` stage
+ * carrying a `vad` (§12.6: "VAD rendering reads the `vad` of whichever stage
+ * carries one").
+ *
+ * Separate from `headlineStage` because the two are *never* the same point in
+ * the shipped graph: a detector reports `vad` and no `levels`, while the metering
+ * points report `levels` and no `vad`. Same lowest-depth, stable-tie rule, for
+ * the same reason.
+ */
+export function vadStage(
+  audio: SessionAudioSnapshot,
+): DetectorStage | undefined {
+  let best: DetectorStage | undefined;
+  for (const stage of audio.stages) {
+    if (!isDetector(stage)) continue;
+    if (
+      best === undefined ||
+      stage.depth < best.depth ||
+      (stage.depth === best.depth && stage.stage < best.stage)
+    ) {
+      best = stage;
+    }
+  }
+  return best;
+}
+
+/** Convenience for the surfaces that only want the VAD numbers themselves. */
+export function headlineVadStats(audio: SessionAudioSnapshot): VadStats | null {
+  return vadStage(audio)?.vad ?? null;
+}
+
+/**
+ * Stages grouped by `depth`, ascending, with stages inside a group ordered by
+ * stage id.
+ *
+ * Ordering is imposed here rather than trusted from the wire: `stages` arrives
+ * in whatever order the publisher serialised it, and a table whose rows reorder
+ * between two polls of the same unchanged pipeline is unreadable.
+ */
+export function stagesByDepth(
+  audio: SessionAudioSnapshot,
+): { depth: number; stages: AudioStage[] }[] {
+  const groups = new Map<number, AudioStage[]>();
+  for (const stage of audio.stages) {
+    const existing = groups.get(stage.depth);
+    if (existing === undefined) {
+      groups.set(stage.depth, [stage]);
+    } else {
+      existing.push(stage);
+    }
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([depth, stages]) => ({
+      depth,
+      stages: [...stages].sort((a, b) => a.stage.localeCompare(b.stage)),
+    }));
+}
+
+/**
+ * Cumulative seconds counted at the most source-proximate point that counts at
+ * all, or `null` when no stage reports `audioSeconds`.
+ *
+ * The card strip uses this in the metering-unavailable state: a provider that
+ * meters nothing still proves audio is *flowing*, and "no levels" plus a
+ * climbing second count is a materially different situation from "no levels and
+ * nothing arriving". Deliberately the lowest-depth counter rather than the
+ * largest number, because a deeper stage's total is downstream of any loss.
+ */
+export function sourceThroughputSeconds(
+  audio: SessionAudioSnapshot,
+): number | null {
+  for (const group of stagesByDepth(audio)) {
+    for (const stage of group.stages) {
+      if (stage.audioSeconds !== null) return stage.audioSeconds;
+    }
+  }
+  return null;
+}
+
+/**
+ * What one edge of the stage graph says about the audio crossing it.
+ *
+ * - `within-tolerance` — the two counters differ by less than
+ *   `AUDIO_THRESHOLDS.signalLossToleranceSec`, i.e. by no more than the standing
+ *   skew a healthy pipeline has. Also covers a negative difference (downstream
+ *   ahead of upstream), which is meaningless rather than alarming.
+ * - `gated` — the downstream point runs a detector, so it is *supposed* to pass
+ *   on less than it received. Reporting that as loss would put a large red
+ *   number on every VAD-enabled session: the shipped whisper graph passes ~47 s
+ *   of speech out of ~123 s of audio (§12.4's example payload) and that is the
+ *   detector working. The figure is still worth showing — §12.3 wants the gap
+ *   above a VAD stage read as "over-aggressive gating; a detector eating the
+ *   room" — but it is a different claim from "the pipeline dropped audio".
+ * - `loss` — both ends count, neither gates, and the gap exceeds tolerance.
+ *   This is the reading the whole stage graph exists to produce: audio the
+ *   pipeline itself lost, attributed to the edge that lost it.
+ */
+export type StageEdgeKind = 'within-tolerance' | 'gated' | 'loss';
+
+/** One derivable edge of the stage graph, with its `audioSeconds` comparison. */
+export interface StageEdge {
+  /** Upstream stage id and label. */
+  fromStage: string;
+  fromLabel: string;
+  /** Downstream stage id and label. */
+  toStage: string;
+  toLabel: string;
+  upstreamSeconds: number;
+  downstreamSeconds: number;
+  /** `upstreamSeconds - downstreamSeconds`. Negative is possible and benign. */
+  differenceSeconds: number;
+  kind: StageEdgeKind;
+}
+
+/**
+ * Compares `audioSeconds` across every edge of the stage graph — the derivation
+ * that makes the graph worth having, because it answers "where did the audio get
+ * lost" rather than "is the audio bad" (§12.6).
+ *
+ * Only edges where **both** ends report a number are returned. A missing counter
+ * makes the subtraction undefined, and an undefined subtraction rendered as
+ * `0 s lost` would be a claim the data does not support; the detail page shows
+ * such an edge as not derivable instead. An `inputs` entry naming a stage absent
+ * from this snapshot is skipped for the same reason (§12.2 allows it: the
+ * upstream point reported nothing this batch).
+ *
+ * Edges come back in the stage order `stagesByDepth` imposes, so the first
+ * flagged edge is the earliest point in the pipeline that lost audio — which is
+ * the one an operator should look at, since everything below it inherits the
+ * shortfall.
+ */
+export function deriveStageEdges(audio: SessionAudioSnapshot): StageEdge[] {
+  const byId = new Map(audio.stages.map((s) => [s.stage, s]));
+  const edges: StageEdge[] = [];
+  for (const group of stagesByDepth(audio)) {
+    for (const downstream of group.stages) {
+      for (const inputId of downstream.inputs) {
+        const upstream = byId.get(inputId);
+        if (upstream === undefined) continue;
+        if (
+          upstream.audioSeconds === null ||
+          downstream.audioSeconds === null
+        ) {
+          continue;
+        }
+        const differenceSeconds =
+          upstream.audioSeconds - downstream.audioSeconds;
+        const kind: StageEdgeKind =
+          downstream.vad !== null
+            ? 'gated'
+            : differenceSeconds > AUDIO_THRESHOLDS.signalLossToleranceSec
+              ? 'loss'
+              : 'within-tolerance';
+        edges.push({
+          fromStage: upstream.stage,
+          fromLabel: upstream.label,
+          toStage: downstream.stage,
+          toLabel: downstream.label,
+          upstreamSeconds: upstream.audioSeconds,
+          downstreamSeconds: downstream.audioSeconds,
+          differenceSeconds,
+          kind,
+        });
+      }
+    }
+  }
+  return edges;
+}
+
+/**
+ * The edges that are genuinely losing audio — `deriveStageEdges` filtered to
+ * `kind === 'loss'`.
+ *
+ * A convenience rather than a second derivation, so no surface can accidentally
+ * count gated edges as faults.
+ */
+export function signalLossEdges(audio: SessionAudioSnapshot): StageEdge[] {
+  return deriveStageEdges(audio).filter((edge) => edge.kind === 'loss');
+}
 
 /**
  * Renders `AudioLevelStats.clippingPct` as a percentage for display.
@@ -146,12 +416,17 @@ export function formatClippingPct(clippingPct: number): string {
  * itself a finding — see D2 of PLAN-AUDIOVIZ: "no audio reaching ASR" is
  * failure mode C1 (mic muted / unplugged / wrong input).
  *
+ * Classification reads the **headline stage** — the lowest-depth stage carrying
+ * levels (§12.6, see `headlineStage`) — so a green chip asserts "the source is
+ * sending good audio" and nothing more (§12.8 point 1).
+ *
  * Rules (all constants from `AUDIO_THRESHOLDS`):
  *
  * | Condition | Status |
  * |---|---|
  * | no snapshot **and** `upstreamState === 'OPEN'` | `crit` — "no audio reaching ASR" (C1) |
  * | no snapshot, session not open | `unknown` |
+ * | snapshot exists, no stage reports `levels` | `unknown` — throughput-only provider, no level reading to judge |
  * | `silence === true` | `crit` — digital silence on a live session |
  * | `clippingPct > 0.01` | `crit` — clipping |
  * | `rmsDbfs < -50` | `warn` — very low level |
@@ -174,16 +449,43 @@ export function deriveAudioStatus(
  * snapshot" path that `deriveAudioStatus` handles. Used by the session detail
  * page, which already knows a snapshot exists and has no `SessionSnapshot` to
  * pass (its session comes from session-manager, not fleet telemetry).
+ *
+ * **A snapshot whose stages carry no `levels` anywhere is `unknown`.** This is a
+ * real state since §12: the `debug` provider reports `asr_input` with
+ * `levels: null` and seconds only, and a deployment can legitimately meter
+ * nothing while still publishing throughput. Neither of the two obvious answers
+ * is honest:
+ *
+ * - `good` would be a **false green** — the strongest claim this axis can make,
+ *   asserted from zero level measurements. It would also silently restore the
+ *   §12.1 bug in mirror image: instead of every healthy `debug` session showing
+ *   red, every *broken* one would show green.
+ * - `crit` would be a **false fault** — precisely the alarm §12 was written to
+ *   remove. The session is publishing telemetry, so something is decoding its
+ *   audio; the pipeline is demonstrably alive, and sending an operator to check
+ *   a microphone would be wrong.
+ * - `warn` would still be a claim about the audio, and there is no reading to
+ *   make it from — it would put an amber chip on a fleet that is fine.
+ *
+ * `unknown` is the only status that says what is actually true: no reading. Its
+ * chip colour is already deliberately grey rather than a warning colour, for
+ * exactly this distinction (see `AUDIO_STATUS_COLOR`), and the surfaces pair it
+ * with copy naming the reason — "metering unavailable for this provider" — so it
+ * cannot be misread as "no audio" (§12.8 point 1). It also groups correctly under
+ * the existing `audio: unknown` filter facet, which already means "no reading".
  */
 export function classifyAudioSnapshot(
   audio: SessionAudioSnapshot,
 ): AudioStatus {
-  if (audio.silence) return 'crit';
-  if (audio.clippingPct > AUDIO_THRESHOLDS.clippingPctCrit) return 'crit';
-  if (audio.rmsDbfs < AUDIO_THRESHOLDS.rmsDbfsLow) return 'warn';
-  if (audio.rmsDbfs > AUDIO_THRESHOLDS.rmsDbfsHigh) return 'warn';
+  const levels = headlineStage(audio)?.levels;
+  if (levels === undefined) return 'unknown';
 
-  const vad = audio.vadStats;
+  if (levels.silence) return 'crit';
+  if (levels.clippingPct > AUDIO_THRESHOLDS.clippingPctCrit) return 'crit';
+  if (levels.rmsDbfs < AUDIO_THRESHOLDS.rmsDbfsLow) return 'warn';
+  if (levels.rmsDbfs > AUDIO_THRESHOLDS.rmsDbfsHigh) return 'warn';
+
+  const vad = headlineVadStats(audio);
   if (
     vad !== null &&
     vad.vadEnabled &&

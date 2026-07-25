@@ -20,7 +20,10 @@ from src.transcription_provider_interface import (
     TranscriptionClientError,
     TranscriptionResult,
 )
-from src.webserver.features.telemetry import RedisSessionAudioPublisher
+from src.webserver.features.telemetry import (
+    RedisSessionAudioPublisher,
+    SessionAudioTracker,
+)
 from src.webserver.shared.auth_service import AuthService
 from src.webserver.shared.metrics import MetricsRegistry
 from src.webserver.shared.transcription_provider_registry import (
@@ -85,6 +88,13 @@ class TranscriptionStreamController(WebsocketHandler):
         self._metrics_registry = metrics_registry
         self._provider_key = provider_key
         self._audio_publisher = audio_publisher
+        # Per-connection, and built even when no backplane is configured: the
+        # tracker is where the "was any audio metered" answer lives, and making
+        # it conditional would put a `None` check on the per-chunk path to save
+        # an object per session.
+        self._audio_tracker = SessionAudioTracker(
+            logger, config.audio_silence_threshold
+        )
 
         self._service: TranscriptionStreamService | None = None
         self._is_authenticated = False
@@ -149,7 +159,7 @@ class TranscriptionStreamController(WebsocketHandler):
         service.on(
             service.TranscriptionResultEvent, self._handle_transcription_result
         )
-        service.on(service.TranscriptionResultEvent, self._handle_audio_stats)
+        service.on(service.TranscriptionResultEvent, self._handle_audio_stages)
         service.on(service.TranscriptionErrorEvent, self._handle_error)
         service.start()
         self._service = service
@@ -184,10 +194,10 @@ class TranscriptionStreamController(WebsocketHandler):
             )
         )
 
-    def _handle_audio_stats(self, result: TranscriptionResult):
+    def _handle_audio_stages(self, result: TranscriptionResult):
         """
-        Forward a result's audio-level stats, and VAD stats alongside them,
-        to the fleet telemetry backplane
+        Record the audio measurement points a result reports, and publish the
+        session's graph
 
         A second listener on the same event `_handle_transcription_result`
         subscribes to, kept separate rather than folded into that handler:
@@ -196,21 +206,44 @@ class TranscriptionStreamController(WebsocketHandler):
         existing separation between a join (`ProviderHealthSnapshotService`)
         and its publisher.
 
-        Guarded on `audio_stats` alone, not `vad_stats` too: `vad_stats` can
-        legitimately be None (VAD off, or no VAD ran this batch) independent
-        of whether `audio_stats` is present - they come from different
-        mechanisms, a persistent meter vs. a transient per-call
-        computation - so a missing `vad_stats` should not suppress an
-        otherwise-useful audio-stats publish.
+        Deliberately not guarded on the result carrying any reading. It used to
+        early-return when the provider reported no stats, which meant `debug`
+        and `lumen_granite` deployments published nothing at all and every
+        healthy session on them showed a red audio chip (§12.1). Ingress
+        telemetry now exists for every provider, so an empty
+        `result.audio_stages` is a provider that measures nothing - not a
+        session with no audio telemetry.
         """
-        if self._audio_publisher is None or result.audio_stats is None:
+        self._audio_tracker.record_provider_stages(result.audio_stages)
+        self._publish_audio_stages()
+
+    def _publish_audio_stages(self):
+        """
+        Publish this session's audio-telemetry graph if a write is due
+
+        `is_due` is asked *before* the payload is assembled, because assembling
+        it costs an `AudioMeter.snapshot()` - ~218 us against ~29 us to meter a
+        chunk, and chunks arrive ~10/s (§12.9). Gating on the publisher's own
+        predicate rather than a timer here keeps the interval defined in one
+        place: a second timer in the controller would drift from the
+        publisher's and either starve the dashboard or pay the snapshot cost
+        for a write that gets dropped anyway.
+
+        An empty stage list is not published: nothing has been measured yet, so
+        there is no snapshot to make, and skipping leaves the throttle window
+        open for the first real reading rather than consuming it on a payload
+        with no numbers in it.
+        """
+        if self._audio_publisher is None:
             return
-        self._audio_publisher.publish(
-            self._session_uid,
-            self._room_uid,
-            result.audio_stats,
-            result.vad_stats,
-        )
+        if not self._audio_publisher.is_due(self._session_uid):
+            return
+
+        stages = self._audio_tracker.resolved_stages()
+        if not stages:
+            return
+
+        self._audio_publisher.publish(self._session_uid, self._room_uid, stages)
 
     async def _handle_text_message(self, message: str):
         """
@@ -250,6 +283,14 @@ class TranscriptionStreamController(WebsocketHandler):
             self._logger.warning("Dropping malformed audio frame")
             self._metrics_registry.record_decode_drop(self._provider_key)
             return
+
+        # Metered here rather than in the provider, and before the chunk is
+        # handed on: this is the last point that is the same for every provider
+        # and the only one a stalled model or an unreachable upstream cannot
+        # affect, which is what makes the audio chip a second axis rather than
+        # a restatement of connectivity (D1 / §12.1).
+        self._audio_tracker.meter_chunk(frame.audio, frame.stage_depth)
+        self._publish_audio_stages()
 
         self._service.handle_audio_chunk(frame.chunk_id or "", frame.audio)
 

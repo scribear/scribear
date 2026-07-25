@@ -383,13 +383,14 @@ export interface TranscriptionHostSnapshot {
   providers: Record<string, ProviderHealth>;
 }
 
-// ---- Audio-level telemetry (B2.1/B2.2) ----
-// Mirrors `AudioLevelStats`, `VadStats` and `SessionAudioSnapshot` from
+// ---- Audio-level telemetry (B2.1/B2.2, per-stage graph per §12) ----
+// Mirrors `AudioLevelStats`, `VadStats`, `AudioStage` and
+// `SessionAudioSnapshot` from
 // infra/scribear-redis/src/telemetry/session-audio-snapshot.schema.ts, for the
 // same reason the fleet mirrors above exist: @scribear/scribear-redis pulls in
 // ioredis and has no browser-safe entry point. The nullability comments are
-// copied verbatim from the schema — they encode real semantics (§6.2 of
-// PLAN-AUDIOVIZ) that a UI gets wrong by default.
+// copied verbatim from the schema — they encode real semantics (§6.2 and §12.2
+// of PLAN-AUDIOVIZ) that a UI gets wrong by default.
 
 /**
  * Audio-level readout for one session's most recent metering window
@@ -446,19 +447,83 @@ export interface VadStats {
 }
 
 /**
- * One live session's audio-level telemetry as published to the backplane:
- * its latest `AudioLevelStats` plus VAD statistics (B2.2), the snapshot
- * envelope, and the session/room identifiers it was computed for.
+ * One measurement point in a session's audio pipeline (§12.2 of PLAN-AUDIOVIZ).
  *
- * `vadStats` is a required key whose *value* may be null - `AudioLevelStats`
- * and `VadStats` are produced by different mechanisms in the worker (a
- * persistent meter vs. a transient per-batch computation) and published
- * together in one write rather than two keys.
+ * Audio telemetry is a *directed graph* of these, not one reading: a single
+ * reading cannot answer the question operators actually have — *where* did the
+ * audio stop being good — and tying the reading to one provider's job made it
+ * silently absent for the other providers (§12.1: `lumen_granite` and `debug`
+ * showed a red audio chip on every healthy session).
+ *
+ * Every nullable field here means "this point does not measure that", never
+ * "the measurement failed". A point that counts throughput only is a legitimate,
+ * useful point — it still closes the funnel — so a reader must not fold
+ * `levels: null` into the same bucket as "no snapshot at all".
  */
-export interface SessionAudioSnapshot extends AudioLevelStats {
+export interface AudioStage {
+  /** Stable stage id, unique within one snapshot, e.g. `ingress`. An **open
+   *  set**: a provider may report an id the shipped ones don't use and it is
+   *  published and rendered like any other. What makes the graph work is
+   *  `inputs`, not membership of a list. */
+  stage: string;
+  /** Operator-facing name, e.g. "ASR input (worker decode)". Carried on the
+   *  wire rather than mapped from `stage` in the webapp, so a provider naming a
+   *  new stage needs no dashboard change to render legibly. */
+  label: string;
+  /** Position in the pipeline: 1 at the source, `max(depth(inputs)) + 1`
+   *  otherwise. **Derived at publish time** from `inputs` and shipped as a
+   *  denormalised convenience so a reader never walks the graph — it is not the
+   *  primitive. A cycle in a provider's declarations resolves to
+   *  `current_max + 1` in declaration order rather than hanging the publisher.
+   *  Never below 1: a 0 means depth resolution never ran, not that a point sits
+   *  above the source. */
+  depth: number;
+  /** Stage ids immediately upstream of this one; `[]` means this is a source.
+   *  An id naming a stage absent from this snapshot was dropped at publish time
+   *  (that upstream point reported nothing this batch — an incomplete graph, not
+   *  a fatal one), so a reader may still see an input it cannot resolve. */
+  inputs: string[];
+  /** Levels measured at this point, or null when this point **counts throughput
+   *  only** and meters nothing (the `debug` provider's `asr_input`, and every
+   *  VAD stage). Null is a statement about the measurement point, not about the
+   *  audio: rendering it as a level of any kind would invent a reading. */
+  levels: AudioLevelStats | null;
+  /** VAD statistics for this point, or null when **this point runs no
+   *  detector**. Distinct from `vadStats.vadEnabled === false`, which means a
+   *  detector exists and did not run — see `VadStats`. */
+  vad: VadStats | null;
+  /** CUMULATIVE seconds of audio that have passed this point, monotonic — not a
+   *  rate. A rate would have to agree with the reader's polling interval to be
+   *  comparable between two points, and the two points do not share a clock;
+   *  cumulative totals subtract cleanly across an edge, which is what makes
+   *  "where did the audio get lost" a well-defined question. Null when this
+   *  point does not count throughput. */
+  audioSeconds: number | null;
+}
+
+/**
+ * One live session's audio telemetry as published to the backplane: the graph
+ * of measurement points, the snapshot envelope, and the session/room
+ * identifiers it was computed for.
+ *
+ * `stages` replaces the flat `AudioLevelStats` spread and top-level `vadStats`
+ * this snapshot carried before §12. There is deliberately **no compatibility
+ * shim**: both sides ship from this repo and `AUDIO_STATS_TTL_MS` is 10 s, so a
+ * rolling upgrade costs at most one poll of missing audio telemetry, whereas a
+ * dual-shape reader would be permanent complexity bought for ten seconds.
+ *
+ * `stages` may be empty (nothing measured anything yet) and every stage's
+ * `levels` may be null (a provider that reports throughput only). Both are real
+ * states rather than error cases — see `deriveAudioStatus` in
+ * `#src/features/dashboard/fleet-status` for how they classify, and why neither
+ * may read as `good`.
+ */
+export interface SessionAudioSnapshot {
   /** Publish time in epoch milliseconds, on the publishing host's clock. */
   updatedAt: number;
-  vadStats: VadStats | null;
+  /** The measurement points that reported for this session, in no guaranteed
+   *  order — consumers group by `depth` and must not assume array order. */
+  stages: AudioStage[];
   sessionUid: string;
   roomUid: string | null;
   /** Identity of the publishing Transcription Service host. */

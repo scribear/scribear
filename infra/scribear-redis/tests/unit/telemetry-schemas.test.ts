@@ -8,13 +8,16 @@ import {
 
 import {
   AUDIO_LEVEL_STATS_SCHEMA,
+  AUDIO_STAGE_SCHEMA,
   NODE_SNAPSHOT_SCHEMA,
   PROVIDER_HEALTH_SCHEMA,
   SESSION_AUDIO_SNAPSHOT_SCHEMA,
   SESSION_SNAPSHOT_SCHEMA,
+  type SnapshotParseResult,
   TRANSCRIPTION_HOST_SNAPSHOT_SCHEMA,
   TRANSCRIPTION_WORKER_SCHEMA,
   VAD_STATS_SCHEMA,
+  parseSessionAudioSnapshot,
 } from '#src/index.js';
 
 /**
@@ -184,15 +187,10 @@ describe('transcription host snapshot schema', () => {
 
 describe('session audio snapshot schema', () => {
   /**
-   * A record exactly as `RedisSessionAudioPublisher` publishes one, nulls and
-   * all. Kept literal rather than built from a helper, for the same reason
-   * `HOST_SNAPSHOT` is: its job is to fail if the publisher's shape and this
-   * schema ever diverge.
-   */
-  /**
    * A vadStats value exactly as `RedisSessionAudioPublisher` publishes one
-   * when VAD ran and found speech, for the same reason SESSION_AUDIO is
-   * kept literal.
+   * when VAD ran and found speech, kept literal rather than built from a
+   * helper for the same reason `HOST_SNAPSHOT` is: its job is to fail if the
+   * publisher's shape and this schema ever diverge.
    */
   const VAD_STATS = {
     vadEnabled: true,
@@ -203,13 +201,53 @@ describe('session audio snapshot schema', () => {
     snrDb: 12.5,
   };
 
-  const SESSION_AUDIO = {
+  const LEVELS = {
     rmsDbfs: -18.4,
     peakDbfs: -6.2,
     clippingPct: 0,
     silence: false,
     noiseFloorDbfs: -42.1,
-    vadStats: VAD_STATS,
+  };
+
+  /**
+   * The graph a whisper session reports: the stream controller's ingress
+   * meter, the provider job's decode point, and the detector - which counts
+   * the speech seconds it passed on and meters no levels. Literal for the same
+   * reason the rest of this fixture is, and three-deep because a two-point
+   * fixture cannot tell a resolved depth from a hardcoded one.
+   */
+  const STAGES = [
+    {
+      stage: 'ingress',
+      label: 'Source ingress',
+      depth: 1,
+      inputs: [],
+      levels: LEVELS,
+      vad: null,
+      audioSeconds: 123.4,
+    },
+    {
+      stage: 'asr_input',
+      label: 'ASR input (worker decode)',
+      depth: 2,
+      inputs: ['ingress'],
+      levels: LEVELS,
+      vad: null,
+      audioSeconds: 122.9,
+    },
+    {
+      stage: 'vad',
+      label: 'VAD (Silero)',
+      depth: 3,
+      inputs: ['asr_input'],
+      levels: null,
+      vad: VAD_STATS,
+      audioSeconds: 47.2,
+    },
+  ];
+
+  const SESSION_AUDIO = {
+    stages: STAGES,
     sessionUid: 'session-1',
     roomUid: 'room-1',
     transcriptionHost: 'gpu-1',
@@ -235,10 +273,48 @@ describe('session audio snapshot schema', () => {
     ).toBe(true);
   });
 
-  it('should accept a full session audio snapshot', () => {
-    // Assert
+  it('should accept a full three-stage snapshot', () => {
+    // Assert - one point per depth, each naming the one above it.
     expect(Value.Check(SESSION_AUDIO_SNAPSHOT_SCHEMA, SESSION_AUDIO)).toBe(
       true,
+    );
+  });
+
+  it('should accept a stage that counts throughput but meters no levels', () => {
+    // levels: null is a real configuration, not a degraded one - the debug
+    // provider closes the funnel by seconds alone, and a schema that required
+    // levels would force it to fabricate them to stay visible.
+    //
+    // Arrange
+    const secondsOnly = { ...STAGES[1]!, levels: null, vad: null };
+
+    // Assert
+    expect(Value.Check(AUDIO_STAGE_SCHEMA, secondsOnly)).toBe(true);
+  });
+
+  it('should accept a stage that runs no detector', () => {
+    // Assert - vad: null means no detector at this point at all, distinct
+    // from a VadStats whose vadEnabled is false.
+    expect(Value.Check(AUDIO_STAGE_SCHEMA, STAGES[0]!)).toBe(true);
+  });
+
+  it('should reject a stage at depth zero', () => {
+    // Depth is derived at publish time and a source is 1, so 0 means depth
+    // resolution never ran - a reader grouping by depth would silently open a
+    // column above the source.
+    //
+    // Assert
+    expect(Value.Check(AUDIO_STAGE_SCHEMA, { ...STAGES[0]!, depth: 0 })).toBe(
+      false,
+    );
+  });
+
+  it('should reject a stage missing the levels key entirely', () => {
+    // Assert - levels is a required key even though its value can be null:
+    // the publisher always writes it, so a missing key means the shape
+    // drifted, not that the point runs no meter.
+    expect(Value.Check(AUDIO_STAGE_SCHEMA, without(STAGES[0]!, 'levels'))).toBe(
+      false,
     );
   });
 
@@ -265,53 +341,123 @@ describe('session audio snapshot schema', () => {
     ).toBe(true);
   });
 
-  it('should accept a snapshot with a null vadStats', () => {
-    // Assert - VAD off, or no VAD ran this batch: a legitimate value, not
-    // a malformed payload.
-    expect(
-      Value.Check(SESSION_AUDIO_SNAPSHOT_SCHEMA, {
-        ...SESSION_AUDIO,
-        vadStats: null,
-      }),
-    ).toBe(true);
-  });
-
-  it('should reject a snapshot missing the vadStats key entirely', () => {
-    // Assert - vadStats is a required key even though its value can be
-    // null: the publisher always writes it, so a missing key means the
-    // shape drifted, not that VAD was off.
+  it('should reject a snapshot missing the stages key entirely', () => {
+    // Assert - the publisher writes stages on every publish, so a missing key
+    // means the shape drifted; accepting it would render an entire session's
+    // pipeline as absent rather than as unparseable.
     expect(
       Value.Check(
         SESSION_AUDIO_SNAPSHOT_SCHEMA,
-        without(SESSION_AUDIO, 'vadStats'),
+        without(SESSION_AUDIO, 'stages'),
       ),
     ).toBe(false);
   });
 
-  it('should reject a snapshot missing a stats field', () => {
+  it('should reject the pre-stage-graph payload shape', () => {
+    // The shape shipped before per-stage telemetry: levels flattened onto the
+    // snapshot and one top-level vadStats. There is deliberately no
+    // compatibility shim - the key's TTL bounds a rolling upgrade to one poll
+    // - and that decision only holds if the old shape is rejected outright.
+    // Accepted, its fields would arrive as undefined all through the
+    // dashboard, which is the failure the restated schema exists to prevent.
+    //
+    // Arrange
+    const oldShape = {
+      ...LEVELS,
+      vadStats: VAD_STATS,
+      sessionUid: 'session-1',
+      roomUid: 'room-1',
+      transcriptionHost: 'gpu-1',
+      updatedAt: 1_731_970_000_123,
+    };
+
     // Assert
-    expect(
-      Value.Check(
-        SESSION_AUDIO_SNAPSHOT_SCHEMA,
-        without(SESSION_AUDIO, 'silence'),
-      ),
-    ).toBe(false);
+    expect(Value.Check(SESSION_AUDIO_SNAPSHOT_SCHEMA, oldShape)).toBe(false);
   });
 
   it('should reject a stats-only payload with no envelope', () => {
-    // Assert - AUDIO_LEVEL_STATS_SCHEMA alone accepts just the meter fields.
-    const { rmsDbfs, peakDbfs, clippingPct, silence, noiseFloorDbfs } =
-      SESSION_AUDIO;
-    const statsOnly = {
-      rmsDbfs,
-      peakDbfs,
-      clippingPct,
-      silence,
-      noiseFloorDbfs,
-    };
+    // Assert - AUDIO_LEVEL_STATS_SCHEMA alone accepts just the meter fields,
+    // which is what makes it reusable as a stage's levels.
+    expect(Value.Check(AUDIO_LEVEL_STATS_SCHEMA, LEVELS)).toBe(true);
+    expect(Value.Check(SESSION_AUDIO_SNAPSHOT_SCHEMA, LEVELS)).toBe(false);
+  });
+});
 
-    expect(Value.Check(AUDIO_LEVEL_STATS_SCHEMA, statsOnly)).toBe(true);
-    expect(Value.Check(SESSION_AUDIO_SNAPSHOT_SCHEMA, statsOnly)).toBe(false);
+describe('parseSessionAudioSnapshot', () => {
+  const SESSION_AUDIO = {
+    stages: [
+      {
+        stage: 'ingress',
+        label: 'Source ingress',
+        depth: 1,
+        inputs: [],
+        levels: {
+          rmsDbfs: -18.4,
+          peakDbfs: -6.2,
+          clippingPct: 0,
+          silence: false,
+          noiseFloorDbfs: -42.1,
+        },
+        vad: null,
+        audioSeconds: 123.4,
+      },
+    ],
+    sessionUid: 'session-1',
+    roomUid: null,
+    transcriptionHost: 'gpu-1',
+    updatedAt: 1_731_970_000_123,
+  };
+
+  /** The failure's messages, or an empty list if it did not fail. */
+  function errorsOf(result: SnapshotParseResult<unknown>): string[] {
+    return result.ok ? [] : result.errors;
+  }
+
+  it('should return the snapshot for a value the publisher wrote', () => {
+    // Act
+    const result = parseSessionAudioSnapshot(JSON.stringify(SESSION_AUDIO));
+
+    // Assert
+    expect(result).toMatchObject({ ok: true });
+    expect(result.ok && result.value.stages[0]!.stage).toBe('ingress');
+  });
+
+  it('should report malformed JSON rather than throwing', () => {
+    // A truncated write, or a collision with another producer, is an expected
+    // input from a shared networked key space - the caller drops the member
+    // and keeps serving the rest of the fleet, which it cannot do if the
+    // parse throws.
+    //
+    // Act
+    const result = parseSessionAudioSnapshot('{"stages":');
+
+    // Assert
+    expect(result).toMatchObject({ ok: false, reason: 'malformed-json' });
+    expect(errorsOf(result)).not.toHaveLength(0);
+  });
+
+  it('should report why a well-formed value of the wrong shape was rejected', () => {
+    // The reason is what separates a shape drift from a key that expired
+    // mid-read: both end as a dropped member, only one is a bug, and a bare
+    // null tells an operator nothing about which.
+    //
+    // Act
+    const result = parseSessionAudioSnapshot(
+      JSON.stringify(without(SESSION_AUDIO, 'stages')),
+    );
+
+    // Assert
+    expect(result).toMatchObject({ ok: false, reason: 'schema-mismatch' });
+    expect(errorsOf(result).join('; ')).toContain('stages');
+  });
+
+  it('should reject a JSON value that is not an object at all', () => {
+    // Act - valid JSON, so it gets past the parse and has to fail the schema;
+    // a cast would have handed a string to every reader downstream.
+    const result = parseSessionAudioSnapshot('"not a snapshot"');
+
+    // Assert
+    expect(result).toMatchObject({ ok: false, reason: 'schema-mismatch' });
   });
 });
 

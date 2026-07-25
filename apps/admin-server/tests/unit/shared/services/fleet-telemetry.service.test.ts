@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, vi } from 'vitest';
 
 import type {
+  AudioStage,
   NodeSnapshot,
   ProviderHealth,
   SessionAudioSnapshot,
   SessionSnapshot,
   TelemetryRedisClient,
   TranscriptionHostSnapshot,
+  VadStats,
 } from '@scribear/scribear-redis';
 import {
   NODE_INDEX_KEY,
@@ -20,7 +22,10 @@ import {
 } from '@scribear/scribear-redis';
 
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
-import { FleetTelemetryService } from '#src/server/shared/services/fleet-telemetry.service.js';
+import {
+  FleetTelemetryService,
+  VALIDATION_DROP_LOG_INTERVAL_MS,
+} from '#src/server/shared/services/fleet-telemetry.service.js';
 import { type MockLogger, createMockLogger } from '#tests/utils/mock-logger.js';
 
 const NOW = 1_800_000_000_000;
@@ -101,25 +106,42 @@ interface Harness {
   logger: MockLogger;
 }
 
+const FAKE_VAD_STATS: VadStats = {
+  vadEnabled: true,
+  speechActiveRatio: 0.42,
+  segmentCount: 3,
+  meanSegmentDurationSec: 1.2,
+  speechToPauseRatio: 0.72,
+  snrDb: 18.5,
+};
+
+/** The `ingress` point every provider reports: metered, no detector. */
+function fakeAudioStage(overrides: Partial<AudioStage> = {}): AudioStage {
+  return {
+    stage: 'ingress',
+    label: 'Source ingress',
+    depth: 1,
+    inputs: [],
+    levels: {
+      rmsDbfs: -23.4,
+      peakDbfs: -12.1,
+      clippingPct: 0,
+      silence: false,
+      noiseFloorDbfs: -65.0,
+    },
+    vad: null,
+    audioSeconds: 123.4,
+    ...overrides,
+  };
+}
+
 function fakeAudioSnapshot(
   sessionUid: string,
   overrides: Partial<SessionAudioSnapshot> = {},
 ): SessionAudioSnapshot {
   return {
-    rmsDbfs: -23.4,
-    peakDbfs: -12.1,
-    clippingPct: 0,
-    silence: false,
-    noiseFloorDbfs: -65.0,
     updatedAt: NOW,
-    vadStats: {
-      vadEnabled: true,
-      speechActiveRatio: 0.42,
-      segmentCount: 3,
-      meanSegmentDurationSec: 1.2,
-      speechToPauseRatio: 0.72,
-      snrDb: 18.5,
-    },
+    stages: [fakeAudioStage()],
     sessionUid,
     roomUid: null,
     transcriptionHost: 'ts-a',
@@ -256,7 +278,7 @@ describe('FleetTelemetryService', () => {
     });
 
     it('reads live audio snapshots from the transcription-session-audio index', async () => {
-      // A snapshot with VAD stats present — the "everything measured" case.
+      // Arrange
       const audio = fakeAudioSnapshot('session-a');
       h.redis.set(
         transcriptionSessionAudioKey('session-a'),
@@ -265,13 +287,69 @@ describe('FleetTelemetryService', () => {
         'session-a',
       );
 
+      // Act
       const snap = await h.service.snapshot();
 
+      // Assert
       expect(snap.sessionAudio).toEqual([audio]);
     });
 
-    it('reads an audio snapshot whose vadStats is null (VAD not produced)', async () => {
-      const audio = fakeAudioSnapshot('session-b', { vadStats: null });
+    it('keeps the whole stage graph, depth and inputs included', async () => {
+      // Arrange — the three points the shipped providers report. `depth` and
+      // `inputs` are what let the webapp lay the pipeline out in columns with
+      // edges and compare `audioSeconds` across one edge, so a reader that
+      // silently dropped them would leave the "where did the audio stop being
+      // good" question unanswerable (§12.2).
+      const audio = fakeAudioSnapshot('session-graph', {
+        stages: [
+          fakeAudioStage(),
+          fakeAudioStage({
+            stage: 'asr_input',
+            label: 'ASR input (worker decode)',
+            depth: 2,
+            inputs: ['ingress'],
+            audioSeconds: 122.9,
+          }),
+          fakeAudioStage({
+            stage: 'vad',
+            label: 'VAD (Silero)',
+            depth: 3,
+            inputs: ['asr_input'],
+            levels: null,
+            vad: FAKE_VAD_STATS,
+            audioSeconds: 47.2,
+          }),
+        ],
+      });
+      h.redis.set(
+        transcriptionSessionAudioKey('session-graph'),
+        audio,
+        TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
+        'session-graph',
+      );
+
+      // Act
+      const snap = await h.service.snapshot();
+
+      // Assert
+      expect(snap.sessionAudio).toEqual([audio]);
+      expect(snap.sessionAudio[0]?.stages.map((s) => s.depth)).toEqual([
+        1, 2, 3,
+      ]);
+      expect(snap.sessionAudio[0]?.stages.map((s) => s.inputs)).toEqual([
+        [],
+        ['ingress'],
+        ['asr_input'],
+      ]);
+    });
+
+    it('reads a stage whose vad is null (a point that runs no detector)', async () => {
+      // Arrange — "no detector here" and "detector present but configured off"
+      // (`vad.vadEnabled: false`) are different states and must not collapse,
+      // so `vad: null` has to survive the read rather than be normalised away.
+      const audio = fakeAudioSnapshot('session-b', {
+        stages: [fakeAudioStage({ vad: null })],
+      });
       h.redis.set(
         transcriptionSessionAudioKey('session-b'),
         audio,
@@ -279,10 +357,12 @@ describe('FleetTelemetryService', () => {
         'session-b',
       );
 
+      // Act
       const snap = await h.service.snapshot();
 
+      // Assert
       expect(snap.sessionAudio).toEqual([audio]);
-      expect(snap.sessionAudio[0]?.vadStats).toBeNull();
+      expect(snap.sessionAudio[0]?.stages[0]?.vad).toBeNull();
     });
 
     it('returns audio present even when no matching session exists (D2: no join)', async () => {
@@ -340,6 +420,195 @@ describe('FleetTelemetryService', () => {
       const snap = await h.service.snapshot();
 
       expect(snap.sessionAudio).toEqual([]);
+      // An expiry is routine and must stay quiet, unlike a validation drop.
+      expect(h.logger.warn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('snapshot validation', (it) => {
+    let h: Harness;
+
+    /** Puts a raw, un-stringified value under a key the audio index names. */
+    function setRawAudio(member: string, raw: string): void {
+      h.redis.values.set(transcriptionSessionAudioKey(member), raw);
+      h.redis.zsets.set(TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY, [
+        ...(h.redis.zsets.get(TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY) ?? []),
+        member,
+      ]);
+    }
+
+    /** The flat pre-§12.4 payload, verbatim: one measurement point, no graph. */
+    function legacyFlatAudioSnapshot(sessionUid: string): unknown {
+      return {
+        rmsDbfs: -21.3,
+        peakDbfs: -9.8,
+        clippingPct: 0,
+        silence: false,
+        noiseFloorDbfs: -62.0,
+        updatedAt: NOW,
+        vadStats: null,
+        sessionUid,
+        roomUid: null,
+        transcriptionHost: 'ts-a',
+      };
+    }
+
+    beforeEach(() => {
+      h = buildHarness();
+    });
+
+    it('drops an audio snapshot still in the old flat shape instead of surfacing undefined fields', async () => {
+      // Arrange — a publisher that has not been rolled forward yet. Cast
+      // rather than validated, this parses happily and every stage-shaped
+      // field reads `undefined` in the dashboard; §12.4 ships no compatibility
+      // shim precisely because the reader rejects it outright.
+      h.redis.set(
+        transcriptionSessionAudioKey('legacy-session'),
+        legacyFlatAudioSnapshot('legacy-session'),
+        TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
+        'legacy-session',
+      );
+
+      // Act
+      const snap = await h.service.snapshot();
+
+      // Assert
+      expect(snap.sessionAudio).toEqual([]);
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          indexKey: TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
+          droppedCount: 1,
+          droppedSample: [
+            expect.objectContaining({
+              member: 'legacy-session',
+              reason: 'schema-mismatch',
+              errors: expect.arrayContaining([expect.any(String)]),
+            }),
+          ],
+        }),
+        expect.any(String),
+      );
+    });
+
+    it('drops one invalid audio snapshot without costing the others', async () => {
+      // Arrange — the reason a drop is a drop and not a throw: an operator
+      // must not lose the whole fleet's telemetry to one bad session.
+      const healthy = fakeAudioSnapshot('healthy-session');
+      h.redis.set(
+        transcriptionSessionAudioKey('healthy-session'),
+        healthy,
+        TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
+        'healthy-session',
+      );
+      h.redis.set(
+        transcriptionSessionAudioKey('legacy-session'),
+        legacyFlatAudioSnapshot('legacy-session'),
+        TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
+        'legacy-session',
+      );
+
+      // Act
+      const snap = await h.service.snapshot();
+
+      // Assert
+      expect(snap.sessionAudio).toEqual([healthy]);
+    });
+
+    it('drops a malformed-JSON audio value rather than failing the whole call', async () => {
+      // Arrange — a truncated write, or a key collision with a non-telemetry
+      // producer. `JSON.parse` throws on it, and unhandled that throw used to
+      // reach the controller as a 503 for every caller.
+      setRawAudio('truncated-session', '{"stages":[{"stage":"ing');
+
+      // Act
+      const snap = await h.service.snapshot();
+
+      // Assert
+      expect(snap.sessionAudio).toEqual([]);
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          droppedSample: [
+            expect.objectContaining({
+              member: 'truncated-session',
+              reason: 'malformed-json',
+            }),
+          ],
+        }),
+        expect.any(String),
+      );
+    });
+
+    it('drops a malformed-JSON value from an index that has no parser yet', async () => {
+      // Arrange — `nodes`, `sessions` and `transcriptionHosts` are still cast
+      // rather than validated, but even they must not throw out of the read:
+      // the JSON guard is what the three share with the validated index.
+      h.redis.values.set(nodeSnapshotKey('broken-node'), 'not json at all');
+      h.redis.zsets.set(NODE_INDEX_KEY, ['broken-node']);
+
+      // Act
+      const snap = await h.service.snapshot();
+
+      // Assert
+      expect(snap.nodes).toEqual([]);
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          indexKey: NODE_INDEX_KEY,
+          droppedSample: [
+            expect.objectContaining({
+              member: 'broken-node',
+              reason: 'malformed-json',
+            }),
+          ],
+        }),
+        expect.any(String),
+      );
+    });
+
+    it('logs a persistent shape drift once, not once per poll', async () => {
+      // Arrange — a drifted publisher keeps writing the same wrong shape, and
+      // `/fleet` is polled every few seconds by every open dashboard, so a
+      // line per drop per poll would bury the line that explains the drift.
+      h.redis.set(
+        transcriptionSessionAudioKey('legacy-session'),
+        legacyFlatAudioSnapshot('legacy-session'),
+        TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
+        'legacy-session',
+      );
+
+      // Act
+      await h.service.snapshot();
+      const second = await h.service.snapshot();
+
+      // Assert — throttled, but still dropped: the data is not served just
+      // because the complaint about it was suppressed.
+      expect(h.logger.warn).toHaveBeenCalledTimes(1);
+      expect(second.sessionAudio).toEqual([]);
+    });
+
+    it('reports how many drops the throttle swallowed when it logs again', async () => {
+      // Arrange — without the count, the one line an operator sees understates
+      // a fleet-wide drift as a single bad session.
+      vi.useFakeTimers();
+      h.redis.set(
+        transcriptionSessionAudioKey('legacy-session'),
+        legacyFlatAudioSnapshot('legacy-session'),
+        TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
+        'legacy-session',
+      );
+
+      // Act
+      await h.service.snapshot();
+      await h.service.snapshot();
+      vi.advanceTimersByTime(VALIDATION_DROP_LOG_INTERVAL_MS + 1);
+      await h.service.snapshot();
+
+      // Assert
+      expect(h.logger.warn).toHaveBeenCalledTimes(2);
+      expect(h.logger.warn).toHaveBeenLastCalledWith(
+        expect.objectContaining({ suppressedSinceLastLog: 1 }),
+        expect.any(String),
+      );
+      vi.useRealTimers();
     });
   });
 

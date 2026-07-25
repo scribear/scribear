@@ -27,6 +27,7 @@ HOST = "1.2.3.4"
 API_KEY = "SOME_KEY"
 METRICS_API_KEY = "SOME_METRICS_KEY"
 WS_INIT_TIMEOUT_SEC = 0.5
+AUDIO_SILENCE_THRESHOLD = 0.05
 
 valid_env: Callable[[str], str] = lambda provider_config_path: f"""
 LOG_LEVEL={LOG_LEVEL}
@@ -119,6 +120,11 @@ def test_config_load_valid_config(clean_os_environ: None, tmp_path: Path):
     # hostname so an unconfigured deployment still has a stable one.
     assert config.redis_url == ""
     assert config.transcription_host_id == socket.gethostname()
+    # Same again for the ingress meter's silence floor: the shipped default has
+    # to be the 0.01 AudioMeter and whisper's own threshold already used, or
+    # adding the variable would silently reclassify what counts as silence on
+    # every existing deployment.
+    assert config.audio_silence_threshold == 0.01
 
     assert config.provider_config.num_workers == NUM_WORKERS
     assert len(config.provider_config.contexts) == 2
@@ -186,6 +192,36 @@ def test_config_loads_telemetry_settings_when_set(
     # Assert
     assert config.redis_url == "redis://:secret@redis:6379"
     assert config.transcription_host_id == "ts-host-7"
+
+
+def test_config_loads_the_audio_silence_threshold_when_set(
+    clean_os_environ: None, tmp_path: Path
+):
+    # pylint: disable=unused-argument
+    # Need to include clean_os_environ so that fixture is created
+    """
+    Test a configured silence floor is read
+
+    The number is room-dependent - a hall with loud HVAC never falls under the
+    default and so never reports a dead microphone as silent - and the ingress
+    meter has no provider config to read it from, which is the whole reason it
+    is an env var (§12.7).
+    """
+    # Arrange
+    transcription_config_path = tmp_path / "transcription_config.json"
+    transcription_config_path.write_text(VALID_PROVIDER_CONFIG_JSON)
+
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text(
+        valid_env(str(transcription_config_path))
+        + f"AUDIO_SILENCE_THRESHOLD={AUDIO_SILENCE_THRESHOLD}\n"
+    )
+
+    # Act
+    config = Config(dotenv_path=str(dotenv_path))
+
+    # Assert
+    assert config.audio_silence_threshold == AUDIO_SILENCE_THRESHOLD
 
 
 def test_config_rejects_a_host_id_that_could_forge_a_telemetry_key(

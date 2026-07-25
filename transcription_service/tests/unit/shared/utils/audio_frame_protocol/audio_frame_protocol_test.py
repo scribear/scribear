@@ -15,9 +15,11 @@ from src.shared.utils.audio_frame_protocol import (
 )
 from src.shared.utils.audio_frame_protocol.audio_frame_protocol import (
     FIELD_KEY_CHUNK_ID,
+    FIELD_KEY_STAGE_DEPTH,
     SAFP_MAGIC_0,
     SAFP_MAGIC_1,
     WIRE_BYTES,
+    WIRE_UINT,
     WIRE_UTF8,
 )
 
@@ -98,6 +100,65 @@ def test_forward_compatibility_skips_unknown_field():
     assert decoded.audio == AUDIO
     assert len(decoded.unknown_fields) == 1
     assert decoded.unknown_fields[0][0] == 99
+
+
+def test_round_trip_stage_depth():
+    """An audio-telemetry depth declared by the sender survives the round trip,
+    so the transcription service can continue that graph instead of restarting
+    its numbering at its own ingress stage."""
+    # Arrange / Act
+    decoded = decode_audio_frame(
+        encode_audio_frame("depth", AUDIO, stage_depth=2)
+    )
+
+    # Assert
+    assert decoded.stage_depth == 2
+    assert decoded.chunk_id == "depth"
+    assert decoded.audio == AUDIO
+    assert decoded.unknown_fields == []
+
+
+def test_stage_depth_is_absent_when_the_sender_does_not_meter():
+    """No producer writes this field yet (node-server is the intended one), so
+    the overwhelmingly common frame carries no depth - and None has to mean
+    "the sender does not meter" rather than a depth of zero."""
+    # Arrange / Act
+    decoded = decode_audio_frame(encode_audio_frame("no-depth", AUDIO))
+
+    # Assert
+    assert decoded.stage_depth is None
+
+
+def test_stage_depth_decodes_from_a_wider_uint():
+    """WIRE_UINT is self-describing by length, so a sender that widened the
+    field must still be understood - pinning this reader to one byte would make
+    such a frame look like it carried an unknown field instead."""
+    # Arrange - the same value as a little-endian uint16.
+    fields = bytearray()
+    fields += struct.pack("<BBH", FIELD_KEY_STAGE_DEPTH, WIRE_UINT, 2)
+    fields += struct.pack("<H", 7)
+
+    body = bytearray()
+    body += struct.pack("<BBBB", SAFP_MAGIC_0, SAFP_MAGIC_1, SAFP_VERSION, 1)
+    body += fields
+    body += AUDIO
+    body += struct.pack("<I", zlib.crc32(bytes(body)) & 0xFFFFFFFF)
+
+    # Act
+    decoded = decode_audio_frame(bytes(body))
+
+    # Assert
+    assert decoded.stage_depth == 7
+    assert decoded.unknown_fields == []
+
+
+def test_rejects_a_stage_depth_too_large_for_the_wire_field():
+    """The encoder writes one byte, so a caller passing something that does not
+    fit has to be told - silently truncating would publish a graph whose depths
+    are wrong rather than obviously missing."""
+    # Arrange / Act / Assert
+    with pytest.raises(AudioFrameError, match="stage_depth"):
+        encode_audio_frame("x", AUDIO, stage_depth=256)
 
 
 def test_rejects_short_buffer():

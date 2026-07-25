@@ -51,6 +51,39 @@ describe('encodeAudioFrame / decodeAudioFrame', () => {
     expect([...decoded.audio]).toEqual([...audio]);
   });
 
+  it('round-trips stageDepth', () => {
+    const chunkId = 'depth-123';
+    const frame = encodeAudioFrame({ chunkId, stageDepth: 2 }, audio);
+    const decoded = decodeAudioFrame(frame);
+
+    expect(decoded.stageDepth).toBe(2);
+  });
+
+  it('decodes a frame with no stageDepth as null, not 0, since 0 is a legal depth', () => {
+    const chunkId = 'no-depth';
+    const frame = encodeAudioFrame({ chunkId }, audio);
+    const decoded = decodeAudioFrame(frame);
+
+    expect(decoded.stageDepth).toBeNull();
+  });
+
+  it('round-trips stageDepth 0, distinguishing it from absent', () => {
+    const chunkId = 'zero-depth';
+    const frame = encodeAudioFrame({ chunkId, stageDepth: 0 }, audio);
+    const decoded = decodeAudioFrame(frame);
+
+    expect(decoded.stageDepth).toBe(0);
+  });
+
+  it('rejects a stageDepth outside the single-byte range, matching the Python encoder', () => {
+    expect(() =>
+      encodeAudioFrame({ chunkId: 'x', stageDepth: 256 }, audio),
+    ).toThrow(AudioFrameError);
+    expect(() =>
+      encodeAudioFrame({ chunkId: 'x', stageDepth: -1 }, audio),
+    ).toThrow(AudioFrameError);
+  });
+
   it('writes the documented magic and version', () => {
     const frame = encodeAudioFrame({ chunkId: 'x' }, audio);
     expect(frame[0]).toBe(SAFP_MAGIC_0);
@@ -120,6 +153,126 @@ describe('forward compatibility', () => {
     expect(decoded.unknownFields).toHaveLength(1);
     expect(decoded.unknownFields[0]?.key).toBe(99);
   });
+
+  it('still finds a known stageDepth alongside a field key it does not recognise', () => {
+    // A future sender may add its own field ahead of stageDepth landing on
+    // every peer; this proves the two co-exist rather than one masking the
+    // other.
+    const chunkId = 'mixed';
+    const chunkBytes = new TextEncoder().encode(chunkId);
+    const unknownValue = new Uint8Array([7, 7]);
+    const stageDepthValue = new Uint8Array([4]);
+
+    const fields = new Uint8Array(
+      4 +
+        chunkBytes.length +
+        (4 + unknownValue.length) +
+        (4 + stageDepthValue.length),
+    );
+    const fView = new DataView(fields.buffer);
+    fields[0] = SafpFieldKey.CHUNK_ID;
+    fields[1] = SafpWireType.UTF8;
+    fView.setUint16(2, chunkBytes.length, true);
+    fields.set(chunkBytes, 4);
+
+    let o = 4 + chunkBytes.length;
+    fields[o] = 200; // unrecognised key
+    fields[o + 1] = SafpWireType.BYTES;
+    fView.setUint16(o + 2, unknownValue.length, true);
+    fields.set(unknownValue, o + 4);
+
+    o += 4 + unknownValue.length;
+    fields[o] = SafpFieldKey.STAGE_DEPTH;
+    fields[o + 1] = SafpWireType.UINT;
+    fView.setUint16(o + 2, stageDepthValue.length, true);
+    fields.set(stageDepthValue, o + 4);
+
+    const body = new Uint8Array(4 + fields.length + audio.length);
+    body[0] = SAFP_MAGIC_0;
+    body[1] = SAFP_MAGIC_1;
+    body[2] = SAFP_VERSION;
+    body[3] = 3; // three fields
+    body.set(fields, 4);
+    body.set(audio, 4 + fields.length);
+
+    const frame = new Uint8Array(body.length + 4);
+    frame.set(body, 0);
+    new DataView(frame.buffer).setUint32(body.length, crc32(body), true);
+
+    const decoded = decodeAudioFrame(frame);
+    expect(decoded.chunkId).toBe(chunkId);
+    expect(decoded.stageDepth).toBe(4);
+    expect(decoded.unknownFields).toHaveLength(1);
+    expect(decoded.unknownFields[0]?.key).toBe(200);
+    expect([...decoded.audio]).toEqual([...audio]);
+  });
+
+  it('an old decoder that never learned about stageDepth still finds chunkId, sentAt, and audio in a frame that carries it', () => {
+    // Stand-in for the pre-this-change TypeScript decoder: identical framing
+    // loop, but only CHUNK_ID and SENT_AT are special-cased, so stageDepth's
+    // bytes fall through to "unknown" exactly like any other field an old
+    // reader has never heard of. This is the property that lets node-server
+    // start sending stageDepth before every reader has been upgraded.
+    function decodeWithoutStageDepthSupport(frame: Uint8Array): {
+      chunkId: string | null;
+      sentAt: number | null;
+      audio: Uint8Array;
+      unknownKeys: number[];
+    } {
+      const view = new DataView(
+        frame.buffer,
+        frame.byteOffset,
+        frame.byteLength,
+      );
+      const crcOffset = frame.length - 4;
+      const fieldCount = frame[3] ?? 0;
+      let offset = 4;
+      let chunkId: string | null = null;
+      let sentAt: number | null = null;
+      const unknownKeys: number[] = [];
+
+      for (let i = 0; i < fieldCount; i++) {
+        const key = frame[offset] ?? 0;
+        const length = view.getUint16(offset + 2, true);
+        const valueStart = offset + 4;
+        const valueEnd = valueStart + length;
+        const value = frame.subarray(valueStart, valueEnd);
+
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+        if (key === (SafpFieldKey.CHUNK_ID as number)) {
+          chunkId = new TextDecoder('utf-8').decode(value);
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+        } else if (key === (SafpFieldKey.SENT_AT as number) && length === 8) {
+          sentAt = new DataView(
+            value.buffer,
+            value.byteOffset,
+            value.byteLength,
+          ).getFloat64(0, true);
+        } else {
+          unknownKeys.push(key);
+        }
+
+        offset = valueEnd;
+      }
+
+      return {
+        chunkId,
+        sentAt,
+        audio: frame.subarray(offset, crcOffset),
+        unknownKeys,
+      };
+    }
+
+    const chunkId = 'old-reader';
+    const sentAt = 42;
+    const frame = encodeAudioFrame({ chunkId, sentAt, stageDepth: 5 }, audio);
+    const result = decodeWithoutStageDepthSupport(frame);
+
+    expect(result.chunkId).toBe(chunkId);
+    expect(result.sentAt).toBe(sentAt);
+    expect([...result.audio]).toEqual([...audio]);
+    expect(result.unknownKeys).toEqual([SafpFieldKey.STAGE_DEPTH]);
+  });
 });
 
 describe('validation', () => {
@@ -155,5 +308,32 @@ describe('validation', () => {
       true,
     );
     expect(() => decodeAudioFrame(frame)).toThrow(/version/i);
+  });
+
+  it('still validates CRC-32 once stageDepth is one of the fields covered by it', () => {
+    const frame = encodeAudioFrame({ chunkId: 'x', stageDepth: 9 }, audio);
+    // decodeAudioFrame throws on CRC mismatch, so a clean decode here is
+    // proof the checksum was computed over the frame with the new field
+    // included, not stale from before it landed.
+    expect(() => decodeAudioFrame(frame)).not.toThrow();
+
+    const i = frame.length - 5;
+    frame[i] = (frame[i] ?? 0) ^ 0xff;
+    expect(() => decodeAudioFrame(frame)).toThrow(/CRC/i);
+  });
+});
+
+describe('stageDepth field key and wire type', () => {
+  // A drift guard: if the Python and TypeScript implementations ever
+  // disagree on the field key number or wire type for stageDepth, a frame
+  // encoded by one and decoded by the other silently mis-parses instead of
+  // failing loudly, so pin both constants here rather than trusting the two
+  // files to stay in sync by inspection.
+  it('keys stageDepth as field 3', () => {
+    expect(SafpFieldKey.STAGE_DEPTH).toBe(3);
+  });
+
+  it('wire-types stageDepth as WIRE_UINT (0x01)', () => {
+    expect(SafpWireType.UINT).toBe(0x01);
   });
 });

@@ -29,7 +29,7 @@ instrument, not two dialects").
 |---|---|---|
 | Publisher | `transcription_service/tests/unit/shared/utils/audio_meter/audio_meter_crosscheck_test.py` | the Python meter reads each fixture within `toleranceDb` |
 | Standalone page | `apps/monitoring-sidecar/tests/unit/audio-meter-crosscheck.test.ts` | the shipped page's DSP reads each fixture within `toleranceDb` |
-| Render path | `apps/admin-webapp/tests/features/dashboard/audio-render-fidelity.test.tsx` | a given dBFS reaches the screen unchanged, and lands in the status the thresholds define |
+| Render path | `apps/admin-webapp/tests/features/dashboard/audio-render-fidelity.test.tsx` | a given dBFS reaches the screen unchanged, is taken from the stage the contract names, and lands in the status the thresholds define |
 
 A fourth suite, `apps/admin-server/tests/unit/shared/mirrored-constants.test.ts`,
 guards the values `admin-webapp` restates by hand across the browser boundary
@@ -38,6 +38,39 @@ guards the values `admin-webapp` restates by hand across the browser boundary
 Agreement is transitive: both meters are pinned to the same numbers, so they are
 pinned to each other, and the third leg carries the publisher's number through
 to pixels without distortion.
+
+## The render leg after the stage graph (§12)
+
+`SessionAudioSnapshot` no longer carries one reading. It carries a graph of
+measurement points (`stages[]`, each with its own `levels`, `vad` and cumulative
+`audioSeconds`), and the dashboard renders the **headline stage** — the
+lowest-depth stage that reports levels, because that is the measurement closest
+to the source and therefore the one that answers "is the room's audio reaching
+us" (`PLAN-AUDIOVIZ.md` §12.6).
+
+Carrying a number faithfully is therefore no longer sufficient: the render path
+also has to pick the right one out of several. So the render leg now asserts, in
+addition to what it asserted before, that a manifest figure placed at `ingress`
+is the figure that reaches the screen **while a deliberately different figure
+sits at `asr_input`**. Without that, a regression that read the deepest stage
+instead of the shallowest would pass every assertion in this gate — the number on
+screen would be a real published number, just the wrong one, and an operator
+comparing the dashboard against the standalone meter on the same room would see a
+mismatch with no way to tell which surface was wrong.
+
+**`fixtures.json` is unchanged by the reshape, deliberately.** Its field names
+(`expected.rmsDbfs`, `expected.clippingPct`, …) are the *fixture table's*
+vocabulary for expected DSP values, not the Redis payload's field names, and the
+two were never the same thing. Renaming them to follow the payload would break
+the publisher and standalone-page legs — which read this file directly and know
+nothing about stages — for no gain. The table describes a sample sequence and
+what any correct meter must read from it; where in a pipeline that meter sits is
+not its business.
+
+One consequence worth stating plainly: because the manifest has no notion of
+stages, this gate pins *that the headline choice is made correctly*, not *which
+Python measurement point published the number*. A publisher that labelled its
+`asr_input` reading `ingress` would satisfy all three legs.
 
 ## A divergence this gate found and closed
 
@@ -88,6 +121,23 @@ observed in a browser. This gate stops at the two DSP implementations and the
 render path — it does not exercise the audio decoder, the frame protocol, the
 Redis publisher, `FleetTelemetryService`, or a real browser. A regression in the
 transport between `AudioMeter` and the dashboard would pass all three legs.
+
+The stage graph adds four more things this gate does not cover, all of them real
+and none of them expressible against a table of expected DSP values:
+
+- **Depth resolution.** `depth = max(depth(inputs)) + 1`, its dropped-input rule
+  and its cycle guard are computed at publish time in Python
+  (`audio_stage_graph.py`) and covered by that module's own unit tests. Nothing
+  here can see them.
+- **Which stage a reading was taken at.** As above: a mislabelled stage id passes.
+- **Signal loss.** The per-edge `audioSeconds` comparison and its tolerance are
+  pure consumer derivations over counters that no fixture defines, so they are
+  pinned by `apps/admin-webapp/tests/features/dashboard/fleet-status.test.ts`
+  rather than by this manifest. Putting invented second-counts in `fixtures.json`
+  would look like a cross-check while comparing nothing to nothing.
+- **Payload validation.** Whether a reshaped field is rejected at the reader (as
+  `session-audio-snapshot.schema.ts` claims) or silently renders as `undefined` is
+  the reader's business, and the mirrors here are hand-written on purpose.
 
 Closing that last gap needs a compose-level harness that streams a WAV into a
 live session and scrapes the rendered dashboard; the monitoring sidecar's

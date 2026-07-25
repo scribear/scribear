@@ -16,6 +16,8 @@ import requests
 import soundfile as sf
 
 from src.transcription_provider_interface import (
+    STAGE_ASR_INPUT,
+    STAGE_INGRESS,
     AudioChunkPayload,
     TranscriptionClientError,
     TranscriptionJobCounter,
@@ -147,20 +149,85 @@ def test_window_resets_after_commit(log, mocker):
     assert result.in_progress_chunk_ids == ["second"]
 
 
-def test_audio_stats_is_not_populated(log, mocker):
+def test_asr_input_stage_reports_levels_and_decoded_seconds(log, mocker):
     """
-    audio_stats is Whisper-provider-specific (B2.1); lumen_granite never sets
-    it, so it stays at TranscriptionResult's default of None.
+    A provider that reports no measurement point publishes no audio snapshot at
+    all, which the dashboard reads as "no audio reaching the ASR" - a red audio
+    chip on every healthy lumen session. So this job meters what it decodes,
+    from the same samples it POSTs upstream.
     """
+    # Arrange
     mocker.patch(
         POST_TARGET,
         return_value=fake_response(json_body={"text": "hello world"}),
     )
     job = LumenGraniteProviderJob(make_config())
 
+    # Act
     result = job.process_batch(log, (), [chunk(2.0, "c1")])
 
-    assert result.audio_stats is None
+    # Assert
+    (asr_input,) = result.audio_stages
+    assert asr_input.stage == STAGE_ASR_INPUT
+    assert asr_input.inputs == (STAGE_INGRESS,)
+    assert asr_input.levels is not None
+    assert asr_input.levels.silence is True  # the chunk is silence
+    assert asr_input.audio_seconds == pytest.approx(2.0)
+    # No detector here: None means "nothing gates the audio", never "no speech".
+    assert asr_input.vad is None
+
+
+def test_asr_input_seconds_accumulate_across_batches_and_survive_a_drain(
+    log, mocker
+):
+    """
+    The stage total is cumulative for the life of the session, because it is
+    compared with the ingress total by subtraction and the two ends are sampled
+    at different instants. AUDIO_SECONDS_DECODED carries the same seconds but
+    resets on every drain, so a total read back from the counters would report
+    1.0 here instead of 3.0 - and a shrinking cumulative total reads as the
+    pipeline losing audio it never lost.
+    """
+    # Arrange
+    mocker.patch(
+        POST_TARGET, return_value=fake_response(json_body={"text": "hi"})
+    )
+    job = LumenGraniteProviderJob(make_config())
+
+    # Act
+    job.process_batch(log, (), [chunk(2.0, "c1")])
+    drained = job.drain_counters()
+    result = job.process_batch(log, (), [chunk(1.0, "c2")])
+
+    # Assert
+    assert drained[TranscriptionJobCounter.AUDIO_SECONDS_DECODED] == 2.0
+    (asr_input,) = result.audio_stages
+    assert asr_input.audio_seconds == pytest.approx(3.0)
+
+
+def test_empty_window_still_reports_the_stage(log, mocker):
+    """
+    The result carrying no transcript is exactly when the telemetry matters
+    most: a committed-and-reset window followed by a period with no new audio
+    must still show that audio has been arriving, or a quiet upstream model is
+    indistinguishable from a dead microphone.
+    """
+    # Arrange
+    mocker.patch(
+        POST_TARGET, return_value=fake_response(json_body={"text": "t"})
+    )
+    job = LumenGraniteProviderJob(make_config(max_buffer_len_sec=5))
+
+    # Act
+    job.process_batch(log, (), [chunk(6.0, "big")])  # commits, empties window
+    result = job.process_batch(log, (), [])
+
+    # Assert
+    assert result.final is None
+    assert result.in_progress is None
+    (asr_input,) = result.audio_stages
+    assert asr_input.audio_seconds == pytest.approx(6.0)
+    assert asr_input.levels is not None
 
 
 def test_bad_audio_raises_client_error(log, mocker):

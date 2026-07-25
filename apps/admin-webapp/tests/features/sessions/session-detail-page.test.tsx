@@ -12,6 +12,16 @@ import { adminApi } from '#src/lib/admin-api';
 import { ApiError } from '#src/lib/api-error';
 
 import { renderWithProviders } from '../../utils/render-with-providers';
+import {
+  buildAudioSnapshot,
+  buildLevels,
+  buildThroughputOnlySnapshot,
+  buildVadDisabled,
+  buildVadStats,
+  stageAsrInput,
+  stageIngress,
+  stageVad,
+} from '../dashboard/audio-fixtures';
 import { buildSession } from './fixtures';
 
 vi.mock('#src/lib/admin-api', async (importOriginal) => {
@@ -236,22 +246,16 @@ describe('SessionDetailPage', () => {
     // microphone would be a false alarm on most detail-page views.
     const MIC_WARNING = /microphone is unmuted/;
 
+    /** The shipped whisper graph for this page's session, freshly published. */
     function audioSnapshot(
       overrides: Partial<SessionAudioSnapshot> = {},
     ): SessionAudioSnapshot {
-      return {
-        rmsDbfs: -23.4,
-        peakDbfs: -12.1,
-        clippingPct: 0,
-        silence: false,
-        noiseFloorDbfs: -65,
+      return buildAudioSnapshot({
         updatedAt: Date.now(),
-        vadStats: null,
         sessionUid: SESSION_UID,
-        roomUid: null,
-        transcriptionHost: 'ts-a',
+        stages: [stageIngress(), stageAsrInput()],
         ...overrides,
-      };
+      });
     }
 
     function mockFleet(audio: SessionAudioSnapshot[]): void {
@@ -396,14 +400,7 @@ describe('SessionDetailPage', () => {
       );
       mockFleet([
         audioSnapshot({
-          vadStats: {
-            vadEnabled: true,
-            speechActiveRatio: 0.42,
-            segmentCount: 3,
-            meanSegmentDurationSec: 1.2,
-            speechToPauseRatio: 0.72,
-            snrDb: 18.5,
-          },
+          stages: [stageIngress(), stageAsrInput(), stageVad()],
         }),
       ]);
 
@@ -427,14 +424,10 @@ describe('SessionDetailPage', () => {
       );
       mockFleet([
         audioSnapshot({
-          vadStats: {
-            vadEnabled: false,
-            speechActiveRatio: null,
-            segmentCount: null,
-            meanSegmentDurationSec: null,
-            speechToPauseRatio: null,
-            snrDb: null,
-          },
+          stages: [
+            stageIngress(),
+            stageVad({ vad: buildVadDisabled(), audioSeconds: null }),
+          ],
         }),
       ]);
 
@@ -444,6 +437,32 @@ describe('SessionDetailPage', () => {
         await screen.findByText('VAD was not enabled for this session.'),
       ).toBeInTheDocument();
       expect(screen.queryByText('0%')).not.toBeInTheDocument();
+      expect(screen.queryByText('0% speech')).not.toBeInTheDocument();
+    });
+
+    it('distinguishes "no detector in this pipeline" from "the detector did not run"', async () => {
+      // Two different absences, and §6.2's whole point is that a UI must not
+      // collapse them: only whisper reports a `vad` stage at all (§12.3), so most
+      // sessions have no detector anywhere — which is not the same claim as a
+      // configured detector that stayed off.
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({
+          effectiveStart: '2000-01-01T14:00:00.000Z',
+          effectiveEnd: null,
+        }),
+      );
+      mockFleet([audioSnapshot({ stages: [stageIngress(), stageAsrInput()] })]);
+
+      renderPage();
+
+      expect(
+        await screen.findByText(
+          'No measurement point in this pipeline runs a voice-activity detector.',
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText('VAD was not enabled for this session.'),
+      ).not.toBeInTheDocument();
     });
 
     it('renders a measured-but-absent VAD field as an em-dash with a reason', async () => {
@@ -458,14 +477,18 @@ describe('SessionDetailPage', () => {
       );
       mockFleet([
         audioSnapshot({
-          vadStats: {
-            vadEnabled: true,
-            speechActiveRatio: 0,
-            segmentCount: 0,
-            meanSegmentDurationSec: null,
-            speechToPauseRatio: 0,
-            snrDb: null,
-          },
+          stages: [
+            stageIngress(),
+            stageVad({
+              vad: buildVadStats({
+                speechActiveRatio: 0,
+                segmentCount: 0,
+                meanSegmentDurationSec: null,
+                speechToPauseRatio: 0,
+                snrDb: null,
+              }),
+            }),
+          ],
         }),
       ]);
 
@@ -486,18 +509,11 @@ describe('SessionDetailPage', () => {
         }),
       );
       mockFleet([
-        {
-          rmsDbfs: -23.4,
-          peakDbfs: -12.1,
-          clippingPct: 0.05,
-          silence: false,
-          noiseFloorDbfs: -65,
-          updatedAt: Date.now(),
-          vadStats: null,
-          sessionUid: SESSION_UID,
-          roomUid: null,
-          transcriptionHost: 'ts-a',
-        },
+        audioSnapshot({
+          stages: [
+            stageIngress({ levels: buildLevels({ clippingPct: 0.05 }) }),
+          ],
+        }),
       ]);
 
       renderPage();
@@ -505,6 +521,234 @@ describe('SessionDetailPage', () => {
       // Clipping is a fraction on the wire: 0.05 is 5% of samples, not 0.05%.
       expect(await screen.findByText('5.00%')).toBeInTheDocument();
       expect(screen.queryByText(MIC_WARNING)).not.toBeInTheDocument();
+    });
+
+    it('names the stage the headline readout was measured at', async () => {
+      // §12.8 point 1 is a behaviour change to a shipped signal: a green audio
+      // chip now asserts "the source is sending good audio" and nothing about the
+      // ASR. An operator can only know that if the surface says where it looked.
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({
+          effectiveStart: '2000-01-01T14:00:00.000Z',
+          effectiveEnd: null,
+        }),
+      );
+      mockFleet([audioSnapshot()]);
+
+      renderPage();
+
+      expect(await screen.findByText('Measured at')).toBeInTheDocument();
+      expect(screen.getByText('Source ingress (depth 1)')).toBeInTheDocument();
+    });
+
+    it('says metering is unavailable, rather than showing a level, for a throughput-only provider', async () => {
+      // The `debug` provider's shape (§12.3): seconds and no meter. A bar at rest
+      // would read as silence and a blank space as "nothing to report"; both are
+      // the false green §12.8 point 1 forbids.
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({
+          effectiveStart: '2000-01-01T14:00:00.000Z',
+          effectiveEnd: null,
+        }),
+      );
+      mockFleet([
+        buildThroughputOnlySnapshot({
+          updatedAt: Date.now(),
+          sessionUid: SESSION_UID,
+        }),
+      ]);
+
+      renderPage();
+
+      expect(
+        await screen.findByText(/Pipeline metering unavailable/),
+      ).toBeInTheDocument();
+      expect(screen.queryByText('RMS (10 s window)')).not.toBeInTheDocument();
+      // The stage table still renders: throughput is what this provider reports,
+      // and it answers "is audio reaching the ASR".
+      expect(screen.getByText('33.6 s')).toBeInTheDocument();
+    });
+  });
+
+  describe('processing pipeline table', (it) => {
+    function mockFleet(audio: SessionAudioSnapshot[]): void {
+      vi.mocked(useFleet).mockReturnValue({
+        snapshot: {
+          generatedAt: 1,
+          nodes: [],
+          sessions: [],
+          transcriptionHosts: [],
+          providers: [],
+          sessionAudio: audio,
+        },
+        sessionEvents: new Map(),
+        connected: true,
+        available: true,
+        refresh: vi.fn(),
+      });
+    }
+
+    function renderLiveSession() {
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({
+          effectiveStart: '2000-01-01T14:00:00.000Z',
+          effectiveEnd: null,
+        }),
+      );
+      return renderPage();
+    }
+
+    function liveSnapshot(
+      overrides: Partial<SessionAudioSnapshot> = {},
+    ): SessionAudioSnapshot {
+      return buildAudioSnapshot({
+        updatedAt: Date.now(),
+        sessionUid: SESSION_UID,
+        ...overrides,
+      });
+    }
+
+    it('renders a real table with column headers, one row per measurement point', async () => {
+      // A div grid would look identical and be unreadable with a screen reader:
+      // these rows are a relation an operator reads across, so each cell needs
+      // its column header announced with it.
+      mockFleet([liveSnapshot()]);
+
+      renderLiveSession();
+
+      const table = await screen.findByRole('table');
+      expect(table).toBeInTheDocument();
+      expect(
+        screen.getByRole('columnheader', { name: 'Change from upstream' }),
+      ).toBeInTheDocument();
+      // Three stages in the shipped whisper graph, each a row header.
+      expect(
+        screen.getByRole('rowheader', { name: /Source ingress/ }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('rowheader', { name: /VAD \(Silero\)/ }),
+      ).toBeInTheDocument();
+    });
+
+    it('does not flag the normal skew between two counters as loss', async () => {
+      // The default fixture is §12.4's healthy payload: ingress 0.5 s ahead of
+      // asr_input. A naive `> 0` check would put "audio is being lost" on every
+      // session in the fleet.
+      mockFleet([liveSnapshot()]);
+
+      renderLiveSession();
+
+      await screen.findByRole('table');
+      expect(screen.getByText(/within tolerance/)).toBeInTheDocument();
+      expect(screen.queryByText(/lost from/)).not.toBeInTheDocument();
+    });
+
+    it('flags loss past the tolerance against the edge that lost it', async () => {
+      mockFleet([
+        liveSnapshot({
+          stages: [
+            stageIngress({ audioSeconds: 120 }),
+            stageAsrInput({ audioSeconds: 100 }),
+          ],
+        }),
+      ]);
+
+      renderLiveSession();
+
+      await screen.findByRole('table');
+      // Named by its upstream stage id, in the downstream stage's row — the
+      // attribution `inputs` exists to make possible (§12.2).
+      expect(screen.getByText('20.0 s lost from ingress')).toBeInTheDocument();
+    });
+
+    it('calls the drop across a detector gating rather than loss', async () => {
+      // The shipped whisper graph passes ~47 s of speech out of ~123 s of audio.
+      // Reporting that as loss would put a large red figure on every VAD-enabled
+      // session — the same class of false alarm §12.1 removed.
+      mockFleet([liveSnapshot()]);
+
+      renderLiveSession();
+
+      await screen.findByRole('table');
+      expect(
+        screen.getByText('75.7 s gated from asr_input'),
+      ).toBeInTheDocument();
+    });
+
+    it('renders an em-dash with a reason where the comparison is not derivable', async () => {
+      // Showing 0 s would be a claim the data does not support: one end of the
+      // edge does not count seconds at all.
+      mockFleet([
+        liveSnapshot({
+          stages: [
+            stageIngress({ audioSeconds: null }),
+            stageAsrInput({ audioSeconds: 100 }),
+          ],
+        }),
+      ]);
+
+      renderLiveSession();
+
+      await screen.findByRole('table');
+      const notDerivable = screen.getAllByText('—');
+      expect(notDerivable.length).toBeGreaterThan(0);
+      // No edge in this graph is derivable, so *no* comparison may appear —
+      // asserting only on the em-dash is too weak, because a `?? 0` fallback
+      // would still leave em-dashes in the other cells while quietly inventing a
+      // comparison here.
+      expect(screen.queryByText(/within tolerance/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/lost from/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/gated from/)).not.toBeInTheDocument();
+    });
+
+    it('renders a stage that meters nothing as an em-dash, not as a level', async () => {
+      // `levels: null` means "this point counts throughput only" — a statement
+      // about the measurement point, not about the audio. Any number here would
+      // be invented.
+      mockFleet([
+        liveSnapshot({
+          stages: [stageIngress(), stageVad()],
+        }),
+      ]);
+
+      renderLiveSession();
+
+      await screen.findByRole('table');
+      const vadRow = screen.getByRole('rowheader', {
+        name: /VAD \(Silero\)/,
+      }).parentElement;
+      expect(vadRow?.textContent).toContain('—');
+      expect(vadRow?.textContent).not.toContain('dBFS');
+    });
+
+    it('marks which row the audio status came from', async () => {
+      // The table and the chip above it must not be able to disagree about which
+      // reading is "the" reading.
+      mockFleet([liveSnapshot()]);
+
+      renderLiveSession();
+
+      await screen.findByRole('table');
+      const ingressRow = screen.getByRole('rowheader', {
+        name: /Source ingress/,
+      });
+      expect(ingressRow.textContent).toContain('status source');
+    });
+
+    it('has no a11y violations with the full pipeline table rendered', async () => {
+      // New markup with header cells, a caption, focusable em-dashes and a
+      // convention note inside a cell — none of which the component-level axe
+      // passes cover.
+      mockFleet([liveSnapshot()]);
+
+      // Axe the rendered container, not `document.body`: the page is a fragment
+      // without the app shell's landmarks here, so body-level scanning reports a
+      // `region` violation that belongs to the harness rather than the table.
+      const { container } = renderLiveSession();
+
+      await screen.findByRole('table');
+      const results = await axe(container);
+      expect(results.violations).toHaveLength(0);
     });
   });
 });

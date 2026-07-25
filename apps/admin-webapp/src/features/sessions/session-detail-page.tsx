@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import HelpOutlineIcon from '@mui/icons-material/HelpOutlined';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import ReportProblemIcon from '@mui/icons-material/ReportProblem';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -13,6 +14,12 @@ import IconButton from '@mui/material/IconButton';
 import Link from '@mui/material/Link';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
+import Table from '@mui/material/Table';
+import TableBody from '@mui/material/TableBody';
+import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
+import TableHead from '@mui/material/TableHead';
+import TableRow from '@mui/material/TableRow';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
@@ -27,14 +34,26 @@ import {
   AudioMeterBar,
   PEAK_CONVENTION,
 } from '#src/features/dashboard/audio-meter-bar';
+import type { StageEdge } from '#src/features/dashboard/fleet-status';
 import {
   AUDIO_STATUS_COLOR,
+  AUDIO_THRESHOLDS,
   audioBySession,
   classifyAudioSnapshot,
+  deriveStageEdges,
   formatClippingPct,
+  headlineStage,
+  headlineVadStats,
+  stagesByDepth,
+  vadStage,
 } from '#src/features/dashboard/fleet-status';
 import { useFleet } from '#src/features/dashboard/use-fleet';
-import type { SessionJoinCodeStatus, VadStats } from '#src/lib/admin-api';
+import type {
+  AudioStage,
+  SessionAudioSnapshot,
+  SessionJoinCodeStatus,
+  VadStats,
+} from '#src/lib/admin-api';
 import { AUDIO_STATS_TTL_MS, adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 import {
@@ -136,6 +155,30 @@ function vadFieldValue(
   return { text: format(value), notMeasured: false, tooltip: '' };
 }
 
+/**
+ * The "not measured" state from §6.2: an em-dash that can tell you *why*.
+ *
+ * One component rather than the pattern repeated per surface, because the whole
+ * point of the three-state rendering is that the third state is never silently
+ * collapsed into the second — and a surface that reimplements it is a surface
+ * that can forget the reason.
+ *
+ * `tabIndex` makes the em-dash focusable so keyboard users can trigger the
+ * tooltip (SC 2.1.1); without it the reason is available to pointer users only.
+ */
+const NotMeasured = ({ reason }: { reason: string }) => (
+  <Tooltip title={reason}>
+    <Typography
+      component="span"
+      variant="body2"
+      tabIndex={0}
+      sx={{ cursor: 'help', outlineOffset: 2 }}
+    >
+      —
+    </Typography>
+  </Tooltip>
+);
+
 const VadFieldRow = ({
   label,
   vadStats,
@@ -151,17 +194,7 @@ const VadFieldRow = ({
   return (
     <FieldRow label={label}>
       {notMeasured ? (
-        <Tooltip title={tooltip}>
-          {/* tabIndex makes the em-dash focusable so keyboard users can
-              trigger the tooltip that explains why the value is not measured. */}
-          <Typography
-            variant="body2"
-            tabIndex={0}
-            sx={{ cursor: 'help', outlineOffset: 2 }}
-          >
-            {text}
-          </Typography>
-        </Tooltip>
+        <NotMeasured reason={tooltip} />
       ) : (
         <Typography variant="body2">{text}</Typography>
       )}
@@ -211,6 +244,282 @@ const ConventionNote = ({ convention }: { convention: string }) => (
     </IconButton>
   </Tooltip>
 );
+
+const PIPELINE_CONVENTION =
+  'Each row is one measurement point that reported for this session, ordered ' +
+  'from the source down. Seconds are cumulative totals past that point, not ' +
+  'rates, so they subtract cleanly across an edge — which is what makes the ' +
+  '"change from upstream" column meaningful. A difference under ' +
+  `${String(AUDIO_THRESHOLDS.signalLossToleranceSec)} s is normal: the two ` +
+  'counters are read at different instants, and a worker’s total only ' +
+  'advances when a job runs.';
+
+const GATED_CONVENTION =
+  'A voice-activity detector is supposed to pass on less audio than it ' +
+  'received, so the drop across a detector is gating, not loss. A large gated ' +
+  'figure is still worth reading — it can mean over-aggressive gating, a ' +
+  'detector eating the room — but it is a different claim from "the pipeline ' +
+  'dropped audio".';
+
+/** Reasons a cell is an em-dash. Each names the measurement point's own
+ *  limitation, never a failure — §6.2: nullability is meaning, not absence. */
+const NO_LEVELS_REASON =
+  'This measurement point counts throughput only and reports no levels — not a failed measurement.';
+const NO_SECONDS_REASON =
+  'This measurement point does not count seconds of audio.';
+const NO_DETECTOR_REASON =
+  'This measurement point runs no voice-activity detector.';
+const DETECTOR_OFF_REASON =
+  'A detector exists for this stage but did not run, so speech was not measured. This is not 0% speech.';
+const SOURCE_STAGE_REASON =
+  'A source measurement point — nothing upstream of it reported, so there is nothing to compare against.';
+const EDGE_NOT_DERIVABLE_REASON =
+  'One end of this edge does not count seconds, so the comparison is not derivable. Showing 0 would be a claim the data does not support.';
+
+/** Renders one derivable edge's `audioSeconds` comparison as words plus a
+ *  figure — never colour alone (SC 1.4.1), so "lost" and "gated" are readable
+ *  without seeing that one of them is red. */
+function formatStageEdge(edge: StageEdge): string {
+  const seconds = `${Math.abs(edge.differenceSeconds).toFixed(1)} s`;
+  switch (edge.kind) {
+    case 'loss':
+      return `${seconds} lost from ${edge.fromStage}`;
+    case 'gated':
+      return `${seconds} gated from ${edge.fromStage}`;
+    case 'within-tolerance':
+    default:
+      return `${seconds} vs ${edge.fromStage}, within tolerance`;
+  }
+}
+
+/** Speech-active percentage for a stage, with §6.2's three states. */
+const StageVadCell = ({ stage }: { stage: AudioStage }) => {
+  if (stage.vad === null) return <NotMeasured reason={NO_DETECTOR_REASON} />;
+  if (!stage.vad.vadEnabled) {
+    return <NotMeasured reason={DETECTOR_OFF_REASON} />;
+  }
+  if (stage.vad.speechActiveRatio === null) {
+    return (
+      <NotMeasured reason="Speech ratio was not reported for this batch." />
+    );
+  }
+  return (
+    <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+      {String(Math.round(stage.vad.speechActiveRatio * 100))}% speech
+    </Typography>
+  );
+};
+
+/**
+ * The "dynamic view of the processing pipeline" this change exists to enable
+ * (§12.6): every measurement point the session reported, grouped by depth, with
+ * the per-edge `audioSeconds` comparison that answers *where* audio was lost.
+ *
+ * A real `<table>` with real header cells, not a div grid: the rows are a data
+ * relation an operator reads across, and a screen-reader user needs the column
+ * header announced with each cell. A `<caption>` rather than an `aria-label`, so
+ * the explanation of what the numbers mean is available to everyone rather than
+ * only to assistive tech.
+ *
+ * Deliberately **no `aria-live`** on any of it. §8 puts the live region on the
+ * fleet roll-up alone: these figures change on every 5 s poll, and a region that
+ * re-announces a table of dBFS and second counts is unusable. That is also why
+ * flagged loss is a coloured icon and the word "lost" in the cell rather than an
+ * `Alert` — MUI's `Alert` carries `role="alert"`, i.e. an assertive live region,
+ * which would announce every poll.
+ *
+ * A full arrow-drawn graph is buildable from `inputs` and is not required here
+ * (§12.6); the "fed by" column carries the same edges in text.
+ */
+const StagePipelineTable = ({ audio }: { audio: SessionAudioSnapshot }) => {
+  const groups = stagesByDepth(audio);
+  const headline = headlineStage(audio);
+
+  // Edges indexed by their downstream stage, so each row shows the comparison
+  // for the audio arriving *at* it. A stage with two inputs gets two figures —
+  // attribution to a specific edge is the point (§12.2: a bare depth integer
+  // could not do this).
+  const edgesByDownstream = new Map<string, StageEdge[]>();
+  for (const edge of deriveStageEdges(audio)) {
+    const existing = edgesByDownstream.get(edge.toStage);
+    if (existing === undefined) {
+      edgesByDownstream.set(edge.toStage, [edge]);
+    } else {
+      existing.push(edge);
+    }
+  }
+
+  if (groups.length === 0) {
+    return (
+      <Typography variant="body2" color="text.secondary">
+        No measurement points reported for this session yet.
+      </Typography>
+    );
+  }
+
+  return (
+    <TableContainer sx={{ overflowX: 'auto' }}>
+      <Table size="small">
+        <Box
+          component="caption"
+          sx={{ captionSide: 'top', textAlign: 'left', px: 0, pb: 1 }}
+        >
+          <Typography variant="caption" color="text.secondary">
+            Audio pipeline measurement points, from the source down.{' '}
+            {PIPELINE_CONVENTION}
+          </Typography>
+        </Box>
+        <TableHead>
+          <TableRow>
+            <TableCell component="th" scope="col">
+              Stage
+            </TableCell>
+            <TableCell component="th" scope="col">
+              Depth
+            </TableCell>
+            <TableCell component="th" scope="col">
+              Fed by
+            </TableCell>
+            <TableCell component="th" scope="col">
+              Levels (RMS / peak)
+            </TableCell>
+            <TableCell component="th" scope="col">
+              Speech
+            </TableCell>
+            <TableCell component="th" scope="col">
+              Audio counted
+            </TableCell>
+            <TableCell component="th" scope="col">
+              Change from upstream
+            </TableCell>
+          </TableRow>
+        </TableHead>
+        {groups.map((group) => (
+          // One tbody per depth: the grouping §12.6 asks for, expressed in
+          // markup rather than only in row order, so it survives a reader that
+          // navigates by row group.
+          <TableBody key={group.depth}>
+            {group.stages.map((stage) => {
+              const edges = edgesByDownstream.get(stage.stage) ?? [];
+              return (
+                <TableRow key={stage.stage}>
+                  <TableCell component="th" scope="row">
+                    <Typography variant="body2">{stage.label}</Typography>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ fontFamily: 'monospace', display: 'block' }}
+                    >
+                      {stage.stage}
+                    </Typography>
+                    {headline?.stage === stage.stage && (
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        label="status source"
+                        sx={{ mt: 0.5 }}
+                      />
+                    )}
+                  </TableCell>
+                  <TableCell>{String(stage.depth)}</TableCell>
+                  <TableCell>
+                    {stage.inputs.length === 0 ? (
+                      <NotMeasured reason={SOURCE_STAGE_REASON} />
+                    ) : (
+                      <Typography
+                        variant="body2"
+                        sx={{ fontFamily: 'monospace' }}
+                      >
+                        {stage.inputs.join(', ')}
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {stage.levels === null ? (
+                      <NotMeasured reason={NO_LEVELS_REASON} />
+                    ) : (
+                      <>
+                        <Typography
+                          variant="body2"
+                          sx={{ fontFamily: 'monospace' }}
+                        >
+                          {stage.levels.rmsDbfs.toFixed(1)} /{' '}
+                          {stage.levels.peakDbfs.toFixed(1)} dBFS
+                        </Typography>
+                        {stage.levels.clippingPct > 0 && (
+                          <Typography variant="caption" color="error">
+                            clipping{' '}
+                            {formatClippingPct(stage.levels.clippingPct)}
+                          </Typography>
+                        )}
+                      </>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <StageVadCell stage={stage} />
+                  </TableCell>
+                  <TableCell>
+                    {stage.audioSeconds === null ? (
+                      <NotMeasured reason={NO_SECONDS_REASON} />
+                    ) : (
+                      <Typography
+                        variant="body2"
+                        sx={{ fontFamily: 'monospace' }}
+                      >
+                        {stage.audioSeconds.toFixed(1)} s
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {edges.length === 0 ? (
+                      <NotMeasured
+                        reason={
+                          stage.inputs.length === 0
+                            ? SOURCE_STAGE_REASON
+                            : EDGE_NOT_DERIVABLE_REASON
+                        }
+                      />
+                    ) : (
+                      <Stack spacing={0.25}>
+                        {edges.map((edge) => (
+                          <Stack
+                            key={`${edge.fromStage}->${edge.toStage}`}
+                            direction="row"
+                            spacing={0.5}
+                            sx={{ alignItems: 'center' }}
+                          >
+                            {edge.kind === 'loss' && (
+                              <ReportProblemIcon
+                                color="error"
+                                sx={{ fontSize: '1rem' }}
+                                aria-hidden="true"
+                              />
+                            )}
+                            <Typography
+                              variant="body2"
+                              color={
+                                edge.kind === 'loss' ? 'error' : 'text.primary'
+                              }
+                            >
+                              {formatStageEdge(edge)}
+                            </Typography>
+                            {edge.kind === 'gated' && (
+                              <ConventionNote convention={GATED_CONVENTION} />
+                            )}
+                          </Stack>
+                        ))}
+                      </Stack>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        ))}
+      </Table>
+    </TableContainer>
+  );
+};
 
 /** Section shell, so every audio-health state renders the same heading. */
 const AudioHealthPaper = ({ children }: { children: ReactNode }) => (
@@ -301,7 +610,13 @@ const LiveAudioHealth = ({
 
   const age = formatAge(audio.updatedAt, now);
   const stale = now - audio.updatedAt > AUDIO_STATS_TTL_MS;
-  const vad = audio.vadStats;
+  // The headline stage (§12.6) — the lowest-depth point carrying levels, i.e.
+  // the measurement closest to the source. The same choice `classifyAudioSnapshot`
+  // makes for the chip, taken from one shared helper so this readout cannot
+  // describe a different stage from the one the status came from.
+  const headline = headlineStage(audio);
+  const vad = headlineVadStats(audio);
+  const detector = vadStage(audio);
   const audioStatus = classifyAudioSnapshot(audio);
 
   return (
@@ -345,59 +660,86 @@ const LiveAudioHealth = ({
         </Alert>
       )}
 
-      <Stack spacing={1.5} sx={{ mb: 2 }}>
-        <Box>
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ mb: 0.5, display: 'block' }}
-          >
-            RMS level, with the window peak marked
-          </Typography>
-          <AudioMeterBar
-            rmsDbfs={audio.rmsDbfs}
-            peakDbfs={audio.peakDbfs}
-            status={audioStatus}
-            label={`Audio level for session ${sessionUid}`}
-          />
-        </Box>
-        <FieldRow label="RMS (10 s window)">
-          <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-            {audio.rmsDbfs.toFixed(1)} dBFS
-          </Typography>
-          <ConventionNote convention={RMS_CONVENTION} />
-        </FieldRow>
-        {/* "window max", not a bare "Peak": the standalone meter's headline
-            Peak is a hold-and-decay meter and reads lower on the same audio. */}
-        <FieldRow label="Peak (10 s window max)">
-          <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-            {audio.peakDbfs.toFixed(1)} dBFS
-          </Typography>
-          <ConventionNote convention={PEAK_CONVENTION} />
-        </FieldRow>
-        <FieldRow label="Clipping">
-          <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-            {formatClippingPct(audio.clippingPct)}
-          </Typography>
-          <ConventionNote convention={CLIPPING_CONVENTION} />
-        </FieldRow>
-        <FieldRow label="Silence">
-          <Typography variant="body2">
-            {audio.silence ? 'Yes' : 'No'}
-          </Typography>
-        </FieldRow>
-        <FieldRow label="Noise floor">
-          <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-            {audio.noiseFloorDbfs.toFixed(1)} dBFS
-          </Typography>
-          <ConventionNote convention={NOISE_FLOOR_CONVENTION} />
-        </FieldRow>
-        <FieldRow label="Transcription host">
-          <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-            {audio.transcriptionHost}
-          </Typography>
-        </FieldRow>
-      </Stack>
+      {headline === undefined ? (
+        /*
+          A snapshot exists and no measurement point in it reports levels — the
+          `debug` provider's shape (§12.3), and any deployment whose provider
+          counts throughput without metering. Saying so beats a bar at rest,
+          which reads as silence (§12.8 point 1). The pipeline table below still
+          renders: seconds per stage is exactly what this provider *does* report,
+          and it is enough to answer "is audio flowing and where does it go".
+        */
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Pipeline metering unavailable for this session&rsquo;s provider — it
+          reports throughput but no levels, so there is no dBFS reading to
+          judge. Use the standalone meter on the source machine to check the
+          room, and the stage table below to confirm audio is reaching the ASR.
+        </Alert>
+      ) : (
+        <Stack spacing={1.5} sx={{ mb: 2 }}>
+          <Box>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ mb: 0.5, display: 'block' }}
+            >
+              RMS level, with the window peak marked — measured at{' '}
+              {headline.label}
+            </Typography>
+            <AudioMeterBar
+              rmsDbfs={headline.levels.rmsDbfs}
+              peakDbfs={headline.levels.peakDbfs}
+              status={audioStatus}
+              label={`Audio level for session ${sessionUid} at ${headline.label}`}
+            />
+          </Box>
+          <FieldRow label="RMS (10 s window)">
+            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+              {headline.levels.rmsDbfs.toFixed(1)} dBFS
+            </Typography>
+            <ConventionNote convention={RMS_CONVENTION} />
+          </FieldRow>
+          {/* "window max", not a bare "Peak": the standalone meter's headline
+              Peak is a hold-and-decay meter and reads lower on the same audio. */}
+          <FieldRow label="Peak (10 s window max)">
+            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+              {headline.levels.peakDbfs.toFixed(1)} dBFS
+            </Typography>
+            <ConventionNote convention={PEAK_CONVENTION} />
+          </FieldRow>
+          <FieldRow label="Clipping">
+            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+              {formatClippingPct(headline.levels.clippingPct)}
+            </Typography>
+            <ConventionNote convention={CLIPPING_CONVENTION} />
+          </FieldRow>
+          <FieldRow label="Silence">
+            <Typography variant="body2">
+              {headline.levels.silence ? 'Yes' : 'No'}
+            </Typography>
+          </FieldRow>
+          <FieldRow label="Noise floor">
+            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+              {headline.levels.noiseFloorDbfs.toFixed(1)} dBFS
+            </Typography>
+            <ConventionNote convention={NOISE_FLOOR_CONVENTION} />
+          </FieldRow>
+          {/* Which point produced the figures above. §12.8 point 1 is a
+              behaviour change to a shipped signal — a green chip now asserts
+              "the source is sending good audio" and nothing about the ASR — and
+              an operator can only know that if the surface says where it looked. */}
+          <FieldRow label="Measured at">
+            <Typography variant="body2">
+              {headline.label} (depth {String(headline.depth)})
+            </Typography>
+          </FieldRow>
+          <FieldRow label="Transcription host">
+            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+              {audio.transcriptionHost}
+            </Typography>
+          </FieldRow>
+        </Stack>
+      )}
 
       <Divider sx={{ mb: 2 }} />
 
@@ -406,11 +748,31 @@ const LiveAudioHealth = ({
           and fails axe's heading-order rule. This is a real subsection of Audio
           health, so h3 is both valid and the correct semantics. */}
       <Typography variant="subtitle2" component="h3" sx={{ mb: 1 }}>
+        Processing pipeline
+      </Typography>
+      <StagePipelineTable audio={audio} />
+
+      <Divider sx={{ my: 2 }} />
+
+      <Typography variant="subtitle2" component="h3" sx={{ mb: 1 }}>
         VAD statistics
+        {detector !== undefined && (
+          <Typography
+            component="span"
+            variant="caption"
+            color="text.secondary"
+            sx={{ ml: 1 }}
+          >
+            at {detector.label}
+          </Typography>
+        )}
       </Typography>
       {vad === null ? (
+        /* No stage in the graph carries a detector at all — §12.3: only whisper
+           reports a `vad` stage. Distinct from `vadEnabled: false`, which means a
+           detector exists for this stage and did not run. */
         <Typography variant="body2" color="text.secondary">
-          VAD stats were not produced for this batch.
+          No measurement point in this pipeline runs a voice-activity detector.
         </Typography>
       ) : !vad.vadEnabled ? (
         <Typography variant="body2" color="text.secondary">

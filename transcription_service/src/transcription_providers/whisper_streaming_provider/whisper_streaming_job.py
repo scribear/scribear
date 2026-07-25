@@ -15,7 +15,11 @@ from src.shared.utils.worker_pool import JobInterface
 from src.transcription_contexts.faster_whisper_context import WhisperModel
 from src.transcription_contexts.silero_vad_context import SileroVadModelType
 from src.transcription_provider_interface import (
+    STAGE_ASR_INPUT,
+    STAGE_INGRESS,
+    STAGE_VAD,
     AudioChunkPayload,
+    AudioStageReading,
     JobCounterCollector,
     TranscriptionClientError,
     TranscriptionJobCounter,
@@ -94,6 +98,25 @@ class WhisperStreamingProviderJob(
             sample_rate=SAMPLE_RATE, silence_threshold=self._silence_threshold
         )
 
+        # Cumulative seconds decoded into the buffer, for the asr_input stage
+        # reading. Held here rather than read back from the counters because
+        # drain_counters() resets what it reports (per-execution deltas, by
+        # contract - the parent owns the totals), so it can never serve as the
+        # running total the stage graph compares across an edge. Incremented in
+        # lockstep with AUDIO_SECONDS_DECODED so the two cannot drift: this is
+        # exactly the sum of every delta the counter has ever reported.
+        self._decoded_audio_seconds = 0.0
+
+        # Cumulative seconds of audio VAD passed on to Whisper, and the
+        # absolute stream position that total has already been charged for.
+        # The watermark is what makes the total meaningful: the buffer is
+        # re-detected in full every job period, so summing this period's ranges
+        # would recount speech counted last period - and a cumulative total
+        # that grows faster than the audio arriving would read on the dashboard
+        # as a VAD stage passing on more audio than was ever decoded.
+        self._speech_audio_seconds = 0.0
+        self._speech_counted_through_sample = 0
+
         # Silero_VAD detector config:
         self._enable_vad = config.vad_detector
         self._vad_threshold = config.vad_threshold
@@ -149,6 +172,7 @@ class WhisperStreamingProviderJob(
                 TranscriptionJobCounter.AUDIO_SECONDS_DECODED,
                 num_samples / SAMPLE_RATE,
             )
+            self._decoded_audio_seconds += num_samples / SAMPLE_RATE
             # More than expected number of samples received, client sending audio to fast
             if len(extra) > 0:
                 # Counted before the raise, not inferred from the exception
@@ -247,6 +271,45 @@ class WhisperStreamingProviderJob(
             snr_db=self._compute_snr_db(ranges, buffer_samples),
         )
 
+    def _accumulate_speech_seconds(self, ranges: list[tuple[int, int]]) -> None:
+        """
+        Adds the audio in `ranges` that has not been charged yet to the running
+        total the vad stage reports, reusing the ranges `_detect_speech_ranges`
+        already produced rather than re-detecting anything.
+
+        `ranges` are buffer-relative and the buffer is re-detected whole every
+        job period, so they are converted to absolute stream positions and
+        clipped to a watermark: only audio past the furthest point already
+        counted is added. Without that, a 30s buffer re-detected six times
+        would report six times the speech it contained.
+
+        A range whose speech was retroactively extended *backwards* past the
+        watermark by a later detection pass is undercounted rather than
+        recounted; that is the safe direction, because the total is compared
+        against upstream stages by subtraction and must never exceed them.
+
+        Args:
+            ranges  - Speech ranges over the current buffer, as returned by
+                        _detect_speech_ranges. When VAD is off this is the
+                        full-buffer placeholder, which is the right thing to
+                        charge here even though _compute_vad_stats refuses to
+                        treat it as a measurement: with no detector every
+                        second in the buffer really is passed on to Whisper,
+                        and this field counts seconds past this point, not the
+                        detector's opinion of them.
+        """
+        for start, end in ranges:
+            absolute_end = self._buffer_offset_samples + end
+            absolute_start = max(
+                self._buffer_offset_samples + start,
+                self._speech_counted_through_sample,
+            )
+            if absolute_end > absolute_start:
+                self._speech_audio_seconds += (
+                    absolute_end - absolute_start
+                ) / SAMPLE_RATE
+                self._speech_counted_through_sample = absolute_end
+
     def _compute_snr_db(
         self, ranges: list[tuple[int, int]], buffer_samples: np.ndarray
     ) -> float | None:
@@ -305,6 +368,7 @@ class WhisperStreamingProviderJob(
 
         ranges = self._detect_speech_ranges(buffer_samples, vad_context, log)
         self._vad_stats = self._compute_vad_stats(ranges, buffer_samples)
+        self._accumulate_speech_seconds(ranges)
         transcription: list = []
 
         for start_sample, end_sample in ranges:
@@ -402,6 +466,52 @@ class WhisperStreamingProviderJob(
 
         return chunk_ids
 
+    def _audio_stages(self) -> tuple[AudioStageReading, ...]:
+        """
+        The two measurement points this job can see: what its decode put in
+        front of Whisper, and what Silero passed on out of that.
+
+        Neither stage is a source - the audio was already metered on the way in
+        by the stream controller - so both name what fed them and let the
+        publisher derive their depth.
+
+        Returns:
+            asr_input always, since "how much audio reached the ASR buffer" is
+            answerable even before the meter has a window to report on (levels
+            None then, which is "no data yet", not silence). vad only when a
+            detection pass actually ran this batch: with self._vad_stats None
+            the stage would carry no detector reading at all, and its
+            cumulative seconds alone would invite a reader comparing the
+            asr_input -> vad edge to charge the whole difference to a detector
+            that never ran. An absent stage is the honest form of that - a
+            snapshot may legitimately describe an incomplete graph, and the
+            reading is at most one publish interval stale.
+        """
+        stages = [
+            AudioStageReading(
+                stage=STAGE_ASR_INPUT,
+                label="ASR input (worker decode)",
+                inputs=(STAGE_INGRESS,),
+                levels=self._meter.snapshot(),
+                vad=None,
+                audio_seconds=self._decoded_audio_seconds,
+            )
+        ]
+
+        if self._vad_stats is not None:
+            stages.append(
+                AudioStageReading(
+                    stage=STAGE_VAD,
+                    label="VAD (Silero)",
+                    inputs=(STAGE_ASR_INPUT,),
+                    levels=None,
+                    vad=self._vad_stats,
+                    audio_seconds=self._speech_audio_seconds,
+                )
+            )
+
+        return tuple(stages)
+
     def _build_result(
         self,
         final: TranscriptionSequence | None,
@@ -424,8 +534,7 @@ class WhisperStreamingProviderJob(
             in_progress_chunk_ids=self._extract_chunk_ids_for_time(
                 in_progress_end_time
             ),
-            audio_stats=self._meter.snapshot(),
-            vad_stats=self._vad_stats,
+            audio_stages=self._audio_stages(),
         )
 
     def _append_sequence(
