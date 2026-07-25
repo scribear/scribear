@@ -30,6 +30,30 @@ whoever is at the room's PC. The page needs a secure context (HTTPS or
 a LAN IP will see the mic button fail — use HTTPS or open it from the machine
 itself.
 
+### The nginx image must be upgraded with the rest, or the meter is dead
+
+`/admin/` is served with a Content-Security-Policy, and the meter page keeps its
+DSP and UI in inline `<script>` blocks (it is one self-contained file on
+purpose, so an audio engineer can copy it to a source machine). The SPA's
+`script-src 'self'` blocks those, and it fails **silently**: the page renders in
+full, the device list populates, "Start metering" does nothing, and every
+readout stays an em-dash. Nothing on screen says why.
+
+`scribear-nginx` therefore ships a policy for that one URL, naming the sha256 of
+each script the page contains. **Deploying the new admin-webapp image against an
+older nginx gives you the dead page**, and a stale nginx with a *newer* meter
+page does the same thing, because the hashes will not match its content. Pull
+both images together. To check a running deployment:
+
+```sh
+curl -sk https://<host>/admin/audio-meter.html -o /dev/null -D - | grep -i content-security
+# script-src must list two sha256-… values; if it says only 'self', nginx is stale
+```
+
+The check that catches this before a release is a browser, not a request: a
+`200` response and correct bytes prove nothing here, because the page that runs
+and the page that is inert are byte-identical.
+
 ### Clipping is now measured as runs at the rail (behaviour change)
 
 `clippingPct` on published audio telemetry changed meaning. It used to count
