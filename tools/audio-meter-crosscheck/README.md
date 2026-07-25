@@ -66,8 +66,9 @@ CLIP_MIN_RUN = 2        # == the page's clipMinRun
 The run requirement is the load-bearing part: clipping is a *flat run* at the
 rail, and a waveform that merely touches full scale is not clipped. Both now
 report 0 % on the clean sine and 62.5 % on a hard-limited one, agreeing to the
-digit. The `clippedTones` fixture pins the positive case, because a rule that
-only stops false alarms would be just as wrong as one that only catches them.
+digit. The `limitedTones` fixtures pin the positive case and both sides of the
+threshold, because a rule that only stops false alarms would be just as wrong as
+one that only catches them.
 
 This was a producer change, which `PLAN-AUDIOVIZ.md` §11 put out of scope. It was
 brought into scope deliberately once the gate showed the dashboard was lying
@@ -113,6 +114,6 @@ assertion is not a gate.
 
 `clippingPct` is compared exactly rather than within a tolerance — it is a
 counted fraction of samples, not a measurement, so the two implementations should
-agree to the digit. `clippedTones[].expected.clippingPct` therefore also encodes
+agree to the digit. `limitedTones[].expected.clippingPct` therefore also encodes
 the sample-rate and frequency it was measured at; changing those changes the
 answer.
