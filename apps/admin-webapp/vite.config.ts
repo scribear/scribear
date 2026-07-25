@@ -2,7 +2,6 @@
 /// <reference types="vite/client" />
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
-import viteTsconfigPaths from 'vite-tsconfig-paths';
 
 const VENDOR_PACKAGES = [
   'react',
@@ -19,9 +18,10 @@ export default defineConfig({
   // Served under /admin/ by nginx; keeping the base aligned lets the router use
   // `/admin` as its basename in both dev and production.
   base: '/admin/',
-  plugins: [react(), viteTsconfigPaths()],
+  plugins: [react()],
   resolve: {
     conditions: ['development'],
+    tsconfigPaths: true,
   },
   build: {
     // Vite 8 / rolldown no longer accepts object-form `manualChunks`; use the

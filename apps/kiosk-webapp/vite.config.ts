@@ -2,7 +2,6 @@
 /// <reference types="vite/client" />
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
-import viteTsconfigPaths from 'vite-tsconfig-paths';
 
 const VENDOR_PACKAGES = [
   'react',
@@ -20,9 +19,10 @@ const VENDOR_PACKAGES = [
 // https://vite.dev/config/
 export default defineConfig({
   base: './',
-  plugins: [react(), viteTsconfigPaths()],
+  plugins: [react()],
   resolve: {
     conditions: ['development'],
+    tsconfigPaths: true,
   },
   build: {
     // Vite 8 / rolldown no longer accepts object-form `manualChunks`; use the
