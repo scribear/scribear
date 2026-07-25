@@ -507,3 +507,43 @@ async def test_valid_provider_key_does_not_count_as_a_reject(
 
     # Assert
     assert report.invalid_provider_key_rejects == 0
+
+
+# pylint: disable=unused-argument
+def test_worker_pool_is_shut_down_when_provider_loading_fails(
+    mocker: MockerFixture,
+    mock_config: Config,
+    mock_logger: Logger,
+    mock_context_import: MockType,
+    mock_worker_pool_import: MockType,
+    mock_worker_pool_instance: MagicMock,
+):
+    """
+    A provider module that fails to import must not leak the worker pool.
+
+    `_load_providers` imports each configured provider's module, so it raises on
+    any missing optional dependency - `import torch` for the whisper provider is
+    the one that happens in practice. By then the pool has already spawned its
+    processes, and a constructor that raises hands the caller no object to call
+    `shutdown()` on, so without the guard those workers run on unreferenced.
+
+    Observed as: `create_webserver` raising inside a test fixture's
+    `with TestClient(...)` expression, so the context manager was never entered,
+    the lifespan never ran, and its `shutdown()` never fired. Thirteen such
+    failures left thirteen unowned pools and pytest could not exit.
+    """
+    # Arrange - `mock_context_import` is required, not incidental: without it
+    # `_load_contexts` raises on the missing dependency *before* the pool
+    # exists, which is a different (and harmless) path.
+    mocker.patch.object(
+        TranscriptionProviderRegistry,
+        "_load_providers",
+        side_effect=ModuleNotFoundError("No module named 'torch'"),
+    )
+
+    # Act
+    with pytest.raises(ModuleNotFoundError, match="torch"):
+        TranscriptionProviderRegistry(mock_config, mock_logger)
+
+    # Assert
+    mock_worker_pool_instance.shutdown.assert_called_once()

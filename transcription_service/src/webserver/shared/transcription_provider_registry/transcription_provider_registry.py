@@ -91,9 +91,26 @@ class TranscriptionProviderRegistry:
             job_observer=job_observer,
         )
 
-        self._providers = self._load_providers(
-            logger, self._worker_pool, config.provider_config.providers
-        )
+        # Everything past the pool's construction runs under a release guard,
+        # because the pool has already spawned OS processes by this point and a
+        # constructor that raises hands the caller no object to call
+        # `shutdown()` on. `_load_providers` imports provider modules, so it
+        # raises on any missing optional dependency - `import torch` for the
+        # whisper provider is the one that actually happens - and without this
+        # the pool's workers are left running, unreferenced and unstoppable.
+        #
+        # Observed as: `create_webserver` raising inside a test fixture's
+        # `with TestClient(...)` expression, so the context manager is never
+        # entered, the lifespan never runs, and the `shutdown()` in it never
+        # fires. Thirteen such failures left thirteen unowned pools and pytest
+        # could not exit.
+        try:
+            self._providers = self._load_providers(
+                logger, self._worker_pool, config.provider_config.providers
+            )
+        except BaseException:
+            self._worker_pool.shutdown()
+            raise
 
         self._provider_uids: dict[str, str] = {
             key: provider.provider_uid

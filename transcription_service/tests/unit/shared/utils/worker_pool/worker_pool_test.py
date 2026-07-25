@@ -547,3 +547,42 @@ def test_load_for_tags_never_raises_where_register_job_would(
 
     # Act / Assert
     assert pool.load_for_tags(("context", "log_context")) == []
+
+
+def test_already_spawned_workers_are_terminated_when_a_later_one_fails(
+    mocker: MockerFixture,
+    mock_logger: Logger,
+    contexts: list[ContextAssignment],
+):
+    """
+    A worker that fails to initialize must not leave its predecessors running.
+
+    Each WorkerProcessManager spawns an OS process in its own constructor, and
+    any of them can raise - a worker whose context fails to load exits during
+    init and the manager reports that as a RuntimeError. The workers spawned
+    before it are then unreachable: not through the pool (its constructor never
+    returned) and not through the caller (it got no object). Being non-daemon,
+    they also stop the interpreter exiting, which is how a missing model
+    dependency turns into a suite that finishes every test and then hangs.
+    """
+    # Arrange - the first worker constructs, the second raises, mirroring a
+    # context that only fails on one worker. Three workers because the shared
+    # `contexts` fixture pins all three; a smaller count fails validation before
+    # anything is spawned, which is a different path.
+    first = MagicMock()
+    mocker.patch(
+        "src.shared.utils.worker_pool.worker_pool.WorkerProcessManager",
+        side_effect=[
+            first,
+            RuntimeError("Worker 1 exited during initialization"),
+        ],
+    )
+
+    # Act
+    with pytest.raises(RuntimeError, match="exited during initialization"):
+        WorkerPool(mock_logger, 3, contexts)
+
+    # Assert - the survivor was reaped, using the same two-phase shutdown the
+    # pool uses normally rather than being abandoned.
+    first.send_terminate.assert_called_once()
+    first.wait_shutdown.assert_called_once()

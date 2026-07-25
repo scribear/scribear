@@ -119,16 +119,39 @@ class WorkerPool:
                 per_worker_defs[worker_id][context_id] = assignment.context_def
 
         self._contexts = contexts
-        self._processes = [
-            WorkerProcessManager(
-                logger,
-                worker_id,
-                per_worker_defs[worker_id],
-                rolling_utilization_window_ns,
-                job_observer,
-            )
-            for worker_id in range(num_workers)
-        ]
+
+        # Built by appending rather than as a list comprehension, and unwound on
+        # failure, because each WorkerProcessManager spawns an OS process in its
+        # own constructor and any of them can raise - a worker whose context
+        # fails to load exits during initialization and the manager turns that
+        # into a RuntimeError.
+        #
+        # A comprehension would discard the whole list on that raise, so the
+        # workers already spawned would be left running with nothing holding a
+        # reference to them: not reachable through self._processes (never
+        # assigned), and not reachable by the caller (no object was returned).
+        # They then outlive the process that made them and, being non-daemon,
+        # stop the interpreter from exiting - which is how a missing model
+        # dependency shows up as a test suite that completes every test and then
+        # hangs forever with dozens of orphans.
+        self._processes: list[WorkerProcessManager] = []
+        try:
+            for worker_id in range(num_workers):
+                self._processes.append(
+                    WorkerProcessManager(
+                        logger,
+                        worker_id,
+                        per_worker_defs[worker_id],
+                        rolling_utilization_window_ns,
+                        job_observer,
+                    )
+                )
+        except BaseException:
+            # BaseException, not Exception: a KeyboardInterrupt part-way through
+            # spawning leaks processes exactly as an ImportError does, and the
+            # bare `raise` means nothing is swallowed either way.
+            self.shutdown()
+            raise
 
         # Pre-compute tag -> set of context_ids that have it for fast routing
         self._tag_to_context_ids: dict[str, set[int]] = {}
