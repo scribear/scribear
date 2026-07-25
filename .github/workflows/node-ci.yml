@@ -293,7 +293,7 @@ jobs:
         env:
           SCRIBEAR_DB_IMAGE: scribear/scribear-db:test
           SCRIBEAR_SESSION_MANAGER_IMAGE: scribear/session-manager:test
-          TRANSCRIPTION_SERVICE_IMAGE: scribear/transcription-service-cpu:test
+          SCRIBEAR_TRANSCRIPTION_SERVICE_IMAGE: scribear/transcription-service-cpu:test
         run: npm run test:integration --workspace apps/node-server
 
       - name: Code Coverage Report - Node Server Integration Tests
