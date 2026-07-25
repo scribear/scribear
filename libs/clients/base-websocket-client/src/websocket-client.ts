@@ -197,6 +197,36 @@ type QueuedSend =
   | { kind: 'binary'; payload: Buffer | ArrayBuffer };
 
 /**
+ * Stops a socket's errors reaching this client, without leaving it with no
+ * error handler at all.
+ *
+ * `sock.onerror = null` is the obvious way to write this and is a latent
+ * crash. Under `ws`, the `on*` accessors add and remove real listeners, so
+ * assigning `null` leaves the socket with **no** `'error'` listener - and
+ * `close()` on a socket that is still `CONNECTING` closes nothing and throws
+ * nothing. It calls `abortHandshake`, which does
+ * `process.nextTick(emitErrorAndClose, ...)`; that emit reaches an
+ * `EventEmitter` with no `'error'` listener, and *that* throws, one tick
+ * later, as an `uncaughtException`. The `try/catch` around `close()` cannot
+ * help, because it returned before the throw happened.
+ *
+ * The window is not exotic: it is every teardown that races a handshake -
+ * a source device disconnecting while node-server's upstream is still
+ * connecting, or `_handleFailure` reacting to a pre-open error, which by
+ * definition only ever runs while `CONNECTING`.
+ *
+ * A no-op listener keeps the emit harmless while still detaching this client
+ * from the socket, which is all the callers wanted.
+ *
+ * @param sock Socket being detached.
+ */
+function detachErrorHandler(sock: WebSocket): void {
+  sock.onerror = () => {
+    // Deliberately empty; see above.
+  };
+}
+
+/**
  * A self-managing WebSocket client that handles connection, an optional
  * protocol handshake, reconnection with exponential backoff, and outbound
  * send buffering while the socket is down.
@@ -296,7 +326,7 @@ export class WebSocketClient<
       sock.onopen = null;
       sock.onmessage = null;
       sock.onclose = null;
-      sock.onerror = null;
+      detachErrorHandler(sock);
       this._ws = null;
       try {
         sock.close(code, reason);
@@ -628,7 +658,7 @@ export class WebSocketClient<
       sock.onopen = null;
       sock.onmessage = null;
       sock.onclose = null;
-      sock.onerror = null;
+      detachErrorHandler(sock);
       this._ws = null;
       try {
         sock.close();
