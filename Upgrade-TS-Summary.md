@@ -59,3 +59,41 @@ Build artifacts (`dist/`) and `.tsbuildinfo` files were deleted before the rebui
 ## Environmental Note (not committed)
 
 While establishing the pre-upgrade baseline, the local `node_modules` was found to be out of sync with the committed `package-lock.json`: `@mui/material` and `@mui/icons-material` were resolved to `9.2.0` in `node_modules` while both `package.json` and `package-lock.json` pin `7.3.8`. MUI 9 removed several system-style props (e.g. `alignItems`, `fontWeight`), which produced spurious type errors in `libs/ui/*`. Running `npm ci` restored the lockfile-pinned MUI `7.3.8` and the baseline build/test suite passed. This was a local-install staleness issue, not a repository defect — no `package.json`/lockfile changes resulted from it.
+
+---
+
+## npm Audit Follow-Up (separate commit)
+
+After the TypeScript upgrade, `npm audit` reported **13 vulnerabilities** (1 moderate, 12 high) in three groups. Two groups were resolved with `overrides` in the root `package.json`; the third was evaluated and deliberately left in place. The result is **2 high** remaining (both in the not-applicable `react-router` advisory).
+
+### 1. `brace-expansion` — FIXED (override)
+
+- **Advisory:** CVE-2026-14257 / GHSA-mh99-v99m-4gvg — DoS via unbounded brace-expansion length causing an uncatchable out-of-memory crash. Affected `<= 5.0.7`; patched in `5.0.8`.
+- **Exposure in this repo:** dev/test-only — reached transitively via `@trivago/prettier-plugin-sort-imports` → `minimatch@9` and `testcontainers` → `archiver` → `readdir-glob` → `minimatch@5`. No production runtime path.
+- **Fix:** added `"brace-expansion": "5.0.8"` to `overrides`. `5.0.8` is a backward-compatible patch (adds an output-length bound + `maxLength` option; the public `expand()` API is unchanged). This deduped the legacy `2.x` copy that `minimatch@9`/`minimatch@5` previously pulled in.
+
+### 2. `@fastify/static` — FIXED (override)
+
+- **Advisories:** GHSA-8pvw-jcv7-9cmj (authorization bypass via non-canonical URL paths) and GHSA-83w8-p2f5-377r (route-guard bypass via path traversal). Affected `<= 10.1.1`; patched in `10.1.2`.
+- **Exposure in this repo:** production runtime — `@fastify/swagger-ui@5.2.5` (used by `node-server` and `session-manager`) depends on `@fastify/static@^9.0.0`, which resolves to the vulnerable `9.3.0`. Even the latest `@fastify/swagger-ui` (6.1.0) still pins `^9.1.2`, so there is no upstream fix.
+- **Fix:** added `"@fastify/static": "10.1.2"` to `overrides`. The only breaking change in `@fastify/static` 10.0 is the `setHeaders` callback signature (`FastifyReply` instead of `Response`); `@fastify/swagger-ui` does not use `setHeaders` (confirmed by inspecting its source), and the project does not depend on `@fastify/static` directly.
+- **Lockfile note:** npm's incremental installer would not apply this override on its own (overriding `9.3.0` → `10.1.2` introduces a new transitive dep, `content-disposition@2.0.1`, that the existing lockfile didn't contain). A full lockfile regeneration was blocked by a pre-existing peer-dependency conflict (`react-dom` resolves to `19.2.8` on a clean resolve, whose peer `react@^19.2.8` clashes with the pinned `react@19.2.5`). The lockfile was therefore updated surgically: the `node_modules/@fastify/static` entry was rewritten to `10.1.2` and the single new nested entry `node_modules/@fastify/static/node_modules/content-disposition@2.0.1` was added. `npm ci` validates cleanly and `npm install` reproduces the tree.
+- **Verification:** the swagger integration tests in both `node-server` and `session-manager` (`tests/integration/swagger.test.ts`) pass against `@fastify/static@10.1.2`.
+
+### 3. `react-router` — NOT APPLICABLE (documented, no change)
+
+- **Advisory:** GHSA-qwww-vcr4-c8h2 — RSC-mode CSRF bypass. Affected `>= 7.12.0, < 8.3.0`; patched only in `8.3.0`.
+- **Exposure in this repo:** the advisory states "This only affects your application if you are using the unstable RSC APIs." `admin-webapp` (the sole consumer of `react-router-dom@7.18.1`) is a standard client-side SPA using `BrowserRouter`/`Routes`/`Route`/`NavLink`/`useNavigate`/`useParams` — it does **not** use RSC or any unstable APIs. No exploitable path exists.
+- **Why not upgraded:** the only patched version is `react-router@8.3.0`. React Router 8 dropped the `react-router-dom` package entirely (the app imports from `react-router-dom` in 16 files), and `react-router@8.3.0` requires `react@>=19.2.7`/`react-dom@>=19.2.7` while the project pins `19.2.5`. Fixing this advisory would require a major router migration (package rename + import rewrites) **and** a React version bump, for a vulnerability that does not apply to this application. Left as-is pending a planned React/Router upgrade.
+
+### Verification after audit fixes
+
+| Check | Command | Result |
+|---|---|---|
+| Build (`tsc --build` across all workspaces) | `npm run build` | Pass |
+| Unit tests | `npm run test:unit` | Pass |
+| Integration tests (incl. swagger suites) | `npm run test:integration` | Pass |
+| Lint | `npm run lint` | Pass |
+| Clean install from lockfile | `npm ci` | Pass |
+| `npm audit` | `npm audit` | 2 high (react-router, not applicable) |
+
