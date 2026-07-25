@@ -226,7 +226,10 @@ describe('Fleet route wired to a real fleet backplane', () => {
       await redis.zadd(NODE_INDEX_KEY, now, node.nodeInstanceId);
 
       const session: SessionSnapshot = {
-        sessionUid: '00000000-0000-0000-0000-0000000fleet',
+        // Hex, unlike the readable `...0000000fleet` this used to be:
+        // `sessionUid` declares `format: 'uuid'`, typebox enforces it, and
+        // the sessions index hard-drops what fails validation now.
+        sessionUid: '00000000-0000-0000-0000-00000000f1ee',
         providerKey: 'whisper',
         sourceCount: 1,
         subscriberCount: 1,

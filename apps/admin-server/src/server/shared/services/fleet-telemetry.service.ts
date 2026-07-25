@@ -45,13 +45,6 @@ type SnapshotParseFailure = Extract<
 /** One index member whose value was dropped, and the parser's reason. */
 interface DroppedSnapshot extends Omit<SnapshotParseFailure, 'ok'> {
   member: string;
-  /**
-   * True when the snapshot failed validation but was returned anyway, because
-   * its index is still in `onInvalid: 'keep'` mode. The log has to say which,
-   * or an operator cannot tell "the dashboard is missing this host" from
-   * "the dashboard is showing this host from an unvalidated payload".
-   */
-  kept: boolean;
 }
 
 /**
@@ -207,9 +200,6 @@ export class FleetTelemetryService {
           now - NODE_TTL_MS,
           nodeSnapshotKey,
           parseNodeSnapshot,
-          // Log-only: this schema has never been checked against its
-          // publisher. See `_readIndexed`'s `onInvalid` docs.
-          'keep',
         ),
         this._readIndexed<SessionSnapshot>(
           redis,
@@ -217,9 +207,6 @@ export class FleetTelemetryService {
           now - NODE_TTL_MS,
           sessionSnapshotKey,
           parseSessionSnapshot,
-          // Log-only: this schema has never been checked against its
-          // publisher. See `_readIndexed`'s `onInvalid` docs.
-          'keep',
         ),
         this._readIndexed<TranscriptionHostSnapshot>(
           redis,
@@ -227,9 +214,6 @@ export class FleetTelemetryService {
           now - TRANSCRIPTION_HOST_TTL_MS,
           transcriptionHostSnapshotKey,
           parseTranscriptionHostSnapshot,
-          // Log-only: this schema has never been checked against its
-          // publisher. See `_readIndexed`'s `onInvalid` docs.
-          'keep',
         ),
         this._readIndexed<SessionAudioSnapshot>(
           redis,
@@ -271,33 +255,47 @@ export class FleetTelemetryService {
    *
    * `parse` is required rather than optional: an index reading its values
    * without validation is a choice worth making at each call site, not a
-   * default that three of the four fell into. All four now validate; what
-   * still differs between them is `onInvalid`.
+   * default that three of the four fell into.
    *
-   * `onInvalid` decides whether a rejected snapshot is dropped or kept, and the
-   * two answers exist because the four schemas do not have equal standing as
-   * descriptions of what their publishers actually write:
+   * **All four indexes now drop.** Three of them spent a release in a
+   * log-only `onInvalid: 'keep'` mode instead, and that ordering was not
+   * timidity — it is what kept a schema bug from becoming an outage.
+   * `TRANSCRIPTION_HOST_SNAPSHOT_SCHEMA` had declared `contextIds` as strings
+   * since the day it was written while the publisher emitted integers, so
+   * hard-dropping from the start would have discarded every
+   * transcription-host snapshot and blanked both the hosts section and the
+   * providers section, since `mergeProviders` derives from
+   * `transcriptionHosts`. A dashboard-wide outage from a change whose purpose
+   * was to protect the dashboard.
    *
-   * - `'drop'` is for a schema that has been checked against its publisher. The
-   *   session-audio schema has: an integration test seeds a real Redis with a
-   *   publisher-shaped payload and asserts it round-trips, and a unit test
-   *   asserts the pre-stage-graph shape is rejected outright.
-   * - `'keep'` validates and logs but still returns the value, for a schema that
-   *   has never been enforced against its publisher. Turning those to `'drop'`
-   *   in one step would risk blanking half the fleet view on a mirror that has
-   *   silently drifted — and the fixtures in this app's own tests were written
-   *   *from* these schemas rather than captured from the publishers, so a green
-   *   suite would not disprove it. Logging first converts an invisible drift
-   *   into a visible one at zero risk; flip an index to `'drop'` once its log
-   *   stays quiet, or once a cross-check pins its publisher.
+   * What made promotion safe was not the log staying quiet — a green log
+   * proves only that nothing is currently being dropped — but pinning each
+   * publisher against the parser that reads it:
    *
-   * The risk is not uniform across the three. `NodeSnapshot`/`SessionSnapshot`
-   * are published by `node-server`, which declares `const record: SessionSnapshot`
-   * and `const instance: NodeSnapshot` against these very types, so the compiler
-   * already holds that shape. `TranscriptionHostSnapshot` is published by
-   * Transcription Service's `redis_telemetry_publisher.py`, which hand-builds a
-   * dict and `json.dumps` it — a mirror across a language boundary with no
-   * compiler and, until now, no check. That is the one this exists for.
+   * - `NodeSnapshot`/`SessionSnapshot` were already compiler-held at the
+   *   publisher (`const record: SessionSnapshot`, `const instance:
+   *   NodeSnapshot`), and node-server's integration suite now drives the real
+   *   publisher into a real Redis and parses the bytes back
+   *   (`publisher-schema-crosscheck.test.ts`), on a record populated by real
+   *   traffic rather than an idle one.
+   * - `TranscriptionHostSnapshot` is the hand-built Python dict with no
+   *   compiler behind it, so it took two legs: the same live one, plus
+   *   `tools/telemetry-snapshot-crosscheck/`, whose manifest is emitted by
+   *   `RedisTelemetryPublisher.publish_once` itself and carries the loaded
+   *   worker shapes a debug-only host leaves empty. The live leg alone could
+   *   not have caught the `contextIds` bug, because `[]` satisfies any
+   *   element type.
+   *
+   * The general rule that produced those, and the one to apply to the next
+   * index: when validating a hand-mirrored contract, the oracle has to be the
+   * other implementation. A fixture written from the schema encodes the
+   * schema's bugs — which is exactly how this one survived, since the
+   * fixtures in this app's own tests were written from these schemas rather
+   * than captured from the publishers, and agreed with them perfectly.
+   *
+   * A future index whose publisher is not yet pinned should reintroduce the
+   * fail-open mode rather than start at `drop` (see git history for the
+   * shape it had); it was removed here only because nothing calls it.
    *
    * `redis` is a parameter rather than read from `this._redis` because the
    * caller has already proved it non-null; reading the field here would force
@@ -309,7 +307,6 @@ export class FleetTelemetryService {
     minScore: number,
     keyFor: (member: string) => string,
     parse: SnapshotParser<T>,
-    onInvalid: 'drop' | 'keep' = 'drop',
   ): Promise<T[]> {
     const members = await redis.zrangebyscore(indexKey, minScore, '+inf');
     if (members.length === 0) return [];
@@ -333,15 +330,7 @@ export class FleetTelemetryService {
         member,
         reason: result.reason,
         errors: result.errors,
-        kept: onInvalid === 'keep',
       });
-      // Malformed JSON is unusable whatever `onInvalid` says - there is no
-      // value to keep. Only a schema mismatch can be passed through, and it is
-      // cast rather than validated, which is exactly what this index did
-      // before it had a parser at all.
-      if (onInvalid === 'keep' && result.reason === 'schema-mismatch') {
-        snapshots.push(JSON.parse(value) as T);
-      }
     }
 
     if (dropped.length > 0) this._logDroppedSnapshots(indexKey, dropped);

@@ -149,6 +149,55 @@ function fakeAudioSnapshot(
   };
 }
 
+/** A node-instance record exactly as `RedisTelemetryPublisher` writes one. */
+function fakeNodeSnapshot(nodeInstanceId: string): NodeSnapshot {
+  return {
+    updatedAt: NOW,
+    nodeInstanceId,
+    processUid: '00000000-0000-0000-0000-000000000001',
+    processStartedAt: new Date(NOW - 1000).toISOString(),
+    generatedAt: new Date(NOW).toISOString(),
+    summary: {
+      activeSessionCount: 1,
+      decodeDropsTotal: 0,
+      pendingChunkEvictionsTotal: 0,
+      upstreamChurnTotal: 0,
+      authSuccessTotal: 0,
+      authTimeoutsTotal: 0,
+      orchestratorFailuresTotal: 0,
+      latencySamplesTotal: 0,
+      latencyE2eUnavailableTotal: 0,
+      latencyE2eNegativeTotal: 0,
+      latencyUnmatchedChunkTotal: 0,
+    },
+    upstreamStateTransitions: [],
+    wsCloses: [],
+    latency: [],
+    authFailures: [],
+  };
+}
+
+/**
+ * A session record as published. `sessionUid` must be a uuid: the schema
+ * declares `format: 'uuid'`, typebox enforces it, and this index drops what
+ * fails validation.
+ */
+function fakeSessionSnapshot(sessionUid: string): SessionSnapshot {
+  return {
+    sessionUid,
+    providerKey: 'whisper',
+    sourceCount: 1,
+    subscriberCount: 1,
+    pendingChunkCount: 0,
+    upstreamState: 'OPEN',
+    upstreamRetryAttempt: 0,
+    latency: [],
+    updatedAt: NOW,
+    nodeInstanceId: 'node-a',
+    processUid: '00000000-0000-0000-0000-000000000001',
+  };
+}
+
 function buildHarness(): Harness {
   const redis = new FakeRedis();
   const logger = createMockLogger();
@@ -386,8 +435,14 @@ describe('FleetTelemetryService', () => {
     it('returns sessions present even when no audio snapshot exists', async () => {
       // Session present, audio absent — nothing has decoded audio for this
       // session in >=10s. This is failure mode C1 and is itself a finding.
+      //
+      // The uid is a uuid rather than the descriptive 'no-audio-session' it
+      // used to be: `sessionUid` declares `format: 'uuid'`, typebox enforces
+      // it, and this index now hard-drops what fails validation. The readable
+      // string only ever passed because nothing checked — which is the whole
+      // reason the promotion was worth doing.
       const session: SessionSnapshot = {
-        sessionUid: 'no-audio-session',
+        sessionUid: '00000000-0000-0000-0000-00000000ffff',
         providerKey: 'whisper',
         sourceCount: 1,
         subscriberCount: 1,
@@ -538,10 +593,91 @@ describe('FleetTelemetryService', () => {
       );
     });
 
-    it('drops a malformed-JSON value from an index that has no parser yet', async () => {
-      // Arrange — `nodes`, `sessions` and `transcriptionHosts` are still cast
-      // rather than validated, but even they must not throw out of the read:
-      // the JSON guard is what the three share with the validated index.
+    it('drops a drifted node snapshot rather than serving it unvalidated', async () => {
+      // Arrange — these three indexes spent a release validating in log-only
+      // mode, returning the payload anyway, because their schemas had never
+      // been checked against their publishers. They are pinned now
+      // (node-server's `publisher-schema-crosscheck.test.ts` and
+      // `tools/telemetry-snapshot-crosscheck/`), so a mismatch here means a
+      // genuinely drifted publisher and must not reach the dashboard as a
+      // half-`undefined` card.
+      h.redis.set(
+        nodeSnapshotKey('drifted-node'),
+        { ...fakeNodeSnapshot('drifted-node'), summary: 'not an object' },
+        NODE_INDEX_KEY,
+        'drifted-node',
+      );
+
+      // Act
+      const snap = await h.service.snapshot();
+
+      // Assert
+      expect(snap.nodes).toEqual([]);
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          indexKey: NODE_INDEX_KEY,
+          droppedSample: [
+            expect.objectContaining({
+              member: 'drifted-node',
+              reason: 'schema-mismatch',
+            }),
+          ],
+        }),
+        expect.any(String),
+      );
+    });
+
+    it('drops a drifted session snapshot rather than serving it unvalidated', async () => {
+      // Arrange — `upstreamState` is a closed union, and a value outside it
+      // would reach `deriveSessionStatus` as an unhandled case.
+      h.redis.set(
+        sessionSnapshotKey('00000000-0000-0000-0000-00000000dead'),
+        {
+          ...fakeSessionSnapshot('00000000-0000-0000-0000-00000000dead'),
+          upstreamState: 'RETICULATING',
+        },
+        SESSION_INDEX_KEY,
+        '00000000-0000-0000-0000-00000000dead',
+      );
+
+      // Act
+      const snap = await h.service.snapshot();
+
+      // Assert
+      expect(snap.sessions).toEqual([]);
+    });
+
+    it('drops a drifted host snapshot, and the providers derived from it', async () => {
+      // Arrange — the reason this promotion was taken last and needed a
+      // cross-check against the Python publisher first: `mergeProviders`
+      // derives entirely from `transcriptionHosts`, so dropping a host blanks
+      // the providers section as well. That is correct once the schema is
+      // pinned and would have been an outage before it was.
+      const host = fakeHostSnapshot('ts-drifted', {
+        whisper: fakeProviderHealth({ activeSessions: 1 }),
+      });
+      h.redis.set(
+        transcriptionHostSnapshotKey('ts-drifted'),
+        {
+          ...host,
+          workers: [{ workerId: 'zero', contextIds: ['faster-whisper'] }],
+        },
+        TRANSCRIPTION_HOST_INDEX_KEY,
+        'ts-drifted',
+      );
+
+      // Act
+      const snap = await h.service.snapshot();
+
+      // Assert
+      expect(snap.transcriptionHosts).toEqual([]);
+      expect(snap.providers).toEqual([]);
+    });
+
+    it('drops a malformed-JSON value from the node index too', async () => {
+      // Arrange — every index validates now, but the JSON guard sits ahead of
+      // the schema and must hold on its own: an unparseable value has no
+      // shape to check and still must not throw out of the read.
       h.redis.values.set(nodeSnapshotKey('broken-node'), 'not json at all');
       h.redis.zsets.set(NODE_INDEX_KEY, ['broken-node']);
 
