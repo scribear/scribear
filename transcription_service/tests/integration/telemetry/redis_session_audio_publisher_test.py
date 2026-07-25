@@ -1,6 +1,6 @@
 """
-Integration tests for per-session audio-stats telemetry publishing, against
-a real Redis
+Integration tests for per-session audio telemetry publishing, against a real
+Redis
 
 Skipped unless REDIS_URL names a reachable server, which CI provides as a
 service container - same gating and fixture shape as
@@ -23,9 +23,16 @@ from redis.asyncio import Redis
 
 from src.shared.logger import ContextLogger, Logger
 from src.shared.utils.audio_meter import AudioLevelStats
-from src.transcription_provider_interface import VadStats
+from src.transcription_provider_interface import (
+    STAGE_ASR_INPUT,
+    STAGE_INGRESS,
+    STAGE_VAD,
+    AudioStageReading,
+    VadStats,
+)
 from src.webserver.features.telemetry import (
     RedisSessionAudioPublisher,
+    ResolvedAudioStage,
     create_telemetry_redis_client,
 )
 from src.webserver.features.telemetry.telemetry_keys import (
@@ -61,6 +68,47 @@ VAD_STATS = VadStats(
     speech_to_pause_ratio=0.72,
     snr_db=14.2,
 )
+
+INGRESS_STAGE = ResolvedAudioStage(
+    reading=AudioStageReading(
+        stage=STAGE_INGRESS,
+        label="Source ingress",
+        inputs=(),
+        levels=STATS,
+        vad=None,
+        audio_seconds=33.6,
+    ),
+    depth=1,
+)
+
+# Throughput only, the way §12.3's `debug` provider reports: proving a null
+# `levels` survives a real round trip matters because the reader has to tell
+# "not measured here" from a zero reading.
+ASR_INPUT_STAGE = ResolvedAudioStage(
+    reading=AudioStageReading(
+        stage=STAGE_ASR_INPUT,
+        label="ASR input (worker decode)",
+        inputs=(STAGE_INGRESS,),
+        levels=None,
+        vad=None,
+        audio_seconds=33.1,
+    ),
+    depth=2,
+)
+
+VAD_STAGE = ResolvedAudioStage(
+    reading=AudioStageReading(
+        stage=STAGE_VAD,
+        label="VAD (Silero)",
+        inputs=(STAGE_ASR_INPUT,),
+        levels=None,
+        vad=VAD_STATS,
+        audio_seconds=12.4,
+    ),
+    depth=3,
+)
+
+STAGES = (INGRESS_STAGE, ASR_INPUT_STAGE, VAD_STAGE)
 
 
 @pytest.fixture
@@ -134,7 +182,7 @@ async def test_snapshot_lands_with_an_expiry_on_it(
     server can say whether the expiry is really there.
     """
     # Act
-    publisher.publish(SESSION_UID, ROOM_UID, STATS)
+    publisher.publish(SESSION_UID, ROOM_UID, STAGES)
 
     # Assert
     key = transcription_session_audio_key(SESSION_UID)
@@ -147,36 +195,57 @@ async def test_snapshot_lands_with_an_expiry_on_it(
     record = json.loads(payload)
     assert record["sessionUid"] == SESSION_UID
     assert record["roomUid"] == ROOM_UID
-    assert record["rmsDbfs"] == STATS.rms_dbfs
-    assert record["peakDbfs"] == STATS.peak_dbfs
-    assert record["clippingPct"] == STATS.clipping_pct
-    assert record["silence"] == STATS.silence
-    assert record["noiseFloorDbfs"] == STATS.noise_floor_dbfs
     assert record["transcriptionHost"] == "ts-host-1"
+
+    ingress = record["stages"][0]
+    assert ingress["stage"] == STAGE_INGRESS
+    assert ingress["depth"] == 1
+    assert ingress["levels"] == {
+        "rmsDbfs": STATS.rms_dbfs,
+        "peakDbfs": STATS.peak_dbfs,
+        "clippingPct": STATS.clipping_pct,
+        "silence": STATS.silence,
+        "noiseFloorDbfs": STATS.noise_floor_dbfs,
+    }
 
 
 @pytest.mark.asyncio
-async def test_vad_stats_round_trip_through_a_real_redis(
+async def test_the_stage_graph_round_trips_through_a_real_redis(
     publisher: RedisSessionAudioPublisher, reader: Redis
 ):
     """
-    Test a vadStats payload survives a real write/read through Redis
+    Test the whole graph survives a real write/read through Redis
 
-    B2.2 folds vad_stats into the same key/write as audio_stats rather than
-    adding a second one - this is the one integration point that proves the
-    nested object actually round-trips as JSON, which a fake pipeline (unit
-    tests) cannot prove.
+    §12.4 puts every stage in one key/write rather than one key per stage, so
+    a reader can never see one end of an edge without the other. This is the
+    one integration point that proves the nested objects - and, crucially, the
+    edges in `inputs` - really round-trip as JSON rather than only through a
+    fake pipeline.
     """
     # Act
-    publisher.publish(SESSION_UID, ROOM_UID, STATS, VAD_STATS)
+    publisher.publish(SESSION_UID, ROOM_UID, STAGES)
 
     # Assert
     key = transcription_session_audio_key(SESSION_UID)
     payload = await _wait_for_key(reader, key)
     assert payload is not None
 
-    record = json.loads(payload)
-    assert record["vadStats"] == {
+    stages = json.loads(payload)["stages"]
+    assert [(stage["stage"], stage["depth"]) for stage in stages] == [
+        (STAGE_INGRESS, 1),
+        (STAGE_ASR_INPUT, 2),
+        (STAGE_VAD, 3),
+    ]
+    assert [stage["inputs"] for stage in stages] == [
+        [],
+        [STAGE_INGRESS],
+        [STAGE_ASR_INPUT],
+    ]
+    # Throughput-only stages carry a null readout, not a zeroed one.
+    assert stages[1]["levels"] is None
+    assert stages[1]["vad"] is None
+    assert stages[1]["audioSeconds"] == ASR_INPUT_STAGE.reading.audio_seconds
+    assert stages[2]["vad"] == {
         "vadEnabled": VAD_STATS.vad_enabled,
         "speechActiveRatio": VAD_STATS.speech_active_ratio,
         "segmentCount": VAD_STATS.segment_count,
@@ -199,7 +268,7 @@ async def test_session_is_found_by_the_range_query_the_reader_will_issue(
     window.
     """
     # Act
-    publisher.publish(SESSION_UID, ROOM_UID, STATS)
+    publisher.publish(SESSION_UID, ROOM_UID, STAGES)
     record = json.loads(
         await _wait_for_key(
             reader, transcription_session_audio_key(SESSION_UID)
@@ -238,7 +307,7 @@ async def test_a_publish_prunes_a_session_whose_snapshot_has_expired(
     )
 
     # Act
-    publisher.publish(SESSION_UID, ROOM_UID, STATS)
+    publisher.publish(SESSION_UID, ROOM_UID, STAGES)
     await _wait_for_key(reader, transcription_session_audio_key(SESSION_UID))
 
     # Assert

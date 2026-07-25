@@ -1,9 +1,8 @@
 import type { ReactElement } from 'react';
 
-import { beforeEach, describe, expect, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-
 import { Route, Routes } from 'react-router-dom';
+import { beforeEach, describe, expect, vi } from 'vitest';
 
 import { RoomDetailPage } from '#src/features/rooms/room-detail-page';
 import { adminApi } from '#src/lib/admin-api';

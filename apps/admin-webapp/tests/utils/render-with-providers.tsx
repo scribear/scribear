@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 
-import { render, type RenderOptions } from '@testing-library/react';
+import { type RenderOptions, render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 import { SettingsProvider } from '#src/lib/settings-provider';

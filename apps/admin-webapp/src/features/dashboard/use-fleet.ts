@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 
 import type { FleetSnapshot, SessionStatusEvent } from '#src/lib/admin-api';
-import { FLEET_STREAM_URL, adminApi } from '#src/lib/admin-api';
+import {
+  FLEET_POLL_INTERVAL_MS,
+  FLEET_STREAM_URL,
+  adminApi,
+} from '#src/lib/admin-api';
 import { isApiErrorCode } from '#src/lib/api-error';
 
 export interface FleetState {
@@ -105,6 +109,43 @@ export function useFleet(): FleetState {
       es.close();
     };
   }, []);
+
+  // Poll cadence: re-read `/fleet` on a timer in addition to the SSE
+  // (re)connect re-fetch. Audio levels move on a 2 s publish throttle with a
+  // 10 s TTL, so a frozen dBFS readout (the old behaviour: fetch once, then
+  // only on reconnect) is worse than none — it looks live. The timer is
+  // gated on `document.hidden` so an operator with the dashboard parked on a
+  // second monitor does not poll all night.
+  useEffect(() => {
+    // Nothing to poll for when the backplane is not configured at all.
+    // `available` only goes false on TELEMETRY_UNAVAILABLE, which is a
+    // deployment fact rather than a transient — without this guard the hook
+    // would re-request `/fleet` every 5 s forever and swallow the identical
+    // error each time, for the whole time a tab is left open.
+    if (!available) return;
+
+    const poll = () => {
+      setRefreshNonce((n) => n + 1);
+    };
+
+    const id = window.setInterval(() => {
+      if (!document.hidden) poll();
+    }, FLEET_POLL_INTERVAL_MS);
+
+    // A hidden tab skips its ticks, so on the way back in the operator would
+    // otherwise be looking at numbers up to a full interval stale — precisely
+    // the "looks live but isn't" failure the poll exists to prevent. Refresh
+    // immediately on becoming visible and let the timer carry on from there.
+    const onVisibilityChange = () => {
+      if (!document.hidden) poll();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [available]);
 
   const refresh = () => {
     setRefreshNonce((n) => n + 1);

@@ -80,6 +80,24 @@ const BASE = '/api/admin/v1';
  *  stream hook needs the raw URL. */
 export const FLEET_STREAM_URL = `${BASE}/fleet/stream`;
 
+/**
+ * How often `useFleet()` re-reads `/fleet` on a timer, in addition to the
+ * SSE (re)connect re-fetch. Audio levels move on a 2 s publish throttle with a
+ * 10 s TTL; a 5 s poll means a reading is at most ~7 s old, and a genuinely
+ * dead stream disappears within one poll of expiry. Node/session counters are
+ * slow-moving enough that this also refreshes them usefully, which is a fix
+ * but a behaviour change to a shipped panel.
+ */
+export const FLEET_POLL_INTERVAL_MS = 5_000;
+
+/**
+ * Expiry on session audio-stats keys — 5 × 2 s = 10 s. Restated from
+ * `infra/scribear-redis/src/telemetry/telemetry-timing.ts` (same reasoning as
+ * the fleet mirrors: that package pulls in ioredis). Used by the session detail
+ * page to flag a stale audio reading.
+ */
+export const AUDIO_STATS_TTL_MS = 10_000;
+
 export interface AuthConfig {
   local: boolean;
   sso: boolean;
@@ -328,7 +346,13 @@ export interface TranscriptionWorker {
   utilization: number;
   liveJobCount: number;
   totalJobsRegistered: number;
-  contextIds: string[];
+  /**
+   * Opaque numeric context ids, NOT context tags. The publisher holds
+   * `context_ids: set[int]` and emits `sorted(...)` of it, so there is no name
+   * here to render. This mirror said `string[]` until the reader started
+   * validating and the real payload disagreed.
+   */
+  contextIds: number[];
   alive: boolean;
   activeJobs: {
     jobId: number;
@@ -365,8 +389,154 @@ export interface TranscriptionHostSnapshot {
   providers: Record<string, ProviderHealth>;
 }
 
+// ---- Audio-level telemetry (B2.1/B2.2, per-stage graph per §12) ----
+// Mirrors `AudioLevelStats`, `VadStats`, `AudioStage` and
+// `SessionAudioSnapshot` from
+// infra/scribear-redis/src/telemetry/session-audio-snapshot.schema.ts, for the
+// same reason the fleet mirrors above exist: @scribear/scribear-redis pulls in
+// ioredis and has no browser-safe entry point. The nullability comments are
+// copied verbatim from the schema — they encode real semantics (§6.2 and §12.2
+// of PLAN-AUDIOVIZ) that a UI gets wrong by default.
+
 /**
- * One provider merged across every Transcription Service host serving it.
+ * Audio-level readout for one session's most recent metering window
+ * (B2.1: RMS/peak dBFS, clipping, silence, noise floor).
+ */
+export interface AudioLevelStats {
+  /** RMS level of the current metering window, in dBFS. */
+  rmsDbfs: number;
+  /** Sample peak of the current metering window, in dBFS. */
+  peakDbfs: number;
+  /** Fraction (0..1) of samples in the window at or above 0.99 full scale in
+   *  runs of at least 2 consecutive samples. The run requirement is what
+   *  separates clipping from a waveform that merely touches full scale: a clean
+   *  full-scale sine reaches 1.0 one isolated sample at a time and reads 0 here.
+   *  Same rule and constants as the standalone meter page, so the two surfaces
+   *  agree - see tools/audio-meter-crosscheck/. */
+  clippingPct: number;
+  /** True when the window's RMS is at or below the configured silence threshold. */
+  silence: boolean;
+  /** 10th-percentile RMS across 1s sub-windows of the metering window - an
+   *  ambient noise-floor estimate, distinct from momentary silence. */
+  noiseFloorDbfs: number;
+}
+
+/**
+ * Per-batch voice-activity-detection statistics for one session (B2.2).
+ *
+ * Every field but `vadEnabled` is nullable, because "not meaningful" is a real,
+ * distinct state here, not an edge case: `vadEnabled: false` means VAD never
+ * ran, so the rest carries no signal at all; `vadEnabled: true` with the rest
+ * present means VAD ran and measured something (including a real, meaningful
+ * "found no speech" reading of `speechActiveRatio: 0`); `segmentCount: 0`
+ * still nulls out `meanSegmentDurationSec` (no segment to average) and `snrDb`
+ * (no signal side to compare against noise) even while VAD is on.
+ */
+export interface VadStats {
+  /** Whether Silero VAD (config vad_detector) was enabled for this batch -
+   *  always meaningful, even when every field below is null. */
+  vadEnabled: boolean;
+  /** Fraction (0..1) of the buffer VAD marked as speech. Null when vadEnabled is false. */
+  speechActiveRatio: number | null;
+  /** Number of speech segments VAD found in the buffer. Null when vadEnabled is false. */
+  segmentCount: number | null;
+  /** Mean speech-segment duration, in seconds. Null when vadEnabled is false, or
+   *  when no segments were found (undefined, not zero). */
+  meanSegmentDurationSec: number | null;
+  /** speechActiveRatio / (1 - speechActiveRatio). Null when vadEnabled is false,
+   *  or when speechActiveRatio is 1.0 (divide-by-zero guard at "all speech, no pause"). */
+  speechToPauseRatio: number | null;
+  /** Mean in-range RMS (dBFS) minus mean out-of-range RMS (dBFS), i.e. a VAD-gated
+   *  signal-to-noise estimate. Null when vadEnabled is false, or when one side of
+   *  the comparison has no samples (the buffer read as 0% or 100% speech). */
+  snrDb: number | null;
+}
+
+/**
+ * One measurement point in a session's audio pipeline (§12.2 of PLAN-AUDIOVIZ).
+ *
+ * Audio telemetry is a *directed graph* of these, not one reading: a single
+ * reading cannot answer the question operators actually have — *where* did the
+ * audio stop being good — and tying the reading to one provider's job made it
+ * silently absent for the other providers (§12.1: `lumen_granite` and `debug`
+ * showed a red audio chip on every healthy session).
+ *
+ * Every nullable field here means "this point does not measure that", never
+ * "the measurement failed". A point that counts throughput only is a legitimate,
+ * useful point — it still closes the funnel — so a reader must not fold
+ * `levels: null` into the same bucket as "no snapshot at all".
+ */
+export interface AudioStage {
+  /** Stable stage id, unique within one snapshot, e.g. `ingress`. An **open
+   *  set**: a provider may report an id the shipped ones don't use and it is
+   *  published and rendered like any other. What makes the graph work is
+   *  `inputs`, not membership of a list. */
+  stage: string;
+  /** Operator-facing name, e.g. "ASR input (worker decode)". Carried on the
+   *  wire rather than mapped from `stage` in the webapp, so a provider naming a
+   *  new stage needs no dashboard change to render legibly. */
+  label: string;
+  /** Position in the pipeline: 1 at the source, `max(depth(inputs)) + 1`
+   *  otherwise. **Derived at publish time** from `inputs` and shipped as a
+   *  denormalised convenience so a reader never walks the graph — it is not the
+   *  primitive. A cycle in a provider's declarations resolves to
+   *  `current_max + 1` in declaration order rather than hanging the publisher.
+   *  Never below 1: a 0 means depth resolution never ran, not that a point sits
+   *  above the source. */
+  depth: number;
+  /** Stage ids immediately upstream of this one; `[]` means this is a source.
+   *  An id naming a stage absent from this snapshot was dropped at publish time
+   *  (that upstream point reported nothing this batch — an incomplete graph, not
+   *  a fatal one), so a reader may still see an input it cannot resolve. */
+  inputs: string[];
+  /** Levels measured at this point, or null when this point **counts throughput
+   *  only** and meters nothing (the `debug` provider's `asr_input`, and every
+   *  VAD stage). Null is a statement about the measurement point, not about the
+   *  audio: rendering it as a level of any kind would invent a reading. */
+  levels: AudioLevelStats | null;
+  /** VAD statistics for this point, or null when **this point runs no
+   *  detector**. Distinct from `vadStats.vadEnabled === false`, which means a
+   *  detector exists and did not run — see `VadStats`. */
+  vad: VadStats | null;
+  /** CUMULATIVE seconds of audio that have passed this point, monotonic — not a
+   *  rate. A rate would have to agree with the reader's polling interval to be
+   *  comparable between two points, and the two points do not share a clock;
+   *  cumulative totals subtract cleanly across an edge, which is what makes
+   *  "where did the audio get lost" a well-defined question. Null when this
+   *  point does not count throughput. */
+  audioSeconds: number | null;
+}
+
+/**
+ * One live session's audio telemetry as published to the backplane: the graph
+ * of measurement points, the snapshot envelope, and the session/room
+ * identifiers it was computed for.
+ *
+ * `stages` replaces the flat `AudioLevelStats` spread and top-level `vadStats`
+ * this snapshot carried before §12. There is deliberately **no compatibility
+ * shim**: both sides ship from this repo and `AUDIO_STATS_TTL_MS` is 10 s, so a
+ * rolling upgrade costs at most one poll of missing audio telemetry, whereas a
+ * dual-shape reader would be permanent complexity bought for ten seconds.
+ *
+ * `stages` may be empty (nothing measured anything yet) and every stage's
+ * `levels` may be null (a provider that reports throughput only). Both are real
+ * states rather than error cases — see `deriveAudioStatus` in
+ * `#src/features/dashboard/fleet-status` for how they classify, and why neither
+ * may read as `good`.
+ */
+export interface SessionAudioSnapshot {
+  /** Publish time in epoch milliseconds, on the publishing host's clock. */
+  updatedAt: number;
+  /** The measurement points that reported for this session, in no guaranteed
+   *  order — consumers group by `depth` and must not assume array order. */
+  stages: AudioStage[];
+  sessionUid: string;
+  roomUid: string | null;
+  /** Identity of the publishing Transcription Service host. */
+  transcriptionHost: string;
+}
+
+/** One provider merged across every Transcription Service host serving it.
  * `status` is `down` only when every host reporting this key is `down`, `ok`
  * only when every host is `ok`; `activeSessions` is summed.
  */
@@ -383,6 +553,13 @@ export interface FleetSnapshot {
   sessions: SessionSnapshot[];
   transcriptionHosts: TranscriptionHostSnapshot[];
   providers: MergedProvider[];
+  /**
+   * Latest audio-level/VAD reading per live session, from Transcription
+   * Service's own index — deliberately NOT joined to `sessions` (D2 of
+   * PLAN-AUDIOVIZ: the two publishers do not coordinate, and both
+   * asymmetries are signals, not noise).
+   */
+  sessionAudio: SessionAudioSnapshot[];
 }
 
 /**

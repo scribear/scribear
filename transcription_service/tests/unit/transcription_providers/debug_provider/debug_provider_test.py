@@ -14,6 +14,8 @@ import pytest_asyncio
 from src.shared.logger import ContextLogger, Logger
 from src.shared.utils.worker_pool import WorkerPool
 from src.transcription_provider_interface import (
+    STAGE_ASR_INPUT,
+    STAGE_INGRESS,
     TranscriptionClientError,
     TranscriptionResult,
     TranscriptionSessionInterface,
@@ -21,6 +23,9 @@ from src.transcription_provider_interface import (
 from src.transcription_providers.debug_provider import (
     DebugProvider,
     DebugSessionConfig,
+)
+from src.transcription_providers.debug_provider.debug_provider_job import (
+    DebugProviderJob,
 )
 
 AUDIO_DIR = path.normpath(
@@ -140,6 +145,93 @@ async def test_debug_provider_returns_audio_debug_info(
         r"^Decode job took (\d+) nanoseconds. $", results[1].in_progress.text[1]
     )
     assert decode_time is not None
+
+
+@pytest.mark.timeout(2)
+@pytest.mark.asyncio
+async def test_debug_provider_reports_the_asr_input_stage(
+    debug_provider_session: TranscriptionSessionInterface,
+):
+    """
+    Test that the stage reading the job takes survives the trip out of the
+    worker process and onto the emitted result.
+
+    The provider that reports no stage publishes no audio snapshot at all,
+    which the dashboard reads as "no audio reaching the ASR" - and this is the
+    only provider whose telemetry can be exercised without an ASR model, so it
+    is also what makes the live-stack cross-check cheap. Going through the real
+    worker pool is the point: the reading is pickled across a process boundary.
+    """
+    # Arrange
+    with open(path.join(AUDIO_DIR, "mono_f64le.wav"), "rb") as f:
+        chunk = f.read()
+
+    results: list[TranscriptionResult] = []
+    debug_provider_session.on(
+        debug_provider_session.TranscriptionResultEvent, results.append
+    )
+
+    # Act
+    debug_provider_session.handle_audio_chunk("chunk-1", chunk)
+    await asyncio.sleep(1.2)
+
+    # Assert
+    (asr_input,) = results[0].audio_stages
+    assert asr_input.stage == STAGE_ASR_INPUT
+    assert asr_input.inputs == (STAGE_INGRESS,)
+    assert asr_input.audio_seconds == pytest.approx(4.0)
+    # Throughput only: this provider meters nothing and detects nothing, and a
+    # zero-valued reading for either would claim a measurement it never took.
+    assert asr_input.levels is None
+    assert asr_input.vad is None
+
+
+def test_debug_job_seconds_accumulate_across_batches():
+    """
+    Test that the stage total is cumulative for the life of the session while
+    the transcript keeps reporting the per-batch figure.
+
+    The total is compared against the ingress total by subtraction, so a
+    per-batch value there would read as the pipeline losing almost everything
+    it received; the transcript, in contrast, is a per-execution debug line and
+    an integration test asserts on its exact wording.
+    """
+    # Arrange
+    job = DebugProviderJob(SESSION_CONFIG)
+    log = MagicMock(spec=Logger)
+    with open(path.join(AUDIO_DIR, "mono_f64le.wav"), "rb") as f:
+        chunk = f.read()
+
+    # Act
+    first = job.process_batch(log, (), [chunk])
+    second = job.process_batch(log, (), [chunk])
+
+    # Assert
+    assert first.seconds_decoded == pytest.approx(4.0)
+    assert second.seconds_decoded == pytest.approx(4.0)
+    assert first.audio_stages[0].audio_seconds == pytest.approx(4.0)
+    assert second.audio_stages[0].audio_seconds == pytest.approx(8.0)
+
+
+def test_debug_job_reports_the_stage_when_a_batch_brought_no_audio():
+    """
+    Test that a period with nothing queued still reports the running total.
+
+    A job period with an empty batch is normal (the pool fires on a timer), and
+    dropping the stage then would make the funnel flicker between "reporting"
+    and "reported nothing" on a session that is merely between chunks.
+    """
+    # Arrange
+    job = DebugProviderJob(SESSION_CONFIG)
+    log = MagicMock(spec=Logger)
+
+    # Act
+    result = job.process_batch(log, (), [])
+
+    # Assert
+    assert result.seconds_decoded == 0.0
+    (asr_input,) = result.audio_stages
+    assert asr_input.audio_seconds == 0.0
 
 
 @pytest.mark.timeout(2)

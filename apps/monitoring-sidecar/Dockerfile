@@ -45,9 +45,10 @@ COPY --from=build-env /app/apps/monitoring-sidecar/dist/bundle.mjs /app/apps/mon
 COPY --from=build-env /app/test_audio_files/speech /app/test_audio_files/speech
 
 # The standalone audio meter page (A4). Self-contained and served as-is, so it
-# ships as a file rather than being bundled; the path matches the
-# AUDIO_METER_PATH default, relative to the WORKDIR set below.
-COPY --from=build-env /app/apps/monitoring-sidecar/public /app/apps/monitoring-sidecar/public
+# ships as a file rather than being bundled. Lives in the shared
+# libs/audio-meter-page/ directory so admin-webapp can serve the same file; the
+# path matches the AUDIO_METER_PATH default, relative to the WORKDIR set below.
+COPY --from=build-env /app/libs/audio-meter-page /app/libs/audio-meter-page
 
 WORKDIR /app/apps/monitoring-sidecar
 

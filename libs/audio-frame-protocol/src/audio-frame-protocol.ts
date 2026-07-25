@@ -15,7 +15,8 @@
  *   offset 2   version      uint8  = 1
  *   offset 3   fieldCount   uint8
  *   offset 4.. fields[fieldCount], each:
- *                key        uint8   (see {@link SafpFieldKey})
+ *                key        uint8   (see {@link SafpFieldKey}: 1 = sentAt,
+ *                                     2 = chunkId, 3 = stageDepth)
  *                wireType   uint8   (see {@link SafpWireType})
  *                length     uint16  (byte length of value)
  *                value      length bytes
@@ -37,6 +38,11 @@ const HEADER_PREFIX_BYTES = 4;
 const CRC_BYTES = 4;
 /** Per-field overhead: key(1) + wireType(1) + length(2). */
 const FIELD_HEADER_BYTES = 4;
+/** Widest WIRE_UINT value this decoder will interpret. Longer is not an
+ *  error in the envelope - the field is simply kept as an unknown one, the
+ *  same treatment a key from a newer sender gets, so a future widening of
+ *  the type cannot make an older reader reject the frame. */
+const MAX_UINT_BYTES = 8;
 
 /**
  * Known metadata field keys. Unknown keys are preserved but ignored, so this
@@ -48,6 +54,10 @@ export enum SafpFieldKey {
   SENT_AT = 1,
   /** `chunkId`: opaque correlation id echoed back with transcripts. */
   CHUNK_ID = 2,
+  /** `stageDepth`: audio-telemetry graph depth the *sender* measured at, so
+   *  a downstream metering stage can continue the numbering rather than
+   *  restarting at 1 (plan §12.2). Optional; no producer writes it yet. */
+  STAGE_DEPTH = 3,
 }
 
 /**
@@ -67,6 +77,8 @@ export interface AudioFrameFields {
   chunkId: string;
   /** Optional node-domain send timestamp (ms) for end-to-end latency. */
   sentAt?: number;
+  /** Optional audio-telemetry graph depth the sender measured at (0-255). */
+  stageDepth?: number;
 }
 
 /** A field the decoder did not recognise, kept verbatim for forward-compat. */
@@ -81,6 +93,7 @@ export interface DecodedAudioFrame {
   version: number;
   chunkId: string | null;
   sentAt: number | null;
+  stageDepth: number | null;
   audio: Uint8Array;
   unknownFields: UnknownAudioFrameField[];
 }
@@ -101,10 +114,24 @@ function toUint8Array(input: Uint8Array | ArrayBuffer): Uint8Array {
 }
 
 /**
+ * Little-endian over whatever width the sender chose, rather than a fixed
+ * uint8: WIRE_UINT is self-describing by length, and pinning this reader to
+ * one byte would make a sender that widened the field look like it had sent
+ * an unknown one.
+ */
+function readLittleEndianUint(value: Uint8Array): number {
+  let result = 0;
+  for (let i = value.length - 1; i >= 0; i--) {
+    result = result * 0x100 + (value[i] ?? 0);
+  }
+  return result;
+}
+
+/**
  * Encode an audio chunk and its metadata into a SAFP frame.
  *
- * @param fields Metadata to embed. `chunkId` is always written; `sentAt` is
- *   written only when provided.
+ * @param fields Metadata to embed. `chunkId` is always written; `sentAt` and
+ *   `stageDepth` are written only when provided.
  * @param audio Raw audio payload (already in the wire format the provider
  *   expects, e.g. PCM/WAV bytes).
  * @returns A freshly allocated frame, tightly sized so `.buffer` is safe to
@@ -131,6 +158,19 @@ export function encodeAudioFrame(
       key: SafpFieldKey.SENT_AT,
       wireType: SafpWireType.FLOAT64,
       value: sentAtBytes,
+    });
+  }
+
+  if (fields.stageDepth !== undefined) {
+    if (fields.stageDepth < 0 || fields.stageDepth > 0xff) {
+      throw new AudioFrameError(
+        `stageDepth out of range (${String(fields.stageDepth)})`,
+      );
+    }
+    fieldBlocks.push({
+      key: SafpFieldKey.STAGE_DEPTH,
+      wireType: SafpWireType.UINT,
+      value: new Uint8Array([fields.stageDepth]),
     });
   }
 
@@ -210,6 +250,7 @@ export function decodeAudioFrame(
   let offset = HEADER_PREFIX_BYTES;
   let chunkId: string | null = null;
   let sentAt: number | null = null;
+  let stageDepth: number | null = null;
   const unknownFields: UnknownAudioFrameField[] = [];
 
   for (let i = 0; i < fieldCount; i++) {
@@ -240,6 +281,13 @@ export function decodeAudioFrame(
         value.byteOffset,
         value.byteLength,
       ).getFloat64(0, true);
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+    } else if (key === (SafpFieldKey.STAGE_DEPTH as number)) {
+      if (length >= 1 && length <= MAX_UINT_BYTES) {
+        stageDepth = readLittleEndianUint(value);
+      } else {
+        unknownFields.push({ key, wireType, value });
+      }
     } else {
       unknownFields.push({ key, wireType, value });
     }
@@ -249,5 +297,5 @@ export function decodeAudioFrame(
 
   const audio = bytes.subarray(offset, crcOffset);
 
-  return { version, chunkId, sentAt, audio, unknownFields };
+  return { version, chunkId, sentAt, stageDepth, audio, unknownFields };
 }

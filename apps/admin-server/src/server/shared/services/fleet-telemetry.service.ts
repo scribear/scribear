@@ -1,17 +1,26 @@
 import {
+  AUDIO_STATS_TTL_MS,
   NODE_INDEX_KEY,
   NODE_TTL_MS,
   type NodeSnapshot,
   type ProviderHealth,
   SESSION_INDEX_KEY,
+  type SessionAudioSnapshot,
   type SessionSnapshot,
+  type SnapshotParseResult,
   TRANSCRIPTION_HOST_INDEX_KEY,
   TRANSCRIPTION_HOST_TTL_MS,
+  TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
   type TelemetryRedisClient,
   type TranscriptionHostSnapshot,
   nodeSnapshotKey,
+  parseNodeSnapshot,
+  parseSessionAudioSnapshot,
+  parseSessionSnapshot,
+  parseTranscriptionHostSnapshot,
   sessionSnapshotKey,
   transcriptionHostSnapshotKey,
+  transcriptionSessionAudioKey,
 } from '@scribear/scribear-redis';
 
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
@@ -19,6 +28,48 @@ import type { AppDependencies } from '#src/server/dependency-injection/app-depen
 export interface FleetTelemetryConfig {
   redisUrl: string;
 }
+
+/**
+ * Turns one raw index value into a snapshot, or reports why it could not be.
+ * The parsers `@scribear/scribear-redis` exports beside each schema have this
+ * shape — see `parseSessionAudioSnapshot`.
+ */
+type SnapshotParser<T> = (raw: string) => SnapshotParseResult<T>;
+
+/** The failing half of a parse result — everything a drop has to report. */
+type SnapshotParseFailure = Extract<
+  SnapshotParseResult<unknown>,
+  { ok: false }
+>;
+
+/** One index member whose value was dropped, and the parser's reason. */
+interface DroppedSnapshot extends Omit<SnapshotParseFailure, 'ok'> {
+  member: string;
+}
+
+/**
+ * Minimum gap between validation-drop log lines for one index.
+ *
+ * A shape drift is not a transient: the publisher keeps writing the same wrong
+ * shape, so every member of that index fails on every read, and `/fleet` is
+ * polled every few seconds by every open dashboard. Logging each drop as it
+ * happens would turn one deployment mistake into hundreds of identical lines a
+ * minute and bury the one line that explains it. One line per index per
+ * minute, carrying how many drops it stands for, says the same thing and stays
+ * readable.
+ *
+ * Exported only so the test covering the throttle does not have to restate the
+ * number and drift from it.
+ */
+export const VALIDATION_DROP_LOG_INTERVAL_MS = 60_000;
+
+/**
+ * How many dropped members one log line names. A drift affects every member of
+ * an index identically, so the first few are representative and the rest are
+ * the same complaint against a different session id — and each already carries
+ * the parser's own capped list of validator messages.
+ */
+const MAX_LOGGED_DROPS = 3;
 
 /** One provider merged across every Transcription Service host serving it. */
 export interface MergedProvider {
@@ -42,6 +93,14 @@ export interface FleetSnapshot {
   sessions: SessionSnapshot[];
   transcriptionHosts: TranscriptionHostSnapshot[];
   providers: MergedProvider[];
+  /**
+   * Latest per-stage audio telemetry per live session, from Transcription
+   * Service's own index — deliberately NOT joined to `sessions` (D2 of
+   * PLAN-AUDIOVIZ: the two publishers do not coordinate, and both asymmetries
+   * — session present without audio, audio present without session — are
+   * signals, not noise).
+   */
+  sessionAudio: SessionAudioSnapshot[];
 }
 
 /**
@@ -70,6 +129,16 @@ export interface FleetSnapshot {
 export class FleetTelemetryService {
   private _redis: TelemetryRedisClient | null;
   private _logger: AppDependencies['logger'];
+
+  /**
+   * Log throttle state for `_logDroppedSnapshots`, one entry per index key —
+   * four at most, so it cannot grow with fleet size the way a per-session or
+   * per-error key would.
+   */
+  private _dropLog = new Map<
+    string,
+    { lastLoggedAt: number; suppressed: number }
+  >();
 
   /** False when `REDIS_URL` is unset — no connection was ever opened. */
   readonly enabled: boolean;
@@ -123,26 +192,42 @@ export class FleetTelemetryService {
     const redis = this._redis;
     const now = Date.now();
 
-    const [nodes, sessions, transcriptionHosts] = await Promise.all([
-      readIndexed<NodeSnapshot>(
-        redis,
-        NODE_INDEX_KEY,
-        now - NODE_TTL_MS,
-        nodeSnapshotKey,
-      ),
-      readIndexed<SessionSnapshot>(
-        redis,
-        SESSION_INDEX_KEY,
-        now - NODE_TTL_MS,
-        sessionSnapshotKey,
-      ),
-      readIndexed<TranscriptionHostSnapshot>(
-        redis,
-        TRANSCRIPTION_HOST_INDEX_KEY,
-        now - TRANSCRIPTION_HOST_TTL_MS,
-        transcriptionHostSnapshotKey,
-      ),
-    ]);
+    const [nodes, sessions, transcriptionHosts, sessionAudio] =
+      await Promise.all([
+        this._readIndexed<NodeSnapshot>(
+          redis,
+          NODE_INDEX_KEY,
+          now - NODE_TTL_MS,
+          nodeSnapshotKey,
+          parseNodeSnapshot,
+        ),
+        this._readIndexed<SessionSnapshot>(
+          redis,
+          SESSION_INDEX_KEY,
+          now - NODE_TTL_MS,
+          sessionSnapshotKey,
+          parseSessionSnapshot,
+        ),
+        this._readIndexed<TranscriptionHostSnapshot>(
+          redis,
+          TRANSCRIPTION_HOST_INDEX_KEY,
+          now - TRANSCRIPTION_HOST_TTL_MS,
+          transcriptionHostSnapshotKey,
+          parseTranscriptionHostSnapshot,
+        ),
+        this._readIndexed<SessionAudioSnapshot>(
+          redis,
+          TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
+          // 10 s, and NOT `NODE_TTL_MS` even though the two are equal today:
+          // this index is written by a different publisher on a different
+          // cadence, and its interval is documented as provisional
+          // (`telemetry-timing.ts`). Reusing the constant that happens to
+          // match the number is how the two silently become one.
+          now - AUDIO_STATS_TTL_MS,
+          transcriptionSessionAudioKey,
+          parseSessionAudioSnapshot,
+        ),
+      ]);
 
     return {
       generatedAt: now,
@@ -150,30 +235,144 @@ export class FleetTelemetryService {
       sessions,
       transcriptionHosts,
       providers: mergeProviders(transcriptionHosts),
+      sessionAudio,
     };
   }
-}
 
-/**
- * `ZRANGEBYSCORE <indexKey> <minScore> +inf` for the live members, then
- * `MGET` their snapshot keys. A member without a value (expired between the
- * two calls, or pruned by a concurrent beat) is dropped rather than reported
- * as a hole — the index is a hint, not a guarantee, by design (see
- * `telemetry-keys.ts`).
- */
-async function readIndexed<T>(
-  redis: TelemetryRedisClient,
-  indexKey: string,
-  minScore: number,
-  keyFor: (member: string) => string,
-): Promise<T[]> {
-  const members = await redis.zrangebyscore(indexKey, minScore, '+inf');
-  if (members.length === 0) return [];
+  /**
+   * `ZRANGEBYSCORE <indexKey> <minScore> +inf` for the live members, then
+   * `MGET` their snapshot keys. A member without a value (expired between the
+   * two calls, or pruned by a concurrent beat) is dropped rather than reported
+   * as a hole — the index is a hint, not a guarantee, by design (see
+   * `telemetry-keys.ts`).
+   *
+   * A value `parse` rejects is dropped the same way, and logged, for the same
+   * reason: one bad snapshot must cost an operator one member's telemetry
+   * rather than the entire `/fleet` response. `parse` is what decides what
+   * "bad" means — every index now names a validating parser exported beside
+   * its own schema, so a payload whose shape has drifted from the schema it was
+   * written against is caught rather than cast.
+   *
+   * `parse` is required rather than optional: an index reading its values
+   * without validation is a choice worth making at each call site, not a
+   * default that three of the four fell into.
+   *
+   * **All four indexes now drop.** Three of them spent a release in a
+   * log-only `onInvalid: 'keep'` mode instead, and that ordering was not
+   * timidity — it is what kept a schema bug from becoming an outage.
+   * `TRANSCRIPTION_HOST_SNAPSHOT_SCHEMA` had declared `contextIds` as strings
+   * since the day it was written while the publisher emitted integers, so
+   * hard-dropping from the start would have discarded every
+   * transcription-host snapshot and blanked both the hosts section and the
+   * providers section, since `mergeProviders` derives from
+   * `transcriptionHosts`. A dashboard-wide outage from a change whose purpose
+   * was to protect the dashboard.
+   *
+   * What made promotion safe was not the log staying quiet — a green log
+   * proves only that nothing is currently being dropped — but pinning each
+   * publisher against the parser that reads it:
+   *
+   * - `NodeSnapshot`/`SessionSnapshot` were already compiler-held at the
+   *   publisher (`const record: SessionSnapshot`, `const instance:
+   *   NodeSnapshot`), and node-server's integration suite now drives the real
+   *   publisher into a real Redis and parses the bytes back
+   *   (`publisher-schema-crosscheck.test.ts`), on a record populated by real
+   *   traffic rather than an idle one.
+   * - `TranscriptionHostSnapshot` is the hand-built Python dict with no
+   *   compiler behind it, so it took two legs: the same live one, plus
+   *   `tools/telemetry-snapshot-crosscheck/`, whose manifest is emitted by
+   *   `RedisTelemetryPublisher.publish_once` itself and carries the loaded
+   *   worker shapes a debug-only host leaves empty. The live leg alone could
+   *   not have caught the `contextIds` bug, because `[]` satisfies any
+   *   element type.
+   *
+   * The general rule that produced those, and the one to apply to the next
+   * index: when validating a hand-mirrored contract, the oracle has to be the
+   * other implementation. A fixture written from the schema encodes the
+   * schema's bugs — which is exactly how this one survived, since the
+   * fixtures in this app's own tests were written from these schemas rather
+   * than captured from the publishers, and agreed with them perfectly.
+   *
+   * A future index whose publisher is not yet pinned should reintroduce the
+   * fail-open mode rather than start at `drop` (see git history for the
+   * shape it had); it was removed here only because nothing calls it.
+   *
+   * `redis` is a parameter rather than read from `this._redis` because the
+   * caller has already proved it non-null; reading the field here would force
+   * a redundant null check per index.
+   */
+  private async _readIndexed<T>(
+    redis: TelemetryRedisClient,
+    indexKey: string,
+    minScore: number,
+    keyFor: (member: string) => string,
+    parse: SnapshotParser<T>,
+  ): Promise<T[]> {
+    const members = await redis.zrangebyscore(indexKey, minScore, '+inf');
+    if (members.length === 0) return [];
 
-  const values = await redis.mget(members.map(keyFor));
-  return values
-    .filter((v): v is string => v !== null)
-    .map((v) => JSON.parse(v) as T);
+    const values = await redis.mget(members.map(keyFor));
+    const snapshots: T[] = [];
+    const dropped: DroppedSnapshot[] = [];
+
+    for (const [index, member] of members.entries()) {
+      // `undefined` only satisfies `noUncheckedIndexedAccess` — MGET answers
+      // with exactly one entry per key requested. `null` is the expired key.
+      const value = values[index];
+      if (value === undefined || value === null) continue;
+
+      const result = parse(value);
+      if (result.ok) {
+        snapshots.push(result.value);
+        continue;
+      }
+      dropped.push({
+        member,
+        reason: result.reason,
+        errors: result.errors,
+      });
+    }
+
+    if (dropped.length > 0) this._logDroppedSnapshots(indexKey, dropped);
+    return snapshots;
+  }
+
+  /**
+   * One line per index per `VALIDATION_DROP_LOG_INTERVAL_MS`, naming the index,
+   * a sample of the members dropped and what the parser objected to — the three
+   * things needed to identify the publisher at fault.
+   *
+   * `warn`, not the `debug` the connection-error listener above uses: a
+   * connection error announces itself anyway (the caller gets a 503 and
+   * `/health` reports redis down), whereas a validation drop serves a 200 whose
+   * data is quietly incomplete and which nothing else in the system mentions.
+   */
+  private _logDroppedSnapshots(
+    indexKey: string,
+    dropped: DroppedSnapshot[],
+  ): void {
+    const now = Date.now();
+    const previous = this._dropLog.get(indexKey);
+
+    if (
+      previous !== undefined &&
+      now - previous.lastLoggedAt < VALIDATION_DROP_LOG_INTERVAL_MS
+    ) {
+      previous.suppressed += dropped.length;
+      return;
+    }
+
+    this._dropLog.set(indexKey, { lastLoggedAt: now, suppressed: 0 });
+    this._logger.warn(
+      {
+        indexKey,
+        droppedCount: dropped.length,
+        suppressedSinceLastLog: previous?.suppressed ?? 0,
+        droppedSample: dropped.slice(0, MAX_LOGGED_DROPS),
+      },
+      'dropped fleet telemetry snapshots that failed to parse',
+    );
+  }
 }
 
 const PROVIDER_STATUS_RANK = { ok: 0, degraded: 1, down: 2 } as const;

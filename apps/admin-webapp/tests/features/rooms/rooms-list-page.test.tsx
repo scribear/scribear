@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, vi } from 'vitest';
 
 import { RoomsListPage } from '#src/features/rooms/rooms-list-page';
 import { adminApi } from '#src/lib/admin-api';

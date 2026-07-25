@@ -14,7 +14,10 @@ import { describe, expect } from 'vitest';
  */
 
 const HTML_PATH = fileURLToPath(
-  new URL('../../public/audio-meter.html', import.meta.url),
+  new URL(
+    '../../../../libs/audio-meter-page/audio-meter.html',
+    import.meta.url,
+  ),
 );
 
 const TOLERANCE_DB = 0.5;

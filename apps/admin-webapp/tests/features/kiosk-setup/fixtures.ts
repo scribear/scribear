@@ -33,9 +33,7 @@ export function buildRoom(overrides: Partial<Room> = {}): Room {
   };
 }
 
-export function buildRoomDetail(
-  overrides: Partial<Room> = {},
-): RoomDetail {
+export function buildRoomDetail(overrides: Partial<Room> = {}): RoomDetail {
   return { room: buildRoom(overrides), devices: [] };
 }
 

@@ -224,7 +224,10 @@ describe('diffScheduleUpdate', (it) => {
   it('treats a null transcriptionProviderId as unchanged against an empty-string next value', () => {
     // Arrange
     const schedule = buildSchedule({ transcriptionProviderId: null });
-    const next = { ...resolvedFromSchedule(schedule), transcriptionProviderId: '' };
+    const next = {
+      ...resolvedFromSchedule(schedule),
+      transcriptionProviderId: '',
+    };
 
     // Act
     const body = diffScheduleUpdate(schedule, next);
@@ -328,7 +331,10 @@ describe('diffScheduleUpdate', (it) => {
     });
     const next = {
       ...resolvedFromSchedule(schedule),
-      joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS', 'SEND_AUDIO'] as SessionScope[],
+      joinCodeScopes: [
+        'RECEIVE_TRANSCRIPTIONS',
+        'SEND_AUDIO',
+      ] as SessionScope[],
     };
 
     // Act
@@ -440,7 +446,10 @@ describe('diffAutoWindowUpdate', (it) => {
     const w = buildWindow({ joinCodeScopes: ['SEND_AUDIO'] });
     const next = {
       ...resolvedFromWindow(w),
-      joinCodeScopes: ['SEND_AUDIO', 'RECEIVE_TRANSCRIPTIONS'] as SessionScope[],
+      joinCodeScopes: [
+        'SEND_AUDIO',
+        'RECEIVE_TRANSCRIPTIONS',
+      ] as SessionScope[],
     };
 
     // Act
@@ -459,7 +468,10 @@ describe('diffAutoWindowUpdate', (it) => {
     });
     const next = {
       ...resolvedFromWindow(w),
-      joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS', 'SEND_AUDIO'] as SessionScope[],
+      joinCodeScopes: [
+        'RECEIVE_TRANSCRIPTIONS',
+        'SEND_AUDIO',
+      ] as SessionScope[],
     };
 
     // Act

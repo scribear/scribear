@@ -330,6 +330,11 @@ services:
       # key from an env var named by provider_config.json's "api_key_env". Empty
       # by default and ignored by local-model providers, so it is safe to leave unset.
       TRANSCRIPTION_PROVIDER_API_KEY: ${TRANSCRIPTION_PROVIDER_API_KEY:-}
+      # Silence floor for the ingress audio meter, in linear RMS. Defaulted to
+      # the same 0.01 the meter and whisper's own threshold already use, so
+      # leaving it unset changes nothing. See .env.example for when a room
+      # needs it moved.
+      AUDIO_SILENCE_THRESHOLD: ${TRANSCRIPTION_AUDIO_SILENCE_THRESHOLD:-0.01}
       # Fleet telemetry publishing (B1.7). Empty switches it off, which is the
       # default in .env.example: publishing is what puts this host's provider
       # health in the dashboard's fleet view, and nothing else depends on it.

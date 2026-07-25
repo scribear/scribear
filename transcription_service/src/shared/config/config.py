@@ -46,6 +46,14 @@ class EnvSchema(BaseModel):
     # even when the variable is unset, which is the common case.
     TRANSCRIPTION_HOST_ID: str = Field(default="", validate_default=True)
 
+    # Defaulted for the same reason, and to the same 0.01 both `AudioMeter` and
+    # whisper's `silence_threshold` already use, so the shipped classification
+    # of silence does not change. Settable because the webserver's own ingress
+    # meter has no provider config to read a threshold from, and the number is
+    # room-dependent - a hall with loud HVAC needs a higher floor before
+    # "silent" means anything.
+    AUDIO_SILENCE_THRESHOLD: float = 0.01
+
     PROVIDER_CONFIG_PATH: str
 
     @field_validator("TRANSCRIPTION_HOST_ID")
@@ -198,6 +206,18 @@ class Config:
         return self._transcription_host_id
 
     @property
+    def audio_silence_threshold(self) -> float:
+        """
+        Linear RMS threshold below which the ingress audio meter reads silence
+
+        Only the webserver's own ingress meter reads it; a provider that meters
+        its own stage still uses whatever its provider config says, so the two
+        can be tuned independently for a deployment where they legitimately
+        differ.
+        """
+        return self._audio_silence_threshold
+
+    @property
     def ws_init_timeout_sec(self) -> float:
         """
         Seconds to wait for websocket to send initialization messages before closing if not sent
@@ -229,6 +249,7 @@ class Config:
         self._metrics_api_key = env.METRICS_API_KEY
         self._redis_url = env.REDIS_URL
         self._transcription_host_id = env.TRANSCRIPTION_HOST_ID
+        self._audio_silence_threshold = env.AUDIO_SILENCE_THRESHOLD
         self._ws_init_timeout_sec = env.WS_INIT_TIMEOUT_SEC
 
         with open(env.PROVIDER_CONFIG_PATH, "r", encoding="utf-8") as file:

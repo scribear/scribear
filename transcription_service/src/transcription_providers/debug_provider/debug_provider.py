@@ -11,7 +11,7 @@ from src.transcription_provider_interface import (
     TranscriptionSessionInterface,
 )
 
-from .debug_provider_job import DebugProviderJob
+from .debug_provider_job import DebugJobResult, DebugProviderJob
 from .debug_session_config import (
     DebugSessionConfig,
     debug_session_config_adapter,
@@ -59,7 +59,9 @@ class DebugProvider(TranscriptionProviderInterface):
             # that did not open.
             provider.session_started()
 
-        def _handle_job_result(self, result: JobSuccess[float] | JobException):
+        def _handle_job_result(
+            self, result: JobSuccess[DebugJobResult] | JobException
+        ):
             """
             Handles debug provider job result event
 
@@ -75,10 +77,14 @@ class DebugProvider(TranscriptionProviderInterface):
                 TranscriptionResult(
                     in_progress=TranscriptionSequence(
                         text=[
-                            f"Processed {result.value:.4f} seconds of audio. ",
+                            f"Processed {result.value.seconds_decoded:.4f} seconds of audio. ",
                             f"Decode job took {result.stats.execution_time_ns} nanoseconds. ",
                         ]
-                    )
+                    ),
+                    # Carried through untouched: the job is the only thing that
+                    # can measure its own decode, and the execution timing
+                    # above is the only part of this result the session owns.
+                    audio_stages=result.value.audio_stages,
                 ),
             )
 

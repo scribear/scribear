@@ -2,9 +2,11 @@ import { useState } from 'react';
 
 import DevicesIcon from '@mui/icons-material/Devices';
 import FactCheckIcon from '@mui/icons-material/FactCheck';
+import GraphicEqIcon from '@mui/icons-material/GraphicEq';
 import HistoryIcon from '@mui/icons-material/History';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MeetingRoomIcon from '@mui/icons-material/MeetingRoom';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import SpaceDashboardIcon from '@mui/icons-material/SpaceDashboard';
 import TabletIcon from '@mui/icons-material/Tablet';
 import AppBar from '@mui/material/AppBar';
@@ -24,18 +26,52 @@ import Typography from '@mui/material/Typography';
 import { NavLink, Outlet } from 'react-router-dom';
 
 import { HealthIndicator } from '#src/components/health-indicator';
+import { OpensInNewTab } from '#src/components/opens-in-new-tab';
 import { useAuth } from '#src/features/auth/auth-context';
+import { audioMeterHref } from '#src/lib/audio-meter-url';
 import { useSettings } from '#src/lib/settings-context';
 
 const DRAWER_WIDTH = 232;
 
-const NAV_ITEMS = [
+/**
+ * The standalone audio meter measures the microphone of the device that opens
+ * it, so the link is `target="_blank"` with an `OpenInNewIcon` affordance — an
+ * operator clicking it from their laptop gets a new tab (not the room's meter),
+ * and the copy makes clear the tool should be run on the source machine. The
+ * page needs a secure context (HTTPS or localhost) for `getUserMedia`.
+ *
+ * Root-relative (`audioMeterHref()`), not `'audio-meter.html'`: this nav sits on
+ * every authed route, including nested ones like `/admin/sessions/:uid`, where a
+ * relative href would resolve to `/admin/sessions/audio-meter.html`.
+ */
+interface InternalNavItem {
+  label: string;
+  to: string;
+  icon: React.ReactNode;
+}
+
+interface ExternalNavItem {
+  label: string;
+  href: string;
+  icon: React.ReactNode;
+  external: true;
+}
+
+type NavItem = InternalNavItem | ExternalNavItem;
+
+const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', to: '/', icon: <SpaceDashboardIcon /> },
   { label: 'Rooms', to: '/rooms', icon: <MeetingRoomIcon /> },
   { label: 'Devices', to: '/devices', icon: <DevicesIcon /> },
   { label: 'Set up a kiosk', to: '/kiosk-setup', icon: <TabletIcon /> },
   { label: 'Audit log', to: '/audit', icon: <HistoryIcon /> },
   { label: 'Deployment Check', to: '/config-check', icon: <FactCheckIcon /> },
+  {
+    label: 'Audio meter (this device)',
+    href: audioMeterHref(),
+    icon: <GraphicEqIcon />,
+    external: true,
+  },
 ];
 
 /**
@@ -107,24 +143,44 @@ export const AppLayout = () => {
         <Toolbar />
         <Divider />
         <List>
-          {NAV_ITEMS.map((item) => (
-            <ListItemButton
-              key={item.to}
-              component={NavLink}
-              to={item.to}
-              end={item.to === '/'}
-              sx={{
-                '&.active': {
-                  bgcolor: 'action.selected',
-                  borderRight: 3,
-                  borderColor: 'primary.main',
-                },
-              }}
-            >
-              <ListItemIcon>{item.icon}</ListItemIcon>
-              <ListItemText primary={item.label} />
-            </ListItemButton>
-          ))}
+          {NAV_ITEMS.map((item) =>
+            'href' in item ? (
+              <ListItemButton
+                key={item.href}
+                component="a"
+                href={item.href}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ListItemIcon>{item.icon}</ListItemIcon>
+                <ListItemText
+                  primary={item.label}
+                  slotProps={{
+                    primary: { sx: { pr: 0.5 } },
+                  }}
+                />
+                <OpenInNewIcon fontSize="small" color="action" />
+                <OpensInNewTab />
+              </ListItemButton>
+            ) : (
+              <ListItemButton
+                key={item.to}
+                component={NavLink}
+                to={item.to}
+                end={item.to === '/'}
+                sx={{
+                  '&.active': {
+                    bgcolor: 'action.selected',
+                    borderRight: 3,
+                    borderColor: 'primary.main',
+                  },
+                }}
+              >
+                <ListItemIcon>{item.icon}</ListItemIcon>
+                <ListItemText primary={item.label} />
+              </ListItemButton>
+            ),
+          )}
         </List>
       </Drawer>
 

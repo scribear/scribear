@@ -50,10 +50,19 @@ export const TRANSCRIPTION_HOST_TTL_MS = 5 * TRANSCRIPTION_HOST_HEARTBEAT_MS;
  *
  * Provisional - matches NODE_HEARTBEAT_MS as a starting point, not
  * independently validated for this payload. Unlike the periods above this is
- * not a beat: `RedisSessionAudioPublisher` is push-based, triggered by
- * results arriving rather than a timer, so this is a per-session throttle
- * (the minimum gap between writes) rather than a fixed schedule. Revisit if
- * write volume or staleness becomes a real problem.
+ * not a beat: `RedisSessionAudioPublisher` is push-based, so this is a
+ * per-session throttle (the minimum gap between writes) rather than a fixed
+ * schedule. Revisit if write volume or staleness becomes a real problem.
+ *
+ * What pushes changed with the stage graph (PLAN-AUDIOVIZ §12) and the
+ * distinction now matters to this number. Publishing used to be triggered
+ * only by a transcription result arriving; it is now also triggered by
+ * inbound audio, because the ingress stage is metered in the stream
+ * controller for every provider rather than inside one provider's worker.
+ * So the arrival rate this throttles is the audio chunk rate (~10/s per
+ * session at the kiosk's 100ms chunks), not the job period - which is why
+ * the throttle has to be cheap to consult: the snapshot it gates costs
+ * ~218us to compute and must not run per chunk.
  */
 export const AUDIO_STATS_MIN_PUBLISH_INTERVAL_MS = 2000;
 

@@ -12,6 +12,155 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — audio meter and audio telemetry in the admin console
+
+The admin console gains an **Audio meter** nav item and a live **audio health**
+strip on each session card. The meter is the same self-contained page the
+monitoring sidecar already serves, now reachable from the admin UI at
+`/admin/audio-meter.html` through the existing nginx — no new service, no new
+port, no nginx change.
+
+### What the audio meter is for
+
+It measures the **local microphone of the device that opens it** — run it on the
+room's source machine, not the operator's laptop. An operator at the source
+machine clicks the nav item; one who is remote copies the URL and sends it to
+whoever is at the room's PC. The page needs a secure context (HTTPS or
+`localhost`) for `getUserMedia`, so a deployment running nginx on plain HTTP to
+a LAN IP will see the mic button fail — use HTTPS or open it from the machine
+itself.
+
+### Clipping is now measured as runs at the rail (behaviour change)
+
+`clippingPct` on published audio telemetry changed meaning. It used to count
+**any** sample within 1e-4 of full scale; it now counts samples at or above
+**0.99** of full scale that belong to a run of at least **two consecutive**
+samples — the same rule the standalone meter page has always used.
+
+The old definition charged undistorted audio as clipping. A clean tone at full
+scale reaches 1.0 at one isolated sample per crest, which at 16 kHz worked out to
+12.5 % of samples — past the 1 % threshold for a red **clipping** chip. So:
+
+- Sessions that showed a red `clipping` chip while sounding fine, and whose audio
+  simply ran hot to full scale, will now read normally. If a room's chip
+  disappears after this upgrade, that is this change, not a metering regression.
+- Genuinely clipped audio is unaffected: a hard-limited source has flat runs at
+  the rail and still reads far above the threshold (a sine driven 3.5 dB into a
+  limiter reads ~62 %, identically on both surfaces).
+- No dashboard, alert, or env-var change is needed. No other field moved, and
+  nothing outside the dashboard's display and status derivation reads this field.
+
+The two implementations are now held to one expectation table in
+`tools/audio-meter-crosscheck/`, so this class of disagreement fails CI rather
+than reaching an operator.
+
+### Audio telemetry is now measured at several points in the pipeline
+
+Previously the audio reading was taken inside the Whisper provider's worker. Two
+consequences, both fixed here:
+
+**Deployments not running Whisper had no audio telemetry at all, and the
+dashboard reported that absence as a microphone fault.** Of the four providers
+in `provider_config.template.json`, only `whisper` and `crisper_whisper` run
+whisper-streaming. On a `lumen_granite` or `debug` deployment nothing published
+an audio snapshot, and the dashboard maps "no snapshot on a live session" to a
+red **no audio reaching ASR** chip. So *every healthy session showed a red audio
+chip beside a green connectivity chip.* If your deployment runs `lumen_granite`
+or `debug`, those false red chips disappear after this upgrade and you get real
+audio health for the first time.
+
+**Audio is now measured where it arrives**, before any provider sees it, plus at
+each point downstream that can report. A session's snapshot carries a list of
+stages:
+
+| Stage | Where it is measured | What a problem here means |
+| --- | --- | --- |
+| `ingress` | audio arriving at Transcription Service, every provider | the source is not sending good audio — mic muted, unplugged, wrong input |
+| `asr_input` | after the worker decoded it into the ASR's buffer | the pipeline is losing audio — dropped chunks, decode failures, a client sending faster than the window holds |
+| `vad` | the speech the detector passed on (Whisper only) | voice-activity detection is gating too aggressively |
+
+Each stage reports cumulative seconds of audio that passed it, so the console can
+show **where** audio was lost rather than only that something is wrong. The
+session detail page gains a table of these stages.
+
+> ⚠️ **A green audio chip now asserts less than it used to.** It means the source
+> is sending good audio. It no longer implies the ASR is producing, because the
+> reading is no longer taken from a transcription result — a stalled model or an
+> unreachable upstream now shows on the **connectivity** chip and as a gap
+> between `ingress` and `asr_input`, not as an audio fault. This is deliberate:
+> audio quality and pipeline liveness are two different questions and a single
+> chip answering both answered neither reliably.
+
+Operators who had learned "red audio chip = check the microphone" can keep that
+reading — it is now more accurate, not less.
+
+### One new env var, optional
+
+`TRANSCRIPTION_AUDIO_SILENCE_THRESHOLD` sets the linear RMS level at or below
+which a metering window reads as digital silence. It **defaults to `0.01`**,
+which is the value the Whisper provider already used, so leaving it unset
+preserves current behaviour exactly and no deployment has to add it. Raise it
+only if rooms with a genuinely quiet but working mic are being flagged silent.
+
+Otherwise the audio panel still rides `TRANSCRIPTION_REDIS_URL`, the same switch
+the fleet view already uses. If the fleet view works in an environment, audio
+telemetry is being published there too. The `audio-meter.html` page itself needs
+no backend at all.
+
+### The published payload shape changed
+
+The value at `scribe:v1:audio:{sessionUid}` moved from flat level fields plus a
+top-level `vadStats` to the `stages` list described above. Both the publisher and
+the reader ship from this repo, and the key expires after 10 seconds, so a
+rolling upgrade costs at most one dashboard refresh of missing audio telemetry —
+there is nothing to migrate and no ordering requirement between services. If you
+have anything of your own reading that key directly, it needs updating.
+
+### Fleet telemetry now discards a snapshot it cannot parse (behaviour change)
+
+`/fleet` validates every snapshot it reads from the backplane against the schema
+it was published under, and **drops** any that does not match, rather than
+serving it through unchecked. That applies to all four indexes: Node Server
+instances, sessions, Transcription Service hosts and session audio.
+
+For a healthy deployment this changes nothing — every publisher in the stack
+ships from this repo, and each one is now pinned against the reader's schema by
+a test that runs the real publisher and parses its actual bytes.
+
+It matters in one situation: **a mixed-version fleet during a rolling upgrade**,
+where an older instance may publish a shape this version no longer recognises.
+Such an instance disappears from the fleet view until it is upgraded, instead of
+appearing with blank or wrong fields. That is deliberate — a card populated from
+an unvalidated payload is worse than an absent one, because nothing on screen
+says which fields are trustworthy — but it means a fleet view that looks short
+of instances mid-upgrade is reporting a real version skew rather than an outage.
+
+Dropped snapshots are logged by `admin-server` at `warn`, one line per index per
+minute, naming the index, a sample of the affected members and what specifically
+failed to match:
+
+```
+dropped fleet telemetry snapshots that failed to parse
+  indexKey=scribe:v1:transcription-hosts:index droppedCount=3
+  droppedSample=[{ member: "ts-a", reason: "schema-mismatch",
+                   errors: ["/workers/0/contextIds/0: must be integer"] }]
+```
+
+A steady stream of those lines after an upgrade has finished is a genuine
+publisher/reader mismatch and worth reporting; during a rolling upgrade it is
+expected and stops on its own.
+
+### Where the page moved
+
+The standalone meter page moved from `apps/monitoring-sidecar/public/` to the
+shared `libs/audio-meter-page/` directory so both the sidecar and admin-webapp
+serve the same file. The sidecar's `/api/monitoring/v1/audio-meter` route keeps
+working unchanged for in-cluster/port-forward use; `AUDIO_METER_PATH`'s default
+updated to match the new location, so an override is only needed if a deployment
+had set it explicitly.
+
+---
+
 ## Unreleased — every container reports what it was built from
 
 The admin console's **Deployment Check** page gained a **Deployed versions**

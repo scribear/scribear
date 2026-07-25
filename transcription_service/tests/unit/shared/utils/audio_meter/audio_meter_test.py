@@ -107,7 +107,16 @@ class TestKnownLevels:
 
 
 class TestClipping:
-    """Gate: full-scale square wave -> clipping_pct near 1.0; quiet sine -> near 0."""
+    """
+    Gate: full-scale square wave -> clipping_pct near 1.0; quiet sine -> near 0.
+
+    Clipping is "at or above CLIP_THRESHOLD in a run of at least CLIP_MIN_RUN
+    consecutive samples", matching the standalone meter page's rule so the two
+    surfaces cannot contradict each other (`tools/audio-meter-crosscheck/`).
+    The run requirement is the load-bearing part: a waveform that merely touches
+    full scale is not clipped, and charging it as clipped used to put a red
+    "clipping" chip on the dashboard for undistorted audio.
+    """
 
     def test_full_scale_square_wave_clips_almost_entirely(self):
         """A full-scale square wave clips on almost every sample."""
@@ -134,6 +143,93 @@ class TestClipping:
         # Assert
         assert stats is not None
         assert stats.clipping_pct == pytest.approx(0.0, abs=1e-6)
+
+    def test_clean_full_scale_sine_is_not_clipped(self):
+        """
+        A sine that touches full scale is not clipping.
+
+        At 16 kHz a 1 kHz sine reaches 1.0 at one isolated sample per crest -
+        its neighbours sit at 0.92 - so there is never a run at the rail. This
+        is undistorted audio and must read as such; the old definition charged
+        it 12.5%, past the dashboard's 1% crit threshold.
+        """
+        # Arrange
+        meter = AudioMeter(sample_rate=SAMPLE_RATE)
+
+        # Act - amplitude exactly 1.0, i.e. -3.01 dBFS RMS.
+        meter.append(sine_at_dbfs(-3.0103, freq=1000.0))
+        stats = meter.snapshot()
+
+        # Assert
+        assert stats is not None
+        assert stats.peak_dbfs == pytest.approx(0.0, abs=0.1)
+        assert stats.clipping_pct == pytest.approx(0.0, abs=1e-6)
+
+    def test_hard_limited_sine_is_clipped(self):
+        """
+        A sine driven into a limiter is clipping.
+
+        The positive case the run requirement must not break: shaved crests are
+        flat runs at the rail, so they are charged.
+        """
+        # Arrange
+        meter = AudioMeter(sample_rate=SAMPLE_RATE)
+        overdriven = np.clip(
+            1.5 * sine_at_dbfs(-3.0103, freq=1000.0).astype(np.float64),
+            -1.0,
+            1.0,
+        ).astype(np.float32)
+
+        # Act
+        meter.append(overdriven)
+        stats = meter.snapshot()
+
+        # Assert
+        assert stats is not None
+        assert stats.clipping_pct > 0.5
+
+    def test_isolated_full_scale_samples_are_not_charged(self):
+        """
+        Single-sample spikes at full scale do not count.
+
+        A decoder glitch or an impulse can put one sample at the rail; that is
+        not clipping, and CLIP_MIN_RUN is what keeps it from reading as such.
+        """
+        # Arrange
+        meter = AudioMeter(sample_rate=SAMPLE_RATE)
+        quiet = sine_at_dbfs(-30.0).copy()
+        quiet[::480] = 1.0  # one spike every 30 ms, never two in a row
+
+        # Act
+        meter.append(quiet)
+        stats = meter.snapshot()
+
+        # Assert - the spikes still move the peak, but nothing is charged.
+        assert stats is not None
+        assert stats.peak_dbfs == pytest.approx(0.0, abs=1e-6)
+        assert stats.clipping_pct == pytest.approx(0.0, abs=1e-6)
+
+    def test_a_run_of_exactly_the_minimum_length_is_charged(self):
+        """
+        CLIP_MIN_RUN is inclusive: a run of exactly 2 counts, both samples.
+
+        Pins the boundary in both directions - the run of 2 is charged and the
+        adjacent run of 1 is not - because an off-by-one here either misses real
+        clipping or reinstates the false positive this rule exists to remove.
+        """
+        # Arrange - a run of 2 at the rail, then an isolated one.
+        meter = AudioMeter(sample_rate=SAMPLE_RATE, window_sec=8 / SAMPLE_RATE)
+        window = np.array(
+            [0.0, 1.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0], dtype=np.float32
+        )
+
+        # Act
+        meter.append(window)
+        stats = meter.snapshot()
+
+        # Assert - 2 of 8 samples, not 3.
+        assert stats is not None
+        assert stats.clipping_pct == pytest.approx(2 / 8)
 
 
 class TestSilence:

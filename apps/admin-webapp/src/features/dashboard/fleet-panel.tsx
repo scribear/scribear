@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
+import HelpOutlineIcon from '@mui/icons-material/HelpOutlined';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -11,30 +12,46 @@ import FormControl from '@mui/material/FormControl';
 import Grid from '@mui/material/Grid';
 import IconButton from '@mui/material/IconButton';
 import InputLabel from '@mui/material/InputLabel';
+import Link from '@mui/material/Link';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
 import type { SelectChangeEvent } from '@mui/material/Select';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
 import { useNavigate } from 'react-router-dom';
 
+import { OpensInNewTab } from '#src/components/opens-in-new-tab';
 import type { MergedProvider } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
+import { AUDIO_METER_COPY, audioMeterHref } from '#src/lib/audio-meter-url';
 import { buildJoinUrl } from '#src/lib/join-url';
 import { useToast } from '#src/lib/toast-context';
 
-import type { FleetFilter, FleetRow, FleetStatus } from './fleet-status';
+import { AudioMeterBar, PEAK_CONVENTION } from './audio-meter-bar';
+import type {
+  AudioStatus,
+  FleetFilter,
+  FleetRow,
+  FleetStatus,
+  StatusColor,
+} from './fleet-status';
 import {
+  AUDIO_STATUS_COLOR,
+  audioBySession,
+  deriveAudioStatus,
   deriveSessionStatus,
+  formatClippingPct,
+  headlineStage,
+  headlineVadStats,
   pipelineP95,
   setProviderKey,
+  sourceThroughputSeconds,
   useFilteredSessions,
 } from './fleet-status';
 import { useFleet } from './use-fleet';
-
-type StatusColor = 'success' | 'warning' | 'error' | 'default';
 
 const STATUS_COLOR: Record<FleetStatus, StatusColor> = {
   good: 'success',
@@ -50,6 +67,25 @@ const PROVIDER_STATUS_COLOR: Record<MergedProvider['status'], StatusColor> = {
 };
 
 const STATUS_ORDER: FleetStatus[] = ['crit', 'warn', 'good', 'idle'];
+const AUDIO_STATUS_ORDER: AudioStatus[] = ['crit', 'warn', 'unknown', 'good'];
+
+/**
+ * Audio conventions the roll-up must label on the surface
+ * (PLAN-MONITORING-DASHBOARD.md §60), matching the standalone page's wording
+ * (`audio-meter.html`'s "Plain: -3.01 dBFS" reference option).
+ *
+ * A plain JS string, not a JSX string attribute: JSX attribute literals do not
+ * process `\u`/`\n` escapes, so writing this inline renders them verbatim.
+ */
+const AUDIO_CONVENTIONS_TOOLTIP =
+  'Levels are RMS over a 10 s window, plain full-scale reference (a full-scale sine reads −3.01 dBFS RMS; 0 dBFS under AES17). ' +
+  'Noise floor is a 10th-percentile RMS over 1 s sub-windows, not an instantaneous floor. ' +
+  `${PEAK_CONVENTION} ` +
+  'Clipping counts samples at or above 0.99 of full scale in runs of at least two. ' +
+  'VAD fields show — when not measured, never 0. ' +
+  'Levels are read at the measurement point closest to the source, so a green audio ' +
+  'chip says the source is sending good audio — a stalled ASR shows on the ' +
+  'connectivity chip and in the per-stage gap on the session page, not here.';
 
 /** Merged provider health, one chip per provider (`§B.4`'s "provider row"). */
 const ProviderStatusRow = ({ providers }: { providers: MergedProvider[] }) => {
@@ -91,6 +127,7 @@ interface FleetFilterBarProps {
   onChange: (filter: FleetFilter) => void;
   providerKeys: string[];
   counts: Record<FleetStatus, number>;
+  audioCounts: Record<AudioStatus, number>;
 }
 
 const FleetFilterBar = ({
@@ -98,6 +135,7 @@ const FleetFilterBar = ({
   onChange,
   providerKeys,
   counts,
+  audioCounts,
 }: FleetFilterBarProps) => {
   const toggleStatus = (status: FleetStatus) => {
     const current = filter.status ?? [];
@@ -105,6 +143,14 @@ const FleetFilterBar = ({
       ? current.filter((s) => s !== status)
       : [...current, status];
     onChange({ ...filter, status: next });
+  };
+
+  const toggleAudioStatus = (status: AudioStatus) => {
+    const current = filter.audioStatus ?? [];
+    const next = current.includes(status)
+      ? current.filter((s) => s !== status)
+      : [...current, status];
+    onChange({ ...filter, audioStatus: next });
   };
 
   return (
@@ -118,17 +164,41 @@ const FleetFilterBar = ({
         mb: 2,
       }}
     >
-      {STATUS_ORDER.map((status) => (
-        <Chip
-          key={status}
-          label={`${status} (${String(counts[status])})`}
-          color={STATUS_COLOR[status]}
-          variant={filter.status?.includes(status) ? 'filled' : 'outlined'}
-          onClick={() => {
-            toggleStatus(status);
-          }}
-        />
-      ))}
+      {STATUS_ORDER.map((status) => {
+        const selected = filter.status?.includes(status) ?? false;
+        return (
+          <Chip
+            key={status}
+            label={`${status} (${String(counts[status])})`}
+            color={STATUS_COLOR[status]}
+            variant={selected ? 'filled' : 'outlined'}
+            onClick={() => {
+              toggleStatus(status);
+            }}
+            aria-pressed={selected}
+          />
+        );
+      })}
+      <Box
+        component="span"
+        aria-hidden="true"
+        sx={{ width: 1, height: 0, display: 'block', flexBasis: '100%' }}
+      />
+      {AUDIO_STATUS_ORDER.map((status) => {
+        const selected = filter.audioStatus?.includes(status) ?? false;
+        return (
+          <Chip
+            key={`audio-${status}`}
+            label={`audio: ${status} (${String(audioCounts[status])})`}
+            color={AUDIO_STATUS_COLOR[status]}
+            variant={selected ? 'filled' : 'outlined'}
+            onClick={() => {
+              toggleAudioStatus(status);
+            }}
+            aria-pressed={selected}
+          />
+        );
+      })}
       <FormControl size="small" sx={{ minWidth: 160 }}>
         <InputLabel id="fleet-provider-filter-label">Provider</InputLabel>
         <Select
@@ -160,10 +230,24 @@ const FleetFilterBar = ({
   );
 };
 
-const SessionCard = ({ session, status, event }: FleetRow) => {
+const SessionCard = ({
+  session,
+  status,
+  event,
+  audio,
+  audioStatus,
+}: FleetRow) => {
   const navigate = useNavigate();
   const { showError } = useToast();
   const p95 = pipelineP95(session);
+  // One shared choice of "the" reading (§12.6): the lowest-depth stage carrying
+  // levels, the same stage `deriveAudioStatus` classified to produce the chip
+  // above. Picking it here independently would let the bar and the chip
+  // disagree on a graph with several metering points.
+  const headline = audio === undefined ? undefined : headlineStage(audio);
+  const vadStats = audio === undefined ? null : headlineVadStats(audio);
+  const throughputSeconds =
+    audio === undefined ? null : sourceThroughputSeconds(audio);
 
   const handleOpenClient = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -210,6 +294,7 @@ const SessionCard = ({ session, status, event }: FleetRow) => {
           <CardContent>
             <Stack
               direction="row"
+              spacing={1}
               sx={{
                 justifyContent: 'space-between',
                 alignItems: 'flex-start',
@@ -221,7 +306,19 @@ const SessionCard = ({ session, status, event }: FleetRow) => {
               >
                 {session.sessionUid}
               </Typography>
-              <Chip size="small" label={status} color={STATUS_COLOR[status]} />
+              <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
+                <Chip
+                  size="small"
+                  label={status}
+                  color={STATUS_COLOR[status]}
+                />
+                <Chip
+                  size="small"
+                  label={`audio: ${audioStatus}`}
+                  color={AUDIO_STATUS_COLOR[audioStatus]}
+                  variant="outlined"
+                />
+              </Stack>
             </Stack>
             <Typography
               variant="caption"
@@ -269,8 +366,171 @@ const SessionCard = ({ session, status, event }: FleetRow) => {
             )}
           </CardContent>
         </CardActionArea>
+        {/*
+          The audio strip sits OUTSIDE the CardActionArea deliberately. ARIA
+          treats the content of a `button` as presentational, so a
+          `role="progressbar"` nested inside one has its `aria-valuenow` /
+          `aria-valuetext` dropped — and for this component the value *is* the
+          information (SC 1.4.1: never color or graphic alone). Keeping it a
+          sibling costs click-to-navigate on the strip itself and buys back the
+          meter's accessible value, plus the ability to select the dBFS text.
+        */}
+        <CardContent sx={{ pt: 0 }}>
+          {audio === undefined ? (
+            <Typography variant="caption" color="error">
+              {session.upstreamState === 'OPEN'
+                ? 'no audio reaching ASR'
+                : 'no audio telemetry'}
+            </Typography>
+          ) : headline === undefined ? (
+            /*
+              A snapshot arrived, but no measurement point in it reports levels
+              — a provider that counts throughput only (§12.3: `debug` reports
+              `asr_input` with seconds and no meter). Saying so is the whole
+              point: an empty strip reads as "nothing to report" and a bar at
+              rest reads as silence, and both are the false-green §12.8 point 1
+              forbids. The seconds count, when there is one, is the honest
+              signal available here — audio is demonstrably flowing.
+            */
+            <Typography variant="caption" color="text.secondary">
+              metering unavailable for this provider
+              {throughputSeconds !== null &&
+                ` · ${throughputSeconds.toFixed(1)} s of audio counted`}
+            </Typography>
+          ) : (
+            <>
+              <AudioMeterBar
+                rmsDbfs={headline.levels.rmsDbfs}
+                peakDbfs={headline.levels.peakDbfs}
+                status={audioStatus}
+                label={`Audio level for session ${session.sessionUid} at ${headline.label}`}
+              />
+              <Stack
+                direction="row"
+                spacing={0.5}
+                useFlexGap
+                sx={{ flexWrap: 'wrap', mt: 0.5 }}
+              >
+                {headline.levels.silence && (
+                  <Chip size="small" label="silent" color="error" />
+                )}
+                {headline.levels.clippingPct > 0 && (
+                  <Chip
+                    size="small"
+                    label={`clipping ${formatClippingPct(headline.levels.clippingPct)}`}
+                    color="error"
+                  />
+                )}
+                {vadStats !== null &&
+                  vadStats.vadEnabled &&
+                  vadStats.speechActiveRatio !== null && (
+                    <Chip
+                      size="small"
+                      label={`speech ${String(Math.round(vadStats.speechActiveRatio * 100))}%`}
+                      variant="outlined"
+                    />
+                  )}
+              </Stack>
+            </>
+          )}
+        </CardContent>
       </Card>
     </Grid>
+  );
+};
+
+/**
+ * Fleet audio roll-up: a stat row an operator scans first — sessions silent /
+ * clipping / no-telemetry / OK. When `sessionAudio` is empty across the board,
+ * this is where the "pipeline metering unavailable — use the standalone meter"
+ * state and the Phase-0 link live (PLAN-MONITORING-DASHBOARD.md §6.238).
+ */
+const FleetAudioRollup = ({
+  sessions,
+  audioMap,
+}: {
+  sessions: FleetRow['session'][];
+  audioMap: Map<string, FleetRow['audio']>;
+}) => {
+  const counts = useMemo(() => {
+    const result: Record<AudioStatus, number> = {
+      good: 0,
+      warn: 0,
+      crit: 0,
+      unknown: 0,
+    };
+    for (const session of sessions) {
+      const audio = audioMap.get(session.sessionUid);
+      result[deriveAudioStatus(audio, session)]++;
+    }
+    return result;
+  }, [sessions, audioMap]);
+
+  // When no audio telemetry exists at all, point at the standalone meter.
+  //
+  // Keyed on the map being empty, NOT on the derived counts: `deriveAudioStatus`
+  // maps "no snapshot + upstreamState OPEN" to `crit` (C1), so a count-based
+  // test could never fire in the one environment this state exists for — an
+  // environment with live sessions and no publisher, where every session is
+  // crit. That is also why the roll-up stays rendered below rather than being
+  // replaced: the operator still needs the counts, they just need to know the
+  // crits mean "nothing is publishing here", not "twenty mics died at once".
+  const noAudioTelemetry = sessions.length > 0 && audioMap.size === 0;
+
+  return (
+    <>
+      {noAudioTelemetry && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Pipeline audio metering unavailable — no audio snapshots are being
+          published for any session, so the audio statuses below reflect the
+          missing publisher rather than the rooms.{' '}
+          <Link
+            href={audioMeterHref()}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open the standalone audio meter
+            <OpensInNewTab />
+          </Link>
+          . {AUDIO_METER_COPY}
+        </Alert>
+      )}
+
+      <Stack
+        direction="row"
+        spacing={1}
+        useFlexGap
+        sx={{ flexWrap: 'wrap', mb: 2 }}
+        aria-live="polite"
+        aria-label="Fleet audio summary"
+      >
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ alignSelf: 'center' }}
+        >
+          Audio:
+        </Typography>
+        {AUDIO_STATUS_ORDER.map((status) => (
+          <Chip
+            key={`rollup-${status}`}
+            size="small"
+            label={`${status}: ${String(counts[status])}`}
+            color={AUDIO_STATUS_COLOR[status]}
+            variant="outlined"
+          />
+        ))}
+        <Tooltip title={AUDIO_CONVENTIONS_TOOLTIP}>
+          <IconButton
+            size="small"
+            aria-label="Audio conventions"
+            sx={{ alignSelf: 'center' }}
+          >
+            <HelpOutlineIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Stack>
+    </>
   );
 };
 
@@ -286,7 +546,8 @@ export const FleetPanel = () => {
   });
 
   const sessions = snapshot?.sessions ?? [];
-  const rows = useFilteredSessions(sessions, sessionEvents, filter);
+  const audioMap = useMemo(() => audioBySession(snapshot), [snapshot]);
+  const rows = useFilteredSessions(sessions, sessionEvents, audioMap, filter);
 
   // Unfiltered counts, so the status chips reflect the whole fleet even while
   // a status filter narrows the grid below them.
@@ -296,10 +557,17 @@ export const FleetPanel = () => {
     crit: 0,
     idle: 0,
   };
+  const audioCounts: Record<AudioStatus, number> = {
+    good: 0,
+    warn: 0,
+    crit: 0,
+    unknown: 0,
+  };
   for (const session of sessions) {
     counts[
       deriveSessionStatus(session, sessionEvents.get(session.sessionUid))
     ]++;
+    audioCounts[deriveAudioStatus(audioMap.get(session.sessionUid), session)]++;
   }
 
   const providerKeys = [...new Set(sessions.map((s) => s.providerKey))].sort();
@@ -351,11 +619,13 @@ export const FleetPanel = () => {
         </Typography>
       ) : (
         <>
+          <FleetAudioRollup sessions={sessions} audioMap={audioMap} />
           <FleetFilterBar
             filter={filter}
             onChange={setFilter}
             providerKeys={providerKeys}
             counts={counts}
+            audioCounts={audioCounts}
           />
           {rows.length === 0 ? (
             <Typography

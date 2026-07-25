@@ -4,6 +4,7 @@ import type {
   FleetEvent,
   NodeSnapshot,
   ProviderHealth,
+  SessionAudioSnapshot,
   SessionSnapshot,
   TelemetryRedisClient,
   TranscriptionHostSnapshot,
@@ -14,10 +15,12 @@ import {
   SESSION_INDEX_KEY,
   TRANSCRIPTION_HOST_INDEX_KEY,
   TRANSCRIPTION_HOST_TTL_MS,
+  TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
   createTelemetryRedisClient,
   nodeSnapshotKey,
   sessionSnapshotKey,
   transcriptionHostSnapshotKey,
+  transcriptionSessionAudioKey,
 } from '@scribear/scribear-redis';
 
 import type { FleetSnapshot } from '#src/server/shared/services/fleet-telemetry.service.js';
@@ -181,6 +184,7 @@ describe('Fleet route wired to a real fleet backplane', () => {
         sessions: [],
         transcriptionHosts: [],
         providers: [],
+        sessionAudio: [],
       });
     });
   });
@@ -222,7 +226,10 @@ describe('Fleet route wired to a real fleet backplane', () => {
       await redis.zadd(NODE_INDEX_KEY, now, node.nodeInstanceId);
 
       const session: SessionSnapshot = {
-        sessionUid: '00000000-0000-0000-0000-0000000fleet',
+        // Hex, unlike the readable `...0000000fleet` this used to be:
+        // `sessionUid` declares `format: 'uuid'`, typebox enforces it, and
+        // the sessions index hard-drops what fails validation now.
+        sessionUid: '00000000-0000-0000-0000-00000000f1ee',
         providerKey: 'whisper',
         sourceCount: 1,
         subscriberCount: 1,
@@ -302,6 +309,138 @@ describe('Fleet route wired to a real fleet backplane', () => {
           (h) => h.transcriptionHost === staleHost,
         ),
       ).toBe(false);
+    });
+
+    it('reads a published audio stage graph from the audio index', async () => {
+      // Arrange — published directly, bypassing the publisher, to exercise the
+      // reader's contract with the key schema. Two points, so both nullability
+      // directions cross the wire in one read: a metered source that runs no
+      // detector (`vad: null`, the old top-level `vadStats: null` case) and a
+      // detector that meters nothing (`levels: null`).
+      const now = Date.now();
+      const audio: SessionAudioSnapshot = {
+        updatedAt: now,
+        stages: [
+          {
+            stage: 'ingress',
+            label: 'Source ingress',
+            depth: 1,
+            inputs: [],
+            levels: {
+              rmsDbfs: -21.3,
+              peakDbfs: -9.8,
+              clippingPct: 0,
+              silence: false,
+              noiseFloorDbfs: -62.0,
+            },
+            vad: null,
+            audioSeconds: 83.5,
+          },
+          {
+            stage: 'vad',
+            label: 'VAD (Silero)',
+            depth: 2,
+            inputs: ['ingress'],
+            levels: null,
+            vad: {
+              vadEnabled: true,
+              speechActiveRatio: 0.55,
+              segmentCount: 5,
+              meanSegmentDurationSec: 0.9,
+              speechToPauseRatio: 1.2,
+              snrDb: 22.1,
+            },
+            audioSeconds: 41.0,
+          },
+        ],
+        sessionUid: '00000000-0000-0000-0000-000audio0001',
+        roomUid: null,
+        transcriptionHost: 'fleet-test-ts',
+      };
+      await redis.set(
+        transcriptionSessionAudioKey(audio.sessionUid),
+        JSON.stringify(audio),
+      );
+      await redis.zadd(
+        TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
+        now,
+        audio.sessionUid,
+      );
+
+      // Act
+      const { body } = await fetchFleet();
+
+      // Assert — round-trips through validation and the envelope unchanged,
+      // `depth` and `inputs` included: they are what place a point in the
+      // pipeline, so the graph is only readable if serialization keeps them.
+      expect(body.data?.sessionAudio).toEqual([audio]);
+      expect(body.data?.sessionAudio[0]?.stages[1]?.inputs).toEqual([
+        'ingress',
+      ]);
+    });
+
+    it('drops an audio value the schema rejects rather than 503ing the whole fleet', async () => {
+      // Arrange — the flat pre-stage-graph payload, which is what a publisher
+      // that has not been rolled forward writes. §12.4 ships no compatibility
+      // shim, so this has to be rejected; a healthy session published beside it
+      // must still be served, or one stale publisher would cost the operator
+      // every session's audio telemetry rather than its own.
+      const now = Date.now();
+      const healthyUid = '00000000-0000-0000-0000-000audio0003';
+      const healthy: SessionAudioSnapshot = {
+        updatedAt: now,
+        stages: [
+          {
+            stage: 'asr_input',
+            label: 'ASR input (worker decode)',
+            depth: 1,
+            inputs: [],
+            levels: null,
+            vad: null,
+            audioSeconds: 12.5,
+          },
+        ],
+        sessionUid: healthyUid,
+        roomUid: null,
+        transcriptionHost: 'fleet-test-ts',
+      };
+      await redis.set(
+        transcriptionSessionAudioKey(healthyUid),
+        JSON.stringify(healthy),
+      );
+      await redis.zadd(TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY, now, healthyUid);
+
+      const staleShapeUid = '00000000-0000-0000-0000-000audio0002';
+      await redis.set(
+        transcriptionSessionAudioKey(staleShapeUid),
+        JSON.stringify({
+          rmsDbfs: -21.3,
+          peakDbfs: -9.8,
+          clippingPct: 0,
+          silence: false,
+          noiseFloorDbfs: -62.0,
+          updatedAt: now,
+          vadStats: null,
+          sessionUid: staleShapeUid,
+          roomUid: null,
+          transcriptionHost: 'fleet-test-ts',
+        }),
+      );
+      await redis.zadd(
+        TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
+        now,
+        staleShapeUid,
+      );
+
+      // Act
+      const { res, body } = await fetchFleet();
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      expect(
+        body.data?.sessionAudio.some((a) => a.sessionUid === staleShapeUid),
+      ).toBe(false);
+      expect(body.data?.sessionAudio).toContainEqual(healthy);
     });
   });
 

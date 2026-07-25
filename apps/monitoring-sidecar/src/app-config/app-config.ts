@@ -104,10 +104,14 @@ const CONFIG_SCHEMA = Type.Object({
 
   /**
    * The standalone audio meter page (A4), served as a convenience by the
-   * sidecar. Relative to the process working directory, which is the package
-   * root both in the container and under `npm run dev`.
+   * sidecar. The page lives in the shared `libs/audio-meter-page/` directory so
+   * admin-webapp can serve the same file through its own nginx without a second
+   * copy; this path is relative to the process working directory, which is the
+   * repo root in dev and the package's WORKDIR in the container.
    */
-  AUDIO_METER_PATH: Type.String({ default: 'public/audio-meter.html' }),
+  AUDIO_METER_PATH: Type.String({
+    default: '../../libs/audio-meter-page/audio-meter.html',
+  }),
 
   // Synthetic canary (A2)
   /**

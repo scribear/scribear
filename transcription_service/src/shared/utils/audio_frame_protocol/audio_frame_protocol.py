@@ -36,6 +36,13 @@ SAFP_VERSION = 1
 # Field keys (see SafpFieldKey in the TypeScript implementation)
 FIELD_KEY_SENT_AT = 1
 FIELD_KEY_CHUNK_ID = 2
+# Depth in the audio-telemetry graph at which the *sender* already measured
+# this audio, so the transcription service's own ingress stage can continue
+# that graph instead of restarting it at depth 1 (plan §12.2). No producer
+# writes it yet - node-server is the intended one, since it is the first hop
+# that could meter before the service sees the frame - but the decoder has to
+# understand it before a producer can start sending it to a deployed reader.
+FIELD_KEY_STAGE_DEPTH = 3
 
 # Wire types (see SafpWireType in the TypeScript implementation)
 WIRE_UINT = 0x01
@@ -47,6 +54,11 @@ _HEADER_PREFIX_BYTES = 4  # magic(2) + version(1) + field_count(1)
 _CRC_BYTES = 4
 _FIELD_HEADER_BYTES = 4  # key(1) + wire_type(1) + length(2)
 _MAX_FIELD_LEN = 0xFFFF
+# Widest WIRE_UINT value this decoder will interpret. Longer is not an error
+# in the envelope - the field is simply kept as an unknown one, the same
+# treatment a key from a newer sender gets, so a future widening of the type
+# cannot make an older reader reject the frame.
+_MAX_UINT_BYTES = 8
 
 
 class AudioFrameError(Exception):
@@ -62,6 +74,8 @@ class DecodedAudioFrame:
         version         - Envelope version byte
         chunk_id        - Correlation id, or None if absent
         sent_at         - Node-domain send timestamp in ms, or None if absent
+        stage_depth     - Audio-telemetry graph depth the sender measured at,
+                          or None if the sender does not meter
         audio           - Raw audio payload bytes
         unknown_fields  - (key, wire_type, value) tuples not recognised by
                           this decoder, preserved for forward compatibility
@@ -71,11 +85,15 @@ class DecodedAudioFrame:
     chunk_id: Optional[str]
     sent_at: Optional[float]
     audio: bytes
+    stage_depth: Optional[int] = None
     unknown_fields: List[Tuple[int, int, bytes]] = field(default_factory=list)
 
 
 def encode_audio_frame(
-    chunk_id: str, audio: bytes, sent_at: Optional[float] = None
+    chunk_id: str,
+    audio: bytes,
+    sent_at: Optional[float] = None,
+    stage_depth: Optional[int] = None,
 ) -> bytes:
     """
     Encode an audio chunk and its metadata into a SAFP frame.
@@ -84,6 +102,10 @@ def encode_audio_frame(
         chunk_id    - Correlation id, always written
         audio       - Raw audio payload bytes
         sent_at     - Optional node-domain send timestamp in ms
+        stage_depth - Optional audio-telemetry graph depth the sender measured
+                        at. Written as a single-byte WIRE_UINT: a pipeline deep
+                        enough to overflow one byte is not a pipeline anyone is
+                        drawing.
 
     Returns:
         The encoded frame bytes.
@@ -106,6 +128,13 @@ def encode_audio_frame(
             "<BBH", FIELD_KEY_SENT_AT, WIRE_FLOAT64, len(value)
         )
         fields += value
+        field_count += 1
+
+    if stage_depth is not None:
+        if not 0 <= stage_depth <= 0xFF:
+            raise AudioFrameError(f"stage_depth out of range ({stage_depth})")
+        fields += struct.pack("<BBH", FIELD_KEY_STAGE_DEPTH, WIRE_UINT, 1)
+        fields += struct.pack("<B", stage_depth)
         field_count += 1
 
     body = bytearray()
@@ -154,6 +183,7 @@ def decode_audio_frame(data: bytes) -> DecodedAudioFrame:
     offset = _HEADER_PREFIX_BYTES
     chunk_id: Optional[str] = None
     sent_at: Optional[float] = None
+    stage_depth: Optional[int] = None
     unknown_fields: List[Tuple[int, int, bytes]] = []
 
     for _ in range(field_count):
@@ -172,6 +202,12 @@ def decode_audio_frame(data: bytes) -> DecodedAudioFrame:
             chunk_id = value.decode("utf-8", errors="replace")
         elif key == FIELD_KEY_SENT_AT and length == 8:
             (sent_at,) = struct.unpack("<d", value)
+        elif key == FIELD_KEY_STAGE_DEPTH and 1 <= length <= _MAX_UINT_BYTES:
+            # Little-endian over whatever width the sender chose, rather than a
+            # fixed uint8: WIRE_UINT is self-describing by length, and pinning
+            # this reader to one byte would make a sender that widened the
+            # field look like it had sent an unknown one.
+            stage_depth = int.from_bytes(value, "little")
         else:
             unknown_fields.append((key, wire_type, value))
 
@@ -183,5 +219,6 @@ def decode_audio_frame(data: bytes) -> DecodedAudioFrame:
         chunk_id=chunk_id,
         sent_at=sent_at,
         audio=audio,
+        stage_depth=stage_depth,
         unknown_fields=unknown_fields,
     )

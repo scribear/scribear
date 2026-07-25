@@ -7,6 +7,7 @@ import {
 } from '@scribear/node-server-schema';
 
 import { SNAPSHOT_ENVELOPE_PROPERTIES } from './snapshot-envelope.schema.js';
+import { type SnapshotParseResult, parseSnapshot } from './snapshot-parse.js';
 
 /**
  * One live session as published to the backplane.
@@ -59,3 +60,33 @@ export const NODE_SNAPSHOT_SCHEMA = Type.Object({
 
 /** Value of a Node Server instance key. @see {@link NODE_SNAPSHOT_SCHEMA} */
 export type NodeSnapshot = Static<typeof NODE_SNAPSHOT_SCHEMA>;
+
+/**
+ * Validating parser for a session key's value.
+ *
+ * Lives beside the schema for the same reason `parseSessionAudioSnapshot` does:
+ * enforcement belongs with the definition, not re-implemented per consumer.
+ *
+ * Unlike the session-audio schema, this one has never been checked against its
+ * publisher, so the reader currently validates with it in log-only mode. It is
+ * the lower-risk of the two states, though: `node-server`'s publisher declares
+ * `const record: SessionSnapshot` against this very type, so the compiler
+ * already holds the shape and a mismatch here means a stale deployed version
+ * rather than a mirror that drifted.
+ */
+export function parseSessionSnapshot(
+  raw: string,
+): SnapshotParseResult<SessionSnapshot> {
+  return parseSnapshot(SESSION_SNAPSHOT_SCHEMA, raw);
+}
+
+/**
+ * Validating parser for a node-instance key's value. Same standing as
+ * {@link parseSessionSnapshot}: compiler-backed at the publisher
+ * (`const instance: NodeSnapshot`), not yet checked end to end.
+ */
+export function parseNodeSnapshot(
+  raw: string,
+): SnapshotParseResult<NodeSnapshot> {
+  return parseSnapshot(NODE_SNAPSHOT_SCHEMA, raw);
+}

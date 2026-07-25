@@ -1,10 +1,10 @@
-import { describe, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { describe, expect, vi } from 'vitest';
 
+import { RequireAuth } from '#src/components/require-auth';
 import type { AuthContextValue } from '#src/features/auth/auth-context';
 import { useAuth } from '#src/features/auth/auth-context';
-import { RequireAuth } from '#src/components/require-auth';
 
 vi.mock('#src/features/auth/auth-context', () => ({
   useAuth: vi.fn(),

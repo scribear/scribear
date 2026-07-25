@@ -1,5 +1,9 @@
 """
-Unit tests for TranscriptionStreamController
+Unit tests for TranscriptionStreamController's protocol handling
+
+Audio telemetry publishing lives in
+`transcription_stream_controller_audio_test.py`; the fixtures both use are in
+`conftest.py`.
 """
 
 # pylint: disable=protected-access
@@ -7,28 +11,17 @@ Unit tests for TranscriptionStreamController
 # Need to call WebsocketHandler protected methods to simulate websocket messages
 
 import asyncio
-import json
-from os import path
 from unittest.mock import MagicMock
 
 import pytest
-import pytest_asyncio
 from pydantic import BaseModel, ValidationError
-from pytest_mock import MockerFixture
-from starlette.websockets import WebSocket, WebSocketState
 
-from src.shared.config import Config
-from src.shared.logger import Logger
-from src.shared.utils.audio_frame_protocol import encode_audio_frame
-from src.shared.utils.audio_meter import AudioLevelStats
 from src.transcription_provider_interface import (
     TranscriptionClientError,
     TranscriptionResult,
     TranscriptionSequence,
     TranscriptionSessionInterface,
-    VadStats,
 )
-from src.webserver.features.telemetry import RedisSessionAudioPublisher
 from src.webserver.features.transcription_stream import (
     TranscriptionStreamController,
 )
@@ -36,171 +29,23 @@ from src.webserver.features.transcription_stream.transcription_stream_messages i
     TranscriptMessage,
     TranscriptSequence,
 )
-from src.webserver.shared.auth_service import AuthService
 from src.webserver.shared.metrics import MetricsRegistry
-from src.webserver.shared.transcription_provider_registry import (
-    TranscriptionProviderRegistry,
+
+from .conftest import (
+    API_KEY,
+    AUDIO_CHUNK,
+    AUDIO_CHUNK_ID,
+    AUDIO_FRAME,
+    INIT_TIMEOUT_SEC,
+    PROVIDER_UID,
+    ROOM_UID,
+    SESSION_CONFIG,
+    SESSION_UID,
+    VALID_AUTH_MESSAGE,
+    VALID_CONFIG_MESSAGE,
+    VALID_CONFIG_MESSAGE_WITH_UIDS,
+    MockTranscriptionSession,
 )
-
-AUDIO_DIR = path.normpath(
-    path.join(
-        __file__,
-        "..",
-        "..",
-        "..",
-        "..",
-        "..",
-        "..",
-        "..",
-        "test_audio_files/musical_chords",
-    )
-)
-with open(path.join(AUDIO_DIR, "mono_f64le.pcm"), "rb") as f:
-    AUDIO_CHUNK = f.read()
-
-# The controller receives SAFP-framed binary; wrap the raw audio the way the
-# node server would before forwarding.
-AUDIO_CHUNK_ID = "test-chunk"
-AUDIO_FRAME = encode_audio_frame(AUDIO_CHUNK_ID, AUDIO_CHUNK)
-
-INIT_TIMEOUT_SEC = 0.1
-
-PROVIDER_UID = "TEST_PROVIDER_UID"
-API_KEY = "secret-test-key-12345"
-SESSION_CONFIG = "SESSION_CONFIG"
-SESSION_UID = "session-1"
-ROOM_UID = "room-1"
-
-VALID_AUTH_MESSAGE = json.dumps({"type": "auth", "api_key": API_KEY})
-VALID_CONFIG_MESSAGE = json.dumps({"type": "config", "config": SESSION_CONFIG})
-VALID_CONFIG_MESSAGE_WITH_UIDS = json.dumps(
-    {
-        "type": "config",
-        "config": SESSION_CONFIG,
-        "session_uid": SESSION_UID,
-        "room_uid": ROOM_UID,
-    }
-)
-
-
-class MockTranscriptionSession(TranscriptionSessionInterface):
-    """
-    Dummy transcription session interface implementation for testing
-    """
-
-    def handle_audio_chunk(self, chunk_id: str, chunk: bytes):
-        return
-
-
-@pytest.fixture
-def mock_config():
-    """
-    Pytest fixture to create a mock config object for tests.
-    """
-    mock = MagicMock(spec=Config)
-    mock.ws_init_timeout_sec = INIT_TIMEOUT_SEC
-    return mock
-
-
-@pytest.fixture
-def mock_child_logger():
-    """
-    Create a child logger instance for mock logger to return.
-    """
-    return MagicMock(spec=Logger)
-
-
-@pytest.fixture
-def mock_logger(mock_child_logger: MagicMock):
-    """
-    Create a mocked logger instance for tests
-    """
-    mock_logger = MagicMock(spec=Logger)
-    mock_logger.child.return_value = mock_child_logger
-    return mock_logger
-
-
-@pytest.fixture
-def mock_auth_service():
-    """
-    Create a mocked auth service instance for tests
-    """
-    return MagicMock(spec=AuthService)
-
-
-@pytest.fixture
-def mock_provider_registry():
-    """
-    Create a mocked transcription provider registry instance for tests
-    """
-    return MagicMock(spec=TranscriptionProviderRegistry)
-
-
-@pytest.fixture
-def mock_audio_publisher():
-    """
-    Create a mocked audio-stats publisher instance for tests
-    """
-    return MagicMock(spec=RedisSessionAudioPublisher)
-
-
-@pytest.fixture
-def mock_websocket():
-    """
-    Create a mocked websocket instance for tests
-    """
-    ws = MagicMock(spec=WebSocket)
-    ws.application_state = WebSocketState.CONNECTED
-    ws.client_state = WebSocketState.CONNECTED
-    return ws
-
-
-@pytest.fixture
-def mock_send_method(mocker: MockerFixture):
-    """
-    Mock function to override WebsocketHandler send method
-    """
-    return mocker.Mock()
-
-
-@pytest.fixture
-def mock_close_method(mocker: MockerFixture):
-    """
-    Mock function to override WebsocketHandler close method
-    """
-    return mocker.Mock()
-
-
-@pytest_asyncio.fixture
-async def controller(
-    mock_config: MagicMock,
-    mock_logger: MagicMock,
-    mock_auth_service: MagicMock,
-    mock_provider_registry: MagicMock,
-    mock_websocket: MagicMock,
-    mock_send_method: MagicMock,
-    mock_close_method: MagicMock,
-):
-    """
-    Create fresh TranscriptionStreamController with mocked dependencies for each test
-    """
-    controller = TranscriptionStreamController(
-        mock_config,
-        mock_logger,
-        mock_auth_service,
-        mock_provider_registry,
-        MetricsRegistry(),
-        PROVIDER_UID,
-        mock_websocket,
-    )
-
-    controller.send = mock_send_method
-    controller.close = mock_close_method
-
-    yield controller
-
-    # Give controller a chance to clean up
-    controller._handle_close(1000, "Test End")
 
 
 @pytest.mark.parametrize(
@@ -672,204 +517,6 @@ async def test_controller_ends_session_on_close(
 
     # Assert
     mock_session.end_session.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_controller_publishes_audio_stats_to_the_backplane(
-    mock_config: MagicMock,
-    mock_logger: MagicMock,
-    mock_auth_service: MagicMock,
-    mock_provider_registry: MagicMock,
-    mock_websocket: MagicMock,
-    mock_send_method: MagicMock,
-    mock_close_method: MagicMock,
-    mock_audio_publisher: MagicMock,
-):
-    """
-    Test that a result carrying audio_stats reaches the audio publisher with
-    this connection's session_uid/room_uid, via the second listener alongside
-    _handle_transcription_result - not instead of it.
-    """
-    # Arrange
-    controller = TranscriptionStreamController(
-        mock_config,
-        mock_logger,
-        mock_auth_service,
-        mock_provider_registry,
-        MetricsRegistry(),
-        PROVIDER_UID,
-        mock_websocket,
-        mock_audio_publisher,
-    )
-    controller.send = mock_send_method
-    controller.close = mock_close_method
-
-    mock_session = MockTranscriptionSession()
-    mock_auth_service.is_authenticated.return_value = True
-    mock_provider_registry.create_session.return_value = mock_session
-
-    await controller._handle_text_message(VALID_AUTH_MESSAGE)
-    await controller._handle_text_message(VALID_CONFIG_MESSAGE_WITH_UIDS)
-
-    stats = AudioLevelStats(
-        rms_dbfs=-20.0,
-        peak_dbfs=-10.0,
-        clipping_pct=0.0,
-        silence=False,
-        noise_floor_dbfs=-45.0,
-    )
-
-    # Act
-    mock_session.emit(
-        TranscriptionSessionInterface.TranscriptionResultEvent,
-        TranscriptionResult(audio_stats=stats),
-    )
-
-    # Assert - vad_stats is None here (not set on this TranscriptionResult),
-    # forwarded as such rather than blocking the publish.
-    mock_audio_publisher.publish.assert_called_once_with(
-        SESSION_UID, ROOM_UID, stats, None
-    )
-    # Still forwarded to the WS-serialization listener.
-    mock_send_method.assert_called_once()
-
-    controller._handle_close(1000, "Test End")
-
-
-@pytest.mark.asyncio
-async def test_controller_forwards_vad_stats_alongside_audio_stats(
-    mock_config: MagicMock,
-    mock_logger: MagicMock,
-    mock_auth_service: MagicMock,
-    mock_provider_registry: MagicMock,
-    mock_websocket: MagicMock,
-    mock_send_method: MagicMock,
-    mock_close_method: MagicMock,
-    mock_audio_publisher: MagicMock,
-):
-    """
-    A result carrying both audio_stats and vad_stats forwards both to the
-    publisher - vad_stats is a sibling argument on the same call/key, not a
-    second publish.
-    """
-    # Arrange
-    controller = TranscriptionStreamController(
-        mock_config,
-        mock_logger,
-        mock_auth_service,
-        mock_provider_registry,
-        MetricsRegistry(),
-        PROVIDER_UID,
-        mock_websocket,
-        mock_audio_publisher,
-    )
-    controller.send = mock_send_method
-    controller.close = mock_close_method
-
-    mock_session = MockTranscriptionSession()
-    mock_auth_service.is_authenticated.return_value = True
-    mock_provider_registry.create_session.return_value = mock_session
-
-    await controller._handle_text_message(VALID_AUTH_MESSAGE)
-    await controller._handle_text_message(VALID_CONFIG_MESSAGE_WITH_UIDS)
-
-    stats = AudioLevelStats(
-        rms_dbfs=-20.0,
-        peak_dbfs=-10.0,
-        clipping_pct=0.0,
-        silence=False,
-        noise_floor_dbfs=-45.0,
-    )
-    vad_stats = VadStats(
-        vad_enabled=True,
-        speech_active_ratio=0.5,
-        segment_count=2,
-        mean_segment_duration_sec=0.25,
-        speech_to_pause_ratio=1.0,
-        snr_db=12.5,
-    )
-
-    # Act
-    mock_session.emit(
-        TranscriptionSessionInterface.TranscriptionResultEvent,
-        TranscriptionResult(audio_stats=stats, vad_stats=vad_stats),
-    )
-
-    # Assert
-    mock_audio_publisher.publish.assert_called_once_with(
-        SESSION_UID, ROOM_UID, stats, vad_stats
-    )
-
-    controller._handle_close(1000, "Test End")
-
-
-@pytest.mark.asyncio
-async def test_controller_does_not_publish_when_result_has_no_audio_stats(
-    controller: TranscriptionStreamController,
-    mock_auth_service: MagicMock,
-    mock_provider_registry: MagicMock,
-):
-    """
-    A result with no audio_stats (debug/lumen_granite, or Whisper before its
-    meter's window has filled) is not forwarded to the publisher.
-    """
-    # Arrange - the shared `controller` fixture wires audio_publisher=None,
-    # so this also exercises the "no publisher configured" no-op path.
-    mock_session = MockTranscriptionSession()
-    mock_auth_service.is_authenticated.return_value = True
-    mock_provider_registry.create_session.return_value = mock_session
-
-    await controller._handle_text_message(VALID_AUTH_MESSAGE)
-    await controller._handle_text_message(VALID_CONFIG_MESSAGE)
-
-    # Act / Assert - must not raise despite no publisher being configured.
-    mock_session.emit(
-        TranscriptionSessionInterface.TranscriptionResultEvent,
-        TranscriptionResult(),
-    )
-
-
-@pytest.mark.asyncio
-async def test_controller_forgets_session_on_close(
-    mock_config: MagicMock,
-    mock_logger: MagicMock,
-    mock_auth_service: MagicMock,
-    mock_provider_registry: MagicMock,
-    mock_websocket: MagicMock,
-    mock_send_method: MagicMock,
-    mock_close_method: MagicMock,
-    mock_audio_publisher: MagicMock,
-):
-    """
-    Test that closing the connection drops this session's throttle-tracking
-    state in the publisher, so it does not grow with every session ever
-    served.
-    """
-    # Arrange
-    controller = TranscriptionStreamController(
-        mock_config,
-        mock_logger,
-        mock_auth_service,
-        mock_provider_registry,
-        MetricsRegistry(),
-        PROVIDER_UID,
-        mock_websocket,
-        mock_audio_publisher,
-    )
-    controller.send = mock_send_method
-    controller.close = mock_close_method
-
-    mock_session = MagicMock(spec=TranscriptionSessionInterface)
-    mock_auth_service.is_authenticated.return_value = True
-    mock_provider_registry.create_session.return_value = mock_session
-    await controller._handle_text_message(VALID_AUTH_MESSAGE)
-    await controller._handle_text_message(VALID_CONFIG_MESSAGE_WITH_UIDS)
-
-    # Act
-    controller._handle_close(1000, "Test End")
-
-    # Assert
-    mock_audio_publisher.forget.assert_called_once_with(SESSION_UID)
 
 
 @pytest.mark.asyncio
