@@ -61,6 +61,7 @@
   "overrides": {
     "@fastify/static": "10.1.2",
     "brace-expansion": "5.0.8",
+    "minimatch": "10.2.5",
     "protobufjs": "7.6.5",
     "shell-quote": "1.9.0"
   }
