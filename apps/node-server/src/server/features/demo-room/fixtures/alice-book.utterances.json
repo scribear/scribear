@@ -36,9 +36,7 @@
   "turns": [
     {
       "speaker": "white_rabbit",
-      "lines": [
-        "Oh dear! Oh dear! I shall be late!"
-      ]
+      "lines": ["Oh dear! Oh dear! I shall be late!"]
     },
     {
       "speaker": "alice",
@@ -55,9 +53,7 @@
     },
     {
       "speaker": "white_rabbit",
-      "lines": [
-        "Oh my ears and whiskers, how late it's getting!"
-      ]
+      "lines": ["Oh my ears and whiskers, how late it's getting!"]
     },
     {
       "speaker": "alice",
@@ -110,10 +106,7 @@
     },
     {
       "speaker": "mouse",
-      "lines": [
-        "Not like cats!",
-        "Would you like cats if you were me?"
-      ]
+      "lines": ["Not like cats!", "Would you like cats if you were me?"]
     },
     {
       "speaker": "alice",
@@ -149,9 +142,7 @@
     },
     {
       "speaker": "lory",
-      "lines": [
-        "I am older than you, and must know better;"
-      ]
+      "lines": ["I am older than you, and must know better;"]
     },
     {
       "speaker": "mouse",
@@ -163,22 +154,15 @@
     },
     {
       "speaker": "lory",
-      "lines": [
-        "Ugh!"
-      ]
+      "lines": ["Ugh!"]
     },
     {
       "speaker": "mouse",
-      "lines": [
-        "I beg your pardon!",
-        "Did you speak?"
-      ]
+      "lines": ["I beg your pardon!", "Did you speak?"]
     },
     {
       "speaker": "lory",
-      "lines": [
-        "Not I!"
-      ]
+      "lines": ["Not I!"]
     },
     {
       "speaker": "mouse",
@@ -189,16 +173,11 @@
     },
     {
       "speaker": "duck",
-      "lines": [
-        "Found what?"
-      ]
+      "lines": ["Found what?"]
     },
     {
       "speaker": "mouse",
-      "lines": [
-        "Found it,",
-        "of course you know what 'it' means."
-      ]
+      "lines": ["Found it,", "of course you know what 'it' means."]
     },
     {
       "speaker": "duck",
@@ -216,10 +195,7 @@
     },
     {
       "speaker": "alice",
-      "lines": [
-        "As wet as ever,",
-        "it doesn't seem to dry me at all."
-      ]
+      "lines": ["As wet as ever,", "it doesn't seem to dry me at all."]
     },
     {
       "speaker": "dodo",
@@ -244,9 +220,7 @@
     },
     {
       "speaker": "alice",
-      "lines": [
-        "What is a Caucus-race?"
-      ]
+      "lines": ["What is a Caucus-race?"]
     },
     {
       "speaker": "dodo",
@@ -261,22 +235,15 @@
     },
     {
       "speaker": "mouse",
-      "lines": [
-        "But she must have a prize herself, you know,"
-      ]
+      "lines": ["But she must have a prize herself, you know,"]
     },
     {
       "speaker": "dodo",
-      "lines": [
-        "Of course,",
-        "What else have you got in your pocket?"
-      ]
+      "lines": ["Of course,", "What else have you got in your pocket?"]
     },
     {
       "speaker": "alice",
-      "lines": [
-        "Only a thimble,"
-      ]
+      "lines": ["Only a thimble,"]
     },
     {
       "speaker": "dodo",
@@ -294,16 +261,11 @@
     },
     {
       "speaker": "mouse",
-      "lines": [
-        "Mine is a long and a sad tale!"
-      ]
+      "lines": ["Mine is a long and a sad tale!"]
     },
     {
       "speaker": "alice",
-      "lines": [
-        "It is a long tail, certainly,",
-        "but why do you call it sad?"
-      ]
+      "lines": ["It is a long tail, certainly,", "but why do you call it sad?"]
     },
     {
       "speaker": "mouse",
@@ -317,23 +279,15 @@
     },
     {
       "speaker": "alice",
-      "lines": [
-        "I beg your pardon,",
-        "you had got to the fifth bend, I think?"
-      ]
+      "lines": ["I beg your pardon,", "you had got to the fifth bend, I think?"]
     },
     {
       "speaker": "mouse",
-      "lines": [
-        "I had not!"
-      ]
+      "lines": ["I had not!"]
     },
     {
       "speaker": "alice",
-      "lines": [
-        "A knot!",
-        "Oh, do let me help to undo it!"
-      ]
+      "lines": ["A knot!", "Oh, do let me help to undo it!"]
     },
     {
       "speaker": "mouse",
@@ -352,9 +306,7 @@
     },
     {
       "speaker": "lory",
-      "lines": [
-        "What a pity it wouldn't stay!"
-      ]
+      "lines": ["What a pity it wouldn't stay!"]
     },
     {
       "speaker": "crab",
@@ -378,9 +330,7 @@
     },
     {
       "speaker": "lory",
-      "lines": [
-        "And who is Dinah, if I might venture to ask the question?"
-      ]
+      "lines": ["And who is Dinah, if I might venture to ask the question?"]
     },
     {
       "speaker": "alice",
@@ -396,9 +346,7 @@
     },
     {
       "speaker": "canary",
-      "lines": [
-        "Come away, my dears! It's high time you were all in bed!"
-      ]
+      "lines": ["Come away, my dears! It's high time you were all in bed!"]
     },
     {
       "speaker": "alice",
@@ -445,9 +393,7 @@
     },
     {
       "speaker": "pat",
-      "lines": [
-        "Sure then I'm here! Digging for apples, yer honour!"
-      ]
+      "lines": ["Sure then I'm here! Digging for apples, yer honour!"]
     },
     {
       "speaker": "white_rabbit",
@@ -459,9 +405,7 @@
     },
     {
       "speaker": "pat",
-      "lines": [
-        "Sure, it's an arm, yer honour!"
-      ]
+      "lines": ["Sure, it's an arm, yer honour!"]
     },
     {
       "speaker": "white_rabbit",
@@ -471,9 +415,7 @@
     },
     {
       "speaker": "pat",
-      "lines": [
-        "Sure, it does, yer honour: but it's an arm for all that."
-      ]
+      "lines": ["Sure, it does, yer honour: but it's an arm for all that."]
     },
     {
       "speaker": "white_rabbit",
@@ -483,15 +425,11 @@
     },
     {
       "speaker": "pat",
-      "lines": [
-        "Sure, I don't like it, yer honour, at all, at all!"
-      ]
+      "lines": ["Sure, I don't like it, yer honour, at all, at all!"]
     },
     {
       "speaker": "white_rabbit",
-      "lines": [
-        "Do as I tell you, you coward!"
-      ]
+      "lines": ["Do as I tell you, you coward!"]
     },
     {
       "speaker": "alice",
@@ -503,9 +441,7 @@
     },
     {
       "speaker": "white_rabbit",
-      "lines": [
-        "Catch him, you by the hedge!"
-      ]
+      "lines": ["Catch him, you by the hedge!"]
     },
     {
       "speaker": "bill",
@@ -515,21 +451,15 @@
     },
     {
       "speaker": "white_rabbit",
-      "lines": [
-        "We must burn the house down!"
-      ]
+      "lines": ["We must burn the house down!"]
     },
     {
       "speaker": "alice",
-      "lines": [
-        "If you do, I'll set Dinah at you!"
-      ]
+      "lines": ["If you do, I'll set Dinah at you!"]
     },
     {
       "speaker": "white_rabbit",
-      "lines": [
-        "A barrowful will do, to begin with."
-      ]
+      "lines": ["A barrowful will do, to begin with."]
     },
     {
       "speaker": "alice",
@@ -545,9 +475,7 @@
     },
     {
       "speaker": "caterpillar",
-      "lines": [
-        "Who are you?"
-      ]
+      "lines": ["Who are you?"]
     },
     {
       "speaker": "alice",
@@ -557,10 +485,7 @@
     },
     {
       "speaker": "caterpillar",
-      "lines": [
-        "What do you mean by that?",
-        "Explain yourself!"
-      ]
+      "lines": ["What do you mean by that?", "Explain yourself!"]
     },
     {
       "speaker": "alice",
@@ -571,9 +496,7 @@
     },
     {
       "speaker": "caterpillar",
-      "lines": [
-        "I don't see,"
-      ]
+      "lines": ["I don't see,"]
     },
     {
       "speaker": "alice",
@@ -584,9 +507,7 @@
     },
     {
       "speaker": "caterpillar",
-      "lines": [
-        "It isn't,"
-      ]
+      "lines": ["It isn't,"]
     },
     {
       "speaker": "alice",
@@ -597,9 +518,7 @@
     },
     {
       "speaker": "caterpillar",
-      "lines": [
-        "Not a bit,"
-      ]
+      "lines": ["Not a bit,"]
     },
     {
       "speaker": "alice",
@@ -610,16 +529,11 @@
     },
     {
       "speaker": "caterpillar",
-      "lines": [
-        "You!",
-        "Who are you?"
-      ]
+      "lines": ["You!", "Who are you?"]
     },
     {
       "speaker": "alice",
-      "lines": [
-        "I think, you ought to tell me who you are, first."
-      ]
+      "lines": ["I think, you ought to tell me who you are, first."]
     },
     {
       "speaker": "caterpillar",
@@ -632,16 +546,11 @@
     },
     {
       "speaker": "alice",
-      "lines": [
-        "Is that all?"
-      ]
+      "lines": ["Is that all?"]
     },
     {
       "speaker": "caterpillar",
-      "lines": [
-        "No,",
-        "So you think you're changed, do you?"
-      ]
+      "lines": ["No,", "So you think you're changed, do you?"]
     },
     {
       "speaker": "alice",
@@ -652,9 +561,7 @@
     },
     {
       "speaker": "caterpillar",
-      "lines": [
-        "Can't remember what things?"
-      ]
+      "lines": ["Can't remember what things?"]
     },
     {
       "speaker": "alice",
@@ -664,9 +571,7 @@
     },
     {
       "speaker": "caterpillar",
-      "lines": [
-        "Repeat, 'You are old, Father William,'"
-      ]
+      "lines": ["Repeat, 'You are old, Father William,'"]
     },
     {
       "speaker": "alice",
@@ -683,9 +588,7 @@
     },
     {
       "speaker": "caterpillar",
-      "lines": [
-        "That is not said right,"
-      ]
+      "lines": ["That is not said right,"]
     },
     {
       "speaker": "alice",
@@ -710,10 +613,7 @@
     },
     {
       "speaker": "caterpillar",
-      "lines": [
-        "I don't know,",
-        "Are you content now?"
-      ]
+      "lines": ["I don't know,", "Are you content now?"]
     },
     {
       "speaker": "alice",
@@ -724,15 +624,11 @@
     },
     {
       "speaker": "caterpillar",
-      "lines": [
-        "It is a very good height indeed!"
-      ]
+      "lines": ["It is a very good height indeed!"]
     },
     {
       "speaker": "alice",
-      "lines": [
-        "But I'm not used to it!"
-      ]
+      "lines": ["But I'm not used to it!"]
     },
     {
       "speaker": "caterpillar",
@@ -753,16 +649,11 @@
     },
     {
       "speaker": "pigeon",
-      "lines": [
-        "Serpent!"
-      ]
+      "lines": ["Serpent!"]
     },
     {
       "speaker": "alice",
-      "lines": [
-        "I'm not a serpent!",
-        "Let me alone!"
-      ]
+      "lines": ["I'm not a serpent!", "Let me alone!"]
     },
     {
       "speaker": "pigeon",
@@ -773,9 +664,7 @@
     },
     {
       "speaker": "alice",
-      "lines": [
-        "I haven't the least idea what you're talking about,"
-      ]
+      "lines": ["I haven't the least idea what you're talking about,"]
     },
     {
       "speaker": "pigeon",
@@ -788,9 +677,7 @@
     },
     {
       "speaker": "alice",
-      "lines": [
-        "I'm very sorry you've been annoyed,"
-      ]
+      "lines": ["I'm very sorry you've been annoyed,"]
     },
     {
       "speaker": "pigeon",
@@ -801,10 +688,7 @@
     },
     {
       "speaker": "alice",
-      "lines": [
-        "But I'm not a serpent, I tell you!",
-        "I'm a—I'm a—"
-      ]
+      "lines": ["But I'm not a serpent, I tell you!", "I'm a—I'm a—"]
     },
     {
       "speaker": "pigeon",
@@ -815,9 +699,7 @@
     },
     {
       "speaker": "alice",
-      "lines": [
-        "I—I'm a little girl,"
-      ]
+      "lines": ["I—I'm a little girl,"]
     },
     {
       "speaker": "pigeon",
@@ -850,9 +732,7 @@
     },
     {
       "speaker": "pigeon",
-      "lines": [
-        "Well, be off, then!"
-      ]
+      "lines": ["Well, be off, then!"]
     },
     {
       "speaker": "alice",
@@ -876,10 +756,7 @@
     },
     {
       "speaker": "alice",
-      "lines": [
-        "Please, then,",
-        "how am I to get in?"
-      ]
+      "lines": ["Please, then,", "how am I to get in?"]
     },
     {
       "speaker": "frog_footman",
@@ -897,17 +774,11 @@
     },
     {
       "speaker": "frog_footman",
-      "lines": [
-        "I shall sit here,",
-        "till tomorrow—",
-        "—or next day, maybe,"
-      ]
+      "lines": ["I shall sit here,", "till tomorrow—", "—or next day, maybe,"]
     },
     {
       "speaker": "alice",
-      "lines": [
-        "How am I to get in?"
-      ]
+      "lines": ["How am I to get in?"]
     },
     {
       "speaker": "frog_footman",
@@ -925,22 +796,15 @@
     },
     {
       "speaker": "frog_footman",
-      "lines": [
-        "I shall sit here,",
-        "on and off, for days and days."
-      ]
+      "lines": ["I shall sit here,", "on and off, for days and days."]
     },
     {
       "speaker": "alice",
-      "lines": [
-        "But what am I to do?"
-      ]
+      "lines": ["But what am I to do?"]
     },
     {
       "speaker": "frog_footman",
-      "lines": [
-        "Anything you like,"
-      ]
+      "lines": ["Anything you like,"]
     },
     {
       "speaker": "alice",
@@ -954,10 +818,7 @@
     },
     {
       "speaker": "duchess",
-      "lines": [
-        "It's a Cheshire cat,",
-        "and that's why. Pig!"
-      ]
+      "lines": ["It's a Cheshire cat,", "and that's why. Pig!"]
     },
     {
       "speaker": "alice",
@@ -967,23 +828,15 @@
     },
     {
       "speaker": "duchess",
-      "lines": [
-        "They all can,",
-        "and most of 'em do."
-      ]
+      "lines": ["They all can,", "and most of 'em do."]
     },
     {
       "speaker": "alice",
-      "lines": [
-        "I don't know of any that do,"
-      ]
+      "lines": ["I don't know of any that do,"]
     },
     {
       "speaker": "duchess",
-      "lines": [
-        "You don't know much,",
-        "and that's a fact."
-      ]
+      "lines": ["You don't know much,", "and that's a fact."]
     },
     {
       "speaker": "alice",
@@ -1008,16 +861,11 @@
     },
     {
       "speaker": "duchess",
-      "lines": [
-        "Talking of axes,",
-        "chop off her head!"
-      ]
+      "lines": ["Talking of axes,", "chop off her head!"]
     },
     {
       "speaker": "alice",
-      "lines": [
-        "Twenty-four hours, I think; or is it twelve? I—"
-      ]
+      "lines": ["Twenty-four hours, I think; or is it twelve? I—"]
     },
     {
       "speaker": "duchess",
@@ -1029,9 +877,7 @@
     },
     {
       "speaker": "cook",
-      "lines": [
-        "Wow! wow! wow!"
-      ]
+      "lines": ["Wow! wow! wow!"]
     },
     {
       "speaker": "duchess",
@@ -1041,9 +887,7 @@
     },
     {
       "speaker": "cook",
-      "lines": [
-        "Wow! wow! wow!"
-      ]
+      "lines": ["Wow! wow! wow!"]
     },
     {
       "speaker": "duchess",
@@ -1069,40 +913,27 @@
     },
     {
       "speaker": "cheshire_cat",
-      "lines": [
-        "That depends a good deal on where you want to get to,"
-      ]
+      "lines": ["That depends a good deal on where you want to get to,"]
     },
     {
       "speaker": "alice",
-      "lines": [
-        "I don't much care where—"
-      ]
+      "lines": ["I don't much care where—"]
     },
     {
       "speaker": "cheshire_cat",
-      "lines": [
-        "Then it doesn't matter which way you go,"
-      ]
+      "lines": ["Then it doesn't matter which way you go,"]
     },
     {
       "speaker": "alice",
-      "lines": [
-        "—so long as I get somewhere,"
-      ]
+      "lines": ["—so long as I get somewhere,"]
     },
     {
       "speaker": "cheshire_cat",
-      "lines": [
-        "Oh, you're sure to do that,",
-        "if you only walk long enough."
-      ]
+      "lines": ["Oh, you're sure to do that,", "if you only walk long enough."]
     },
     {
       "speaker": "alice",
-      "lines": [
-        "What sort of people live about here?"
-      ]
+      "lines": ["What sort of people live about here?"]
     },
     {
       "speaker": "cheshire_cat",
@@ -1114,9 +945,7 @@
     },
     {
       "speaker": "alice",
-      "lines": [
-        "But I don't want to go among mad people,"
-      ]
+      "lines": ["But I don't want to go among mad people,"]
     },
     {
       "speaker": "cheshire_cat",
@@ -1127,35 +956,23 @@
     },
     {
       "speaker": "alice",
-      "lines": [
-        "How do you know I'm mad?"
-      ]
+      "lines": ["How do you know I'm mad?"]
     },
     {
       "speaker": "cheshire_cat",
-      "lines": [
-        "You must be,",
-        "or you wouldn't have come here."
-      ]
+      "lines": ["You must be,", "or you wouldn't have come here."]
     },
     {
       "speaker": "alice",
-      "lines": [
-        "And how do you know that you're mad?"
-      ]
+      "lines": ["And how do you know that you're mad?"]
     },
     {
       "speaker": "cheshire_cat",
-      "lines": [
-        "To begin with,",
-        "a dog's not mad. You grant that?"
-      ]
+      "lines": ["To begin with,", "a dog's not mad. You grant that?"]
     },
     {
       "speaker": "alice",
-      "lines": [
-        "I suppose so,"
-      ]
+      "lines": ["I suppose so,"]
     },
     {
       "speaker": "cheshire_cat",
@@ -1166,9 +983,7 @@
     },
     {
       "speaker": "alice",
-      "lines": [
-        "I call it purring, not growling,"
-      ]
+      "lines": ["I call it purring, not growling,"]
     },
     {
       "speaker": "cheshire_cat",
@@ -1194,15 +1009,11 @@
     },
     {
       "speaker": "alice",
-      "lines": [
-        "It turned into a pig,"
-      ]
+      "lines": ["It turned into a pig,"]
     },
     {
       "speaker": "cheshire_cat",
-      "lines": [
-        "I thought it would,"
-      ]
+      "lines": ["I thought it would,"]
     },
     {
       "speaker": "alice",
@@ -1213,9 +1024,7 @@
     },
     {
       "speaker": "cheshire_cat",
-      "lines": [
-        "Did you say pig, or fig?"
-      ]
+      "lines": ["Did you say pig, or fig?"]
     },
     {
       "speaker": "alice",
@@ -1226,9 +1035,7 @@
     },
     {
       "speaker": "cheshire_cat",
-      "lines": [
-        "All right,"
-      ]
+      "lines": ["All right,"]
     },
     {
       "speaker": "alice",

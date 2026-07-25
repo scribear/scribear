@@ -101,13 +101,16 @@ export function buildDemoSchedule(turns: readonly DemoTurn[]): {
   let t = 0;
   let isFirstFragment = true;
 
-  for (let turnIndex = 0; turnIndex < turns.length; turnIndex++) {
-    if (turnIndex > 0) t += DEMO_GAP_BETWEEN_TURNS_SECONDS;
-    const { lines } = turns[turnIndex] as DemoTurn;
+  let isFirstTurn = true;
+  for (const turn of turns) {
+    if (!isFirstTurn) t += DEMO_GAP_BETWEEN_TURNS_SECONDS;
+    isFirstTurn = false;
+    const { lines } = turn;
 
-    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-      if (lineIndex > 0) t += DEMO_GAP_WITHIN_TURN_SECONDS;
-      const line = lines[lineIndex] as string;
+    let isFirstLine = true;
+    for (const line of lines) {
+      if (!isFirstLine) t += DEMO_GAP_WITHIN_TURN_SECONDS;
+      isFirstLine = false;
       const words = splitWords(line);
       const startS = t;
       const durationS = Math.max(1, words.length / DEMO_WORDS_PER_SECOND);

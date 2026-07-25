@@ -81,12 +81,5 @@
       }
     }
   },
-  "required": [
-    "source",
-    "speakers",
-    "loop",
-    "turnCount",
-    "lineCount",
-    "turns"
-  ]
+  "required": ["source", "speakers", "loop", "turnCount", "lineCount", "turns"]
 }

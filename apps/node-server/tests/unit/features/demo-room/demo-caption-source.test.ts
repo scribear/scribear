@@ -67,7 +67,7 @@ describe('buildDemoSchedule', (it) => {
   it('emits growing-prefix interims roughly every second for a longer line', () => {
     // Arrange - 15 words at 5 wps = 3s, so two interim ticks (t=1, t=2) then
     // a final at t=3.
-    const words = Array.from({ length: 15 }, (_, i) => `w${i}`);
+    const words = Array.from({ length: 15 }, (_, i) => `w${String(i)}`);
     const turns = [{ speaker: 'alice', lines: [words.join(' ')] }];
 
     // Act
@@ -222,7 +222,7 @@ describe('DemoCaptionSource', () => {
       // Assert
       expect(transcripts.length).toBeGreaterThan(0);
       expect(
-        transcripts[0]?.final !== null || transcripts[0]?.inProgress !== null,
+        transcripts[0]?.final !== null || transcripts[0].inProgress !== null,
       ).toBe(true);
     });
 
