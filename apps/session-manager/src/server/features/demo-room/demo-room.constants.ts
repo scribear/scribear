@@ -14,6 +14,18 @@
  */
 export const DEFAULT_DEMO_SESSION_UID = 'deadbeef-0000-4000-8000-000000000001';
 
+/**
+ * Fixed uid of the demo room's placeholder source device, in the same spirit
+ * as {@link DEFAULT_DEMO_SESSION_UID}: seeding by a fixed uid (rather than
+ * letting the DB generate one) lets the insert be a genuine
+ * `ON CONFLICT (uid) DO NOTHING`, so restarts and racing instances converge
+ * on one row instead of each creating their own placeholder device.
+ */
+export const DEMO_SOURCE_DEVICE_UID = 'deadbeef-0000-4000-8000-000000000002';
+
+/** Fixed uid of the demo room, for the same reason as {@link DEMO_SOURCE_DEVICE_UID}. */
+export const DEMO_ROOM_UID = 'deadbeef-0000-4000-8000-000000000003';
+
 /** Display name of the room the demo session lives in. */
 export const DEMO_ROOM_NAME = 'Demo — Alice in Wonderland';
 

@@ -1,14 +1,23 @@
 import type { DemoRoomConfig } from '#src/app-config/app-config.js';
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
 import type { Session } from '#src/server/features/schedule-management/schedule-management.repository.js';
+import { generateRandomCode } from '#src/server/utils/generate-random-code.js';
 
 import {
   DEMO_ROOM_NAME,
+  DEMO_ROOM_UID,
   DEMO_SESSION_NAME,
   DEMO_SOURCE_DEVICE_NAME,
+  DEMO_SOURCE_DEVICE_UID,
   DEMO_TRANSCRIPTION_PROVIDER_ID,
   DEMO_TRANSCRIPTION_STREAM_CONFIG,
 } from './demo-room.constants.js';
+
+// The demo device is never actually activated, so the code/expiry only need
+// to satisfy the `devices_active_has_hash` CHECK constraint on first insert;
+// on a repeat boot `createWithFixedUid` ignores them (ON CONFLICT DO NOTHING).
+const PLACEHOLDER_ACTIVATION_CODE_LENGTH = 8;
+const PLACEHOLDER_ACTIVATION_CODE_VALID_MINUTES = 5;
 
 /**
  * Boot-time seeder for a joinable "demo caption room".
@@ -24,10 +33,18 @@ import {
  * At boot, when `demoRoomConfig.enabled`, `seed()`:
  *   1. Looks up a session by `demoRoomConfig.sessionUid`. If found, nothing is
  *      created - idempotent across restarts.
- *   2. Otherwise creates a placeholder source device, a dedicated room
- *      (`autoSessionEnabled: false`, so the auto-session reconciler never
- *      touches it), and an open-ended (`scheduledEndTime: null`) `ON_DEMAND`
- *      session inserted with that exact fixed `uid`.
+ *   2. Otherwise idempotently inserts a placeholder source device and a
+ *      dedicated room (`autoSessionEnabled: false`, so the auto-session
+ *      reconciler never touches it) under **fixed uids**, then inserts an
+ *      open-ended (`scheduledEndTime: null`) `ON_DEMAND` session with that
+ *      exact fixed `uid`. The device/room inserts use `ON CONFLICT (uid) DO
+ *      NOTHING` (same pattern as the session insert below), so two instances
+ *      racing to seed at once converge on one device/room/session triple
+ *      instead of each leaving behind its own orphaned placeholder device and
+ *      room - see the "10 duplicate demo sources on staging" incident this
+ *      fixed: the session insert was already conflict-safe by fixed `uid`,
+ *      but the device/room inserts previously had no fixed identity and no
+ *      unique constraint on `name`, so every racing boot created its own.
  *   3. Either way, ensures a currently-valid join code exists and logs it -
  *      join codes rotate and there is no fixed one, so this is the only way
  *      for a developer to obtain a code to hand to a client/kiosk/standalone
@@ -39,23 +56,23 @@ import {
 export class DemoRoomSeeder {
   private readonly _logger: AppDependencies['logger'];
   private readonly _config: DemoRoomConfig;
-  private readonly _roomManagementService: AppDependencies['roomManagementService'];
-  private readonly _deviceManagementService: AppDependencies['deviceManagementService'];
+  private readonly _roomManagementRepository: AppDependencies['roomManagementRepository'];
+  private readonly _deviceManagementRepository: AppDependencies['deviceManagementRepository'];
   private readonly _scheduleManagementRepository: AppDependencies['scheduleManagementRepository'];
   private readonly _sessionAuthService: AppDependencies['sessionAuthService'];
 
   constructor(
     logger: AppDependencies['logger'],
     demoRoomConfig: AppDependencies['demoRoomConfig'],
-    roomManagementService: AppDependencies['roomManagementService'],
-    deviceManagementService: AppDependencies['deviceManagementService'],
+    roomManagementRepository: AppDependencies['roomManagementRepository'],
+    deviceManagementRepository: AppDependencies['deviceManagementRepository'],
     scheduleManagementRepository: AppDependencies['scheduleManagementRepository'],
     sessionAuthService: AppDependencies['sessionAuthService'],
   ) {
     this._logger = logger;
     this._config = demoRoomConfig;
-    this._roomManagementService = roomManagementService;
-    this._deviceManagementService = deviceManagementService;
+    this._roomManagementRepository = roomManagementRepository;
+    this._deviceManagementRepository = deviceManagementRepository;
     this._scheduleManagementRepository = scheduleManagementRepository;
     this._sessionAuthService = sessionAuthService;
   }
@@ -97,22 +114,36 @@ export class DemoRoomSeeder {
   }
 
   /**
-   * Creates the placeholder source device, the dedicated demo room, and the
-   * open-ended `ON_DEMAND` session with the fixed demo `uid`.
+   * Idempotently ensures the placeholder source device and the dedicated
+   * demo room exist (fixed uids, `ON CONFLICT (uid) DO NOTHING`), links the
+   * device to the room as its source on first creation only, then inserts
+   * the open-ended `ON_DEMAND` session with the fixed demo `uid`.
    */
   private async _createDemoSession(now: Date): Promise<Session> {
-    const device = await this._deviceManagementService.registerDevice(
-      DEMO_SOURCE_DEVICE_NAME,
+    const device = await this._deviceManagementRepository.createWithFixedUid(
+      DEMO_SOURCE_DEVICE_UID,
+      {
+        name: DEMO_SOURCE_DEVICE_NAME,
+        activationCode: generateRandomCode(PLACEHOLDER_ACTIVATION_CODE_LENGTH),
+        expiry: new Date(
+          now.getTime() + PLACEHOLDER_ACTIVATION_CODE_VALID_MINUTES * 60_000,
+        ),
+      },
     );
 
-    const room = await this._roomManagementService.createRoom({
-      name: DEMO_ROOM_NAME,
-      timezone: 'UTC',
-      autoSessionEnabled: false,
-      sourceDeviceUids: [device.deviceUid],
-    });
-    if (typeof room === 'string') {
-      throw new Error(`demo caption room: createRoom failed: ${room}`);
+    const room = await this._roomManagementRepository.createWithFixedUid(
+      DEMO_ROOM_UID,
+      { name: DEMO_ROOM_NAME, timezone: 'UTC', autoSessionEnabled: false },
+    );
+
+    // Only link on first creation - a pre-existing device is already the
+    // room's source, and `addDeviceToRoom` has no conflict handling.
+    if (device.roomUid === null) {
+      await this._roomManagementRepository.addDeviceToRoom(
+        room.uid,
+        device.uid,
+        true,
+      );
     }
 
     const db = this._scheduleManagementRepository.db;

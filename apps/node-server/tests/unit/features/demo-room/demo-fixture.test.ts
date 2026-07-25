@@ -1,42 +1,46 @@
 import { describe, expect } from 'vitest';
 
-import demoFixture from '#src/server/features/demo-room/fixtures/alice-chapter-v.utterances.json' with { type: 'json' };
+import demoFixture from '#src/server/features/demo-room/fixtures/alice-book.utterances.json' with { type: 'json' };
 
 /**
  * Guards the checked-in fixture so it cannot rot: the emitter trusts these
- * invariants (non-overlapping, ordered, known speakers, non-empty spoken text)
- * rather than re-validating at runtime.
+ * invariants (well-formed turns/lines, no accidental adjacent-same-speaker
+ * split, Gutenberg attribution) rather than re-validating at runtime.
  */
-const ALLOWED_SPEAKERS = new Set(['caterpillar', 'alice', 'pigeon']);
-
-describe('alice-chapter-v.utterances fixture', (it) => {
-  it('has the advertised speakers, count, and Gutenberg attribution', () => {
-    expect(demoFixture.speakers).toStrictEqual([
-      'caterpillar',
-      'alice',
-      'pigeon',
-    ]);
-    expect(demoFixture.utterances).toHaveLength(demoFixture.utteranceCount);
-    expect(demoFixture.utterances.length).toBeGreaterThan(0);
+describe('alice-book.utterances fixture', (it) => {
+  it('has a non-empty turn/line count, sorted speakers, and Gutenberg attribution', () => {
+    expect(demoFixture.turns).toHaveLength(demoFixture.turnCount);
+    expect(demoFixture.turns.length).toBeGreaterThan(0);
+    expect(
+      demoFixture.turns.reduce((n, t) => n + t.lines.length, 0),
+    ).toBe(demoFixture.lineCount);
+    expect(demoFixture.speakers).toStrictEqual(
+      [...demoFixture.speakers].sort(),
+    );
     expect(demoFixture.source.attribution).toMatch(/Project Gutenberg/i);
     expect(demoFixture.loop).toBe(true);
   });
 
-  it('has a valid, forward window for every utterance', () => {
-    for (const u of demoFixture.utterances) {
-      expect(u.start).toBeGreaterThanOrEqual(0);
-      expect(u.end).toBeGreaterThan(u.start);
-      expect(u.spoken.trim().length).toBeGreaterThan(0);
-      expect(typeof u.progresstxt).toBe('string');
-      expect(ALLOWED_SPEAKERS.has(u.speaker)).toBe(true);
+  it('every turn has a known, non-empty speaker and only non-empty lines', () => {
+    const knownSpeakers = new Set(demoFixture.speakers);
+    for (const turn of demoFixture.turns) {
+      expect(turn.speaker.trim().length).toBeGreaterThan(0);
+      expect(knownSpeakers.has(turn.speaker)).toBe(true);
+      expect(turn.lines.length).toBeGreaterThan(0);
+      for (const line of turn.lines) {
+        expect(line.trim().length).toBeGreaterThan(0);
+        // Stored lines are the spoken words only, no enclosing quote marks.
+        expect(line.trim().startsWith('"')).toBe(false);
+        expect(line.trim().endsWith('"')).toBe(false);
+      }
     }
   });
 
-  it('is ordered and non-overlapping', () => {
-    for (let i = 1; i < demoFixture.utterances.length; i++) {
-      const prev = demoFixture.utterances[i - 1];
-      const curr = demoFixture.utterances[i];
-      expect(curr?.start).toBeGreaterThanOrEqual(prev?.end ?? 0);
+  it('never splits one speaker turn into two adjacent turns', () => {
+    for (let i = 1; i < demoFixture.turns.length; i++) {
+      expect(demoFixture.turns[i]?.speaker).not.toBe(
+        demoFixture.turns[i - 1]?.speaker,
+      );
     }
   });
 });
