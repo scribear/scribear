@@ -1,16 +1,17 @@
 import { describe, expect } from 'vitest';
 
+import {
+  AUDIO_THRESHOLDS,
+  audioBySession,
+  deriveAudioStatus,
+  formatClippingPct,
+  setProviderKey,
+} from '#src/features/dashboard/fleet-status';
 import type {
   FleetSnapshot,
   SessionAudioSnapshot,
   SessionSnapshot,
 } from '#src/lib/admin-api';
-import {
-  AUDIO_THRESHOLDS,
-  audioBySession,
-  deriveAudioStatus,
-  setProviderKey,
-} from '#src/features/dashboard/fleet-status';
 
 function buildSession(
   overrides: Partial<SessionSnapshot> = {},
@@ -225,5 +226,32 @@ describe('setProviderKey', (it) => {
 
     expect(result.providerKey).toBe('whisper');
     expect(result.audioStatus).toEqual(['crit']);
+  });
+});
+
+describe('formatClippingPct', (it) => {
+  // `clippingPct` is a FRACTION (0..1) — `np.mean(np.abs(window) >= 1 - eps)`
+  // in audio_meter.py — so rendering it with a bare `%` suffix understates
+  // clipping by 100x. These pin the units down for both surfaces that show it.
+  it('scales the fraction to a percentage', () => {
+    expect(formatClippingPct(0.05)).toBe('5.00%');
+  });
+
+  it('renders the crit threshold as 1%, not 0.01%', () => {
+    expect(formatClippingPct(AUDIO_THRESHOLDS.clippingPctCrit)).toBe('1.00%');
+  });
+
+  it('renders full clipping as 100%', () => {
+    expect(formatClippingPct(1)).toBe('100.00%');
+  });
+
+  it('never claims 0.00% for a nonzero fraction', () => {
+    // The chip is only shown when clippingPct > 0, so rounding a small but real
+    // value to "0.00%" would contradict the reason it is on screen.
+    expect(formatClippingPct(0.000005)).toBe('<0.01%');
+  });
+
+  it('renders an exact zero as 0.00%', () => {
+    expect(formatClippingPct(0)).toBe('0.00%');
   });
 });

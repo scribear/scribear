@@ -117,16 +117,35 @@ export function useFleet(): FleetState {
   // gated on `document.hidden` so an operator with the dashboard parked on a
   // second monitor does not poll all night.
   useEffect(() => {
-    const tick = () => {
-      if (!document.hidden) {
-        setRefreshNonce((n) => n + 1);
-      }
+    // Nothing to poll for when the backplane is not configured at all.
+    // `available` only goes false on TELEMETRY_UNAVAILABLE, which is a
+    // deployment fact rather than a transient — without this guard the hook
+    // would re-request `/fleet` every 5 s forever and swallow the identical
+    // error each time, for the whole time a tab is left open.
+    if (!available) return;
+
+    const poll = () => {
+      setRefreshNonce((n) => n + 1);
     };
-    const id = window.setInterval(tick, FLEET_POLL_INTERVAL_MS);
+
+    const id = window.setInterval(() => {
+      if (!document.hidden) poll();
+    }, FLEET_POLL_INTERVAL_MS);
+
+    // A hidden tab skips its ticks, so on the way back in the operator would
+    // otherwise be looking at numbers up to a full interval stale — precisely
+    // the "looks live but isn't" failure the poll exists to prevent. Refresh
+    // immediately on becoming visible and let the timer carry on from there.
+    const onVisibilityChange = () => {
+      if (!document.hidden) poll();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
     return () => {
       window.clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, []);
+  }, [available]);
 
   const refresh = () => {
     setRefreshNonce((n) => n + 1);

@@ -20,16 +20,24 @@ import type { Session } from '@scribear/session-manager-schema';
 
 import { ConfirmDialog } from '#src/components/confirm-dialog';
 import { CopyIconButton } from '#src/components/copy-icon-button';
+import { OpensInNewTab } from '#src/components/opens-in-new-tab';
 import { AudioMeterBar } from '#src/features/dashboard/audio-meter-bar';
 import {
+  AUDIO_STATUS_COLOR,
   audioBySession,
   classifyAudioSnapshot,
+  formatClippingPct,
 } from '#src/features/dashboard/fleet-status';
 import { useFleet } from '#src/features/dashboard/use-fleet';
 import type { SessionJoinCodeStatus, VadStats } from '#src/lib/admin-api';
 import { AUDIO_STATS_TTL_MS, adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import {
+  AUDIO_METER_COPY,
+  audioMeterAbsoluteUrl,
+} from '#src/lib/audio-meter-url';
 import { buildJoinUrl } from '#src/lib/join-url';
+import { sessionWindowState } from '#src/lib/session-rules';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 
@@ -65,13 +73,6 @@ const FieldRow = ({ label, children }: FieldRowProps) => (
     {children}
   </Box>
 );
-
-const AUDIO_METER_COPY =
-  'Opens a self-contained meter that measures the microphone of the device you open it on — run it on the room\u2019s source machine, not here.';
-
-function audioMeterUrl(): string {
-  return `${window.location.origin}/admin/audio-meter.html`;
-}
 
 /** Formats an epoch-ms timestamp as a relative age, e.g. "4 s ago". */
 function formatAge(updatedAt: number, now: number): string {
@@ -163,92 +164,90 @@ const VadFieldRow = ({
   );
 };
 
+/** Section shell, so every audio-health state renders the same heading. */
+const AudioHealthPaper = ({ children }: { children: ReactNode }) => (
+  <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
+    <Typography variant="h6" component="h2" sx={{ mb: 2 }}>
+      Audio health
+    </Typography>
+    {children}
+  </Paper>
+);
+
+/** The meter link plus its copy button and the "run it on the source machine"
+ *  caveat — the same affordance in every audio-health state. */
+const StandaloneMeterLink = () => (
+  <>
+    <Stack direction="row" alignItems="center" spacing={1}>
+      <Button
+        variant="outlined"
+        size="small"
+        component="a"
+        href={audioMeterAbsoluteUrl()}
+        target="_blank"
+        rel="noopener noreferrer"
+        startIcon={<OpenInNewIcon />}
+      >
+        Open standalone audio meter
+        <OpensInNewTab />
+      </Button>
+      <CopyIconButton value={audioMeterAbsoluteUrl()} label="audio meter URL" />
+    </Stack>
+    <Typography
+      variant="caption"
+      color="text.secondary"
+      sx={{ mt: 1, display: 'block' }}
+    >
+      {AUDIO_METER_COPY}
+    </Typography>
+  </>
+);
+
 /**
- * Audio health section for the session detail page. Uses `useFleet()` to get
- * the latest audio snapshot for this session (PLAN-AUDIOVIZ §7.4, open
- * question §10.3: a per-session endpoint may be cleaner if the detail page is
- * expected to be left open).
+ * Audio health for a session inside its scheduled window. Uses `useFleet()` to
+ * get the latest audio snapshot (PLAN-AUDIOVIZ §7.4, open question §10.3: a
+ * per-session endpoint may be cleaner if the detail page is expected to be left
+ * open — this pulls the whole fleet snapshot on the fleet poll interval).
+ *
+ * Split out from `AudioHealthSection` so that subscription happens *only* while
+ * the session could plausibly be on the air: hooks cannot be called
+ * conditionally, so the window check has to gate which component renders.
  */
-const AudioHealthSection = ({ sessionUid }: { sessionUid: string }) => {
+const LiveAudioHealth = ({
+  sessionUid,
+  now,
+}: {
+  sessionUid: string;
+  now: number;
+}) => {
   const { snapshot, available } = useFleet();
   const audioMap = useMemo(() => audioBySession(snapshot), [snapshot]);
   const audio = audioMap.get(sessionUid);
-  const [now, setNow] = useState(() => Date.now());
-
-  // Re-render every few seconds so the age and staleness warning stay current.
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      setNow(Date.now());
-    }, 5_000);
-    return () => {
-      window.clearInterval(id);
-    };
-  }, []);
 
   if (!available) {
     return (
-      <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
-        <Typography variant="h6" component="h2" sx={{ mb: 2 }}>
-          Audio health
-        </Typography>
+      <AudioHealthPaper>
         <Typography variant="body2" color="text.secondary">
           Live telemetry not configured — audio health requires{' '}
           <code>REDIS_URL</code>.
         </Typography>
-      </Paper>
+      </AudioHealthPaper>
     );
   }
 
   if (audio === undefined) {
     return (
-      <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
-        <Typography variant="h6" component="h2" sx={{ mb: 2 }}>
-          Audio health
-        </Typography>
+      <AudioHealthPaper>
+        {/* Only reached inside the session's scheduled window, so the absence
+            really is failure mode C1 rather than "this session isn't on". */}
         <Alert severity="warning" sx={{ mb: 2 }}>
-          No audio telemetry for this session. If the session is live, no audio
-          has reached ASR in the last {Math.round(AUDIO_STATS_TTL_MS / 1000)} s
-          — check that the source device&rsquo;s microphone is unmuted and the
-          right input is selected.
+          No audio telemetry for this session, which is inside its scheduled
+          window — nothing has decoded audio for it in the last{' '}
+          {Math.round(AUDIO_STATS_TTL_MS / 1000)} s. Check that the source
+          device&rsquo;s microphone is unmuted and the right input is selected.
         </Alert>
-        <Stack direction="row" alignItems="center" spacing={1}>
-          <Button
-            variant="outlined"
-            size="small"
-            component="a"
-            href={audioMeterUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
-            startIcon={<OpenInNewIcon />}
-          >
-            Open standalone audio meter
-            <Box
-              component="span"
-              sx={{
-                position: 'absolute',
-                width: 1,
-                height: 1,
-                padding: 0,
-                margin: -1,
-                overflow: 'hidden',
-                clip: 'rect(0 0 0 0)',
-                whiteSpace: 'nowrap',
-                border: 0,
-              }}
-            >
-              (opens in a new tab)
-            </Box>
-          </Button>
-          <CopyIconButton value={audioMeterUrl()} label="audio meter URL" />
-        </Stack>
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{ mt: 1, display: 'block' }}
-        >
-          {AUDIO_METER_COPY}
-        </Typography>
-      </Paper>
+        <StandaloneMeterLink />
+      </AudioHealthPaper>
     );
   }
 
@@ -272,15 +271,7 @@ const AudioHealthSection = ({ sessionUid }: { sessionUid: string }) => {
           <Chip
             size="small"
             label={`audio: ${audioStatus}`}
-            color={
-              audioStatus === 'good'
-                ? 'success'
-                : audioStatus === 'warn'
-                  ? 'warning'
-                  : audioStatus === 'crit'
-                    ? 'error'
-                    : 'default'
-            }
+            color={AUDIO_STATUS_COLOR[audioStatus]}
           />
           <Tooltip
             title={
@@ -336,7 +327,7 @@ const AudioHealthSection = ({ sessionUid }: { sessionUid: string }) => {
         </FieldRow>
         <FieldRow label="Clipping">
           <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-            {(audio.clippingPct * 100).toFixed(2)}%
+            {formatClippingPct(audio.clippingPct)}
           </Typography>
         </FieldRow>
         <FieldRow label="Silence">
@@ -407,45 +398,54 @@ const AudioHealthSection = ({ sessionUid }: { sessionUid: string }) => {
 
       <Divider sx={{ my: 2 }} />
 
-      <Stack direction="row" alignItems="center" spacing={1}>
-        <Button
-          variant="outlined"
-          size="small"
-          component="a"
-          href={audioMeterUrl()}
-          target="_blank"
-          rel="noopener noreferrer"
-          startIcon={<OpenInNewIcon />}
-        >
-          Open standalone audio meter
-          <Box
-            component="span"
-            sx={{
-              position: 'absolute',
-              width: 1,
-              height: 1,
-              padding: 0,
-              margin: -1,
-              overflow: 'hidden',
-              clip: 'rect(0 0 0 0)',
-              whiteSpace: 'nowrap',
-              border: 0,
-            }}
-          >
-            (opens in a new tab)
-          </Box>
-        </Button>
-        <CopyIconButton value={audioMeterUrl()} label="audio meter URL" />
-      </Stack>
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        sx={{ mt: 1, display: 'block' }}
-      >
-        {AUDIO_METER_COPY}
-      </Typography>
+      <StandaloneMeterLink />
     </Paper>
   );
+};
+
+/**
+ * Audio health section for the session detail page.
+ *
+ * A `Session` here is a *scheduled* record from schedule-management, not a live
+ * one — this page is reachable for a class that ended last term and for one
+ * starting next Tuesday. Live pipeline telemetry only exists inside the
+ * session's effective window, so outside it the absence of an audio snapshot is
+ * expected rather than a finding: warning an operator to go check a microphone
+ * would be a false alarm on the majority of detail-page views. Outside the
+ * window this also avoids subscribing to fleet telemetry at all (the live
+ * component holds an SSE connection and re-reads `/fleet` on the poll interval).
+ */
+const AudioHealthSection = ({ session }: { session: Session }) => {
+  const [now, setNow] = useState(() => Date.now());
+
+  // Re-render every few seconds so the age, the staleness warning, and the
+  // window classification stay current — a session that starts while the page
+  // is open transitions to the live view on its own.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setNow(Date.now());
+    }, 5_000);
+    return () => {
+      window.clearInterval(id);
+    };
+  }, []);
+
+  const windowState = sessionWindowState(session, now);
+
+  if (windowState !== 'within') {
+    return (
+      <AudioHealthPaper>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          {windowState === 'before'
+            ? 'This session has not started yet, so there is no live audio telemetry for it. Levels appear here once it is on the air.'
+            : 'This session has ended. Audio telemetry is point-in-time only — no history is retained — so there is nothing to show for a finished session.'}
+        </Typography>
+        <StandaloneMeterLink />
+      </AudioHealthPaper>
+    );
+  }
+
+  return <LiveAudioHealth sessionUid={session.uid} now={now} />;
 };
 
 export const SessionDetailPage = () => {
@@ -712,7 +712,7 @@ export const SessionDetailPage = () => {
         )}
       </Paper>
 
-      <AudioHealthSection sessionUid={session.uid} />
+      <AudioHealthSection session={session} />
 
       <Stack direction="row" spacing={2}>
         <Button

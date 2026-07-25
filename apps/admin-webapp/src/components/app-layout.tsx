@@ -26,7 +26,9 @@ import Typography from '@mui/material/Typography';
 import { NavLink, Outlet } from 'react-router-dom';
 
 import { HealthIndicator } from '#src/components/health-indicator';
+import { OpensInNewTab } from '#src/components/opens-in-new-tab';
 import { useAuth } from '#src/features/auth/auth-context';
+import { audioMeterHref } from '#src/lib/audio-meter-url';
 import { useSettings } from '#src/lib/settings-context';
 
 const DRAWER_WIDTH = 232;
@@ -37,9 +39,11 @@ const DRAWER_WIDTH = 232;
  * operator clicking it from their laptop gets a new tab (not the room's meter),
  * and the copy makes clear the tool should be run on the source machine. The
  * page needs a secure context (HTTPS or localhost) for `getUserMedia`.
+ *
+ * Root-relative (`audioMeterHref()`), not `'audio-meter.html'`: this nav sits on
+ * every authed route, including nested ones like `/admin/sessions/:uid`, where a
+ * relative href would resolve to `/admin/sessions/audio-meter.html`.
  */
-const AUDIO_METER_HREF = 'audio-meter.html';
-
 interface InternalNavItem {
   label: string;
   to: string;
@@ -64,7 +68,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Deployment Check', to: '/config-check', icon: <FactCheckIcon /> },
   {
     label: 'Audio meter (this device)',
-    href: AUDIO_METER_HREF,
+    href: audioMeterHref(),
     icon: <GraphicEqIcon />,
     external: true,
   },
@@ -156,22 +160,7 @@ export const AppLayout = () => {
                   }}
                 />
                 <OpenInNewIcon fontSize="small" color="action" />
-                <Box
-                  component="span"
-                  sx={{
-                    position: 'absolute',
-                    width: 1,
-                    height: 1,
-                    padding: 0,
-                    margin: -1,
-                    overflow: 'hidden',
-                    clip: 'rect(0 0 0 0)',
-                    whiteSpace: 'nowrap',
-                    border: 0,
-                  }}
-                >
-                  (opens in a new tab)
-                </Box>
+                <OpensInNewTab />
               </ListItemButton>
             ) : (
               <ListItemButton

@@ -67,19 +67,46 @@ export function pipelineP95(session: SessionSnapshot): number | null {
 
 export type AudioStatus = 'good' | 'warn' | 'crit' | 'unknown';
 
+/** The MUI palette keys the status chips use. */
+export type StatusColor = 'success' | 'warning' | 'error' | 'default';
+
+/**
+ * Chip colour per audio status. Exported so every surface that renders an audio
+ * status — the fleet card, the filter chips, the roll-up, the session detail
+ * header — reads from one table. `unknown` is deliberately `default` (grey), not
+ * a warning colour: "no reading" is not the same claim as "bad reading".
+ *
+ * Colour never carries the status alone; every chip renders the status word too
+ * (SC 1.4.1).
+ */
+export const AUDIO_STATUS_COLOR: Record<AudioStatus, StatusColor> = {
+  good: 'success',
+  warn: 'warning',
+  crit: 'error',
+  unknown: 'default',
+};
+
 /**
  * Thresholds for `deriveAudioStatus`. Each number's provenance is noted so the
  * later per-room baseline work (D3 of PLAN-AUDIOVIZ) has one place to replace.
  *
- * The clipping threshold (1 %) and the silence flag come straight from the
- * publisher's `AudioLevelStats`. The RMS bounds match the standalone meter's
- * warn/crit zone defaults (-18 / -6 dBFS) for the low/high ends, and the SNR
- * threshold (10 dB) is the point below which speech intelligibility degrades
- * measurably. These are first-cut constants, not tuned values — see
+ * The clipping threshold (1 % of samples) and the silence flag come straight
+ * from the publisher's `AudioLevelStats`. `rmsDbfsHigh` (-6 dBFS) is the
+ * standalone meter's default peak-zone crit boundary (`audio-meter.html`'s
+ * "Peak zones" control); `rmsDbfsLow` (-50 dBFS) is *not* from the standalone
+ * meter — it sits between its -60 dBFS floor and its -40 dBFS scale step, i.e.
+ * low enough that a working room mic never reads there. The SNR threshold
+ * (10 dB) is the point below which speech intelligibility degrades measurably.
+ * These are first-cut constants, not tuned values — see
  * PLAN-MONITORING-DASHBOARD.md §59 on per-room baselines.
  */
 export const AUDIO_THRESHOLDS = {
-  /** Fraction of clipped samples above which the session is crit. */
+  /**
+   * Fraction (0..1) of clipped samples above which the session is crit, i.e.
+   * 1 % of samples. Compared against `clippingPct`, which the publisher emits
+   * as a fraction (`np.mean(...)` in `audio_meter.py`), *not* as a percentage —
+   * use `formatClippingPct` to render it.
+   */
   clippingPctCrit: 0.01,
   /** RMS below this is very low — likely a muted or far mic. */
   rmsDbfsLow: -50,
@@ -88,6 +115,24 @@ export const AUDIO_THRESHOLDS = {
   /** SNR below this (when VAD measured it) means poor signal-to-noise. */
   snrDbPoor: 10,
 } as const;
+
+/**
+ * Renders `AudioLevelStats.clippingPct` as a percentage for display.
+ *
+ * The field is a **fraction** (0..1) — `np.mean(np.abs(window) >= 1 - eps)` in
+ * `audio_meter.py` — so it has to be scaled by 100 before a `%` suffix. Shared
+ * by the session card and the session detail page so the two surfaces cannot
+ * disagree about the units (D4: one instrument, not two dialects).
+ *
+ * Values below 0.01 % are rendered as `<0.01%` rather than rounding to a flat
+ * `0.00%`, which would claim "no clipping" on a chip that is only shown because
+ * clipping is nonzero.
+ */
+export function formatClippingPct(clippingPct: number): string {
+  const pct = clippingPct * 100;
+  if (pct > 0 && pct < 0.01) return '<0.01%';
+  return `${pct.toFixed(2)}%`;
+}
 
 /**
  * Derives an audio status from a session's latest audio snapshot.

@@ -4,7 +4,9 @@ import { screen, waitFor } from '@testing-library/react';
 import { Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, vi } from 'vitest';
 
+import { useFleet } from '#src/features/dashboard/use-fleet';
 import { SessionDetailPage } from '#src/features/sessions/session-detail-page';
+import type { SessionAudioSnapshot } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError } from '#src/lib/api-error';
 
@@ -223,6 +225,121 @@ describe('SessionDetailPage', () => {
       expect(
         screen.getAllByRole('button', { name: /copy join/i }),
       ).toHaveLength(2);
+    });
+  });
+  describe('audio health', (it) => {
+    // A `Session` here is a *scheduled* record: this page is reachable for a
+    // class that ended last term and for one starting next week. Live audio
+    // telemetry only exists inside the effective window, so outside it the
+    // absence of a snapshot is expected — warning the operator to go check a
+    // microphone would be a false alarm on most detail-page views.
+    const MIC_WARNING = /microphone is unmuted/;
+
+    function mockFleet(audio: SessionAudioSnapshot[]): void {
+      vi.mocked(useFleet).mockReturnValue({
+        snapshot: {
+          generatedAt: 1,
+          nodes: [],
+          sessions: [],
+          transcriptionHosts: [],
+          providers: [],
+          sessionAudio: audio,
+        },
+        sessionEvents: new Map(),
+        connected: true,
+        available: true,
+        refresh: vi.fn(),
+      });
+    }
+
+    it('does not warn about the microphone for a session that has not started', async () => {
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({
+          effectiveStart: '2099-01-01T14:00:00.000Z',
+          effectiveEnd: '2099-01-01T15:00:00.000Z',
+        }),
+      );
+
+      renderPage();
+
+      expect(
+        await screen.findByText(/has not started yet/),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(MIC_WARNING)).not.toBeInTheDocument();
+    });
+
+    it('does not warn about the microphone for a session that has ended', async () => {
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({
+          effectiveStart: '2000-01-01T14:00:00.000Z',
+          effectiveEnd: '2000-01-01T15:00:00.000Z',
+        }),
+      );
+
+      renderPage();
+
+      expect(await screen.findByText(/has ended/)).toBeInTheDocument();
+      expect(screen.queryByText(MIC_WARNING)).not.toBeInTheDocument();
+    });
+
+    it('does not subscribe to fleet telemetry outside the session window', async () => {
+      // The live view holds an SSE connection and re-reads /fleet on the poll
+      // interval; a session that cannot be on the air should pay neither cost.
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({
+          effectiveStart: '2000-01-01T14:00:00.000Z',
+          effectiveEnd: '2000-01-01T15:00:00.000Z',
+        }),
+      );
+
+      renderPage();
+      await screen.findByText(/has ended/);
+
+      expect(vi.mocked(useFleet)).not.toHaveBeenCalled();
+    });
+
+    it('warns about the microphone when a session inside its window has no audio', async () => {
+      // Inside the window the absence really is failure mode C1.
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({
+          effectiveStart: '2000-01-01T14:00:00.000Z',
+          effectiveEnd: null,
+        }),
+      );
+      mockFleet([]);
+
+      renderPage();
+
+      expect(await screen.findByText(MIC_WARNING)).toBeInTheDocument();
+    });
+
+    it('renders the audio readout for a session inside its window with telemetry', async () => {
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({
+          effectiveStart: '2000-01-01T14:00:00.000Z',
+          effectiveEnd: null,
+        }),
+      );
+      mockFleet([
+        {
+          rmsDbfs: -23.4,
+          peakDbfs: -12.1,
+          clippingPct: 0.05,
+          silence: false,
+          noiseFloorDbfs: -65,
+          updatedAt: Date.now(),
+          vadStats: null,
+          sessionUid: SESSION_UID,
+          roomUid: null,
+          transcriptionHost: 'ts-a',
+        },
+      ]);
+
+      renderPage();
+
+      // Clipping is a fraction on the wire: 0.05 is 5% of samples, not 0.05%.
+      expect(await screen.findByText('5.00%')).toBeInTheDocument();
+      expect(screen.queryByText(MIC_WARNING)).not.toBeInTheDocument();
     });
   });
 });

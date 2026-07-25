@@ -23,8 +23,10 @@ import Typography from '@mui/material/Typography';
 
 import { useNavigate } from 'react-router-dom';
 
+import { OpensInNewTab } from '#src/components/opens-in-new-tab';
 import type { MergedProvider } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
+import { AUDIO_METER_COPY, audioMeterHref } from '#src/lib/audio-meter-url';
 import { buildJoinUrl } from '#src/lib/join-url';
 import { useToast } from '#src/lib/toast-context';
 
@@ -34,31 +36,25 @@ import type {
   FleetFilter,
   FleetRow,
   FleetStatus,
+  StatusColor,
 } from './fleet-status';
 import {
+  AUDIO_STATUS_COLOR,
   audioBySession,
   deriveAudioStatus,
   deriveSessionStatus,
+  formatClippingPct,
   pipelineP95,
   setProviderKey,
   useFilteredSessions,
 } from './fleet-status';
 import { useFleet } from './use-fleet';
 
-type StatusColor = 'success' | 'warning' | 'error' | 'default';
-
 const STATUS_COLOR: Record<FleetStatus, StatusColor> = {
   good: 'success',
   warn: 'warning',
   crit: 'error',
   idle: 'default',
-};
-
-const AUDIO_STATUS_COLOR: Record<AudioStatus, StatusColor> = {
-  good: 'success',
-  warn: 'warning',
-  crit: 'error',
-  unknown: 'default',
 };
 
 const PROVIDER_STATUS_COLOR: Record<MergedProvider['status'], StatusColor> = {
@@ -71,13 +67,17 @@ const STATUS_ORDER: FleetStatus[] = ['crit', 'warn', 'good', 'idle'];
 const AUDIO_STATUS_ORDER: AudioStatus[] = ['crit', 'warn', 'unknown', 'good'];
 
 /**
- * The standalone meter page, served at `/admin/audio-meter.html` by the
- * admin-webapp nginx container. The link is shown when pipeline metering is
- * unavailable or empty so an operator can still reach the source-machine tool.
+ * Audio conventions the roll-up must label on the surface
+ * (PLAN-MONITORING-DASHBOARD.md §60), matching the standalone page's wording
+ * (`audio-meter.html`'s "Plain: -3.01 dBFS" reference option).
+ *
+ * A plain JS string, not a JSX string attribute: JSX attribute literals do not
+ * process `\u`/`\n` escapes, so writing this inline renders them verbatim.
  */
-const AUDIO_METER_URL = 'audio-meter.html';
-const AUDIO_METER_COPY =
-  'Opens a self-contained meter that measures the microphone of the device you open it on — run it on the room\u2019s source machine, not here.';
+const AUDIO_CONVENTIONS_TOOLTIP =
+  'dBFS is plain full-scale sine (a full-scale sine reads −3.01 dBFS RMS; 0 dBFS under AES17). ' +
+  'Noise floor is a 10th-percentile RMS over 1 s sub-windows, not an instantaneous floor. ' +
+  'VAD fields show — when not measured, never 0.';
 
 /** Merged provider health, one chip per provider (`§B.4`'s "provider row"). */
 const ProviderStatusRow = ({ providers }: { providers: MergedProvider[] }) => {
@@ -348,53 +348,62 @@ const SessionCard = ({
                 pipeline p95 {Math.round(p95)}ms
               </Typography>
             )}
-            <Box sx={{ mt: 1 }}>
-              {audio === undefined ? (
-                <Typography variant="caption" color="error">
-                  {session.upstreamState === 'OPEN'
-                    ? 'no audio reaching ASR'
-                    : 'no audio telemetry'}
-                </Typography>
-              ) : (
-                <AudioMeterBar
-                  rmsDbfs={audio.rmsDbfs}
-                  peakDbfs={audio.peakDbfs}
-                  status={audioStatus}
-                  label={`Audio level for session ${session.sessionUid}`}
-                />
-              )}
-              {audio !== undefined && (
-                <Stack
-                  direction="row"
-                  spacing={0.5}
-                  flexWrap="wrap"
-                  useFlexGap
-                  sx={{ mt: 0.5 }}
-                >
-                  {audio.silence && (
-                    <Chip size="small" label="silent" color="error" />
-                  )}
-                  {audio.clippingPct > 0 && (
-                    <Chip
-                      size="small"
-                      label={`clipping ${audio.clippingPct.toFixed(2)}%`}
-                      color="error"
-                    />
-                  )}
-                  {audio.vadStats !== null &&
-                    audio.vadStats.vadEnabled &&
-                    audio.vadStats.speechActiveRatio !== null && (
-                      <Chip
-                        size="small"
-                        label={`speech ${String(Math.round(audio.vadStats.speechActiveRatio * 100))}%`}
-                        variant="outlined"
-                      />
-                    )}
-                </Stack>
-              )}
-            </Box>
           </CardContent>
         </CardActionArea>
+        {/*
+          The audio strip sits OUTSIDE the CardActionArea deliberately. ARIA
+          treats the content of a `button` as presentational, so a
+          `role="progressbar"` nested inside one has its `aria-valuenow` /
+          `aria-valuetext` dropped — and for this component the value *is* the
+          information (SC 1.4.1: never color or graphic alone). Keeping it a
+          sibling costs click-to-navigate on the strip itself and buys back the
+          meter's accessible value, plus the ability to select the dBFS text.
+        */}
+        <CardContent sx={{ pt: 0 }}>
+          {audio === undefined ? (
+            <Typography variant="caption" color="error">
+              {session.upstreamState === 'OPEN'
+                ? 'no audio reaching ASR'
+                : 'no audio telemetry'}
+            </Typography>
+          ) : (
+            <>
+              <AudioMeterBar
+                rmsDbfs={audio.rmsDbfs}
+                peakDbfs={audio.peakDbfs}
+                status={audioStatus}
+                label={`Audio level for session ${session.sessionUid}`}
+              />
+              <Stack
+                direction="row"
+                spacing={0.5}
+                flexWrap="wrap"
+                useFlexGap
+                sx={{ mt: 0.5 }}
+              >
+                {audio.silence && (
+                  <Chip size="small" label="silent" color="error" />
+                )}
+                {audio.clippingPct > 0 && (
+                  <Chip
+                    size="small"
+                    label={`clipping ${formatClippingPct(audio.clippingPct)}`}
+                    color="error"
+                  />
+                )}
+                {audio.vadStats !== null &&
+                  audio.vadStats.vadEnabled &&
+                  audio.vadStats.speechActiveRatio !== null && (
+                    <Chip
+                      size="small"
+                      label={`speech ${String(Math.round(audio.vadStats.speechActiveRatio * 100))}%`}
+                      variant="outlined"
+                    />
+                  )}
+              </Stack>
+            </>
+          )}
+        </CardContent>
       </Card>
     </Grid>
   );
@@ -428,74 +437,71 @@ const FleetAudioRollup = ({
   }, [sessions, audioMap]);
 
   // When no audio telemetry exists at all, point at the standalone meter.
-  const noAudioTelemetry =
-    sessions.length > 0 && counts.good + counts.warn + counts.crit === 0;
-
-  if (noAudioTelemetry) {
-    return (
-      <Alert severity="info" sx={{ mb: 2 }}>
-        Pipeline audio metering unavailable — no audio snapshots are being
-        published.{' '}
-        <Link href={AUDIO_METER_URL} target="_blank" rel="noopener noreferrer">
-          Open the standalone audio meter
-          <Box
-            component="span"
-            sx={{
-              position: 'absolute',
-              width: 1,
-              height: 1,
-              padding: 0,
-              margin: -1,
-              overflow: 'hidden',
-              clip: 'rect(0 0 0 0)',
-              whiteSpace: 'nowrap',
-              border: 0,
-            }}
-          >
-            (opens in a new tab)
-          </Box>
-        </Link>
-        . {AUDIO_METER_COPY}
-      </Alert>
-    );
-  }
+  //
+  // Keyed on the map being empty, NOT on the derived counts: `deriveAudioStatus`
+  // maps "no snapshot + upstreamState OPEN" to `crit` (C1), so a count-based
+  // test could never fire in the one environment this state exists for — an
+  // environment with live sessions and no publisher, where every session is
+  // crit. That is also why the roll-up stays rendered below rather than being
+  // replaced: the operator still needs the counts, they just need to know the
+  // crits mean "nothing is publishing here", not "twenty mics died at once".
+  const noAudioTelemetry = sessions.length > 0 && audioMap.size === 0;
 
   return (
-    <Stack
-      direction="row"
-      spacing={1}
-      flexWrap="wrap"
-      useFlexGap
-      sx={{ mb: 2 }}
-      aria-live="polite"
-      aria-label="Fleet audio summary"
-    >
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        sx={{ alignSelf: 'center' }}
+    <>
+      {noAudioTelemetry && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Pipeline audio metering unavailable — no audio snapshots are being
+          published for any session, so the audio statuses below reflect the
+          missing publisher rather than the rooms.{' '}
+          <Link
+            href={audioMeterHref()}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open the standalone audio meter
+            <OpensInNewTab />
+          </Link>
+          . {AUDIO_METER_COPY}
+        </Alert>
+      )}
+
+      <Stack
+        direction="row"
+        spacing={1}
+        flexWrap="wrap"
+        useFlexGap
+        sx={{ mb: 2 }}
+        aria-live="polite"
+        aria-label="Fleet audio summary"
       >
-        Audio:
-      </Typography>
-      {AUDIO_STATUS_ORDER.map((status) => (
-        <Chip
-          key={`rollup-${status}`}
-          size="small"
-          label={`${status}: ${String(counts[status])}`}
-          color={AUDIO_STATUS_COLOR[status]}
-          variant="outlined"
-        />
-      ))}
-      <Tooltip title="dBFS is plain full-scale sine (a full-scale sine reads \u22123.01 dBFS). Noise floor is a 10th-percentile RMS over 1 s sub-windows, not an instantaneous floor. VAD fields show \u2014 when not measured, never 0.">
-        <IconButton
-          size="small"
-          aria-label="Audio conventions"
+        <Typography
+          variant="caption"
+          color="text.secondary"
           sx={{ alignSelf: 'center' }}
         >
-          <HelpOutlineIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
-    </Stack>
+          Audio:
+        </Typography>
+        {AUDIO_STATUS_ORDER.map((status) => (
+          <Chip
+            key={`rollup-${status}`}
+            size="small"
+            label={`${status}: ${String(counts[status])}`}
+            color={AUDIO_STATUS_COLOR[status]}
+            variant="outlined"
+          />
+        ))}
+        <Tooltip title={AUDIO_CONVENTIONS_TOOLTIP}>
+          <IconButton
+            size="small"
+            aria-label="Audio conventions"
+            sx={{ alignSelf: 'center' }}
+          >
+            <HelpOutlineIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Stack>
+    </>
   );
 };
 
