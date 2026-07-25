@@ -54,12 +54,67 @@ The two implementations are now held to one expectation table in
 `tools/audio-meter-crosscheck/`, so this class of disagreement fails CI rather
 than reaching an operator.
 
-### No new env var
+### Audio telemetry is now measured at several points in the pipeline
 
-The audio panel rides `TRANSCRIPTION_REDIS_URL`, the same switch the fleet view
-already uses. If the fleet view works in an environment, audio telemetry is
-being published there too — there is no second flag to turn on. The
-`audio-meter.html` page itself needs no backend at all.
+Previously the audio reading was taken inside the Whisper provider's worker. Two
+consequences, both fixed here:
+
+**Deployments not running Whisper had no audio telemetry at all, and the
+dashboard reported that absence as a microphone fault.** Of the four providers
+in `provider_config.template.json`, only `whisper` and `crisper_whisper` run
+whisper-streaming. On a `lumen_granite` or `debug` deployment nothing published
+an audio snapshot, and the dashboard maps "no snapshot on a live session" to a
+red **no audio reaching ASR** chip. So *every healthy session showed a red audio
+chip beside a green connectivity chip.* If your deployment runs `lumen_granite`
+or `debug`, those false red chips disappear after this upgrade and you get real
+audio health for the first time.
+
+**Audio is now measured where it arrives**, before any provider sees it, plus at
+each point downstream that can report. A session's snapshot carries a list of
+stages:
+
+| Stage | Where it is measured | What a problem here means |
+| --- | --- | --- |
+| `ingress` | audio arriving at Transcription Service, every provider | the source is not sending good audio — mic muted, unplugged, wrong input |
+| `asr_input` | after the worker decoded it into the ASR's buffer | the pipeline is losing audio — dropped chunks, decode failures, a client sending faster than the window holds |
+| `vad` | the speech the detector passed on (Whisper only) | voice-activity detection is gating too aggressively |
+
+Each stage reports cumulative seconds of audio that passed it, so the console can
+show **where** audio was lost rather than only that something is wrong. The
+session detail page gains a table of these stages.
+
+> ⚠️ **A green audio chip now asserts less than it used to.** It means the source
+> is sending good audio. It no longer implies the ASR is producing, because the
+> reading is no longer taken from a transcription result — a stalled model or an
+> unreachable upstream now shows on the **connectivity** chip and as a gap
+> between `ingress` and `asr_input`, not as an audio fault. This is deliberate:
+> audio quality and pipeline liveness are two different questions and a single
+> chip answering both answered neither reliably.
+
+Operators who had learned "red audio chip = check the microphone" can keep that
+reading — it is now more accurate, not less.
+
+### One new env var, optional
+
+`TRANSCRIPTION_AUDIO_SILENCE_THRESHOLD` sets the linear RMS level at or below
+which a metering window reads as digital silence. It **defaults to `0.01`**,
+which is the value the Whisper provider already used, so leaving it unset
+preserves current behaviour exactly and no deployment has to add it. Raise it
+only if rooms with a genuinely quiet but working mic are being flagged silent.
+
+Otherwise the audio panel still rides `TRANSCRIPTION_REDIS_URL`, the same switch
+the fleet view already uses. If the fleet view works in an environment, audio
+telemetry is being published there too. The `audio-meter.html` page itself needs
+no backend at all.
+
+### The published payload shape changed
+
+The value at `scribe:v1:audio:{sessionUid}` moved from flat level fields plus a
+top-level `vadStats` to the `stages` list described above. Both the publisher and
+the reader ship from this repo, and the key expires after 10 seconds, so a
+rolling upgrade costs at most one dashboard refresh of missing audio telemetry —
+there is nothing to migrate and no ordering requirement between services. If you
+have anything of your own reading that key directly, it needs updating.
 
 ### Where the page moved
 
