@@ -65,7 +65,12 @@ export const ActivationCodeDisplay = ({
 
   return (
     <Paper variant="outlined" sx={{ p: 3, textAlign: 'center' }}>
-      <Typography variant="overline" color="text.secondary">
+      <Typography
+        variant="overline"
+        sx={{
+          color: 'text.secondary',
+        }}
+      >
         Activation code
       </Typography>
       <Box

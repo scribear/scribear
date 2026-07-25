@@ -48,9 +48,14 @@ export const PresetThemeSelector = ({
   };
 
   return (
-    <Stack direction="row" alignItems="center" justifyContent="space-between">
+    <Stack
+      direction="row"
+      sx={{
+        alignItems: 'center',
+        justifyContent: 'space-between',
+      }}
+    >
       <Typography>Preset Themes</Typography>
-
       <Box
         sx={{
           display: 'flex',
@@ -70,7 +75,6 @@ export const PresetThemeSelector = ({
           </IconButton>
         </Tooltip>
       </Box>
-
       <Popover
         open={isThemeSelectorOpen}
         anchorEl={themeSelectorAnchorEl}
@@ -78,7 +82,14 @@ export const PresetThemeSelector = ({
         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
         transformOrigin={{ vertical: 'top', horizontal: 'left' }}
       >
-        <Grid container padding={2} spacing={2} sx={{ width: 224 }}>
+        <Grid
+          container
+          spacing={2}
+          sx={{
+            padding: 2,
+            width: 224,
+          }}
+        >
           {PRESET_THEMES.map((theme) => (
             <Grid size={3} key={theme.id}>
               <Tooltip title={theme.name}>

@@ -34,7 +34,13 @@ export const LineHeightControl = ({
   return (
     <>
       <Typography>Line Height</Typography>
-      <Stack direction="row" alignItems="center" spacing={2}>
+      <Stack
+        direction="row"
+        spacing={2}
+        sx={{
+          alignItems: 'center',
+        }}
+      >
         <Typography sx={{ minWidth: 75, textAlign: 'left' }}>
           {TRANSCRIPTION_DISPLAY_CONFG.lineHeightMultipler.min}x
         </Typography>

@@ -174,7 +174,12 @@ export const Root = () => {
   ];
 
   const ProviderSelector = (
-    <Stack direction="row" alignItems="center">
+    <Stack
+      direction="row"
+      sx={{
+        alignItems: 'center',
+      }}
+    >
       <TranscriptionProviderStatusDisplay />
       <TranscriptionProviderSelector />
     </Stack>

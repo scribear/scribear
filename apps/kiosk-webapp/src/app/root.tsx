@@ -157,7 +157,14 @@ export const Root = () => {
     />,
   ];
 
-  const ProviderSelector = <Stack direction="row" alignItems="center"></Stack>;
+  const ProviderSelector = (
+    <Stack
+      direction="row"
+      sx={{
+        alignItems: 'center',
+      }}
+    ></Stack>
+  );
 
   return (
     <AppLayout

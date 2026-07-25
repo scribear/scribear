@@ -50,7 +50,12 @@ export const StreamtextModal = () => {
       message={`Connecting to ${displayName}.`}
       onCancel={cancelModal}
     >
-      <Stack direction="row" justifyContent="space-around">
+      <Stack
+        direction="row"
+        sx={{
+          justifyContent: 'space-around',
+        }}
+      >
         <CircularProgress />
       </Stack>
     </CancelableInfoModal>

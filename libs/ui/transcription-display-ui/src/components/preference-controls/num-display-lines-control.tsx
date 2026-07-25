@@ -68,7 +68,13 @@ export const NumDisplayLinesControl = ({
   return (
     <>
       <Typography>Number of Display Lines</Typography>
-      <Stack direction="row" alignItems="center" spacing={2}>
+      <Stack
+        direction="row"
+        spacing={2}
+        sx={{
+          alignItems: 'center',
+        }}
+      >
         <Typography sx={{ minWidth: 75, textAlign: 'left' }}>
           {minNumDisplayLines}
         </Typography>

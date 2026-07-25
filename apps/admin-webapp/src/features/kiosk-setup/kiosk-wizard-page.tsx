@@ -68,7 +68,12 @@ const DeviceStep = ({
   onReregister,
 }: DeviceStepProps) => (
   <Stack spacing={2}>
-    <Typography variant="body2" color="text.secondary">
+    <Typography
+      variant="body2"
+      sx={{
+        color: 'text.secondary',
+      }}
+    >
       Register a new device to get an activation code. Enter the code on the
       kiosk to link it to this device record.
     </Typography>
@@ -100,12 +105,22 @@ const DeviceStep = ({
     ) : (
       activationCode !== null &&
       activationExpiry !== null && (
-        <Stack spacing={1} alignItems="center">
+        <Stack
+          spacing={1}
+          sx={{
+            alignItems: 'center',
+          }}
+        >
           <ActivationCodeDisplay
             code={activationCode}
             expiry={activationExpiry}
           />
-          <Typography variant="body2" color="text.secondary">
+          <Typography
+            variant="body2"
+            sx={{
+              color: 'text.secondary',
+            }}
+          >
             On the kiosk browser, open /kiosk and enter this code.
           </Typography>
           <Button onClick={onReregister} disabled={reregistering} size="small">
@@ -186,7 +201,6 @@ const RoomStep = ({
           label="Add to an existing room"
         />
       </RadioGroup>
-
       {roomChoice === 'new' ? (
         <Stack spacing={2}>
           <TextField
@@ -248,7 +262,12 @@ const RoomStep = ({
             </Box>
           )}
           {!existingRoomsLoading && existingRooms.length === 0 && (
-            <Typography variant="body2" color="text.secondary">
+            <Typography
+              variant="body2"
+              sx={{
+                color: 'text.secondary',
+              }}
+            >
               No rooms exist yet. Create a new room instead.
             </Typography>
           )}
@@ -276,7 +295,12 @@ interface VerifyStepProps {
 const VerifyStep = ({ deviceUid, roomUid, deviceActive }: VerifyStepProps) => {
   if (deviceActive) {
     return (
-      <Stack spacing={2} alignItems="flex-start">
+      <Stack
+        spacing={2}
+        sx={{
+          alignItems: 'flex-start',
+        }}
+      >
         <Alert severity="success" sx={{ width: '100%' }}>
           Activated ✓
         </Alert>
@@ -297,9 +321,19 @@ const VerifyStep = ({ deviceUid, roomUid, deviceActive }: VerifyStepProps) => {
   }
 
   return (
-    <Stack spacing={2} alignItems="center" sx={{ py: 4 }}>
+    <Stack
+      spacing={2}
+      sx={{
+        alignItems: 'center',
+        py: 4,
+      }}
+    >
       <CircularProgress aria-label="Waiting for the kiosk to activate" />
-      <Typography color="text.secondary">
+      <Typography
+        sx={{
+          color: 'text.secondary',
+        }}
+      >
         Waiting for the kiosk to activate…
       </Typography>
     </Stack>
@@ -504,7 +538,6 @@ export const KioskWizardPage = () => {
       <Typography variant="h5" component="h1" gutterBottom>
         Set up a kiosk
       </Typography>
-
       <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
         {STEPS.map((label, index) => (
           <Step key={label}>
@@ -530,7 +563,6 @@ export const KioskWizardPage = () => {
       >
         {`Step ${String(activeStep + 1)} of ${String(STEPS.length)}: ${STEPS[activeStep] ?? ''}`}
       </Typography>
-
       <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
         {activeStep === 0 && (
           <DeviceStep
@@ -583,8 +615,13 @@ export const KioskWizardPage = () => {
           />
         )}
       </Paper>
-
-      <Stack direction="row" spacing={2} justifyContent="space-between">
+      <Stack
+        direction="row"
+        spacing={2}
+        sx={{
+          justifyContent: 'space-between',
+        }}
+      >
         <Button onClick={handleBack} disabled={activeStep === 0}>
           Back
         </Button>

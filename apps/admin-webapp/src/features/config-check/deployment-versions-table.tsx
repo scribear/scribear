@@ -1,7 +1,7 @@
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
-import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
-import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
+import HelpOutlinedIcon from '@mui/icons-material/HelpOutlined';
+import RemoveCircleOutlinedIcon from '@mui/icons-material/RemoveCircleOutlined';
 import WarningIcon from '@mui/icons-material/Warning';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
@@ -80,16 +80,20 @@ const ContainerRow = ({
   return (
     <TableRow hover>
       <TableCell sx={{ fontWeight: 500 }}>{container.service}</TableCell>
-
       <TableCell>
         {build?.version === UNKNOWN ? '—' : (build?.version ?? '—')}
       </TableCell>
-
       <TableCell>
         {build === null ? (
           '—'
         ) : (
-          <Stack direction="row" spacing={0.75} alignItems="center">
+          <Stack
+            direction="row"
+            spacing={0.75}
+            sx={{
+              alignItems: 'center',
+            }}
+          >
             <Box component="code" sx={{ fontFamily: 'monospace' }}>
               {shortCommit(build.commit)}
             </Box>
@@ -111,34 +115,39 @@ const ContainerRow = ({
           </Stack>
         )}
       </TableCell>
-
       <TableCell>
         {build?.ref === UNKNOWN ? '—' : (build?.ref ?? '—')}
       </TableCell>
-
       <TableCell>
         {build === null ? '—' : formatBuiltAt(build.builtAt)}
       </TableCell>
-
       <TableCell>
         {build === null || build.imageTags.length === 0 ? (
           '—'
         ) : (
-          <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+          <Stack
+            direction="row"
+            spacing={0.5}
+            useFlexGap
+            sx={{
+              flexWrap: 'wrap',
+            }}
+          >
             {build.imageTags.map((tag) => (
               <Chip key={tag} size="small" variant="outlined" label={tag} />
             ))}
           </Stack>
         )}
       </TableCell>
-
       <TableCell>
         <Stack
           direction="row"
           spacing={0.5}
-          alignItems="center"
-          flexWrap="wrap"
           useFlexGap
+          sx={{
+            alignItems: 'center',
+            flexWrap: 'wrap',
+          }}
         >
           <Chip
             size="small"
@@ -161,7 +170,7 @@ const ContainerRow = ({
           )}
           {container.detail !== undefined && (
             <Tooltip title={container.detail}>
-              <HelpOutlineIcon fontSize="small" color="disabled" />
+              <HelpOutlinedIcon fontSize="small" color="disabled" />
             </Tooltip>
           )}
         </Stack>
@@ -241,7 +250,6 @@ export const DeploymentVersionsTable = ({
             : `This deployment is running ${report.expectedCommit.slice(0, SHORT_COMMIT_LENGTH)}.`}
         </Alert>
       )}
-
       {stale.length > 0 && (
         <Alert severity="warning" icon={<ErrorIcon />} sx={{ mb: 2 }}>
           <AlertTitle>
@@ -253,7 +261,6 @@ export const DeploymentVersionsTable = ({
           not recreated by the last upgrade.
         </Alert>
       )}
-
       {report.locallyBuilt.length > 0 && !report.unstamped && (
         <Alert severity="info" sx={{ mb: 2 }}>
           <AlertTitle>Locally built images are running here</AlertTitle>
@@ -271,7 +278,6 @@ export const DeploymentVersionsTable = ({
           )}
         </Alert>
       )}
-
       <TableContainer component={Paper} variant="outlined">
         <Table size="small">
           <TableHead>
@@ -296,13 +302,17 @@ export const DeploymentVersionsTable = ({
           </TableBody>
         </Table>
       </TableContainer>
-
       <Typography
         variant="caption"
-        color="text.secondary"
-        sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}
+        sx={{
+          color: 'text.secondary',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.5,
+          mt: 1,
+        }}
       >
-        <RemoveCircleOutlineIcon fontSize="inherit" />
+        <RemoveCircleOutlinedIcon fontSize="inherit" />
         Every value is baked into the image at build time, so it describes the
         artifact rather than the source tree it sits next to. An em dash means
         the build did not supply that field. Read{' '}

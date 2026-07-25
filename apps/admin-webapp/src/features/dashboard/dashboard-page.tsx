@@ -57,15 +57,24 @@ const HealthTile = ({ label, status, detail }: HealthTileProps) => (
   <Grid size={{ xs: 12, sm: 6, md: 3 }}>
     <Card>
       <CardContent>
-        <Typography variant="body2" color="text.secondary" gutterBottom>
+        <Typography
+          variant="body2"
+          gutterBottom
+          sx={{
+            color: 'text.secondary',
+          }}
+        >
           {label}
         </Typography>
         <Chip size="small" label={status} color={statusColor(status)} />
         {detail !== undefined && (
           <Typography
             variant="caption"
-            color="text.secondary"
-            sx={{ display: 'block', mt: 1 }}
+            sx={{
+              color: 'text.secondary',
+              display: 'block',
+              mt: 1,
+            }}
           >
             {detail}
           </Typography>
@@ -132,14 +141,12 @@ export const DashboardPage = () => {
       <Typography variant="h5" component="h1" sx={{ mb: 2 }}>
         Dashboard
       </Typography>
-
       {misconfigured && (
         <Alert severity="error" sx={{ mb: 2 }}>
           Admin backend misconfiguration — an operator must check the
           server&apos;s ADMIN_API_KEY.
         </Alert>
       )}
-
       <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
         System health
       </Typography>
@@ -166,15 +173,17 @@ export const DashboardPage = () => {
           ))}
         </Grid>
       ) : (
-        <Typography color="text.secondary" sx={{ mb: 3 }}>
+        <Typography
+          sx={{
+            color: 'text.secondary',
+            mb: 3,
+          }}
+        >
           Health status unavailable.
         </Typography>
       )}
-
       <DemoRoomCard />
-
       <FleetPanel />
-
       <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
         Pending activations
       </Typography>
@@ -187,12 +196,16 @@ export const DashboardPage = () => {
               {pendingCount ?? '—'}
             </Typography>
           )}
-          <Typography variant="body2" color="text.secondary">
+          <Typography
+            variant="body2"
+            sx={{
+              color: 'text.secondary',
+            }}
+          >
             devices awaiting activation
           </Typography>
         </CardContent>
       </Card>
-
       <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
         Quick actions
       </Typography>

@@ -66,7 +66,12 @@ export const AppLayout = ({
   const isUserActive = useInactivity(USER_ACTIVITY_TIMEOUT);
 
   const MenuTitleGroup = (
-    <Stack direction="row" alignItems="center">
+    <Stack
+      direction="row"
+      sx={{
+        alignItems: 'center',
+      }}
+    >
       <Tooltip title="Open Menu">
         <IconButton
           color="inherit"
@@ -79,7 +84,13 @@ export const AppLayout = ({
         </IconButton>
       </Tooltip>
       {/* Single app <h1> (visually h5-sized) so every app has one top-level heading. */}
-      <Typography variant="h5" component="h1" marginLeft={2}>
+      <Typography
+        variant="h5"
+        component="h1"
+        sx={{
+          marginLeft: 2,
+        }}
+      >
         ScribeAR
       </Typography>
     </Stack>
@@ -160,7 +171,12 @@ export const AppLayout = ({
       }}
     >
       {MenuTitleGroup}
-      <Stack direction="row" alignItems="center">
+      <Stack
+        direction="row"
+        sx={{
+          alignItems: 'center',
+        }}
+      >
         <Box>{providerSelector}</Box>
         <Box>{headerButtons}</Box>
         {LayoutControls}
@@ -198,9 +214,9 @@ export const AppLayout = ({
       >
         <Stack
           direction="row"
-          alignItems="center"
-          justifyContent="space-between"
           sx={{
+            alignItems: 'center',
+            justifyContent: 'space-between',
             p: 2,
           }}
         >
@@ -209,7 +225,9 @@ export const AppLayout = ({
             id={drawerTitleId}
             variant="h5"
             component="h2"
-            fontWeight={500}
+            sx={{
+              fontWeight: 500,
+            }}
           >
             Menu
           </Typography>
@@ -227,7 +245,6 @@ export const AppLayout = ({
         </Stack>
         {drawerContent}
       </Drawer>
-
       {/* Skip link: first focusable element, visually hidden until focused, so
           keyboard/AT users can jump straight to the captions/main content. SC 2.4.1 */}
       <Link
@@ -246,7 +263,6 @@ export const AppLayout = ({
       >
         Skip to main content
       </Link>
-
       {/* unmountOnExit keeps the auto-hidden header's controls out of the tab
           order while hidden (they are off-screen otherwise). Any keydown/mouse
           activity re-reveals it via useInactivity. SC 2.4.3 */}
@@ -258,7 +274,6 @@ export const AppLayout = ({
       >
         <AppBar>{Header}</AppBar>
       </Slide>
-
       <Box component="main" id={mainContentId} tabIndex={-1}>
         {children}
       </Box>

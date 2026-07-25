@@ -44,7 +44,12 @@ export const WebspeechModal = () => {
       message={`Initializing ${displayName}.`}
       onCancel={cancelModal}
     >
-      <Stack direction="row" justifyContent="space-around">
+      <Stack
+        direction="row"
+        sx={{
+          justifyContent: 'space-around',
+        }}
+      >
         <CircularProgress />
       </Stack>
     </CancelableInfoModal>
@@ -74,7 +79,12 @@ export const WebspeechModal = () => {
       message={`${displayName} network error detected. Reconnecting...`}
       onCancel={cancelModal}
     >
-      <Stack direction="row" justifyContent="space-around">
+      <Stack
+        direction="row"
+        sx={{
+          justifyContent: 'space-around',
+        }}
+      >
         <CircularProgress />
       </Stack>
     </CancelableInfoModal>

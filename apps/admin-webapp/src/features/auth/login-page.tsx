@@ -61,7 +61,13 @@ export const LoginPage = () => {
           <Typography variant="h5" component="h1" gutterBottom>
             ScribeAR Admin
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: 'text.secondary',
+              mb: 3,
+            }}
+          >
             Sign in to manage rooms, devices, and kiosks.
           </Typography>
 

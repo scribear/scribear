@@ -55,13 +55,25 @@ const STATUS_ORDER: FleetStatus[] = ['crit', 'warn', 'good', 'idle'];
 const ProviderStatusRow = ({ providers }: { providers: MergedProvider[] }) => {
   if (providers.length === 0) {
     return (
-      <Typography variant="body2" color="text.secondary">
+      <Typography
+        variant="body2"
+        sx={{
+          color: 'text.secondary',
+        }}
+      >
         No providers reporting.
       </Typography>
     );
   }
   return (
-    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+    <Stack
+      direction="row"
+      spacing={1}
+      useFlexGap
+      sx={{
+        flexWrap: 'wrap',
+      }}
+    >
       {providers.map((p) => (
         <Chip
           key={p.providerKey}
@@ -99,10 +111,12 @@ const FleetFilterBar = ({
     <Stack
       direction="row"
       spacing={1}
-      alignItems="center"
-      flexWrap="wrap"
       useFlexGap
-      sx={{ mb: 2 }}
+      sx={{
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        mb: 2,
+      }}
     >
       {STATUS_ORDER.map((status) => (
         <Chip
@@ -196,8 +210,10 @@ const SessionCard = ({ session, status, event }: FleetRow) => {
           <CardContent>
             <Stack
               direction="row"
-              justifyContent="space-between"
-              alignItems="flex-start"
+              sx={{
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+              }}
             >
               <Typography
                 variant="body2"
@@ -209,15 +225,29 @@ const SessionCard = ({ session, status, event }: FleetRow) => {
             </Stack>
             <Typography
               variant="caption"
-              color="text.secondary"
-              sx={{ display: 'block', fontFamily: 'monospace' }}
+              sx={{
+                color: 'text.secondary',
+                display: 'block',
+                fontFamily: 'monospace',
+              }}
             >
               room: {session.roomUid ?? 'no room'}
             </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            <Typography
+              variant="body2"
+              sx={{
+                color: 'text.secondary',
+                mt: 1,
+              }}
+            >
               {session.providerKey}
             </Typography>
-            <Typography variant="caption" color="text.secondary">
+            <Typography
+              variant="caption"
+              sx={{
+                color: 'text.secondary',
+              }}
+            >
               {session.upstreamState}
               {event &&
                 !event.sourceDeviceConnected &&
@@ -229,8 +259,10 @@ const SessionCard = ({ session, status, event }: FleetRow) => {
             {p95 !== null && (
               <Typography
                 variant="caption"
-                color="text.secondary"
-                sx={{ display: 'block' }}
+                sx={{
+                  color: 'text.secondary',
+                  display: 'block',
+                }}
               >
                 pipeline p95 {Math.round(p95)}ms
               </Typography>
@@ -285,9 +317,11 @@ export const FleetPanel = () => {
     <Box sx={{ mb: 3 }}>
       <Stack
         direction="row"
-        justifyContent="space-between"
-        alignItems="center"
-        sx={{ mb: 1 }}
+        sx={{
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          mb: 1,
+        }}
       >
         <Typography variant="h6" component="h2">
           Live fleet
@@ -296,15 +330,25 @@ export const FleetPanel = () => {
           <Chip size="small" label="reconnecting…" color="warning" />
         )}
       </Stack>
-
       <Box sx={{ mb: 2 }}>
         <ProviderStatusRow providers={snapshot?.providers ?? []} />
       </Box>
-
       {snapshot === null ? (
-        <Typography color="text.secondary">Loading fleet…</Typography>
+        <Typography
+          sx={{
+            color: 'text.secondary',
+          }}
+        >
+          Loading fleet…
+        </Typography>
       ) : sessions.length === 0 ? (
-        <Typography color="text.secondary">No active sessions.</Typography>
+        <Typography
+          sx={{
+            color: 'text.secondary',
+          }}
+        >
+          No active sessions.
+        </Typography>
       ) : (
         <>
           <FleetFilterBar
@@ -314,7 +358,11 @@ export const FleetPanel = () => {
             counts={counts}
           />
           {rows.length === 0 ? (
-            <Typography color="text.secondary">
+            <Typography
+              sx={{
+                color: 'text.secondary',
+              }}
+            >
               No sessions match the current filter.
             </Typography>
           ) : (

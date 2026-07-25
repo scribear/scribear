@@ -267,14 +267,15 @@ export const DeviceDetailPage = () => {
       <Typography variant="h5" component="h1" gutterBottom>
         <NameWithUid name={device.name} uid={device.uid} showUid={showUuids} />
       </Typography>
-
       <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
         <Stack spacing={2}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography
               variant="body2"
-              color="text.secondary"
-              sx={{ minWidth: 100 }}
+              sx={{
+                color: 'text.secondary',
+                minWidth: 100,
+              }}
             >
               Status
             </Typography>
@@ -296,8 +297,10 @@ export const DeviceDetailPage = () => {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography
               variant="body2"
-              color="text.secondary"
-              sx={{ minWidth: 100 }}
+              sx={{
+                color: 'text.secondary',
+                minWidth: 100,
+              }}
             >
               Room
             </Typography>
@@ -321,8 +324,10 @@ export const DeviceDetailPage = () => {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography
               variant="body2"
-              color="text.secondary"
-              sx={{ minWidth: 100 }}
+              sx={{
+                color: 'text.secondary',
+                minWidth: 100,
+              }}
             >
               Created
             </Typography>
@@ -332,7 +337,6 @@ export const DeviceDetailPage = () => {
           </Box>
         </Stack>
       </Paper>
-
       <Stack direction="row" spacing={2}>
         <Button
           variant="outlined"
@@ -361,7 +365,6 @@ export const DeviceDetailPage = () => {
           Delete
         </Button>
       </Stack>
-
       <RenameDeviceDialog
         key={renameDialogKey}
         open={renameOpen}
@@ -375,7 +378,6 @@ export const DeviceDetailPage = () => {
           setRenameOpen(false);
         }}
       />
-
       <ConfirmDialog
         open={reregisterConfirmOpen}
         title="Re-register device"
@@ -387,14 +389,12 @@ export const DeviceDetailPage = () => {
           setReregisterConfirmOpen(false);
         }}
       />
-
       <ReregisterResultDialog
         result={reregisterResult}
         onClose={() => {
           setReregisterResult(null);
         }}
       />
-
       <ConfirmDialog
         open={deleteConfirmOpen}
         title="Delete device"

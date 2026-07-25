@@ -24,7 +24,12 @@ export const TranscriptionProviderStatusDisplay = () => {
   /* eslint-enable @eslint-react/static-components */
 
   return (
-    <Stack direction="row" alignItems="center">
+    <Stack
+      direction="row"
+      sx={{
+        alignItems: 'center',
+      }}
+    >
       {/* getProviderStatusIcon returns a stable reference from the module-level registry, not a new component. */}
       {/* eslint-disable-next-line react-hooks/static-components, @eslint-react/static-components */}
       {StatusIcon ? <StatusIcon /> : null}

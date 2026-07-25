@@ -1,4 +1,4 @@
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
@@ -32,9 +32,15 @@ interface ContrastRowProps {
 const ContrastRow = ({ label, ratio, threshold }: ContrastRowProps) => {
   const passes = ratio >= threshold;
   return (
-    <Stack direction="row" alignItems="center" spacing={0.5}>
+    <Stack
+      direction="row"
+      spacing={0.5}
+      sx={{
+        alignItems: 'center',
+      }}
+    >
       {passes ? (
-        <CheckCircleOutlineIcon
+        <CheckCircleOutlinedIcon
           fontSize="small"
           aria-hidden="true"
           sx={{ color: 'success.main' }}

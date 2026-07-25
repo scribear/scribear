@@ -236,14 +236,12 @@ export const DevicesListPage = () => {
           Register device
         </Button>
       </Box>
-
       {misconfigured && (
         <Alert severity="error" sx={{ mb: 2 }}>
           Admin backend misconfiguration — an operator must check the
           server&apos;s ADMIN_API_KEY.
         </Alert>
       )}
-
       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
         <TextField
           label="Search devices"
@@ -284,7 +282,6 @@ export const DevicesListPage = () => {
           </Select>
         </FormControl>
       </Box>
-
       <TableContainer component={Paper}>
         <Table>
           <TableHead>
@@ -306,7 +303,11 @@ export const DevicesListPage = () => {
             ) : devices.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
-                  <Typography color="text.secondary">
+                  <Typography
+                    sx={{
+                      color: 'text.secondary',
+                    }}
+                  >
                     No devices found.
                   </Typography>
                 </TableCell>
@@ -374,7 +375,6 @@ export const DevicesListPage = () => {
           </TableBody>
         </Table>
       </TableContainer>
-
       {hasMore && !loading && (
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
           <Button onClick={loadMore} disabled={loadingMore}>
@@ -382,7 +382,6 @@ export const DevicesListPage = () => {
           </Button>
         </Box>
       )}
-
       <RegisterDeviceDialog
         key={registerDialogKey}
         open={registerOpen}

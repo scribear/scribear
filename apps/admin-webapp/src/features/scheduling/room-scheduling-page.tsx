@@ -1122,7 +1122,13 @@ export const RoomSchedulingPage = () => {
         server&apos;s ADMIN_API_KEY.
       </Alert>
     ) : (
-      <Typography color="text.secondary">Room not found.</Typography>
+      <Typography
+        sx={{
+          color: 'text.secondary',
+        }}
+      >
+        Room not found.
+      </Typography>
     );
   }
 
@@ -1134,21 +1140,36 @@ export const RoomSchedulingPage = () => {
           server&apos;s ADMIN_API_KEY.
         </Alert>
       )}
-
       <Typography variant="h5" component="h1" gutterBottom>
         Scheduling — {room.name}
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+      <Typography
+        variant="body2"
+        sx={{
+          color: 'text.secondary',
+          mb: 2,
+        }}
+      >
         All times below are shown in this room&apos;s timezone ({room.timezone}
         ).
       </Typography>
-
       <Card sx={{ mb: 3 }}>
         <CardContent>
-          <Grid container spacing={2} alignItems="center">
+          <Grid
+            container
+            spacing={2}
+            sx={{
+              alignItems: 'center',
+            }}
+          >
             <Grid size={{ xs: 12, sm: 8 }}>
               <Typography variant="body1">Auto-sessions</Typography>
-              <Typography variant="body2" color="text.secondary">
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'text.secondary',
+                }}
+              >
                 When enabled, auto-session windows produce AUTO sessions to fill
                 any gaps left by scheduled/on-demand sessions.
               </Typography>
@@ -1168,7 +1189,6 @@ export const RoomSchedulingPage = () => {
           </Grid>
         </CardContent>
       </Card>
-
       <Box
         sx={{
           display: 'flex',
@@ -1181,7 +1201,12 @@ export const RoomSchedulingPage = () => {
           <Typography variant="h6" component="h2">
             Schedules
           </Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Typography
+            variant="body2"
+            sx={{
+              color: 'text.secondary',
+            }}
+          >
             Showing occurrences between{' '}
             {formatInRoomTz(rangeFrom, room.timezone)} and{' '}
             {formatInRoomTz(rangeTo, room.timezone)} (next {RANGE_DAYS} days).
@@ -1198,7 +1223,6 @@ export const RoomSchedulingPage = () => {
           New schedule
         </Button>
       </Box>
-
       <TableContainer component={Paper} sx={{ mb: 3 }}>
         <Table>
           <TableHead>
@@ -1222,7 +1246,11 @@ export const RoomSchedulingPage = () => {
             ) : schedules.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                  <Typography color="text.secondary">
+                  <Typography
+                    sx={{
+                      color: 'text.secondary',
+                    }}
+                  >
                     No schedules in this range.
                   </Typography>
                 </TableCell>
@@ -1250,7 +1278,9 @@ export const RoomSchedulingPage = () => {
                     <Stack
                       direction="row"
                       spacing={1}
-                      justifyContent="flex-end"
+                      sx={{
+                        justifyContent: 'flex-end',
+                      }}
                     >
                       <Button
                         size="small"
@@ -1278,7 +1308,6 @@ export const RoomSchedulingPage = () => {
           </TableBody>
         </Table>
       </TableContainer>
-
       <Box
         sx={{
           display: 'flex',
@@ -1291,7 +1320,12 @@ export const RoomSchedulingPage = () => {
           <Typography variant="h6" component="h2">
             Auto-session windows
           </Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Typography
+            variant="body2"
+            sx={{
+              color: 'text.secondary',
+            }}
+          >
             Showing occurrences between{' '}
             {formatInRoomTz(rangeFrom, room.timezone)} and{' '}
             {formatInRoomTz(rangeTo, room.timezone)} (next {RANGE_DAYS} days).
@@ -1308,7 +1342,6 @@ export const RoomSchedulingPage = () => {
           New window
         </Button>
       </Box>
-
       <TableContainer component={Paper} sx={{ mb: 3 }}>
         <Table>
           <TableHead>
@@ -1333,7 +1366,11 @@ export const RoomSchedulingPage = () => {
             ) : windows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
-                  <Typography color="text.secondary">
+                  <Typography
+                    sx={{
+                      color: 'text.secondary',
+                    }}
+                  >
                     No auto-session windows in this range.
                   </Typography>
                 </TableCell>
@@ -1357,7 +1394,9 @@ export const RoomSchedulingPage = () => {
                     <Stack
                       direction="row"
                       spacing={1}
-                      justifyContent="flex-end"
+                      sx={{
+                        justifyContent: 'flex-end',
+                      }}
                     >
                       <Button
                         size="small"
@@ -1385,7 +1424,6 @@ export const RoomSchedulingPage = () => {
           </TableBody>
         </Table>
       </TableContainer>
-
       <Box sx={{ mb: 3 }}>
         <Typography variant="h6" component="h2" gutterBottom>
           On-demand session
@@ -1399,7 +1437,6 @@ export const RoomSchedulingPage = () => {
           Start a session now
         </Button>
       </Box>
-
       {scheduleDialogOpen && (
         <ScheduleDialog
           roomUid={room.uid}
@@ -1413,7 +1450,6 @@ export const RoomSchedulingPage = () => {
           }}
         />
       )}
-
       {windowDialogOpen && (
         <AutoWindowDialog
           roomUid={room.uid}
@@ -1427,7 +1463,6 @@ export const RoomSchedulingPage = () => {
           }}
         />
       )}
-
       {onDemandOpen && (
         <OnDemandDialog
           roomUid={room.uid}
@@ -1440,7 +1475,6 @@ export const RoomSchedulingPage = () => {
           }}
         />
       )}
-
       <ConfirmDialog
         open={deleteScheduleUid !== null}
         title="Delete schedule"
@@ -1453,7 +1487,6 @@ export const RoomSchedulingPage = () => {
           setDeleteScheduleUid(null);
         }}
       />
-
       <ConfirmDialog
         open={deleteWindowUid !== null}
         title="Delete auto-session window"

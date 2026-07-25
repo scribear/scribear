@@ -28,7 +28,12 @@ export const VisualizerDrawer = ({
 }: VisualizerDrawerProps) => (
   <Drawer anchor="right" open={open} onClose={onClose}>
     <Stack sx={{ width: 240, p: 2 }} spacing={1}>
-      <Typography variant="subtitle1" fontWeight="bold">
+      <Typography
+        variant="subtitle1"
+        sx={{
+          fontWeight: 'bold',
+        }}
+      >
         Visualizer Settings
       </Typography>
       <Divider />

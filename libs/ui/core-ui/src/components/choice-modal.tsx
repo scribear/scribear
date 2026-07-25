@@ -69,11 +69,22 @@ export const ChoiceModal = ({
           p: 4,
         }}
       >
-        <Typography id={messageId} textAlign="center" pb={4}>
+        <Typography
+          id={messageId}
+          sx={{
+            textAlign: 'center',
+            pb: 4,
+          }}
+        >
           {message}
         </Typography>
         {children ? <Box sx={{ pb: 4 }}>{children}</Box> : null}
-        <Stack direction="row" justifyContent="space-between">
+        <Stack
+          direction="row"
+          sx={{
+            justifyContent: 'space-between',
+          }}
+        >
           <Button onClick={onLeftAction} color={leftColor} variant="contained">
             {leftAction}
           </Button>

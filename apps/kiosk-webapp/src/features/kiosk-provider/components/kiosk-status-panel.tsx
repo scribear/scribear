@@ -27,10 +27,12 @@ export const KioskStatusPanel = () => {
 
   return (
     <Stack
-      sx={{ height: '100%' }}
       direction="row"
-      alignItems="center"
-      justifyContent="center"
+      sx={{
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100%',
+      }}
     >
       <Paper
         sx={{
@@ -65,7 +67,9 @@ export const KioskStatusPanel = () => {
                     <Typography
                       variant="h4"
                       component="p"
-                      fontFamily="monospace"
+                      sx={{
+                        fontFamily: 'monospace',
+                      }}
                     >
                       Join Code: {activeSession.currentJoinCode.joinCode}
                     </Typography>

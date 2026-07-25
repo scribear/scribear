@@ -54,7 +54,7 @@ export const JoinSessionModal = () => {
   };
 
   return (
-    <Dialog open={isOpen} disableEscapeKeyDown aria-labelledby={titleId}>
+    <Dialog open={isOpen} aria-labelledby={titleId}>
       <DialogTitle id={titleId}>Join Session</DialogTitle>
       <DialogContent>
         <Box component="form" onSubmit={handleSubmit} sx={{ pt: 1 }}>
