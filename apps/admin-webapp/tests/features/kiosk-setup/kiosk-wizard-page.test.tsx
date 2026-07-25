@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, vi } from 'vitest';
 
 import { KioskWizardPage } from '#src/features/kiosk-setup/kiosk-wizard-page';
 import { adminApi } from '#src/lib/admin-api';
@@ -30,9 +30,7 @@ vi.mock('#src/features/kiosk-setup/schedule-step', () => ({
   }) => (
     <div>
       <div data-testid="schedule-step-room-uid">{props.roomUid}</div>
-      <div data-testid="schedule-step-room-timezone">
-        {props.roomTimezone}
-      </div>
+      <div data-testid="schedule-step-room-timezone">{props.roomTimezone}</div>
       <button onClick={props.onCreated}>Stub create schedule</button>
     </div>
   ),
@@ -123,9 +121,7 @@ describe('KioskWizardPage', () => {
       await reachScheduleStep(user);
 
       // Assert
-      expect(
-        screen.getByRole('button', { name: 'Skip' }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument();
 
       // Act
       await user.click(
@@ -136,9 +132,7 @@ describe('KioskWizardPage', () => {
       expect(
         screen.queryByRole('button', { name: 'Skip' }),
       ).not.toBeInTheDocument();
-      expect(
-        screen.getByRole('button', { name: 'Next' }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Next' })).toBeInTheDocument();
     });
   });
 
@@ -163,9 +157,9 @@ describe('KioskWizardPage', () => {
       await clickNext(user);
 
       // Assert
-      expect(screen.getByTestId('schedule-step-room-timezone')).toHaveTextContent(
-        'Pacific/Auckland',
-      );
+      expect(
+        screen.getByTestId('schedule-step-room-timezone'),
+      ).toHaveTextContent('Pacific/Auckland');
     });
 
     it("passes the selected existing room's timezone, not the default", async () => {
@@ -200,60 +194,52 @@ describe('KioskWizardPage', () => {
       await clickNext(user);
 
       // Assert: not the DEFAULT_TIMEZONE ('America/Chicago') fallback
-      expect(screen.getByTestId('schedule-step-room-timezone')).toHaveTextContent(
-        'Asia/Tokyo',
-      );
+      expect(
+        screen.getByTestId('schedule-step-room-timezone'),
+      ).toHaveTextContent('Asia/Tokyo');
     });
   });
 
   describe('Verify step polling', (it) => {
-    it(
-      'polls getDevice on an interval and stops polling after unmount',
-      async () => {
-        // Arrange: real timers throughout — mixing vitest fake timers with
-        // userEvent + RTL's waitFor is unreliable (waitFor's fake-timer
-        // detection only recognizes Jest's global `jest`, not vitest), so
-        // this exercises the wizard's real POLL_MS=3000ms interval directly.
-        const user = userEvent.setup();
-        vi.mocked(adminApi.getDevice).mockResolvedValue(
-          buildDevice({ uid: 'device-1', active: false }),
-        );
-        const { unmount } = renderWithProviders(<KioskWizardPage />);
-        await registerDevice(user);
-        await clickNext(user);
-        vi.mocked(adminApi.createRoom).mockResolvedValue(
-          buildRoom({ uid: 'room-1' }),
-        );
-        await user.type(screen.getByLabelText('Room name'), 'Room 101');
-        await user.click(
-          screen.getByRole('button', { name: /create room/i }),
-        );
-        await screen.findByText('room-1', { selector: 'strong' });
-        await clickNext(user);
-        await clickNextOrSkip(user);
-        await screen.findByText(/waiting for the kiosk to activate/i);
+    it('polls getDevice on an interval and stops polling after unmount', async () => {
+      // Arrange: real timers throughout — mixing vitest fake timers with
+      // userEvent + RTL's waitFor is unreliable (waitFor's fake-timer
+      // detection only recognizes Jest's global `jest`, not vitest), so
+      // this exercises the wizard's real POLL_MS=3000ms interval directly.
+      const user = userEvent.setup();
+      vi.mocked(adminApi.getDevice).mockResolvedValue(
+        buildDevice({ uid: 'device-1', active: false }),
+      );
+      const { unmount } = renderWithProviders(<KioskWizardPage />);
+      await registerDevice(user);
+      await clickNext(user);
+      vi.mocked(adminApi.createRoom).mockResolvedValue(
+        buildRoom({ uid: 'room-1' }),
+      );
+      await user.type(screen.getByLabelText('Room name'), 'Room 101');
+      await user.click(screen.getByRole('button', { name: /create room/i }));
+      await screen.findByText('room-1', { selector: 'strong' });
+      await clickNext(user);
+      await clickNextOrSkip(user);
+      await screen.findByText(/waiting for the kiosk to activate/i);
 
-        const callsAtVerify = vi.mocked(adminApi.getDevice).mock.calls.length;
-        expect(callsAtVerify).toBeGreaterThanOrEqual(1);
+      const callsAtVerify = vi.mocked(adminApi.getDevice).mock.calls.length;
+      expect(callsAtVerify).toBeGreaterThanOrEqual(1);
 
-        // Act
-        await new Promise((resolve) => setTimeout(resolve, 3400));
-        const callsAfterPolling = vi.mocked(adminApi.getDevice).mock.calls
-          .length;
-        expect(callsAfterPolling).toBeGreaterThan(callsAtVerify);
+      // Act
+      await new Promise((resolve) => setTimeout(resolve, 3400));
+      const callsAfterPolling = vi.mocked(adminApi.getDevice).mock.calls.length;
+      expect(callsAfterPolling).toBeGreaterThan(callsAtVerify);
 
-        unmount();
-        const callsAtUnmount = vi.mocked(adminApi.getDevice).mock.calls
-          .length;
-        await new Promise((resolve) => setTimeout(resolve, 3400));
+      unmount();
+      const callsAtUnmount = vi.mocked(adminApi.getDevice).mock.calls.length;
+      await new Promise((resolve) => setTimeout(resolve, 3400));
 
-        // Assert
-        expect(vi.mocked(adminApi.getDevice).mock.calls.length).toBe(
-          callsAtUnmount,
-        );
-      },
-      10_000,
-    );
+      // Assert
+      expect(vi.mocked(adminApi.getDevice).mock.calls.length).toBe(
+        callsAtUnmount,
+      );
+    }, 10_000);
   });
 
   describe('re-register', (it) => {

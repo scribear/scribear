@@ -1,9 +1,8 @@
 import type { ReactElement } from 'react';
 
-import { beforeEach, describe, expect, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-
 import { Route, Routes } from 'react-router-dom';
+import { beforeEach, describe, expect, vi } from 'vitest';
 
 import { DeviceDetailPage } from '#src/features/devices/device-detail-page';
 import { adminApi } from '#src/lib/admin-api';
@@ -70,9 +69,7 @@ describe('DeviceDetailPage', () => {
       await waitForLoad();
 
       // Assert
-      expect(
-        await screen.findByText('Device not found.'),
-      ).toBeInTheDocument();
+      expect(await screen.findByText('Device not found.')).toBeInTheDocument();
     });
   });
 

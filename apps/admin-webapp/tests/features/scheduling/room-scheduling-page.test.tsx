@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
+import { beforeEach, describe, expect, vi } from 'vitest';
 
 import { RoomSchedulingPage } from '#src/features/scheduling/room-scheduling-page';
 import { adminApi } from '#src/lib/admin-api';
@@ -27,11 +27,13 @@ vi.mock('#src/lib/admin-api', () => ({
 
 const ROOM_UID = 'room-1';
 
-function mockDefaultLoad(options: {
-  schedules?: ReturnType<typeof buildSchedule>[];
-  windows?: ReturnType<typeof buildWindow>[];
-  roomOverrides?: Parameters<typeof buildRoomDetail>[0];
-} = {}) {
+function mockDefaultLoad(
+  options: {
+    schedules?: ReturnType<typeof buildSchedule>[];
+    windows?: ReturnType<typeof buildWindow>[];
+    roomOverrides?: Parameters<typeof buildRoomDetail>[0];
+  } = {},
+) {
   const { schedules = [], windows = [], roomOverrides = {} } = options;
   vi.mocked(adminApi.roomDetail).mockResolvedValue(
     buildRoomDetail(roomOverrides),
@@ -213,9 +215,7 @@ describe('RoomSchedulingPage', () => {
       fireEvent.change(await screen.findByLabelText('Local start time'), {
         target: { value: '07:00' },
       });
-      const providerField = screen.getByLabelText(
-        'Transcription provider ID',
-      );
+      const providerField = screen.getByLabelText('Transcription provider ID');
       await user.clear(providerField);
       await user.type(providerField, 'other-provider');
 

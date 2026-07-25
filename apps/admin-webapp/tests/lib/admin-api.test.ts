@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, vi } from 'vitest';
 
-import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 import { AdminApiClient, FLEET_STREAM_URL } from '#src/lib/admin-api';
+import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 
 const BASE = '/api/admin/v1';
 
@@ -231,7 +231,9 @@ describe('AdminApiClient', () => {
 
     it('serializes roomUid/from/to for a schedules TimeRangeQuery', async () => {
       // Arrange
-      fetchMock.mockResolvedValue(jsonResponse(200, { ok: true, data: { items: [] } }));
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, { ok: true, data: { items: [] } }),
+      );
 
       // Act
       await client.listSchedules({
@@ -248,7 +250,9 @@ describe('AdminApiClient', () => {
 
     it('omits from/to on listAutoWindows when not given, keeping roomUid', async () => {
       // Arrange
-      fetchMock.mockResolvedValue(jsonResponse(200, { ok: true, data: { items: [] } }));
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, { ok: true, data: { items: [] } }),
+      );
 
       // Act
       await client.listAutoWindows({ roomUid: 'room-1' });
@@ -261,7 +265,9 @@ describe('AdminApiClient', () => {
 
     it('defaults listAudit to limit=50 when called with no argument', async () => {
       // Arrange
-      fetchMock.mockResolvedValue(jsonResponse(200, { ok: true, data: { items: [] } }));
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, { ok: true, data: { items: [] } }),
+      );
 
       // Act
       await client.listAudit();
@@ -272,7 +278,9 @@ describe('AdminApiClient', () => {
 
     it('serializes an explicit listAudit limit', async () => {
       // Arrange
-      fetchMock.mockResolvedValue(jsonResponse(200, { ok: true, data: { items: [] } }));
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, { ok: true, data: { items: [] } }),
+      );
 
       // Act
       await client.listAudit(5);
@@ -301,7 +309,10 @@ describe('AdminApiClient', () => {
     it('resolves with the unwrapped data on an ok envelope', async () => {
       // Arrange
       fetchMock.mockResolvedValue(
-        jsonResponse(200, { ok: true, data: { bff: 'ok', components: [], checkedAt: 'now' } }),
+        jsonResponse(200, {
+          ok: true,
+          data: { bff: 'ok', components: [], checkedAt: 'now' },
+        }),
       );
 
       // Act

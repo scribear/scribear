@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, vi } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, vi } from 'vitest';
 
 import { ScheduleStep } from '#src/features/kiosk-setup/schedule-step';
 import { adminApi } from '#src/lib/admin-api';
@@ -22,7 +22,9 @@ vi.mock('#src/lib/admin-api', () => ({
 
 const ROOM_UID = 'room-1';
 
-function mockDefaultLoad(roomOverrides: Parameters<typeof buildRoomDetail>[0] = {}) {
+function mockDefaultLoad(
+  roomOverrides: Parameters<typeof buildRoomDetail>[0] = {},
+) {
   vi.mocked(adminApi.listSchedules).mockResolvedValue({ items: [] });
   vi.mocked(adminApi.listAutoWindows).mockResolvedValue({ items: [] });
   vi.mocked(adminApi.roomDetail).mockResolvedValue(
@@ -107,9 +109,7 @@ describe('ScheduleStep', () => {
       expect(screen.getByLabelText('Start time')).toBeInTheDocument();
 
       // Act: switch to open hours
-      await user.click(
-        screen.getByRole('radio', { name: /room open hours/i }),
-      );
+      await user.click(screen.getByRole('radio', { name: /room open hours/i }));
 
       // Assert
       expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
@@ -175,9 +175,7 @@ describe('ScheduleStep', () => {
       await user.click(screen.getByRole('button', { name: 'Wednesday' }));
       await user.click(screen.getByRole('button', { name: 'Friday' }));
       await user.click(screen.getByText('Advanced'));
-      const jsonField = screen.getByLabelText(
-        /transcription stream config/i,
-      );
+      const jsonField = screen.getByLabelText(/transcription stream config/i);
       fireEvent.change(jsonField, { target: { value: '{"foo":1}' } });
 
       // Act
@@ -211,9 +209,7 @@ describe('ScheduleStep', () => {
       vi.mocked(adminApi.createSchedule).mockResolvedValue(buildSchedule());
       await user.type(screen.getByLabelText('Name'), 'One-off');
       await user.click(screen.getByText('Advanced'));
-      await user.click(
-        screen.getByRole('combobox', { name: /frequency/i }),
-      );
+      await user.click(screen.getByRole('combobox', { name: /frequency/i }));
       await user.click(screen.getByRole('option', { name: 'ONCE' }));
 
       // Act
@@ -236,9 +232,7 @@ describe('ScheduleStep', () => {
       await user.type(screen.getByLabelText('Name'), 'CS 225 Lecture');
       await user.click(screen.getByRole('button', { name: 'Monday' }));
       await user.click(screen.getByText('Advanced'));
-      const jsonField = screen.getByLabelText(
-        /transcription stream config/i,
-      );
+      const jsonField = screen.getByLabelText(/transcription stream config/i);
       fireEvent.change(jsonField, { target: { value: '{not json' } });
 
       // Act
@@ -302,9 +296,7 @@ describe('ScheduleStep', () => {
       renderStep();
       await waitForLoad();
       const user = userEvent.setup();
-      await user.click(
-        screen.getByRole('radio', { name: /room open hours/i }),
-      );
+      await user.click(screen.getByRole('radio', { name: /room open hours/i }));
       return user;
     }
 
@@ -315,7 +307,13 @@ describe('ScheduleStep', () => {
       // Assert
       expect(screen.getByLabelText('Opens at')).toHaveValue('08:00');
       expect(screen.getByLabelText('Closes at')).toHaveValue('17:00');
-      for (const day of ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']) {
+      for (const day of [
+        'Monday',
+        'Tuesday',
+        'Wednesday',
+        'Thursday',
+        'Friday',
+      ]) {
         expect(screen.getByRole('button', { name: day })).toHaveAttribute(
           'aria-pressed',
           'true',
@@ -434,9 +432,7 @@ describe('ScheduleStep', () => {
       );
       await waitForLoad();
       const user = userEvent.setup();
-      await user.click(
-        screen.getByRole('radio', { name: /room open hours/i }),
-      );
+      await user.click(screen.getByRole('radio', { name: /room open hours/i }));
       vi.mocked(adminApi.createAutoWindow).mockResolvedValue(buildWindow());
       vi.mocked(adminApi.updateRoomScheduleConfig).mockRejectedValue(
         new Error('boom'),

@@ -1,15 +1,15 @@
 import { act } from 'react';
 
-import { afterEach, beforeEach, describe, expect, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, vi } from 'vitest';
 
+import { useFleet } from '#src/features/dashboard/use-fleet';
 import type { FleetSnapshot, SessionStatusEvent } from '#src/lib/admin-api';
 import {
   FLEET_POLL_INTERVAL_MS,
   FLEET_STREAM_URL,
   adminApi,
 } from '#src/lib/admin-api';
-import { useFleet } from '#src/features/dashboard/use-fleet';
 
 vi.mock('#src/lib/admin-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('#src/lib/admin-api')>();
@@ -240,9 +240,7 @@ describe('useFleet poll timer', (it) => {
     });
 
     // Assert: no additional fetches while hidden
-    expect(vi.mocked(adminApi.fleet).mock.calls.length).toBe(
-      fetchesAfterMount,
-    );
+    expect(vi.mocked(adminApi.fleet).mock.calls.length).toBe(fetchesAfterMount);
   });
 
   it('clears the timer on unmount', () => {
@@ -257,8 +255,6 @@ describe('useFleet poll timer', (it) => {
     });
 
     // Assert: no additional fetches after unmount
-    expect(vi.mocked(adminApi.fleet).mock.calls.length).toBe(
-      fetchesAfterMount,
-    );
+    expect(vi.mocked(adminApi.fleet).mock.calls.length).toBe(fetchesAfterMount);
   });
 });
