@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
-import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutlined';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -226,7 +226,7 @@ const AudioHealthPaper = ({ children }: { children: ReactNode }) => (
  *  caveat — the same affordance in every audio-health state. */
 const StandaloneMeterLink = () => (
   <>
-    <Stack direction="row" alignItems="center" spacing={1}>
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
       <Button
         variant="outlined"
         size="small"
@@ -308,14 +308,12 @@ const LiveAudioHealth = ({
     <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
       <Stack
         direction="row"
-        justifyContent="space-between"
-        alignItems="center"
-        sx={{ mb: 2 }}
+        sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 2 }}
       >
         <Typography variant="h6" component="h2">
           Audio health
         </Typography>
-        <Stack direction="row" spacing={1} alignItems="center">
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           <Chip
             size="small"
             label={`audio: ${audioStatus}`}

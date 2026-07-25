@@ -123,9 +123,8 @@ export const AudioMeterBar = ({
   return (
     <Stack
       direction="row"
-      alignItems="center"
       spacing={1}
-      sx={{ width: '100%' }}
+      sx={{ alignItems: 'center', width: '100%' }}
     >
       <Box
         role="progressbar"

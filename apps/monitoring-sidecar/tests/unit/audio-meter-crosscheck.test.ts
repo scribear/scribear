@@ -243,14 +243,12 @@ describe('cross-check: known speech WAV', (it) => {
  *  A ceiling below CLIP_THRESHOLD yields a flat plateau that must NOT be charged. */
 function limitedSineSamples(fixture: LimitedToneFixture): Float32Array {
   const ceiling = fixture.limitCeiling ?? 1;
-  const out = sineSamples(fixture);
-  for (let i = 0; i < out.length; i += 1) {
-    out[i] = Math.max(
-      -ceiling,
-      Math.min(ceiling, fixture.preLimitGain * out[i]),
-    );
-  }
-  return out;
+  // `map` rather than an indexed write loop: TypeScript 6 types indexed reads on
+  // a typed array as `number | undefined`, and a `?? 0` fallback here would
+  // silently substitute silence for a bug rather than failing.
+  return sineSamples(fixture).map((sample) =>
+    Math.max(-ceiling, Math.min(ceiling, fixture.preLimitGain * sample)),
+  );
 }
 
 describe('cross-check: hard-limited audio', (it) => {

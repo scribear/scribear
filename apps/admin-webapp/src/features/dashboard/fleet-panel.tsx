@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 
-import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutlined';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -292,7 +292,7 @@ const SessionCard = ({
               >
                 {session.sessionUid}
               </Typography>
-              <Stack direction="row" spacing={0.5} flexShrink={0}>
+              <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
                 <Chip
                   size="small"
                   label={status}
@@ -379,9 +379,8 @@ const SessionCard = ({
               <Stack
                 direction="row"
                 spacing={0.5}
-                flexWrap="wrap"
                 useFlexGap
-                sx={{ mt: 0.5 }}
+                sx={{ flexWrap: 'wrap', mt: 0.5 }}
               >
                 {audio.silence && (
                   <Chip size="small" label="silent" color="error" />
@@ -471,9 +470,8 @@ const FleetAudioRollup = ({
       <Stack
         direction="row"
         spacing={1}
-        flexWrap="wrap"
         useFlexGap
-        sx={{ mb: 2 }}
+        sx={{ flexWrap: 'wrap', mb: 2 }}
         aria-live="polite"
         aria-label="Fleet audio summary"
       >
