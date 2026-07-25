@@ -466,7 +466,7 @@ export class ScheduleManagementService {
         now,
         collector,
       );
-      if (result === 'CONFLICT' || result === 'INVALID_ACTIVE_START') {
+      if (typeof result === 'string') {
         return result;
       }
 

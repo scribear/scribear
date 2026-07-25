@@ -1991,6 +1991,93 @@ describe('ScheduleManagementService', () => {
     });
   });
 
+  describe('createSchedule - validation errors must not bump room_schedule_version', (it) => {
+    it('does not bump room_schedule_version on INVALID_LOCAL_TIMES', async () => {
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-02T12:00:00Z');
+      const versionBefore = (await getRoom(roomUid)).room_schedule_version;
+
+      const result = await service.createSchedule(
+        {
+          roomUid,
+          name: 'Same times',
+          activeStart: new Date(now.getTime() + 1),
+          activeEnd: null,
+          localStartTime: '09:00:00',
+          localEndTime: '09:00:00',
+          frequency: 'WEEKLY',
+          daysOfWeek: ['MON'],
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+
+      expect(result).toBe('INVALID_LOCAL_TIMES');
+      expect((await getRoom(roomUid)).room_schedule_version).toEqual(
+        versionBefore,
+      );
+    });
+
+    it('does not bump room_schedule_version on INVALID_FREQUENCY_FIELDS', async () => {
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-02T12:00:00Z');
+      const versionBefore = (await getRoom(roomUid)).room_schedule_version;
+
+      const result = await service.createSchedule(
+        {
+          roomUid,
+          name: 'WEEKLY empty days',
+          activeStart: new Date(now.getTime() + 1),
+          activeEnd: null,
+          localStartTime: '09:00:00',
+          localEndTime: '10:00:00',
+          frequency: 'WEEKLY',
+          daysOfWeek: [],
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+
+      expect(result).toBe('INVALID_FREQUENCY_FIELDS');
+      expect((await getRoom(roomUid)).room_schedule_version).toEqual(
+        versionBefore,
+      );
+    });
+
+    it('does not bump room_schedule_version on INVALID_ACTIVE_END', async () => {
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-02T12:00:00Z');
+      const activeStart = new Date(now.getTime() + 1);
+      const versionBefore = (await getRoom(roomUid)).room_schedule_version;
+
+      const result = await service.createSchedule(
+        {
+          roomUid,
+          name: 'Inverted',
+          activeStart,
+          activeEnd: activeStart,
+          localStartTime: '14:00:00',
+          localEndTime: '15:00:00',
+          frequency: 'ONCE',
+          daysOfWeek: null,
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+
+      expect(result).toBe('INVALID_ACTIVE_END');
+      expect((await getRoom(roomUid)).room_schedule_version).toEqual(
+        versionBefore,
+      );
+    });
+  });
+
   describe('updateSchedule - INVALID_ACTIVE_END, INVALID_LOCAL_TIMES, INVALID_FREQUENCY_FIELDS', (it) => {
     async function seedFutureSchedule(
       roomUid: string,
