@@ -116,6 +116,40 @@ rolling upgrade costs at most one dashboard refresh of missing audio telemetry �
 there is nothing to migrate and no ordering requirement between services. If you
 have anything of your own reading that key directly, it needs updating.
 
+### Fleet telemetry now discards a snapshot it cannot parse (behaviour change)
+
+`/fleet` validates every snapshot it reads from the backplane against the schema
+it was published under, and **drops** any that does not match, rather than
+serving it through unchecked. That applies to all four indexes: Node Server
+instances, sessions, Transcription Service hosts and session audio.
+
+For a healthy deployment this changes nothing — every publisher in the stack
+ships from this repo, and each one is now pinned against the reader's schema by
+a test that runs the real publisher and parses its actual bytes.
+
+It matters in one situation: **a mixed-version fleet during a rolling upgrade**,
+where an older instance may publish a shape this version no longer recognises.
+Such an instance disappears from the fleet view until it is upgraded, instead of
+appearing with blank or wrong fields. That is deliberate — a card populated from
+an unvalidated payload is worse than an absent one, because nothing on screen
+says which fields are trustworthy — but it means a fleet view that looks short
+of instances mid-upgrade is reporting a real version skew rather than an outage.
+
+Dropped snapshots are logged by `admin-server` at `warn`, one line per index per
+minute, naming the index, a sample of the affected members and what specifically
+failed to match:
+
+```
+dropped fleet telemetry snapshots that failed to parse
+  indexKey=scribe:v1:transcription-hosts:index droppedCount=3
+  droppedSample=[{ member: "ts-a", reason: "schema-mismatch",
+                   errors: ["/workers/0/contextIds/0: must be integer"] }]
+```
+
+A steady stream of those lines after an upgrade has finished is a genuine
+publisher/reader mismatch and worth reporting; during a rolling upgrade it is
+expected and stops on its own.
+
 ### Where the page moved
 
 The standalone meter page moved from `apps/monitoring-sidecar/public/` to the
