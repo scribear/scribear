@@ -31,6 +31,7 @@ instrument, not two dialects").
 | Standalone page | `apps/monitoring-sidecar/tests/unit/audio-meter-crosscheck.test.ts` | the shipped page's DSP reads each fixture within `toleranceDb` |
 | Render path | `apps/admin-webapp/tests/features/dashboard/audio-render-fidelity.test.tsx` | a given dBFS reaches the screen unchanged, is taken from the stage the contract names, and lands in the status the thresholds define |
 | Live stack | `transcription_service/tests/integration/transcription_stream/live_stack_crosscheck_test.py` | the WAV excerpt, streamed over a real websocket as SAFP frames into a real webserver, reads as the manifest says in the snapshot that lands in a real Redis |
+| node-server hop | `apps/node-server/tests/integration/features/telemetry/audio-crosscheck.test.ts` | the same excerpt, streamed **through node-server** from a source device, reads as the manifest says — and the snapshot is keyed and stamped with the uids node-server forwarded |
 
 A fourth suite, `apps/admin-server/tests/unit/shared/mirrored-constants.test.ts`,
 guards the values `admin-webapp` restates by hand across the browser boundary
@@ -127,11 +128,36 @@ It runs on the **debug** provider, which loads no model. That is only possible
 because §12 moved metering above the provider; before that a live-stack test
 needed a real Whisper, which is why this leg did not exist.
 
-Three hops are still not covered: **node-server** (a source device to the
-transcription service), **`FleetTelemetryService`**'s read of the key, and **a
-real browser**. The seam is the Redis payload — `apps/admin-server`'s integration
-suite picks it up from there against its own real Redis, so what remains genuinely
-untested is node-server's hop and the browser.
+**node-server's hop is now covered too**, by the fifth leg. It runs in
+node-server's own integration suite — the only setup that already has both a
+real node-server and the shipped Transcription Service image on one network —
+and streams the same excerpt from a source device *through* node-server. What
+only it can catch: the SAFP frame surviving node-server's decode-and-forward,
+and the session/room uids the snapshot is keyed and stamped with, which come
+from node-server's CONFIG message and are exactly what `/fleet` joins audio to
+sessions on. A node-server forwarding perfect audio under the wrong uid
+publishes a snapshot no dashboard can attribute, and no levels-only assertion
+would notice — so identity is asserted separately from levels.
+
+Two properties of that leg are worth knowing before editing it:
+
+- **It streams at the real chunk rate, and that is load-bearing.** node-server
+  forwards through a `WebSocketClient` that sheds frames once the socket has
+  more than 64 KiB buffered, and each 100 ms chunk of 16 kHz PCM16 is ~3.2 KiB.
+  The first version streamed in a tight loop and 4.2 s of 20 s arrived: it was
+  measuring the backpressure policy, not the meter. A kiosk sends ten chunks a
+  second and never builds a buffer, so the test does too.
+- **It fails loudly against a stale image.** Before §12 the publisher
+  early-returned on `audio_stats is None`, which is always None for `debug`, so
+  an image built before the stage graph publishes host telemetry happily and no
+  audio telemetry at all. Passing `SCRIBEAR_TRANSCRIPTION_SERVICE_IMAGE=<old>`
+  therefore looks like a broken test rather than a stale image, so the leg
+  checks for the host key and says which it is.
+
+One hop is left: **a real browser**. `FleetTelemetryService`'s read is covered
+separately by admin-server's integration suite against its own real Redis, and
+the payload's shape is now pinned across the language boundary by
+`tools/telemetry-snapshot-crosscheck/`.
 
 One weakness of the live-stack leg is worth stating, because it was found by
 mutation rather than by reasoning: **the speech excerpt cannot detect the meter
@@ -161,11 +187,9 @@ and none of them expressible against a table of expected DSP values:
   the reader's business, and the mirrors here are hand-written on purpose.
 
 Closing the browser hop needs a compose-level harness that scrapes the rendered
-dashboard; the monitoring sidecar's synthetic canary (`CANARY_AUDIO_PATH`)
-already streams these same files into a live session through node-server and is
-the natural place to build the node-server hop on. Both remain tracked as
-outstanding in `NEXTSTEPS-AUDIOVIZ.md` — and the render leg is already unit
-covered, which is why the browser was judged the least valuable rung.
+dashboard. It remains tracked as outstanding in `NEXTSTEPS-AUDIOVIZ.md`, and the
+render leg is already unit covered, which is why the browser was judged the least
+valuable rung.
 
 ## Running the live-stack leg
 
@@ -186,6 +210,25 @@ window is exactly the excerpt's length, any window over a looped excerpt is a
 rotation of it, so RMS and peak are unchanged and the manifest's arithmetic still
 applies. Noise floor is deliberately not asserted — it is a percentile over 1 s
 sub-windows, whose boundaries a rotation does move.
+
+## Running the node-server hop
+
+It needs no flags — it is part of node-server's integration suite, which already
+spins the containers it depends on:
+
+```
+npm run test:integration --workspace apps/node-server
+```
+
+It does need a Transcription Service image built **from this tree**. The suite
+builds one from `transcription_service/Dockerfile_CPU` by default; if you set
+`SCRIBEAR_TRANSCRIPTION_SERVICE_IMAGE` to reuse a prebuilt one, make sure it
+post-dates the §12 stage graph (it should contain
+`src/webserver/features/telemetry/session_audio_tracker.py`). The leg says so in
+its failure message rather than leaving you with a bare timeout.
+
+It streams in real time, so the three tests take ~40 s together. Like the
+Python leg it needs no model and no GPU.
 
 ## Editing the fixtures
 
