@@ -78,6 +78,7 @@ jobs:
           image_name: ${{ matrix.image_name }}
           build_context: ${{ matrix.build_context }}
           dockerfile: ${{ matrix.dockerfile }}
+          build_args: ${{ steps.tags.outputs.build_args }}
           cache_variant: ${{ github.ref_name }}
           custom_tags: ${{ steps.tags.outputs.tags }}
           github_token: ${{ secrets.GITHUB_TOKEN }}

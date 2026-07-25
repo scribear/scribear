@@ -28,6 +28,8 @@ import { ApiError } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 
+import { DeploymentVersionsTable } from './deployment-versions-table';
+
 /**
  * Severity presentation, most severe first. The order of this array is the
  * order of the page.
@@ -168,6 +170,17 @@ export const ConfigCheckPage = () => {
     reload,
   } = useAsyncData(() => adminApi.configCheck(), []);
 
+  // A second request rather than a field on the report above. The two answer
+  // different questions — how this deployment is configured, and which build
+  // each container is running — and each has its own fan-out of upstream
+  // probes, so folding them together would make the slower one gate the other.
+  const {
+    data: versions,
+    loading: versionsLoading,
+    error: versionsError,
+    reload: reloadVersions,
+  } = useAsyncData(() => adminApi.deploymentVersions(), []);
+
   // A failed run is surfaced as a toast; `report` keeps its last value (or null).
   useEffect(() => {
     if (error !== null) {
@@ -175,6 +188,20 @@ export const ConfigCheckPage = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [error]);
+
+  useEffect(() => {
+    if (versionsError !== null) {
+      showError(
+        errorMessage(versionsError, 'Failed to read the container versions.'),
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
+  }, [versionsError]);
+
+  const reloadAll = () => {
+    reload();
+    reloadVersions();
+  };
 
   if (loading && report === null) {
     return (
@@ -217,8 +244,8 @@ export const ConfigCheckPage = () => {
         />
         <Button
           startIcon={<RefreshIcon />}
-          onClick={reload}
-          disabled={loading}
+          onClick={reloadAll}
+          disabled={loading || versionsLoading}
           size="small"
         >
           Re-run
@@ -231,7 +258,8 @@ export const ConfigCheckPage = () => {
         {report.environmentSource === 'inferred'
           ? 'DEPLOYMENT_ENV is not set, so this was inferred — set it in deployment/.env to judge against a different standard.'
           : 'Set by DEPLOYMENT_ENV in deployment/.env.'}{' '}
-        Checked {new Date(report.checkedAt).toLocaleString()}.
+        Checked {new Date(report.checkedAt).toLocaleString()}. Per-container
+        build versions are in <strong>Deployed versions</strong>, below.
       </Typography>
 
       {/* The promotion question, answered before the reader has to ask it. A
@@ -306,6 +334,24 @@ export const ConfigCheckPage = () => {
           </Stack>
         </>
       )}
+
+      {/* Below the findings, not above them: this is reference data, and
+          floating a green "every container is on one commit" banner over three
+          critical misconfigurations would bury the thing that needs acting on.
+          The intro paragraph points here so a reader knows it exists. */}
+      <Divider sx={{ mt: 4, mb: 2 }} />
+
+      <Typography variant="h6" sx={{ mb: 0.5 }}>
+        Deployed versions
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        What each container was built from. Every service knows its own build
+        and none knows anyone else&apos;s, so an upgrade that pulled some images
+        and not others is invisible everywhere except here — a stale container
+        stays green in the health rollup.
+      </Typography>
+
+      <DeploymentVersionsTable report={versions} loading={versionsLoading} />
 
       <Typography
         variant="caption"

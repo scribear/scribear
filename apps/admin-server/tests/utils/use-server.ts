@@ -12,6 +12,7 @@ export const TEST_LOCAL_CREDENTIALS = `${TEST_USERNAME} ${TEST_PASSWORD}`;
 export const TEST_SM_BASE_URL = 'http://session-manager.test';
 export const TEST_NODE_BASE_URL = 'http://node-server.test';
 export const TEST_TS_BASE_URL = 'http://transcription-service.test';
+export const TEST_CLIENT_WEBAPP_BASE_URL = 'http://client-webapp.test';
 export const TEST_COOKIE_SECRET =
   'test-cookie-secret-at-least-32-characters-long!!';
 
@@ -26,6 +27,7 @@ export interface TestAppConfigOverrides {
   rateLimitConfig?: Partial<AppConfig['rateLimitConfig']>;
   dbClientConfig?: Partial<AppConfig['dbClientConfig']>;
   healthCheckerConfig?: Partial<AppConfig['healthCheckerConfig']>;
+  deploymentVersionsConfig?: Partial<AppConfig['deploymentVersionsConfig']>;
   fleetTelemetryConfig?: Partial<AppConfig['fleetTelemetryConfig']>;
   configCheckConfig?: Partial<AppConfig['configCheckConfig']>;
   cookieSecret?: string;
@@ -98,6 +100,22 @@ export function buildTestAppConfig(
         },
       ],
       ...overrides.healthCheckerConfig,
+    },
+    // The two Node services the health rollup above already stubs, plus one
+    // static-file container, so a test can exercise both shapes of build
+    // document without listing all eleven of the real stack's containers.
+    deploymentVersionsConfig: {
+      timeoutMs: 500,
+      targets: [
+        { name: 'session-manager', url: `${TEST_SM_BASE_URL}/build-info` },
+        { name: 'node-server', url: `${TEST_NODE_BASE_URL}/build-info` },
+        {
+          name: 'client-webapp',
+          url: `${TEST_CLIENT_WEBAPP_BASE_URL}/build-info.json`,
+        },
+      ],
+      nonReporting: [{ name: 'scribear-db', detail: 'no HTTP surface' }],
+      ...overrides.deploymentVersionsConfig,
     },
     dbClientConfig: { ...dbConfig, ...overrides.dbClientConfig },
     // Disabled by default, like a deployment that predates B1.7 — tests that

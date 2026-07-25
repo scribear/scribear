@@ -54,6 +54,36 @@ EOF
 
 COPY --from=build-env /app/apps/kiosk-webapp/dist/ ./
 
+# Build provenance. A webapp is static files behind nginx, so there is no
+# process to ask: the same document the Node services answer GET /build-info
+# with is generated here at image build time and served as a file. The admin
+# console's Deployment Check reads it from every container, which is how an
+# operator confirms the whole stack came from one commit.
+#
+# Empty defaults so a plain `docker build` still works and reports "unknown"
+# rather than failing; CI and build-containers.sh supply the real values. Last
+# in the file because these change on every commit and nothing expensive may
+# sit below them.
+COPY tools/build-info/write-build-info.sh /tmp/write-build-info.sh
+
+ARG BUILD_COMMIT=""
+ARG BUILD_REF=""
+ARG BUILD_TIME=""
+ARG BUILD_VERSION=""
+ARG BUILD_TAGS=""
+ARG BUILD_PR=""
+ARG BUILD_ORIGIN=""
+
+RUN sh /tmp/write-build-info.sh kiosk-webapp /usr/share/nginx/html/build-info.json \
+  && rm /tmp/write-build-info.sh
+
+LABEL org.opencontainers.image.title="scribear/kiosk-webapp" \
+      org.opencontainers.image.revision="${BUILD_COMMIT}" \
+      org.opencontainers.image.version="${BUILD_VERSION}" \
+      org.opencontainers.image.created="${BUILD_TIME}" \
+      org.scribear.build.pull-request="${BUILD_PR}" \
+      org.scribear.build.origin="${BUILD_ORIGIN}"
+
 EXPOSE 80
 
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --start-interval=1s --retries=3 CMD wget --quiet --tries=1 --spider http://127.0.0.1/healthcheck || exit 1

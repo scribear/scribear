@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from src.shared.config import Config
 from src.shared.logger import Logger
 
+from .features.build_info import build_info_router
 from .features.metrics import metrics_router
 from .features.probes import probes_router
 from .features.providers import providers_router
@@ -116,6 +117,7 @@ def create_webserver(config: Config, logger: Logger):
     app = FastAPI(lifespan=lifespan)
 
     app.include_router(probes_router(provider_registry))
+    app.include_router(build_info_router())
     app.include_router(
         metrics_router(
             logger, metrics_auth_service, metrics_registry, provider_registry
