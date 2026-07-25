@@ -47,7 +47,15 @@ function formatDb(db: number): string {
 export interface AudioMeterBarProps {
   /** RMS level in dBFS. When `null`, the bar renders empty ("no signal"). */
   rmsDbfs: number | null;
-  /** Optional sample peak in dBFS, rendered as a vertical hold marker. */
+  /**
+   * Optional sample peak in dBFS, drawn as a vertical marker.
+   *
+   * This is the publisher's `peakDbfs`: the **maximum over the whole metering
+   * window**. Deliberately not called a peak-hold marker — the standalone page's
+   * "Peak" readout *is* a hold-and-decay peak meter, and on the same audio it
+   * reads lower, because it tracks the recent peak rather than the window's
+   * maximum. Same mark, different quantity; see `PEAK_CONVENTION`.
+   */
   peakDbfs?: number | null;
   /** Derived audio status, used to colour the fill and the zone text. */
   status: AudioStatus;
@@ -56,14 +64,35 @@ export interface AudioMeterBarProps {
 }
 
 /**
- * Horizontal −60…0 dBFS meter bar with zone ticks and an optional peak-hold
- * marker, mirroring the standalone `audio-meter.html`'s visual language (D4 of
+ * How this surface's peak figure differs from the standalone meter page's.
+ *
+ * Exported so the session detail page and the fleet roll-up state it in one
+ * wording (PLAN-AUDIOVIZ §8: audio conventions must be labelled on the surface).
+ * The comparable figure on the standalone page is its "Session max true peak",
+ * not the "Sample peak (held)" it shows most prominently.
+ */
+export const PEAK_CONVENTION =
+  'Peak is the highest sample in the 10 s metering window. The standalone ' +
+  'meter’s "Peak" readout is a hold-and-decay meter that follows the recent ' +
+  'peak instead, so it reads lower on the same audio — its comparable figure ' +
+  'is "Session max true peak".';
+
+/**
+ * Horizontal −60…0 dBFS meter bar with zone ticks and an optional peak marker,
+ * mirroring the standalone `audio-meter.html`'s visual language (D4 of
  * PLAN-AUDIOVIZ) so an audio engineer reading both surfaces sees one instrument.
+ *
+ * The marks are the same; one of the quantities behind them is not. The bar's
+ * fill is RMS on both surfaces, but the peak marker here is the window maximum
+ * rather than the page's hold-and-decay peak meter — hence `PEAK_CONVENTION`,
+ * which the surfaces embedding this bar are expected to surface.
  *
  * The numeric dBFS is always rendered as visible text beside the bar — never
  * color-only, never graphic-only (SC 1.4.1/1.1.1). The bar itself carries
  * `role="progressbar"` with an `aria-valuetext` that says the dB figure and the
- * zone in words, matching the standalone page's pattern.
+ * zone in words, matching the standalone page's pattern; the peak is named there
+ * too, since the marker itself is `aria-hidden` and would otherwise be
+ * graphic-only.
  */
 export const AudioMeterBar = ({
   rmsDbfs,
@@ -79,10 +108,17 @@ export const AudioMeterBar = ({
       ? positionPercent(peakDbfs)
       : null;
   const zoneText = STATUS_ZONE_TEXT[status];
+  const peakValue =
+    peakDbfs != null && Number.isFinite(peakDbfs) ? peakDbfs : null;
+  // The peak marker is aria-hidden, so name the figure here or it is available
+  // to sighted users only. "window peak" rather than a bare "peak" because the
+  // standalone meter's "Peak" is a different measurement (PEAK_CONVENTION).
+  const peakText =
+    peakValue !== null ? `, window peak ${formatDb(peakValue)} dBFS` : '';
   const valuetext =
     rmsValue !== null
-      ? `${formatDb(rmsValue)} dBFS RMS, ${zoneText}`
-      : `No signal, ${zoneText}`;
+      ? `${formatDb(rmsValue)} dBFS RMS${peakText}, ${zoneText}`
+      : `No signal${peakText}, ${zoneText}`;
 
   return (
     <Stack

@@ -30,7 +30,7 @@ import { AUDIO_METER_COPY, audioMeterHref } from '#src/lib/audio-meter-url';
 import { buildJoinUrl } from '#src/lib/join-url';
 import { useToast } from '#src/lib/toast-context';
 
-import { AudioMeterBar } from './audio-meter-bar';
+import { AudioMeterBar, PEAK_CONVENTION } from './audio-meter-bar';
 import type {
   AudioStatus,
   FleetFilter,
@@ -75,8 +75,10 @@ const AUDIO_STATUS_ORDER: AudioStatus[] = ['crit', 'warn', 'unknown', 'good'];
  * process `\u`/`\n` escapes, so writing this inline renders them verbatim.
  */
 const AUDIO_CONVENTIONS_TOOLTIP =
-  'dBFS is plain full-scale sine (a full-scale sine reads −3.01 dBFS RMS; 0 dBFS under AES17). ' +
+  'Levels are RMS over a 10 s window, plain full-scale reference (a full-scale sine reads −3.01 dBFS RMS; 0 dBFS under AES17). ' +
   'Noise floor is a 10th-percentile RMS over 1 s sub-windows, not an instantaneous floor. ' +
+  `${PEAK_CONVENTION} ` +
+  'Clipping counts samples at or above 0.99 of full scale in runs of at least two. ' +
   'VAD fields show — when not measured, never 0.';
 
 /** Merged provider health, one chip per provider (`§B.4`'s "provider row"). */

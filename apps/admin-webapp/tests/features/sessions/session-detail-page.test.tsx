@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 
 import { screen, waitFor } from '@testing-library/react';
+import { axe } from 'jest-axe';
 import { Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, vi } from 'vitest';
 
@@ -235,6 +236,24 @@ describe('SessionDetailPage', () => {
     // microphone would be a false alarm on most detail-page views.
     const MIC_WARNING = /microphone is unmuted/;
 
+    function audioSnapshot(
+      overrides: Partial<SessionAudioSnapshot> = {},
+    ): SessionAudioSnapshot {
+      return {
+        rmsDbfs: -23.4,
+        peakDbfs: -12.1,
+        clippingPct: 0,
+        silence: false,
+        noiseFloorDbfs: -65,
+        updatedAt: Date.now(),
+        vadStats: null,
+        sessionUid: SESSION_UID,
+        roomUid: null,
+        transcriptionHost: 'ts-a',
+        ...overrides,
+      };
+    }
+
     function mockFleet(audio: SessionAudioSnapshot[]): void {
       vi.mocked(useFleet).mockReturnValue({
         snapshot: {
@@ -311,6 +330,88 @@ describe('SessionDetailPage', () => {
       renderPage();
 
       expect(await screen.findByText(MIC_WARNING)).toBeInTheDocument();
+    });
+
+    it('says which peak convention it is showing', async () => {
+      // The publisher's peakDbfs is a window maximum; the standalone meter's
+      // headline "Peak" is a hold-and-decay meter and reads lower on the same
+      // audio. An operator comparing the two screens has to be told, or the
+      // mismatch reads as a bug in one of them.
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({
+          effectiveStart: '2000-01-01T14:00:00.000Z',
+          effectiveEnd: null,
+        }),
+      );
+      mockFleet([audioSnapshot()]);
+
+      renderPage();
+
+      expect(
+        await screen.findByText('Peak (10 s window max)'),
+      ).toBeInTheDocument();
+      // The convention itself is the button's accessible name, not only a
+      // tooltip: MUI wires a tooltip up via aria-describedby only while open.
+      const note = screen.getByRole('button', {
+        name: /hold-and-decay meter/i,
+      });
+      expect(note).toBeInTheDocument();
+      expect(note).toHaveAccessibleName(/Session max true peak/);
+    });
+
+    it('labels the RMS, clipping and noise-floor conventions too', async () => {
+      // PLAN-AUDIOVIZ §8: conventions must be labelled on the surface. These are
+      // definitions an operator cannot infer from the figure.
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({
+          effectiveStart: '2000-01-01T14:00:00.000Z',
+          effectiveEnd: null,
+        }),
+      );
+      mockFleet([audioSnapshot()]);
+
+      renderPage();
+
+      expect(await screen.findByText('RMS (10 s window)')).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: /full-scale sine reads/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: /10th-percentile RMS/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: /runs of at least two/i }),
+      ).toBeInTheDocument();
+    });
+
+    it('has no a11y violations with a full audio readout', async () => {
+      // The convention notes added four focusable controls to this section, and
+      // the meter carries role="progressbar"; check the section as rendered
+      // rather than trusting the component-level axe test on the bar alone.
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({
+          effectiveStart: '2000-01-01T14:00:00.000Z',
+          effectiveEnd: null,
+        }),
+      );
+      mockFleet([
+        audioSnapshot({
+          vadStats: {
+            vadEnabled: true,
+            speechActiveRatio: 0.42,
+            segmentCount: 3,
+            meanSegmentDurationSec: 1.2,
+            speechToPauseRatio: 0.72,
+            snrDb: 18.5,
+          },
+        }),
+      ]);
+
+      const { container } = renderPage();
+      await screen.findByText('Peak (10 s window max)');
+
+      const results = await axe(container);
+      expect(results.violations).toHaveLength(0);
     });
 
     it('renders the audio readout for a session inside its window with telemetry', async () => {

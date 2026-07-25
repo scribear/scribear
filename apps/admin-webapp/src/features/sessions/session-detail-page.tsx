@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -8,6 +9,7 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import Divider from '@mui/material/Divider';
+import IconButton from '@mui/material/IconButton';
 import Link from '@mui/material/Link';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -21,7 +23,10 @@ import type { Session } from '@scribear/session-manager-schema';
 import { ConfirmDialog } from '#src/components/confirm-dialog';
 import { CopyIconButton } from '#src/components/copy-icon-button';
 import { OpensInNewTab } from '#src/components/opens-in-new-tab';
-import { AudioMeterBar } from '#src/features/dashboard/audio-meter-bar';
+import {
+  AudioMeterBar,
+  PEAK_CONVENTION,
+} from '#src/features/dashboard/audio-meter-bar';
 import {
   AUDIO_STATUS_COLOR,
   audioBySession,
@@ -163,6 +168,49 @@ const VadFieldRow = ({
     </FieldRow>
   );
 };
+
+/**
+ * Conventions this readout depends on, stated where the number is
+ * (PLAN-AUDIOVIZ §8: "audio conventions must be labelled on the surface").
+ *
+ * Each is a measurement definition an operator cannot infer from the figure, and
+ * that differs from what the standalone meter shows most prominently — so
+ * comparing the two surfaces without them invites a wrong conclusion.
+ */
+const RMS_CONVENTION =
+  'RMS over the 10 s metering window, plain full-scale reference: a full-scale ' +
+  'sine reads −3.01 dBFS (0 dBFS under AES17).';
+
+const NOISE_FLOOR_CONVENTION =
+  'Noise floor is the 10th-percentile RMS across 1 s sub-windows of the ' +
+  'metering window — an ambient estimate, not an instantaneous floor, so it ' +
+  'does not drop to silence between words.';
+
+const CLIPPING_CONVENTION =
+  'Clipping counts samples at or above 0.99 of full scale in runs of at least ' +
+  'two consecutive samples. A waveform that merely touches full scale is not ' +
+  'clipped; a flat run at the rail is.';
+
+/**
+ * A focusable footnote marker carrying a measurement convention.
+ *
+ * An `IconButton` rather than a `tabIndex`-ed span so it is keyboard-operable
+ * natively (SC 2.1.1), and the convention is the button's `aria-label` rather
+ * than only the tooltip: MUI wires a tooltip up via `aria-describedby` only
+ * while it is open, so a screen-reader user who never triggers it would
+ * otherwise never hear the text.
+ */
+const ConventionNote = ({ convention }: { convention: string }) => (
+  <Tooltip title={convention}>
+    <IconButton
+      size="small"
+      aria-label={convention}
+      sx={{ p: 0.25, ml: 0.5, color: 'text.secondary' }}
+    >
+      <HelpOutlineIcon sx={{ fontSize: '0.95rem' }} />
+    </IconButton>
+  </Tooltip>
+);
 
 /** Section shell, so every audio-health state renders the same heading. */
 const AudioHealthPaper = ({ children }: { children: ReactNode }) => (
@@ -306,7 +354,7 @@ const LiveAudioHealth = ({
             color="text.secondary"
             sx={{ mb: 0.5, display: 'block' }}
           >
-            RMS level
+            RMS level, with the window peak marked
           </Typography>
           <AudioMeterBar
             rmsDbfs={audio.rmsDbfs}
@@ -315,20 +363,25 @@ const LiveAudioHealth = ({
             label={`Audio level for session ${sessionUid}`}
           />
         </Box>
-        <FieldRow label="RMS">
+        <FieldRow label="RMS (10 s window)">
           <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
             {audio.rmsDbfs.toFixed(1)} dBFS
           </Typography>
+          <ConventionNote convention={RMS_CONVENTION} />
         </FieldRow>
-        <FieldRow label="Peak">
+        {/* "window max", not a bare "Peak": the standalone meter's headline
+            Peak is a hold-and-decay meter and reads lower on the same audio. */}
+        <FieldRow label="Peak (10 s window max)">
           <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
             {audio.peakDbfs.toFixed(1)} dBFS
           </Typography>
+          <ConventionNote convention={PEAK_CONVENTION} />
         </FieldRow>
         <FieldRow label="Clipping">
           <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
             {formatClippingPct(audio.clippingPct)}
           </Typography>
+          <ConventionNote convention={CLIPPING_CONVENTION} />
         </FieldRow>
         <FieldRow label="Silence">
           <Typography variant="body2">
@@ -339,6 +392,7 @@ const LiveAudioHealth = ({
           <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
             {audio.noiseFloorDbfs.toFixed(1)} dBFS
           </Typography>
+          <ConventionNote convention={NOISE_FLOOR_CONVENTION} />
         </FieldRow>
         <FieldRow label="Transcription host">
           <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
@@ -349,7 +403,11 @@ const LiveAudioHealth = ({
 
       <Divider sx={{ mb: 2 }} />
 
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>
+      {/* `component="h3"` is load-bearing: MUI maps the `subtitle2` *variant* to
+          an `<h6>` element, which under this section's `<h2>` skips four levels
+          and fails axe's heading-order rule. This is a real subsection of Audio
+          health, so h3 is both valid and the correct semantics. */}
+      <Typography variant="subtitle2" component="h3" sx={{ mb: 1 }}>
         VAD statistics
       </Typography>
       {vad === null ? (

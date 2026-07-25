@@ -1,6 +1,6 @@
-import { describe, expect } from 'vitest';
 import { render } from '@testing-library/react';
 import { axe } from 'jest-axe';
+import { describe, expect } from 'vitest';
 
 import { AudioMeterBar } from '#src/features/dashboard/audio-meter-bar';
 
@@ -54,6 +54,42 @@ describe('AudioMeterBar', (it) => {
     );
 
     expect(document.body).toHaveTextContent('— dBFS');
+  });
+
+  it('names the window peak in aria-valuetext, since the marker is aria-hidden', () => {
+    // The peak marker is a decorative tick; without this the figure would be
+    // available to sighted users only. "window peak" is deliberate — the
+    // standalone meter's headline "Peak" is a hold-and-decay meter and reads
+    // lower on the same audio, so an unqualified "peak" would invite a wrong
+    // comparison between the two surfaces.
+    render(
+      <AudioMeterBar
+        rmsDbfs={-23.4}
+        peakDbfs={-12.1}
+        status="good"
+        label="Audio level for session test"
+      />,
+    );
+
+    const bar = document.querySelector('[role="progressbar"]');
+
+    expect(bar?.getAttribute('aria-valuetext')).toBe(
+      '-23.4 dBFS RMS, window peak -12.1 dBFS, level OK',
+    );
+  });
+
+  it('omits the peak from aria-valuetext when none was published', () => {
+    render(
+      <AudioMeterBar
+        rmsDbfs={-23.4}
+        status="good"
+        label="Audio level for session test"
+      />,
+    );
+
+    const bar = document.querySelector('[role="progressbar"]');
+
+    expect(bar?.getAttribute('aria-valuetext')).not.toContain('peak');
   });
 
   it('exposes aria-valuetext with the dB figure and zone in words', () => {
