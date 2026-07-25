@@ -23,13 +23,14 @@ instrument, not two dialects").
 
 ## How the gate works
 
-`fixtures.json` is the single expectation table, consumed by three suites:
+`fixtures.json` is the single expectation table, consumed by four suites:
 
 | Leg | Suite | Asserts |
 |---|---|---|
 | Publisher | `transcription_service/tests/unit/shared/utils/audio_meter/audio_meter_crosscheck_test.py` | the Python meter reads each fixture within `toleranceDb` |
 | Standalone page | `apps/monitoring-sidecar/tests/unit/audio-meter-crosscheck.test.ts` | the shipped page's DSP reads each fixture within `toleranceDb` |
 | Render path | `apps/admin-webapp/tests/features/dashboard/audio-render-fidelity.test.tsx` | a given dBFS reaches the screen unchanged, is taken from the stage the contract names, and lands in the status the thresholds define |
+| Live stack | `transcription_service/tests/integration/transcription_stream/live_stack_crosscheck_test.py` | the WAV excerpt, streamed over a real websocket as SAFP frames into a real webserver, reads as the manifest says in the snapshot that lands in a real Redis |
 
 A fourth suite, `apps/admin-server/tests/unit/shared/mirrored-constants.test.ts`,
 guards the values `admin-webapp` restates by hand across the browser boundary
@@ -117,10 +118,30 @@ its counterpart's opinion.
 ## What this does *not* cover
 
 The plan asked for a **live stack**: a real session, driven over the wire,
-observed in a browser. This gate stops at the two DSP implementations and the
-render path — it does not exercise the audio decoder, the frame protocol, the
-Redis publisher, `FleetTelemetryService`, or a real browser. A regression in the
-transport between `AudioMeter` and the dashboard would pass all three legs.
+observed in a browser. The live-stack leg now covers the wire as far as Redis —
+`encode_audio_frame`/`decode_audio_frame`, the per-chunk decode, the ingress
+meter's wiring, stage-graph assembly and the publisher's payload — so a transport
+regression between the meter and the published snapshot no longer passes.
+
+It runs on the **debug** provider, which loads no model. That is only possible
+because §12 moved metering above the provider; before that a live-stack test
+needed a real Whisper, which is why this leg did not exist.
+
+Three hops are still not covered: **node-server** (a source device to the
+transcription service), **`FleetTelemetryService`**'s read of the key, and **a
+real browser**. The seam is the Redis payload — `apps/admin-server`'s integration
+suite picks it up from there against its own real Redis, so what remains genuinely
+untested is node-server's hop and the browser.
+
+One weakness of the live-stack leg is worth stating, because it was found by
+mutation rather than by reasoning: **the speech excerpt cannot detect the meter
+being fed a subset of each chunk.** Speech is near enough stationary across
+100 ms that halving every chunk moves its RMS and peak by well under
+`toleranceDb`, and that mutation passed every assertion the excerpt drives. The
+leg therefore carries a second signal whose amplitude alternates *within* the
+chunk (`test_every_sample_reaches_the_ingress_meter`), where the same mutation
+shifts RMS by ~3 dB. The excerpt pins the values; that signal pins completeness.
+Keep both.
 
 The stage graph adds four more things this gate does not cover, all of them real
 and none of them expressible against a table of expected DSP values:
@@ -139,11 +160,32 @@ and none of them expressible against a table of expected DSP values:
   `session-audio-snapshot.schema.ts` claims) or silently renders as `undefined` is
   the reader's business, and the mirrors here are hand-written on purpose.
 
-Closing that last gap needs a compose-level harness that streams a WAV into a
-live session and scrapes the rendered dashboard; the monitoring sidecar's
-synthetic canary (`CANARY_AUDIO_PATH`) already streams these same files into a
-live session and is the natural place to build on. Tracked as outstanding in
-`NEXTSTEPS-AUDIOVIZ.md`.
+Closing the browser hop needs a compose-level harness that scrapes the rendered
+dashboard; the monitoring sidecar's synthetic canary (`CANARY_AUDIO_PATH`)
+already streams these same files into a live session through node-server and is
+the natural place to build the node-server hop on. Both remain tracked as
+outstanding in `NEXTSTEPS-AUDIOVIZ.md` — and the render leg is already unit
+covered, which is why the browser was judged the least valuable rung.
+
+## Running the live-stack leg
+
+It is gated on `REDIS_URL`, the same way the other Redis-backed integration
+suites are, and skips when unset:
+
+```
+docker run -d --name xcheck-redis -p 6399:6379 redis:8-alpine
+cd transcription_service
+REDIS_URL=redis://127.0.0.1:6399 .venv/bin/python -m pytest \
+  tests/integration/transcription_stream/live_stack_crosscheck_test.py
+```
+
+It needs no model and no GPU. Note the publisher throttles to one write per
+session per `AUDIO_STATS_MIN_PUBLISH_INTERVAL_MS`, so the suite streams the
+excerpt, waits out the throttle, then streams it again: because the metering
+window is exactly the excerpt's length, any window over a looped excerpt is a
+rotation of it, so RMS and peak are unchanged and the manifest's arithmetic still
+applies. Noise floor is deliberately not asserted — it is a percentile over 1 s
+sub-windows, whose boundaries a rotation does move.
 
 ## Editing the fixtures
 
