@@ -169,7 +169,9 @@ const DayToggles = ({
           id={errorId}
           variant="caption"
           color="error"
-          display="block"
+          sx={{
+            display: 'block',
+          }}
         >
           Pick at least one day of the week.
         </Typography>
@@ -216,7 +218,12 @@ const TimeRangeFields = ({
         slotProps={{ inputLabel: { shrink: true } }}
       />
     </Stack>
-    <Typography variant="caption" color="text.secondary">
+    <Typography
+      variant="caption"
+      sx={{
+        color: 'text.secondary',
+      }}
+    >
       Wall-clock time in {roomTimezone}. An end time before the start time wraps
       past midnight.
     </Typography>
@@ -351,7 +358,12 @@ interface ModeLabelProps {
 const ModeLabel = ({ title, detail }: ModeLabelProps) => (
   <Box sx={{ py: 0.5 }}>
     <Typography variant="body1">{title}</Typography>
-    <Typography variant="body2" color="text.secondary">
+    <Typography
+      variant="body2"
+      sx={{
+        color: 'text.secondary',
+      }}
+    >
       {detail}
     </Typography>
   </Box>
@@ -590,7 +602,11 @@ export const ScheduleStep = ({
 
   if (roomUid === null) {
     return (
-      <Typography color="text.secondary">
+      <Typography
+        sx={{
+          color: 'text.secondary',
+        }}
+      >
         Attach this device to a room first — schedules belong to the room.
       </Typography>
     );
@@ -606,14 +622,17 @@ export const ScheduleStep = ({
           server&apos;s ADMIN_API_KEY.
         </Alert>
       )}
-
-      <Typography variant="body2" color="text.secondary">
+      <Typography
+        variant="body2"
+        sx={{
+          color: 'text.secondary',
+        }}
+      >
         A room can capture in two ways. Pick whichever matches how this space is
         used — both can be combined later from the room&apos;s scheduling page,
         and a room with neither only records when someone starts a session by
         hand.
       </Typography>
-
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center' }}>
           <CircularProgress
@@ -641,7 +660,6 @@ export const ScheduleStep = ({
           </Alert>
         )
       )}
-
       <RadioGroup
         value={mode}
         onChange={(e) => {
@@ -684,7 +702,6 @@ export const ScheduleStep = ({
           }
         />
       </RadioGroup>
-
       {mode === 'schedule' && (
         <Stack spacing={2}>
           <TextField
@@ -708,7 +725,12 @@ export const ScheduleStep = ({
               error={daysError}
             />
             {scheduleForm.frequency === 'ONCE' && (
-              <Typography variant="caption" color="text.secondary">
+              <Typography
+                variant="caption"
+                sx={{
+                  color: 'text.secondary',
+                }}
+              >
                 A one-off schedule runs on its start date only.
               </Typography>
             )}
@@ -762,7 +784,6 @@ export const ScheduleStep = ({
           </Box>
         </Stack>
       )}
-
       {mode === 'auto' && (
         <Stack spacing={2}>
           <DayToggles
@@ -806,8 +827,10 @@ export const ScheduleStep = ({
               />
               <Typography
                 variant="caption"
-                display="block"
-                color="text.secondary"
+                sx={{
+                  display: 'block',
+                  color: 'text.secondary',
+                }}
               >
                 {windowForm.enableAutoSessions
                   ? "This room's master switch is off. Saving will turn it on."
@@ -832,8 +855,12 @@ export const ScheduleStep = ({
           </Box>
         </Stack>
       )}
-
-      <Typography variant="body2" color="text.secondary">
+      <Typography
+        variant="body2"
+        sx={{
+          color: 'text.secondary',
+        }}
+      >
         Need one-off sessions, several schedules, or edits?{' '}
         <Link component={RouterLink} to={`/rooms/${roomUid}/scheduling`}>
           Open the room&apos;s scheduling page

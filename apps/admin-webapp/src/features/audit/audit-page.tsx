@@ -79,14 +79,12 @@ export const AuditPage = () => {
           </Select>
         </FormControl>
       </Box>
-
       {misconfigured && (
         <Alert severity="error" sx={{ mb: 2 }}>
           Admin backend misconfiguration — an operator must check the
           server&apos;s ADMIN_API_KEY.
         </Alert>
       )}
-
       <TableContainer component={Paper}>
         <Table size="small">
           <TableHead>
@@ -111,7 +109,11 @@ export const AuditPage = () => {
             ) : items.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
-                  <Typography color="text.secondary">
+                  <Typography
+                    sx={{
+                      color: 'text.secondary',
+                    }}
+                  >
                     No audit entries found.
                   </Typography>
                 </TableCell>

@@ -69,7 +69,13 @@ export const VerticalPositionControl = ({
   return (
     <>
       <Typography>Vertical Position</Typography>
-      <Stack direction="row" alignItems="center" spacing={2}>
+      <Stack
+        direction="row"
+        spacing={2}
+        sx={{
+          alignItems: 'center',
+        }}
+      >
         <Typography sx={{ minWidth: 75, textAlign: 'left' }}>
           {minVerticalPositionPx} px
         </Typography>

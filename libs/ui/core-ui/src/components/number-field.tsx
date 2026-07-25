@@ -7,7 +7,7 @@ import * as React from 'react';
 import { NumberField as BaseNumberField } from '@base-ui/react/number-field';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
-import FormControl, { type FormControlProps } from '@mui/material/FormControl';
+import FormControl from '@mui/material/FormControl';
 import IconButton from '@mui/material/IconButton';
 import InputAdornment from '@mui/material/InputAdornment';
 import InputLabel from '@mui/material/InputLabel';
@@ -47,7 +47,7 @@ export function NumberField({
           ref={props.ref}
           disabled={state.disabled}
           required={state.required}
-          {...({ error } as FormControlProps)}
+          error={error}
           variant="outlined"
         >
           {props.children}

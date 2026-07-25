@@ -104,8 +104,10 @@ const FindingCard = ({
       <Stack
         direction="row"
         spacing={1}
-        alignItems="flex-start"
-        sx={{ mb: 0.5 }}
+        sx={{
+          alignItems: 'flex-start',
+          mb: 0.5,
+        }}
       >
         <Box sx={{ color: `${meta?.color ?? 'info'}.main`, mt: '2px' }}>
           {meta?.icon}
@@ -129,11 +131,15 @@ const FindingCard = ({
         )}
         <Chip size="small" variant="outlined" label={finding.category} />
       </Stack>
-
-      <Typography variant="body2" color="text.secondary" sx={{ ml: 4 }}>
+      <Typography
+        variant="body2"
+        sx={{
+          color: 'text.secondary',
+          ml: 4,
+        }}
+      >
         {finding.detail}
       </Typography>
-
       {finding.remediation !== undefined && (
         <Typography variant="body2" sx={{ ml: 4, mt: 1 }}>
           <Box component="span" sx={{ fontWeight: 600 }}>
@@ -142,7 +148,6 @@ const FindingCard = ({
           {finding.remediation}
         </Typography>
       )}
-
       {finding.docUrl !== undefined && (
         <Typography variant="body2" sx={{ ml: 4, mt: 0.5 }}>
           <Link href={finding.docUrl} target="_blank" rel="noopener noreferrer">
@@ -251,8 +256,13 @@ export const ConfigCheckPage = () => {
           Re-run
         </Button>
       </Box>
-
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+      <Typography
+        variant="body2"
+        sx={{
+          color: 'text.secondary',
+          mb: 2,
+        }}
+      >
         Every severity below is judged against a{' '}
         <strong>{report.environment}</strong> deployment.{' '}
         {report.environmentSource === 'inferred'
@@ -261,7 +271,6 @@ export const ConfigCheckPage = () => {
         Checked {new Date(report.checkedAt).toLocaleString()}. Per-container
         build versions are in <strong>Deployed versions</strong>, below.
       </Typography>
-
       {/* The promotion question, answered before the reader has to ask it. A
           staging deployment can be entirely green here and still be unfit for
           production, and that gap is invisible without this banner. */}
@@ -277,7 +286,6 @@ export const ConfigCheckPage = () => {
             be promoted as configured. The affected items are tagged below.
           </Alert>
         )}
-
       {problems.length === 0 ? (
         <Alert severity="success" icon={<CheckCircleIcon />}>
           <AlertTitle>Nothing to report</AlertTitle>
@@ -314,8 +322,11 @@ export const ConfigCheckPage = () => {
                   </Divider>
                   <Typography
                     variant="caption"
-                    color="text.secondary"
-                    sx={{ display: 'block', mb: 1 }}
+                    sx={{
+                      color: 'text.secondary',
+                      display: 'block',
+                      mb: 1,
+                    }}
                   >
                     {meta.blurb}
                   </Typography>
@@ -334,29 +345,34 @@ export const ConfigCheckPage = () => {
           </Stack>
         </>
       )}
-
       {/* Below the findings, not above them: this is reference data, and
           floating a green "every container is on one commit" banner over three
           critical misconfigurations would bury the thing that needs acting on.
           The intro paragraph points here so a reader knows it exists. */}
       <Divider sx={{ mt: 4, mb: 2 }} />
-
       <Typography variant="h6" sx={{ mb: 0.5 }}>
         Deployed versions
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+      <Typography
+        variant="body2"
+        sx={{
+          color: 'text.secondary',
+          mb: 2,
+        }}
+      >
         What each container was built from. Every service knows its own build
         and none knows anyone else&apos;s, so an upgrade that pulled some images
         and not others is invisible everywhere except here — a stale container
         stays green in the health rollup.
       </Typography>
-
       <DeploymentVersionsTable report={versions} loading={versionsLoading} />
-
       <Typography
         variant="caption"
-        color="text.secondary"
-        sx={{ display: 'block', mt: 3 }}
+        sx={{
+          color: 'text.secondary',
+          display: 'block',
+          mt: 3,
+        }}
       >
         This page reports admin-server&apos;s own configuration directly, and
         infers the rest from what it can observe — no service discloses another

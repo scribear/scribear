@@ -59,45 +59,72 @@ export const DemoRoomCard = () => {
     <Box sx={{ mb: 3 }}>
       <Stack
         direction="row"
-        justifyContent="space-between"
-        alignItems="center"
-        sx={{ mb: 1 }}
+        sx={{
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          mb: 1,
+        }}
       >
         <Typography variant="h6" component="h2">
           Demo caption room
         </Typography>
         {chip && <Chip size="small" label={chip.label} color={chip.color} />}
       </Stack>
-
       <Card sx={{ maxWidth: 480 }}>
         <CardContent>
           {loading && data === null ? (
             <CircularProgress size={24} />
           ) : data === null ? (
-            <Typography variant="body2" color="text.secondary">
+            <Typography
+              variant="body2"
+              sx={{
+                color: 'text.secondary',
+              }}
+            >
               Demo room status unavailable.
             </Typography>
           ) : !data.enabled ? (
-            <Typography variant="body2" color="text.secondary">
+            <Typography
+              variant="body2"
+              sx={{
+                color: 'text.secondary',
+              }}
+            >
               Off — <code>DEMO_ROOM_ENABLED=false</code> is set on the Session
               Manager and Node Server. It runs by default; clear that flag to
               bring back the looping demo caption stream, which needs no
               microphone or source device.
             </Typography>
           ) : !data.active ? (
-            <Typography variant="body2" color="text.secondary">
+            <Typography
+              variant="body2"
+              sx={{
+                color: 'text.secondary',
+              }}
+            >
               Enabled, but no joinable demo session was found yet — the seeder
               may still be starting, or seeding failed. Check the Session
               Manager logs.
             </Typography>
           ) : (
             <Stack spacing={1.5}>
-              <Typography variant="body2" color="text.secondary">
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'text.secondary',
+                }}
+              >
                 {data.roomName ?? 'Demo room'} is live. Open it to watch the
                 looping captions in the client webapp — no join code entry
                 needed.
               </Typography>
-              <Stack direction="row" alignItems="center" spacing={0.5}>
+              <Stack
+                direction="row"
+                spacing={0.5}
+                sx={{
+                  alignItems: 'center',
+                }}
+              >
                 {joinUrl !== null ? (
                   <Button
                     variant="contained"
@@ -123,8 +150,19 @@ export const DemoRoomCard = () => {
                 )}
               </Stack>
               {data.joinCode !== null && (
-                <Stack direction="row" alignItems="center" spacing={0.5}>
-                  <Typography variant="caption" color="text.secondary">
+                <Stack
+                  direction="row"
+                  spacing={0.5}
+                  sx={{
+                    alignItems: 'center',
+                  }}
+                >
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: 'text.secondary',
+                    }}
+                  >
                     Join code <strong>{data.joinCode}</strong> · rotates every
                     few minutes
                   </Typography>

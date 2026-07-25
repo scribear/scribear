@@ -75,7 +75,14 @@ export const WebspeechConfigMenu = ({
           </MenuItem>
         ))}
       </Select>
-      <Stack direction="row" justifyContent="flex-end" gap={1} pt={4}>
+      <Stack
+        direction="row"
+        sx={{
+          justifyContent: 'flex-end',
+          gap: 1,
+          pt: 4,
+        }}
+      >
         <Button color="error" variant="contained" onClick={handleClose}>
           Cancel
         </Button>

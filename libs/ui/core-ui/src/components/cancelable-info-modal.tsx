@@ -51,11 +51,22 @@ export const CancelableInfoModal = ({
           p: 4,
         }}
       >
-        <Typography id={messageId} textAlign="center" pb={4}>
+        <Typography
+          id={messageId}
+          sx={{
+            textAlign: 'center',
+            pb: 4,
+          }}
+        >
           {message}
         </Typography>
         <Box sx={{ pb: 4, width: '100%' }}>{children}</Box>
-        <Stack direction="row" justifyContent="space-around">
+        <Stack
+          direction="row"
+          sx={{
+            justifyContent: 'space-around',
+          }}
+        >
           <Button onClick={onCancel} color="error" variant="contained">
             Cancel
           </Button>

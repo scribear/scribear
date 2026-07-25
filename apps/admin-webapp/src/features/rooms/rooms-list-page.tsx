@@ -176,7 +176,13 @@ const CreateRoomDialog = ({ onClose, onCreated }: CreateRoomDialogProps) => {
           </Select>
         </FormControl>
         {!devicesLoading && devices.length === 0 && (
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: 'text.secondary',
+              mt: 1,
+            }}
+          >
             No devices are registered yet. Register a device before creating a
             room.
           </Typography>
@@ -265,14 +271,12 @@ export const RoomsListPage = () => {
           New room
         </Button>
       </Box>
-
       {misconfigured && (
         <Alert severity="error" sx={{ mb: 2 }}>
           Admin backend misconfiguration — an operator must check the
           server&apos;s ADMIN_API_KEY.
         </Alert>
       )}
-
       <TextField
         label="Search rooms"
         value={search}
@@ -283,7 +287,6 @@ export const RoomsListPage = () => {
         sx={{ mb: 2 }}
         size="small"
       />
-
       <TableContainer component={Paper}>
         <Table>
           <TableHead>
@@ -304,7 +307,11 @@ export const RoomsListPage = () => {
             ) : rooms.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
-                  <Typography color="text.secondary">
+                  <Typography
+                    sx={{
+                      color: 'text.secondary',
+                    }}
+                  >
                     No rooms found.
                   </Typography>
                 </TableCell>
@@ -344,7 +351,6 @@ export const RoomsListPage = () => {
           </TableBody>
         </Table>
       </TableContainer>
-
       {hasMore && !loading && (
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
           <Button onClick={loadMore} disabled={loadingMore}>
@@ -352,7 +358,6 @@ export const RoomsListPage = () => {
           </Button>
         </Box>
       )}
-
       {createOpen && (
         <CreateRoomDialog
           onClose={() => {

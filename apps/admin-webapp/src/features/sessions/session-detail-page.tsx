@@ -46,7 +46,13 @@ interface FieldRowProps {
 
 const FieldRow = ({ label, children }: FieldRowProps) => (
   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-    <Typography variant="body2" color="text.secondary" sx={{ minWidth: 160 }}>
+    <Typography
+      variant="body2"
+      sx={{
+        color: 'text.secondary',
+        minWidth: 160,
+      }}
+    >
       {label}
     </Typography>
     {children}
@@ -187,7 +193,6 @@ export const SessionDetailPage = () => {
           server&apos;s ADMIN_API_KEY.
         </Alert>
       )}
-
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
         <Typography variant="h5" component="h1">
           {session.name}
@@ -199,7 +204,6 @@ export const SessionDetailPage = () => {
           variant="outlined"
         />
       </Box>
-
       <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
         <Stack spacing={2}>
           <FieldRow label="Room">
@@ -243,28 +247,48 @@ export const SessionDetailPage = () => {
           </FieldRow>
         </Stack>
       </Paper>
-
       <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
         <Typography variant="h6" component="h2" sx={{ mb: 2 }}>
           Join session
         </Typography>
         {joinCodeStatus === null ? (
-          <Typography variant="body2" color="text.secondary">
+          <Typography
+            variant="body2"
+            sx={{
+              color: 'text.secondary',
+            }}
+          >
             Join code unavailable.
           </Typography>
         ) : joinCodeStatus.status === 'no-join-scopes' ? (
-          <Typography variant="body2" color="text.secondary">
+          <Typography
+            variant="body2"
+            sx={{
+              color: 'text.secondary',
+            }}
+          >
             No join code scopes configured for this session.
           </Typography>
         ) : joinCodeStatus.status === 'not-active' ||
           joinCode === null ||
           sessionJoinUrl === null ? (
-          <Typography variant="body2" color="text.secondary">
+          <Typography
+            variant="body2"
+            sx={{
+              color: 'text.secondary',
+            }}
+          >
             Session is not currently active — no join code available.
           </Typography>
         ) : (
           <Stack spacing={1.5}>
-            <Stack direction="row" alignItems="center" spacing={0.5}>
+            <Stack
+              direction="row"
+              spacing={0.5}
+              sx={{
+                alignItems: 'center',
+              }}
+            >
               <Button
                 variant="contained"
                 startIcon={<OpenInNewIcon />}
@@ -277,8 +301,19 @@ export const SessionDetailPage = () => {
               </Button>
               <CopyIconButton value={sessionJoinUrl} label="join link" />
             </Stack>
-            <Stack direction="row" alignItems="center" spacing={0.5}>
-              <Typography variant="body2" color="text.secondary">
+            <Stack
+              direction="row"
+              spacing={0.5}
+              sx={{
+                alignItems: 'center',
+              }}
+            >
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'text.secondary',
+                }}
+              >
                 Join code <strong>{joinCode}</strong> · rotates every few
                 minutes
               </Typography>
@@ -287,7 +322,6 @@ export const SessionDetailPage = () => {
           </Stack>
         )}
       </Paper>
-
       <Stack direction="row" spacing={2}>
         <Button
           variant="outlined"
@@ -307,7 +341,6 @@ export const SessionDetailPage = () => {
           End early
         </Button>
       </Stack>
-
       <ConfirmDialog
         open={startConfirmOpen}
         title="Start session early"
@@ -319,7 +352,6 @@ export const SessionDetailPage = () => {
           setStartConfirmOpen(false);
         }}
       />
-
       <ConfirmDialog
         open={endConfirmOpen}
         title="End session early"

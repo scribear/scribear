@@ -237,7 +237,13 @@ const AddDeviceDialog = ({
           </Select>
         </FormControl>
         {!devicesLoading && devices.length === 0 && (
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: 'text.secondary',
+              mt: 1,
+            }}
+          >
             No unassigned devices are available.
           </Typography>
         )}
@@ -382,7 +388,13 @@ export const RoomDetailPage = () => {
         server&apos;s ADMIN_API_KEY.
       </Alert>
     ) : (
-      <Typography color="text.secondary">Room not found.</Typography>
+      <Typography
+        sx={{
+          color: 'text.secondary',
+        }}
+      >
+        Room not found.
+      </Typography>
     );
   }
 
@@ -396,7 +408,6 @@ export const RoomDetailPage = () => {
           server&apos;s ADMIN_API_KEY.
         </Alert>
       )}
-
       <Box
         sx={{
           display: 'flex',
@@ -436,18 +447,27 @@ export const RoomDetailPage = () => {
           </Button>
         </Box>
       </Box>
-
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, sm: 4 }}>
-              <Typography variant="body2" color="text.secondary">
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'text.secondary',
+                }}
+              >
                 Timezone
               </Typography>
               <Typography variant="body1">{room.timezone}</Typography>
             </Grid>
             <Grid size={{ xs: 12, sm: 4 }}>
-              <Typography variant="body2" color="text.secondary">
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'text.secondary',
+                }}
+              >
                 Auto-sessions
               </Typography>
               <Chip
@@ -458,7 +478,12 @@ export const RoomDetailPage = () => {
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 4 }}>
-              <Typography variant="body2" color="text.secondary">
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'text.secondary',
+                }}
+              >
                 Created
               </Typography>
               <Typography variant="body1">
@@ -468,7 +493,6 @@ export const RoomDetailPage = () => {
           </Grid>
         </CardContent>
       </Card>
-
       <Box
         sx={{
           display: 'flex',
@@ -489,7 +513,6 @@ export const RoomDetailPage = () => {
           Add device
         </Button>
       </Box>
-
       <TableContainer component={Paper}>
         <Table>
           <TableHead>
@@ -504,7 +527,11 @@ export const RoomDetailPage = () => {
             {devices.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
-                  <Typography color="text.secondary">
+                  <Typography
+                    sx={{
+                      color: 'text.secondary',
+                    }}
+                  >
                     No devices assigned to this room.
                   </Typography>
                 </TableCell>
@@ -531,7 +558,12 @@ export const RoomDetailPage = () => {
                     {device.isSource === true ? (
                       <Chip size="small" label="Source" color="primary" />
                     ) : (
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          color: 'text.secondary',
+                        }}
+                      >
                         —
                       </Typography>
                     )}
@@ -573,7 +605,6 @@ export const RoomDetailPage = () => {
           </TableBody>
         </Table>
       </TableContainer>
-
       {renameOpen && (
         <RenameRoomDialog
           room={room}
@@ -586,7 +617,6 @@ export const RoomDetailPage = () => {
           }}
         />
       )}
-
       {addDeviceOpen && (
         <AddDeviceDialog
           roomUid={room.uid}
@@ -599,7 +629,6 @@ export const RoomDetailPage = () => {
           }}
         />
       )}
-
       <ConfirmDialog
         open={deleteOpen}
         title="Delete room"

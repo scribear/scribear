@@ -32,7 +32,13 @@ export const ColorPickerField = ({
   const [current, handleChange] = useDebouncedValue(value, onChange);
 
   return (
-    <Stack direction="row" alignItems="center" justifyContent="space-between">
+    <Stack
+      direction="row"
+      sx={{
+        alignItems: 'center',
+        justifyContent: 'space-between',
+      }}
+    >
       <Typography>{label}</Typography>
       <MuiColorInput
         sx={{ width: '8em' }}

@@ -80,7 +80,13 @@ export const TranscriptionProviderConfigMenu = () => {
       >
         <Suspense
           fallback={
-            <Stack direction="row" justifyContent="space-around" py={4}>
+            <Stack
+              direction="row"
+              sx={{
+                justifyContent: 'space-around',
+                py: 4,
+              }}
+            >
               <CircularProgress />
             </Stack>
           }

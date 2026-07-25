@@ -18,8 +18,11 @@ export const NameWithUid = ({ name, uid, showUid }: NameWithUidProps) => {
       <Box>{name}</Box>
       <Typography
         variant="caption"
-        color="text.secondary"
-        sx={{ fontFamily: 'monospace', display: 'block' }}
+        sx={{
+          color: 'text.secondary',
+          fontFamily: 'monospace',
+          display: 'block',
+        }}
       >
         {uid}
       </Typography>

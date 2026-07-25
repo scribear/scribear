@@ -42,11 +42,18 @@ export const DrawerMenuGroup = ({
     <Box>
       <Stack
         direction="row"
-        alignItems="center"
-        justifyContent="space-between"
-        sx={{ p: 2 }}
+        sx={{
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          p: 2,
+        }}
       >
-        <Stack direction="row" alignItems="center">
+        <Stack
+          direction="row"
+          sx={{
+            alignItems: 'center',
+          }}
+        >
           <Stack sx={{ p: 1 }}>
             {/* Decorative leading icon — the summary text is the real label. */}
             <Icon color="inherit" aria-hidden="true">
