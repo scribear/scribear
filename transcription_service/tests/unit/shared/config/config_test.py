@@ -79,9 +79,18 @@ VALID_PROVIDER_CONFIG_JSON = f"""
 @pytest.fixture
 def clean_os_environ():
     """
-    A fixture to ensure os.environ is reset to original state after each test
+    A fixture to ensure os.environ is empty during the test and restored after
+
+    Config reads every setting straight from os.environ, so a variable
+    already present in the shell participates in a test that is supposed to
+    be driven only by the .env file under tmp_path, and dotenv does not
+    override an existing variable. This is not theoretical: the production
+    image sets PROVIDER_CONFIG_PATH, HOST and PORT as Docker ENV, and without
+    the clear() below every test in this module that builds a Config fails
+    when run in that image even though it passes on a bare dev shell.
     """
     original_environ = os.environ.copy()
+    os.environ.clear()
 
     yield
 
