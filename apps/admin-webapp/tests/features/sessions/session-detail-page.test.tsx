@@ -414,6 +414,70 @@ describe('SessionDetailPage', () => {
       expect(results.violations).toHaveLength(0);
     });
 
+    it('renders VAD-not-enabled as "not measured", never 0%', async () => {
+      // §6.2 is the whole reason the three-state rendering exists: vadEnabled
+      // false means VAD never ran, so every other field is null. Rendering that
+      // as 0% would read as "silence" when it means "not measured" — actively
+      // misleading, and the one thing a UI gets wrong here by default.
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({
+          effectiveStart: '2000-01-01T14:00:00.000Z',
+          effectiveEnd: null,
+        }),
+      );
+      mockFleet([
+        audioSnapshot({
+          vadStats: {
+            vadEnabled: false,
+            speechActiveRatio: null,
+            segmentCount: null,
+            meanSegmentDurationSec: null,
+            speechToPauseRatio: null,
+            snrDb: null,
+          },
+        }),
+      ]);
+
+      renderPage();
+
+      expect(
+        await screen.findByText('VAD was not enabled for this session.'),
+      ).toBeInTheDocument();
+      expect(screen.queryByText('0%')).not.toBeInTheDocument();
+    });
+
+    it('renders a measured-but-absent VAD field as an em-dash with a reason', async () => {
+      // The other half of §6.2: VAD ran, but a field is structurally null.
+      // segmentCount 0 nulls meanSegmentDurationSec (no segment to average),
+      // which is "not measured", not zero seconds.
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({
+          effectiveStart: '2000-01-01T14:00:00.000Z',
+          effectiveEnd: null,
+        }),
+      );
+      mockFleet([
+        audioSnapshot({
+          vadStats: {
+            vadEnabled: true,
+            speechActiveRatio: 0,
+            segmentCount: 0,
+            meanSegmentDurationSec: null,
+            speechToPauseRatio: 0,
+            snrDb: null,
+          },
+        }),
+      ]);
+
+      renderPage();
+
+      await screen.findByText('Mean segment');
+      // The em-dash is focusable so a keyboard user can reach the explanation
+      // (SC 2.1.1); its tooltip says why the value is absent.
+      expect(screen.getAllByText('—').length).toBeGreaterThan(0);
+      expect(screen.queryByText('0.00 s')).not.toBeInTheDocument();
+    });
+
     it('renders the audio readout for a session inside its window with telemetry', async () => {
       vi.mocked(adminApi.getSession).mockResolvedValue(
         buildSession({

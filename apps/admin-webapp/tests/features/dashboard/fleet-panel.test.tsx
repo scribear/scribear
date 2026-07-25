@@ -1,4 +1,5 @@
 import { screen } from '@testing-library/react';
+import { axe } from 'jest-axe';
 import { beforeEach, describe, expect, vi } from 'vitest';
 
 import { FleetPanel } from '#src/features/dashboard/fleet-panel';
@@ -7,6 +8,7 @@ import type {
   FleetSnapshot,
   SessionAudioSnapshot,
   SessionSnapshot,
+  SessionStatusEvent,
 } from '#src/lib/admin-api';
 
 import { renderWithProviders } from '../../utils/render-with-providers';
@@ -64,7 +66,8 @@ function buildAudio(
 function mountFleet(
   sessions: SessionSnapshot[],
   sessionAudio: SessionAudioSnapshot[],
-): void {
+  sessionEvents = new Map<string, SessionStatusEvent>(),
+): HTMLElement {
   const snapshot: FleetSnapshot = {
     generatedAt: 1,
     nodes: [],
@@ -75,12 +78,12 @@ function mountFleet(
   };
   vi.mocked(useFleet).mockReturnValue({
     snapshot,
-    sessionEvents: new Map(),
+    sessionEvents,
     connected: true,
     available: true,
     refresh: vi.fn(),
   });
-  renderWithProviders(<FleetPanel />);
+  return renderWithProviders(<FleetPanel />).container;
 }
 
 /**
@@ -167,5 +170,74 @@ describe('SessionCard audio strip', (it) => {
     );
 
     expect(screen.getByText('clipping <0.01%')).toBeInTheDocument();
+  });
+});
+
+describe('SessionCard with no audio snapshot', (it) => {
+  beforeEach(() => {
+    vi.mocked(useFleet).mockReset();
+  });
+
+  it('renders "no audio reaching ASR" for an OPEN session rather than an empty strip', () => {
+    // PLAN-AUDIOVIZ §7.2: when there is no snapshot for an OPEN session the
+    // strip must render the finding, not disappear — the absence *is* failure
+    // mode C1. An empty space reads as "nothing to report".
+    //
+    // The session event is only here to get the card past the grid's default
+    // `['crit','warn']` connectivity filter; an OPEN session with a healthy
+    // stream derives `good` and would be filtered out.
+    const session = buildSession({ upstreamState: 'OPEN' });
+    const events = new Map<string, SessionStatusEvent>([
+      [
+        session.sessionUid,
+        {
+          t: 'session',
+          sessionUid: session.sessionUid,
+          transcriptionServiceConnected: false,
+          sourceDeviceConnected: true,
+          at: 1_000,
+        },
+      ],
+    ]);
+
+    mountFleet([session], [], events);
+
+    expect(screen.getByText('no audio reaching ASR')).toBeInTheDocument();
+  });
+
+  it('renders the softer "no audio telemetry" when the session is not OPEN', () => {
+    // Not a finding: nothing is expected to be decoding audio for a session
+    // whose upstream is still connecting, so the copy must not accuse a mic.
+    mountFleet([visibleSession({ upstreamState: 'CONNECTING' })], []);
+
+    expect(screen.getByText('no audio telemetry')).toBeInTheDocument();
+    expect(screen.queryByText('no audio reaching ASR')).not.toBeInTheDocument();
+  });
+});
+
+describe('FleetPanel a11y', (it) => {
+  beforeEach(() => {
+    vi.mocked(useFleet).mockReset();
+  });
+
+  it('has no a11y violations with a populated grid', async () => {
+    // The two axe tests added before this one each found a real defect on their
+    // first run (a nav list violation, and a skipped heading level), so this is
+    // not a formality. Covers the filter chips' aria-pressed, the roll-up's
+    // aria-live region, the conventions button, and the card's meter bar.
+    const container = mountFleet(
+      [visibleSession({ sessionUid: 'session-1' })],
+      [
+        buildAudio({
+          sessionUid: 'session-1',
+          clippingPct: 0.05,
+          silence: true,
+        }),
+      ],
+    );
+
+    const results = await axe(container);
+
+    expect(results.violations).toHaveLength(0);
   });
 });
