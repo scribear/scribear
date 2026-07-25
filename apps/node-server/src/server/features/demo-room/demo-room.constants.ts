@@ -21,13 +21,23 @@ export const DEFAULT_DEMO_SESSION_UID = 'deadbeef-0000-4000-8000-000000000001';
 export const DEMO_LOOP_TAIL_GAP_MS = 2_000;
 
 /**
- * Display labels prefixed onto the first token of each speaker turn. The wire
- * caption schema has no speaker field, so speaker identity is carried inside
- * the caption text; this is a demo-only convention. Speakers not listed fall
- * back to a capitalized form of the raw speaker string.
+ * Assumed speaking rate, in words/second, used to derive how long each line
+ * of the fixture is "spoken" for. The wire caption schema has no speaker
+ * field, so speaker identity is tracked alongside the schedule for future use
+ * (e.g. logging) but is never folded into caption text - a demo-only
+ * convention.
  */
-export const DEMO_SPEAKER_LABELS: Record<string, string> = {
-  caterpillar: 'Caterpillar',
-  alice: 'Alice',
-  pigeon: 'Pigeon',
-};
+export const DEMO_WORDS_PER_SECOND = 5;
+
+/** Gap between consecutive lines within the same speaker's turn. */
+export const DEMO_GAP_WITHIN_TURN_SECONDS = 0.3;
+
+/** Gap inserted when the speaker changes. */
+export const DEMO_GAP_BETWEEN_TURNS_SECONDS = 0.8;
+
+/**
+ * How often an in-progress caption update is published while a line is being
+ * "spoken", so a viewer sees the partial sentence grow roughly once a second
+ * rather than a single interim guess at the midpoint.
+ */
+export const DEMO_INTERIM_INTERVAL_SECONDS = 1;

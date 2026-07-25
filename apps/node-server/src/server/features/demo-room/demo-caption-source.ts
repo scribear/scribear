@@ -9,22 +9,22 @@ import {
 } from '#src/server/features/transcription-stream/events/transcript.events.js';
 
 import {
+  DEMO_GAP_BETWEEN_TURNS_SECONDS,
+  DEMO_GAP_WITHIN_TURN_SECONDS,
+  DEMO_INTERIM_INTERVAL_SECONDS,
   DEMO_LOOP_TAIL_GAP_MS,
-  DEMO_SPEAKER_LABELS,
+  DEMO_WORDS_PER_SECOND,
 } from './demo-room.constants.js';
 // The fixture is inlined into the bundle by esbuild at build time (only
 // `dist/bundle.mjs` ships), so no file is read at runtime. Source & licence:
-// Alice's Adventures in Wonderland, Chapter V, Project Gutenberg eBook #11
-// (public domain). See the fixture's `source` block and PLAN-Demo-CAPTION_ROOM.md.
-import demoFixture from './fixtures/alice-chapter-v.utterances.json' with { type: 'json' };
+// Alice's Adventures in Wonderland, Project Gutenberg eBook #11 (public
+// domain). See the fixture's `source` block and PLAN-Demo-CAPTION_ROOM.md.
+import demoFixture from './fixtures/alice-book.utterances.json' with { type: 'json' };
 
-/** One utterance from the fixture (the fields the emitter reads). */
-interface DemoUtterance {
-  start: number;
-  end: number;
+/** One speaker turn from the fixture: one or more lines spoken back to back. */
+interface DemoTurn {
   speaker: string;
-  spoken: string;
-  progresstxt: string;
+  lines: readonly string[];
 }
 
 /** A single caption publish scheduled at `atMs` on the loop's virtual clock. */
@@ -33,40 +33,40 @@ interface ScheduledEvent {
   message: TranscriptMessage;
 }
 
-const UTTERANCES =
-  demoFixture.utterances as unknown as readonly DemoUtterance[];
+const TURNS = demoFixture.turns as unknown as readonly DemoTurn[];
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-/** Display label for a speaker, capitalized as a fallback for unknown names. */
-function speakerLabel(speaker: string): string {
-  return (
-    DEMO_SPEAKER_LABELS[speaker] ??
-    speaker.charAt(0).toUpperCase() + speaker.slice(1)
-  );
+/** Splits on whitespace, dropping empty tokens (e.g. from repeated spaces). */
+function splitWords(text: string): string[] {
+  return text.split(/\s+/).filter((word) => word.length > 0);
 }
 
 /**
- * Turn one utterance's text into a wire {@link TranscriptFragment}: word tokens
- * (each carrying its leading space, so `text.join('')` reconstructs the string)
- * with per-token times spread evenly across `[startS, endS]`.
+ * Turn one line's text into a wire {@link TranscriptFragment}: word tokens
+ * (each carrying its leading space, so `text.join('')` reconstructs the
+ * string) with per-token times spread evenly across `[startS, endS]`.
  *
- * On the first fragment of a speaker turn the speaker label is folded into the
- * leading token (`"Caterpillar: "`), because the wire schema carries no speaker
- * field - a demo-only convention documented in PLAN-Demo-CAPTION_ROOM.md.
+ * Every token gets a leading space by default (`leadingSpace`), including the
+ * first: `finalizedTranscription` sequences are concatenated back-to-back
+ * with no separator on the client
+ * (`transcription-content-slice.ts` `selectFinalizedText`), so without it,
+ * consecutive finals run together (`"...since then!Alice: ..."`). The one
+ * exception is the very first fragment ever published, which has nothing
+ * before it to separate from.
  */
 export function buildFragment(
   text: string,
-  speaker: string,
-  turnStart: boolean,
   startS: number,
   endS: number,
+  leadingSpace = true,
 ): TranscriptFragment {
-  const display = turnStart ? `${speakerLabel(speaker)}: ${text}` : text;
-  const words = display.split(/\s+/).filter((word) => word.length > 0);
-  const tokens = words.map((word, index) => (index === 0 ? word : ` ${word}`));
+  const words = splitWords(text);
+  const tokens = words.map((word, index) =>
+    index === 0 && !leadingSpace ? word : ` ${word}`,
+  );
 
   const span = Math.max(0.001, endS - startS);
   const starts: number[] = [];
@@ -83,56 +83,75 @@ export function buildFragment(
  * Compile the fixture into a time-ordered list of caption publishes for one
  * pass, plus the total loop length.
  *
- * Per utterance: an interim caption (`inProgress = progresstxt`) at the halfway
- * point - skipped when `progresstxt` is empty - then a final caption
- * (`final = spoken`, `inProgress = null`) at `end`. This mirrors the real
- * pipeline's "interim replaces, final commits" contract
- * (`transcription-content-store`), so the browser sees a guess that is then
- * corrected. The gaps between utterances are dead air: the inter-phrase pauses.
+ * Per line: zero or more interim captions (`inProgress`) at roughly
+ * {@link DEMO_INTERIM_INTERVAL_SECONDS} intervals, each a growing word-prefix
+ * of the line (simulating a live transcript filling in), then one final
+ * caption (`final`, `inProgress = null`) with the full line at its end. This
+ * mirrors the real pipeline's "interim replaces, final commits" contract
+ * (`transcription-content-store`). Lines shorter than one interim interval
+ * (the common case for short exclamations) get no interim - just a final -
+ * matching how a real transcript would have nothing to correct. The gaps
+ * between lines/turns are dead air: the inter-phrase pauses.
  */
-export function buildDemoSchedule(utterances: readonly DemoUtterance[]): {
+export function buildDemoSchedule(turns: readonly DemoTurn[]): {
   events: ScheduledEvent[];
   loopMs: number;
 } {
   const events: ScheduledEvent[] = [];
-  let previousSpeaker: string | null = null;
+  let t = 0;
+  let isFirstFragment = true;
 
-  for (const utterance of utterances) {
-    const turnStart = utterance.speaker !== previousSpeaker;
-    previousSpeaker = utterance.speaker;
+  let isFirstTurn = true;
+  for (const turn of turns) {
+    if (!isFirstTurn) t += DEMO_GAP_BETWEEN_TURNS_SECONDS;
+    isFirstTurn = false;
+    const { lines } = turn;
 
-    const durationS = Math.max(0, utterance.end - utterance.start);
-    const midpointS = utterance.start + durationS / 2;
+    let isFirstLine = true;
+    for (const line of lines) {
+      if (!isFirstLine) t += DEMO_GAP_WITHIN_TURN_SECONDS;
+      isFirstLine = false;
+      const words = splitWords(line);
+      const startS = t;
+      const durationS = Math.max(1, words.length / DEMO_WORDS_PER_SECOND);
+      const endS = startS + durationS;
 
-    if (utterance.progresstxt.trim() !== '') {
+      for (
+        let tick = DEMO_INTERIM_INTERVAL_SECONDS;
+        tick < durationS;
+        tick += DEMO_INTERIM_INTERVAL_SECONDS
+      ) {
+        const atS = startS + tick;
+        const wordCount = Math.min(
+          words.length - 1,
+          Math.max(1, Math.round(words.length * (tick / durationS))),
+        );
+        events.push({
+          atMs: Math.round(atS * 1000),
+          message: {
+            final: null,
+            inProgress: buildFragment(
+              words.slice(0, wordCount).join(' '),
+              startS,
+              atS,
+              !isFirstFragment,
+            ),
+          },
+        });
+        isFirstFragment = false;
+      }
+
       events.push({
-        atMs: Math.round(midpointS * 1000),
+        atMs: Math.round(endS * 1000),
         message: {
-          final: null,
-          inProgress: buildFragment(
-            utterance.progresstxt,
-            utterance.speaker,
-            turnStart,
-            utterance.start,
-            midpointS,
-          ),
+          final: buildFragment(line, startS, endS, !isFirstFragment),
+          inProgress: null,
         },
       });
-    }
+      isFirstFragment = false;
 
-    events.push({
-      atMs: Math.round(utterance.end * 1000),
-      message: {
-        final: buildFragment(
-          utterance.spoken,
-          utterance.speaker,
-          turnStart,
-          utterance.start,
-          utterance.end,
-        ),
-        inProgress: null,
-      },
-    });
+      t = endS;
+    }
   }
 
   events.sort((a, b) => a.atMs - b.atMs);
@@ -185,7 +204,7 @@ export class DemoCaptionSource {
   start(): void {
     if (!this._config.enabled) return;
 
-    const { events, loopMs } = buildDemoSchedule(UTTERANCES);
+    const { events, loopMs } = buildDemoSchedule(TURNS);
     if (events.length === 0) {
       this._logger.warn(
         'demo caption room enabled but the fixture produced no events; not starting',
@@ -216,11 +235,11 @@ export class DemoCaptionSource {
     this._logger.info(
       {
         sessionUid: this._config.sessionUid,
-        utterances: UTTERANCES.length,
+        turns: TURNS.length,
         events: events.length,
         loopSeconds: round2(loopMs / 1000),
       },
-      'demo caption room started (Alice in Wonderland Ch. V, Project Gutenberg #11)',
+      'demo caption room started (Alice in Wonderland, Project Gutenberg #11)',
     );
     this._run(0);
   }

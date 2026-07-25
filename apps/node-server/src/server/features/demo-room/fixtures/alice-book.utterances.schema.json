@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "./alice-book.utterances.schema.json",
+  "title": "Alice's Adventures in Wonderland — utterances fixture",
+  "description": "Schema for the demo caption-room utterance fixture derived from Alice's Adventures in Wonderland (Project Gutenberg eBook #11, public domain). Describes the ordered, per-speaker spoken dialogue used to simulate live captioning in the demo room; timing (words/second, pauses, interim cadence) is derived at runtime from `demo-room.constants.ts`, not stored here.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Self-reference to this schema file."
+    },
+    "source": {
+      "type": "object",
+      "description": "Attribution and provenance information for the source text.",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Title of the source work."
+        },
+        "author": {
+          "type": "string",
+          "description": "Author of the source work."
+        },
+        "coverage": {
+          "type": "string",
+          "description": "Which portion of the work the utterances are drawn from."
+        },
+        "attribution": {
+          "type": "string",
+          "description": "Attribution statement for the source text."
+        },
+        "url": {
+          "type": "string",
+          "description": "URL to the source text."
+        },
+        "note": {
+          "type": "string",
+          "description": "Additional notes about how the fixture text was extracted or is intended to be used."
+        }
+      },
+      "required": ["title", "author", "coverage", "attribution", "url", "note"],
+      "additionalProperties": false
+    },
+    "speakers": {
+      "type": "array",
+      "description": "Sorted list of distinct speaker ids appearing in `turns`.",
+      "items": { "type": "string" }
+    },
+    "loop": {
+      "type": "boolean",
+      "description": "Whether the demo playback should loop back to the start after the last turn."
+    },
+    "turnCount": {
+      "type": "integer",
+      "description": "Total number of entries in the turns array."
+    },
+    "lineCount": {
+      "type": "integer",
+      "description": "Total number of lines across all turns."
+    },
+    "turns": {
+      "type": "array",
+      "description": "Ordered list of speaker turns used to drive the demo caption playback. Consecutive same-speaker dialogue, uninterrupted by another speaker, is one turn; each turn's lines are spoken back to back within it.",
+      "items": {
+        "type": "object",
+        "description": "One uninterrupted stretch of dialogue from a single speaker.",
+        "properties": {
+          "speaker": {
+            "type": "string",
+            "description": "Id of the speaker for this turn."
+          },
+          "lines": {
+            "type": "array",
+            "description": "Spoken lines, in order, with no enclosing quotation marks.",
+            "items": { "type": "string", "minLength": 1 },
+            "minItems": 1
+          }
+        },
+        "required": ["speaker", "lines"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["source", "speakers", "loop", "turnCount", "lineCount", "turns"]
+}

@@ -255,6 +255,43 @@ export class DeviceManagementRepository {
   }
 
   /**
+   * Idempotently inserts a device with an explicit, caller-chosen `uid`,
+   * mirroring `ScheduleManagementRepository.insertSessionWithUid`: on a
+   * primary-key conflict the insert is a no-op and the already-persisted row
+   * is returned. Used by the demo room seeder, which must survive restarts
+   * and racing instances without accumulating duplicate placeholder devices
+   * (there is no unique constraint on `name` to lean on instead).
+   * @param uid The fixed uid to insert (or look up on conflict).
+   * @param data.name The display name for the device.
+   * @param data.activationCode The one-time activation code (ignored on conflict).
+   * @param data.expiry The expiry timestamp for the activation code (ignored on conflict).
+   * @returns The persisted device (either just-inserted or pre-existing).
+   */
+  async createWithFixedUid(
+    uid: string,
+    data: { name: string; activationCode: string; expiry: Date },
+  ) {
+    await this._dbClient.db
+      .insertInto('devices')
+      .values({
+        uid,
+        name: data.name,
+        activation_code: data.activationCode,
+        expiry: data.expiry,
+      })
+      .onConflict((oc) => oc.column('uid').doNothing())
+      .execute();
+
+    const persisted = await this.findById(uid);
+    if (!persisted) {
+      throw new Error(
+        `createWithFixedUid: no device found for uid ${uid} after insert`,
+      );
+    }
+    return persisted;
+  }
+
+  /**
    * Looks up a device by its pending activation code.
    * @param activationCode The one-time code to look up.
    * @returns The matching device row, or `undefined` if the code does not exist.

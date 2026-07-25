@@ -30,6 +30,49 @@ describe('DeviceManagementRepository', () => {
     });
   });
 
+  describe('createWithFixedUid', (it) => {
+    const FIXED_UID = 'deadbeef-0000-4000-8000-000000000002';
+
+    it('inserts a device at the given uid', async () => {
+      // Act
+      const result = await repository.createWithFixedUid(FIXED_UID, {
+        name: 'Demo Source',
+        activationCode: TEST_CODE,
+        expiry: FUTURE_EXPIRY,
+      });
+
+      // Assert
+      expect(result.uid).toBe(FIXED_UID);
+      expect(result.name).toBe('Demo Source');
+    });
+
+    it('is idempotent: a second call with the same uid returns the original row unchanged', async () => {
+      // Arrange
+      await repository.createWithFixedUid(FIXED_UID, {
+        name: 'Demo Source',
+        activationCode: TEST_CODE,
+        expiry: FUTURE_EXPIRY,
+      });
+
+      // Act - simulates a second instance racing to seed the same demo device
+      const result = await repository.createWithFixedUid(FIXED_UID, {
+        name: 'Different Name',
+        activationCode: 'OTHERCODE',
+        expiry: FUTURE_EXPIRY,
+      });
+
+      // Assert - the pre-existing row wins, not the second call's data
+      expect(result.uid).toBe(FIXED_UID);
+      expect(result.name).toBe('Demo Source');
+
+      const all = await dbContext.db
+        .selectFrom('devices')
+        .select('uid')
+        .execute();
+      expect(all).toHaveLength(1);
+    });
+  });
+
   describe('findById', (it) => {
     it('returns the device with null room fields when not in a room', async () => {
       // Arrange

@@ -236,6 +236,43 @@ export class RoomManagementRepository {
   }
 
   /**
+   * Idempotently inserts a room with an explicit, caller-chosen `uid`,
+   * mirroring `ScheduleManagementRepository.insertSessionWithUid`: on a
+   * primary-key conflict the insert is a no-op and the already-persisted row
+   * is returned. Used by the demo room seeder, which must survive restarts
+   * and racing instances without accumulating duplicate demo rooms (there is
+   * no unique constraint on `name` to lean on instead).
+   * @param uid The fixed uid to insert (or look up on conflict).
+   * @param data.name The display name for the room.
+   * @param data.timezone A valid IANA timezone identifier.
+   * @param data.autoSessionEnabled Master switch for auto sessions in this room.
+   * @returns The persisted room (either just-inserted or pre-existing).
+   */
+  async createWithFixedUid(
+    uid: string,
+    data: { name: string; timezone: string; autoSessionEnabled: boolean },
+  ) {
+    await this._dbClient.db
+      .insertInto('rooms')
+      .values({
+        uid,
+        name: data.name,
+        timezone: data.timezone,
+        auto_session_enabled: data.autoSessionEnabled,
+      })
+      .onConflict((oc) => oc.column('uid').doNothing())
+      .execute();
+
+    const persisted = await this.findById(uid);
+    if (!persisted) {
+      throw new Error(
+        `createWithFixedUid: no room found for uid ${uid} after insert`,
+      );
+    }
+    return persisted;
+  }
+
+  /**
    * Updates a room's display name. Schedule-affecting fields (`timezone`,
    * `auto_session_enabled`) are not exposed here; use
    * `ScheduleManagementService.updateRoomScheduleConfig` for those, since

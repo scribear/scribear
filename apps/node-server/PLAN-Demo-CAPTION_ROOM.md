@@ -8,25 +8,33 @@
 > superseded on those points. The admin console also surfaces the room's status
 > and a one-click join link. See the **Demo Caption Room** wiki page for current
 > usage.
+>
+> **Update (2026-07-24 rework).** Fixed a staging incident (10 duplicate
+> "Demo Room Source" devices from restarts/rolling deploys racing the seeder —
+> the device/room inserts had no fixed identity or conflict guard, unlike the
+> session insert; see Component B). Also reworked the caption content itself:
+> the fixture now covers **Chapters I-VI**, not just Chapter V (extraction of
+> the remaining chapters was cut short partway through automated processing
+> and left for later); captions no
+> longer fold the speaker name into caption text (it broke concatenation —
+> see "Speaker handling" below); interim captions now grow roughly **once a
+> second** instead of a single midpoint guess; and the speaking rate is now
+> **5 words/second**. See "The fixture (built)" and "Speaker handling" below.
 
-Status: **node-server side implemented and tested; Session Manager seeding is
-the remaining half.**
+Status: **implemented and tested on both services** (node-server emitter +
+Session Manager seeding).
 
 Implemented: the utterance fixture
-(`src/server/features/demo-room/fixtures/alice-chapter-v.utterances.json` + its
+(`src/server/features/demo-room/fixtures/alice-book.utterances.json` + its
 regenerator and JSON Schema), the `DemoCaptionSource` emitter and its loop, the
 `DEMO_ROOM_ENABLED` / `DEMO_SESSION_UID` config, DI wiring, the orchestrator's
 `registerSyntheticSession`, unit tests (fragment/schedule/loop/fixture/config)
 and a WS-level integration test that a client joining the demo session receives
 looping interim-then-final captions with no source or Python service. Env vars
 are documented in `.env.example` (node-server + session-manager + deployment)
-and defaulted off in `deployment/compose.yml`.
-
-Remaining: the Session Manager must seed a joinable session whose `uid` equals
-`DEMO_SESSION_UID` (see "Component B" — note the confirmed constraint that
-on-demand sessions are open-ended but DB-generate their uid, so a fixed-uid
-insert is required, and join codes rotate so the seeder logs the current one).
-The rest below is the design as built.
+and defaulted off in `deployment/compose.yml`. The Session Manager seeds a
+joinable session whose `uid` equals `DEMO_SESSION_UID` (see "Component B"),
+idempotently across restarts and racing instances.
 
 Goal: in **dev and staging only**, a caption room comes up on its own and emits
 a never-ending, human-paced caption stream — interim (partial) captions that
@@ -111,7 +119,8 @@ different semantics on the client, confirmed in
 - `final` is **appended** to the finalized log and **clears** the partial.
 
 That is exactly the "guess, then correct it" behavior the demo wants: emit
-`inProgress = progresstxt`, later emit `final = spoken`. No new client code.
+a growing `inProgress` prefix, later emit the complete line as `final`. No new
+client code.
 
 **There is no speaker field anywhere on the wire.** `roomUid`/`sessionUid` are
 connection metadata (the orchestrator forwards `room_uid` *upstream* to Python
@@ -167,43 +176,53 @@ behavior the fixture imitates, so the demo looks like the real thing.
   hypothesis, is emitted as `in_progress`. The newest hypothesis is the part
   that visibly churns and rewrites itself between frames.
 
-The fixture emulates this at the utterance level: `progresstxt` is a **shorter,
-sometimes slightly wrong** hypothesis (heard ~halfway through), and `spoken` is
-the corrected final — mirroring "interim churns, final commits."
+The emitter approximates this per line: interim captions are a **growing
+word-prefix** published roughly once a second while the line is "being
+spoken," and the final is the complete, correct line — mirroring "interim
+churns (grows), final commits." Unlike the real pipeline, the demo's interim
+is always a strict prefix of the correct text (no simulated recognition
+errors) — good enough for pacing/UX fidelity without hand-authoring guesses
+for an entire novel.
 
 ---
 
 ## The fixture (built)
 
-`fixtures/alice-chapter-v.utterances.json` — the spoken dialogue of *Alice's
-Adventures in Wonderland*, **Chapter V, "Advice from a Caterpillar"** (Project
-Gutenberg eBook #11, public domain), extracted from `#chap05` up to where
-`#chap06` begins. 121 utterances, ~6.7 min per loop, speakers
-`caterpillar` (24), `alice` (70, incl. her recital of *"You are old, Father
-William"*), `pigeon` (27).
+`fixtures/alice-book.utterances.json` — the spoken dialogue of *Alice's
+Adventures in Wonderland* (Project Gutenberg eBook #11, public domain),
+**Chapters I-VI** (up from just Chapter V; extending through the rest of the
+book - Chapters VII-XII - is a follow-up, not yet done). Only lines actually
+spoken aloud by a character are included (excludes narration, silent
+thought/"said to herself" asides, and non-dialogue quoted text like the
+"DRINK ME" label) — see the generator's extraction criteria in its header for
+the exact rules.
 
-Each utterance is exactly the shape the request asked for:
+Each entry is a speaker **turn** — consecutive same-speaker dialogue,
+uninterrupted by another speaker — made of one or more spoken **lines**:
 
 ```json
-{ "start": 4.77, "end": 9.10, "speaker": "alice",
-  "spoken": "at least I know who I was when I got up this morning,",
-  "progresstxt": "at least I know who I was when I got" }
+{ "speaker": "alice",
+  "lines": [
+    "I—I hardly know, sir, just at present—",
+    "at least I know who I was when I got up this morning,",
+    "but I think I must have been changed several times since then."
+  ] }
 ```
 
-- `start`/`end` — seconds on the loop's virtual timeline.
-- Long speeches are split into ~2–5 s fragments at ~**3 words/second**
-  (`end-start = words/3`, min 1 s). A 0.3 s gap separates fragments of one turn;
-  a 0.8 s gap separates turns. Those gaps are the inter-phrase **pauses** — the
-  emitter sends nothing during them.
-- `progresstxt` is hand-authored per fragment: a truncated guess with occasional
-  realistic STT errors that the final corrects — e.g. *chrysalis* →
-  "crystal is", *size* → "sighs", *doth* → "does". Very short fragments
-  (`"No."`, `"Why?"`) have `progresstxt: ""` → no interim, just a final.
+Unlike the original Chapter-V-only fixture, **no timing is stored in the
+file**: `start`/`end`/`wordsPerSecond`/`progresstxt` are gone. Timing (words/
+second, inter-line/turn pauses, interim-caption cadence) is computed at
+**runtime** from the constants in `demo-room.constants.ts`
+(`DEMO_WORDS_PER_SECOND = 5`, `DEMO_GAP_WITHIN_TURN_SECONDS = 0.3`,
+`DEMO_GAP_BETWEEN_TURNS_SECONDS = 0.8`,
+`DEMO_INTERIM_INTERVAL_SECONDS = 1`), so there's one source of truth for
+pacing instead of it drifting between the generator and the emitter, and the
+rate can be tuned without regenerating the fixture.
 
 The file carries its Gutenberg attribution in a top-level `source` block, and
-`generate-alice-chapter-v.py` (same dir) can regenerate it; the header of both
+`generate-alice-book.py` (same dir) can regenerate it; the header of both
 credits Project Gutenberg. **Regenerating requires no network** — the dialogue
-is inlined in the generator.
+is inlined in the generator's `TURNS` list.
 
 ---
 
@@ -231,17 +250,23 @@ that `sessionUid`.
 
 A singleton started from `create-server.ts` when the flag is on. It:
 
-1. Loads and validates the fixture once at boot (schema-checked;
-   monotonic non-overlapping `start`/`end`; `speaker ∈ {caterpillar,alice,pigeon}`).
-2. Runs a **virtual-clock scheduler**. For each utterance `u`, two events:
-   - at `u.start + (u.end - u.start) * 0.5` →
-     `publish(TranscriptChannel, { final: null, inProgress: frag(u.progresstxt, u) }, DEMO_SESSION_UID)`
-     (skipped when `progresstxt === ""`).
-   - at `u.end` →
-     `publish(TranscriptChannel, { final: frag(u.spoken, u), inProgress: null }, DEMO_SESSION_UID)`.
-   The gaps between utterances are dead air (the pauses). After the last
-   utterance, wait a short reset (~2 s) and restart at virtual `t=0`. **Infinite
-   repeat.**
+1. Loads the fixture once at boot (trusted, not re-validated at runtime — see
+   the fixture-invariant unit test instead).
+2. Runs a **virtual-clock scheduler**, `buildDemoSchedule`. For each turn's
+   each line `l` (word count `n`, duration `d = max(1, n / DEMO_WORDS_PER_SECOND)`
+   starting at virtual time `start`):
+   - every `DEMO_INTERIM_INTERVAL_SECONDS` (1s) within `[start, start+d)` →
+     `publish(TranscriptChannel, { final: null, inProgress: frag(prefixOf(l, tick)) }, DEMO_SESSION_UID)`,
+     where `prefixOf` is a growing word-prefix of `l` proportional to elapsed
+     time — simulating a live transcript filling in. Lines shorter than one
+     interim interval (short exclamations, the common case) get no interim,
+     matching how a real transcript has nothing to correct for a one-beat line.
+   - at `start + d` →
+     `publish(TranscriptChannel, { final: frag(l), inProgress: null }, DEMO_SESSION_UID)`.
+   The gaps between lines/turns are dead air (the pauses:
+   `DEMO_GAP_WITHIN_TURN_SECONDS` / `DEMO_GAP_BETWEEN_TURNS_SECONDS`). After the
+   last turn, wait a short reset (`DEMO_LOOP_TAIL_GAP_MS`) and restart at
+   virtual `t=0`. **Infinite repeat.**
    - Use a self-correcting timer (compare against a monotonic base, `setTimeout`
      to the next event's absolute deadline) rather than a fixed interval, so the
      loop doesn't drift over hours.
@@ -257,19 +282,26 @@ A singleton started from `create-server.ts` when the flag is on. It:
    sourceDeviceConnected:true}` once at start. (Do **not** route the demo session
    through `_openSession` — it must never dial the Python service.)
 
-`frag(text, u)` tokenizes `text` into word tokens (whitespace split, punctuation
+`frag(text)` tokenizes `text` into word tokens (whitespace split, punctuation
 kept on the token, matching real fragments' word granularity) and returns
-`{ text, starts, ends }`. Recommended: fill `starts`/`ends` with per-token times
-spread evenly across the utterance window (`[start, mid]` for interim,
-`[mid, end]` for final) so word-timing displays and the latency panel have
-something real to show; `null` is an acceptable v1 shortcut.
+`{ text, starts, ends }`, with per-token times spread evenly across the
+line's current window. **Every token, including the first, carries a leading
+space** (`buildFragment`'s `leadingSpace` param, default `true`): the client
+concatenates `finalizedTranscription` sequences back-to-back with **no
+separator** (`transcription-content-slice.ts` `selectFinalizedText`), so
+without a leading space on each fragment, consecutive finals run together —
+e.g. `"...since then!Alice: ..."` was an observed bug. The one exception is
+the very first fragment ever published in a run, which has nothing before it
+to separate from.
 
-**Speaker handling (the schema gap).** Because no wire field carries a speaker,
-the demo prefixes the speaker onto the first token of each turn's first
-fragment, e.g. `text = ["Caterpillar: ", "Who", " are", " you?"]`. This is a
-demo-only convention, documented in the source; it is the honest way to make
-speaker changes visible given the current protocol. (If per-speaker rendering
-ever becomes a real product need, it belongs in the schema, not here — out of
+**Speaker handling (the schema gap).** No wire field carries a speaker, and
+unlike the original design, the demo does **not** fold it into the caption
+text either — an earlier version prefixed `"Caterpillar: "` onto the first
+token of a turn, but that read as noisy caption content and interacted badly
+with the leading-space fix above. Speaker is tracked only at schedule-build
+time (each fixture turn carries `speaker`), for future use (e.g. logging), and
+is simply dropped when a fragment is built. (If per-speaker rendering ever
+becomes a real product need, it belongs in the wire schema, not here — out of
 scope.)
 
 ### Component B — Session Manager: seed a joinable demo session
@@ -305,10 +337,13 @@ both services in the same environments.
 
 ### Emission cadence sanity check
 
-Most fragments are 1–5 s, each producing an interim at its midpoint and a final
-at its end — so a browser sees a new caption event **roughly every second**,
-punctuated by the 0.3–0.8 s inter-phrase pauses, which is exactly the requested
-"every second or so, with intermittent pauses."
+Interim captions are generated every `DEMO_INTERIM_INTERVAL_SECONDS` (1s)
+while a line is "being spoken," each a longer word-prefix than the last, plus
+a final when the line completes — so a browser sees a new caption event **at
+least once a second** for any line long enough to have one, punctuated by the
+0.3–0.8 s inter-phrase pauses. Short lines (well under 1s at 5 words/sec) skip
+the interim and go straight to a final, which is also realistic — there's
+nothing for a real transcript to "grow" on a one- or two-word exclamation.
 
 ---
 
@@ -316,10 +351,10 @@ punctuated by the 0.3–0.8 s inter-phrase pauses, which is exactly the requeste
 
 New (node-server) — **all built**:
 - `src/server/features/demo-room/demo-caption-source.ts` — scheduler + publisher.
-- `src/server/features/demo-room/demo-room.constants.ts` — `DEFAULT_DEMO_SESSION_UID`, tail-gap, speaker-prefix labels.
-- `src/server/features/demo-room/fixtures/alice-chapter-v.utterances.json` — the fixture.
-- `src/server/features/demo-room/fixtures/generate-alice-chapter-v.py` — regenerator (prettier the JSON after regenerating).
-- `src/server/features/demo-room/fixtures/alice-chapter-v.utterances.schema.json` — fixture JSON Schema (referenced by `$schema`).
+- `src/server/features/demo-room/demo-room.constants.ts` — `DEFAULT_DEMO_SESSION_UID`, tail-gap, and the pacing constants (`DEMO_WORDS_PER_SECOND`, `DEMO_GAP_WITHIN_TURN_SECONDS`, `DEMO_GAP_BETWEEN_TURNS_SECONDS`, `DEMO_INTERIM_INTERVAL_SECONDS`).
+- `src/server/features/demo-room/fixtures/alice-book.utterances.json` — the fixture (Chapters I-VI, dialogue-only, no timing stored).
+- `src/server/features/demo-room/fixtures/generate-alice-book.py` — regenerator (prettier the JSON after regenerating).
+- `src/server/features/demo-room/fixtures/alice-book.utterances.schema.json` — fixture JSON Schema (referenced by `$schema`).
 - `tests/unit/features/demo-room/demo-caption-source.test.ts`, `tests/unit/features/demo-room/demo-fixture.test.ts`, `tests/integration/features/demo-room/demo-room.routes.test.ts`.
 
 Changed (node-server) — **all built**:
@@ -333,11 +368,16 @@ Changed (node-server) — **all built**:
 - `tests/utils/use-server.ts` — default `demoRoomConfig` (off) so existing integration servers still boot.
 - `.env.example` — document the new vars.
 
-Session Manager — **remaining** (see Component B; delegated):
-- Config schema + `demoRoomConfig` getter; `.env.example` (vars already documented).
-- A boot-time seeder gated on the flag that inserts an open-ended `ON_DEMAND`
-  session with `uid === DEMO_SESSION_UID` (fixed-uid insert, since the normal
-  create path DB-generates the uid), ensures a current join code, and logs it.
+Session Manager — **built** (see Component B):
+- Config schema + `demoRoomConfig` getter; `.env.example` (vars documented).
+- `DemoRoomSeeder`, a boot-time seeder gated on the flag that idempotently
+  inserts the placeholder device, room, and an open-ended `ON_DEMAND` session
+  with `uid === DEMO_SESSION_UID` (all three at fixed uids with
+  `ON CONFLICT (uid) DO NOTHING`, since the normal create paths DB-generate
+  uids), ensures a current join code, and logs it. The device/room fixed-uid
+  idempotency was added in the 2026-07-24 rework, fixing a staging incident
+  where restarts/racing instances each created their own placeholder
+  device+room (only the session insert was originally conflict-safe).
 
 Deployment — **built**:
 - `deployment/compose.yml` passes `DEMO_ROOM_ENABLED` (default false) +
@@ -349,16 +389,20 @@ Deployment — **built**:
 
 ## Tests
 
-- **Fixture validation (unit):** parses; `start < end`; non-overlapping and
-  monotonic; every `speaker` in the allowed set; `spoken` non-empty. (The
-  generator already asserts no overlaps — mirror it as a committed test so the
-  checked-in JSON can't rot.)
-- **Scheduler (unit, fake clock):** for a 2–3 utterance fixture, asserts the
-  event order interim(progresstxt)→final(spoken) per utterance; that
-  `inProgress` is null on the final and `final` is null on the interim; that
-  empty `progresstxt` emits no interim; and that the loop wraps back to `t=0`.
-- **Speaker prefix (unit):** first fragment of a turn carries the
-  `"Speaker: "` token; continuations do not.
+- **Fixture validation (unit):** parses; `turnCount`/`lineCount` match the
+  arrays; every turn has a non-empty speaker and non-empty lines; no two
+  adjacent turns share a speaker (would mean a turn wasn't merged); Gutenberg
+  attribution present. (Checked-in JSON, so it can't rot.)
+- **Scheduler (unit, fake clock):** for small fixtures, asserts interim events
+  are a strict growing word-prefix of the following final; that `inProgress`
+  is null on the final and `final` is null on interims; that a line shorter
+  than one interim interval emits no interim (min 1s duration floor at 5
+  words/sec skips it); and that the loop wraps back to `t=0`.
+- **No speaker leakage (unit):** caption text for any fragment never contains
+  a speaker label, regardless of turn changes.
+- **Leading-space join safety (unit):** concatenating every final's text
+  back-to-back (as the client does, with no separator) across a turn/speaker
+  change never merges two words.
 - **Integration:** with the flag on, a client socket authed for
   `DEMO_SESSION_UID` receives `transcript` messages and a healthy
   `sessionStatus`, without any source connection or Python service — the demo's
@@ -368,9 +412,10 @@ Deployment — **built**:
 
 ## Risks & limitations
 
-1. **No speaker field on the wire.** Speaker is folded into `text`. Anything
-   wanting structured per-speaker data needs a schema change; explicitly out of
-   scope.
+1. **No speaker field on the wire.** Speaker is tracked at schedule-build time
+   only and dropped when captions are built - never shown to a viewer.
+   Anything wanting structured/visible per-speaker data needs a schema change;
+   explicitly out of scope.
 2. **Multi-instance.** Client sockets are sticky-routed by `sessionUid`, so a
    joining browser lands on one node instance and sees that instance's loop.
    Every instance runs its own loop, so different instances are **not** phase-
@@ -388,7 +433,7 @@ Deployment — **built**:
 
 ## Attribution
 
-Source text: *Alice's Adventures in Wonderland* by Lewis Carroll, Chapter V,
-**Project Gutenberg eBook #11** — public domain. Attribution is carried in the
-fixture's `source` block, in the generator header, and must be repeated in the
-`DemoCaptionSource` source file header.
+Source text: *Alice's Adventures in Wonderland* by Lewis Carroll, Chapters
+I-VI, **Project Gutenberg eBook #11** — public domain. Attribution is carried
+in the fixture's `source` block, in the generator header, and must be
+repeated in the `DemoCaptionSource` source file header.

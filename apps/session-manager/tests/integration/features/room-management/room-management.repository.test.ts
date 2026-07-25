@@ -46,6 +46,46 @@ describe('RoomManagementRepository', () => {
     });
   });
 
+  describe('createWithFixedUid', (it) => {
+    const FIXED_UID = 'deadbeef-0000-4000-8000-000000000003';
+
+    it('inserts a room at the given uid', async () => {
+      // Act
+      const result = await repository.createWithFixedUid(FIXED_UID, {
+        name: 'Demo Room',
+        timezone: 'UTC',
+        autoSessionEnabled: false,
+      });
+
+      // Assert
+      expect(result.uid).toBe(FIXED_UID);
+      expect(result.name).toBe('Demo Room');
+    });
+
+    it('is idempotent: a second call with the same uid returns the original row unchanged', async () => {
+      // Arrange
+      await repository.createWithFixedUid(FIXED_UID, {
+        name: 'Demo Room',
+        timezone: 'UTC',
+        autoSessionEnabled: false,
+      });
+
+      // Act - simulates a second instance racing to seed the same demo room
+      const result = await repository.createWithFixedUid(FIXED_UID, {
+        name: 'Different Name',
+        timezone: 'America/New_York',
+        autoSessionEnabled: true,
+      });
+
+      // Assert - the pre-existing row wins, not the second call's data
+      expect(result.uid).toBe(FIXED_UID);
+      expect(result.name).toBe('Demo Room');
+
+      const all = await dbContext.db.selectFrom('rooms').select('uid').execute();
+      expect(all).toHaveLength(1);
+    });
+  });
+
   describe('findById', (it) => {
     it('returns the mapped room when found', async () => {
       // Arrange
