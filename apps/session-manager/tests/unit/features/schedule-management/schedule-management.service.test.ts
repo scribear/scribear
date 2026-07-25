@@ -226,6 +226,7 @@ describe('ScheduleManagementService', () => {
 
       expect(result).toBe('INVALID_ACTIVE_START');
       expect(mockRepo.insertSchedule).not.toHaveBeenCalled();
+      expect(mockRepo.bumpScheduleVersion).not.toHaveBeenCalled();
     });
 
     it('returns INVALID_ACTIVE_START when activeStart is in the past', async () => {
@@ -242,6 +243,7 @@ describe('ScheduleManagementService', () => {
 
       expect(result).toBe('INVALID_ACTIVE_START');
       expect(mockRepo.insertSchedule).not.toHaveBeenCalled();
+      expect(mockRepo.bumpScheduleVersion).not.toHaveBeenCalled();
     });
 
     it('returns INVALID_LOCAL_TIMES when localStartTime equals localEndTime', async () => {
@@ -258,6 +260,7 @@ describe('ScheduleManagementService', () => {
 
       expect(result).toBe('INVALID_LOCAL_TIMES');
       expect(mockRepo.insertSchedule).not.toHaveBeenCalled();
+      expect(mockRepo.bumpScheduleVersion).not.toHaveBeenCalled();
     });
 
     it('returns INVALID_FREQUENCY_FIELDS when ONCE has non-null daysOfWeek', async () => {
@@ -277,6 +280,7 @@ describe('ScheduleManagementService', () => {
 
       expect(result).toBe('INVALID_FREQUENCY_FIELDS');
       expect(mockRepo.insertSchedule).not.toHaveBeenCalled();
+      expect(mockRepo.bumpScheduleVersion).not.toHaveBeenCalled();
     });
 
     it('returns INVALID_FREQUENCY_FIELDS when WEEKLY has null daysOfWeek', async () => {
@@ -293,6 +297,7 @@ describe('ScheduleManagementService', () => {
 
       expect(result).toBe('INVALID_FREQUENCY_FIELDS');
       expect(mockRepo.insertSchedule).not.toHaveBeenCalled();
+      expect(mockRepo.bumpScheduleVersion).not.toHaveBeenCalled();
     });
 
     it('returns INVALID_FREQUENCY_FIELDS when WEEKLY has empty daysOfWeek (array_length NULL guard)', async () => {
@@ -309,6 +314,7 @@ describe('ScheduleManagementService', () => {
 
       expect(result).toBe('INVALID_FREQUENCY_FIELDS');
       expect(mockRepo.insertSchedule).not.toHaveBeenCalled();
+      expect(mockRepo.bumpScheduleVersion).not.toHaveBeenCalled();
     });
 
     it('returns INVALID_FREQUENCY_FIELDS when BIWEEKLY has empty daysOfWeek', async () => {
@@ -325,6 +331,7 @@ describe('ScheduleManagementService', () => {
 
       expect(result).toBe('INVALID_FREQUENCY_FIELDS');
       expect(mockRepo.insertSchedule).not.toHaveBeenCalled();
+      expect(mockRepo.bumpScheduleVersion).not.toHaveBeenCalled();
     });
 
     it('returns INVALID_ACTIVE_END when activeEnd equals activeStart', async () => {
@@ -341,6 +348,7 @@ describe('ScheduleManagementService', () => {
 
       expect(result).toBe('INVALID_ACTIVE_END');
       expect(mockRepo.insertSchedule).not.toHaveBeenCalled();
+      expect(mockRepo.bumpScheduleVersion).not.toHaveBeenCalled();
     });
 
     it('returns INVALID_ACTIVE_END when activeEnd is before activeStart', async () => {
@@ -357,6 +365,7 @@ describe('ScheduleManagementService', () => {
 
       expect(result).toBe('INVALID_ACTIVE_END');
       expect(mockRepo.insertSchedule).not.toHaveBeenCalled();
+      expect(mockRepo.bumpScheduleVersion).not.toHaveBeenCalled();
     });
   });
 
