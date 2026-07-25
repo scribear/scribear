@@ -1,0 +1,66 @@
+{
+  "$comment": "PLAN-AUDIOVIZ §9 cross-check gate. See README.md in this directory before editing.",
+  "toleranceDb": 0.5,
+  "wav": {
+    "path": "test_audio_files/speech/harvard_16k_mono.wav",
+    "format": "16-bit signed PCM, mono, little-endian",
+    "sampleRate": 16000,
+    "sampleCount": 160000,
+    "$comment": "The first 160000 samples (10.0 s) of the Harvard sentences recording — exactly one full metering window at this rate, so both implementations average precisely these samples and nothing else. Expectations are the arithmetic RMS and peak of those samples (int16 / 32768), not a value copied from either meter.",
+    "expected": {
+      "rmsDbfs": -26.1224,
+      "peakDbfs": -10.5164,
+      "clippingPct": 0
+    }
+  },
+  "tones": [
+    {
+      "name": "full-scale 1 kHz sine",
+      "$comment": "The calibration tone every dBFS convention is defined against: under the plain full-scale reference its RMS reads -3.01 dBFS and its peak 0 dBFS. If the two surfaces ever disagree about the reference, they disagree here first.",
+      "rmsDbfs": -3.0103,
+      "frequencyHz": 1000,
+      "sampleRate": 16000,
+      "seconds": 10.0,
+      "$clippingComment": "No shared clippingPct: the two implementations genuinely disagree here. See knownDivergences below.",
+      "expected": {
+        "rmsDbfs": -3.0103,
+        "peakDbfs": 0.0
+      }
+    },
+    {
+      "name": "-18 dBFS alignment tone",
+      "$comment": "The standard line-up level. Its peak sits 3.01 dB above its RMS.",
+      "rmsDbfs": -18.0,
+      "frequencyHz": 1000,
+      "sampleRate": 16000,
+      "seconds": 10.0,
+      "expected": {
+        "rmsDbfs": -18.0,
+        "peakDbfs": -14.9897,
+        "clippingPct": 0
+      }
+    },
+    {
+      "name": "quiet room tone at -50 dBFS",
+      "$comment": "Sits on AUDIO_THRESHOLDS.rmsDbfsLow, the dashboard's 'very low level' warn boundary — the level at which an operator is told the mic may be muted or far away. Both meters must place it in the same place.",
+      "rmsDbfs": -50.0,
+      "frequencyHz": 200,
+      "sampleRate": 16000,
+      "seconds": 10.0,
+      "expected": {
+        "rmsDbfs": -50.0,
+        "peakDbfs": -46.9897,
+        "clippingPct": 0
+      }
+    }
+  ],
+  "knownDivergences": [
+    {
+      "name": "clipping on a mathematically full-scale sine",
+      "fixture": "full-scale 1 kHz sine",
+      "publisherClippingPct": 0.125,
+      "standalonePageClippingPct": 0,
+      "$comment": "The publisher counts any sample within CLIP_EPSILON (1e-4) of full scale, with no run-length requirement (audio_meter.py: `np.mean(np.abs(window) >= 1.0 - CLIP_EPSILON)`). The standalone page requires a flat run at the rail before charging clipping, on the grounds that real clipping is a run and an isolated full-scale sample is not. So a source that legitimately touches full scale reads 12.5% clipped on the dashboard - which is past AUDIO_THRESHOLDS.clippingPctCrit (1%), i.e. a red 'clipping' chip - and 0% on the standalone meter. Both values are asserted on their own side so neither can drift silently. Resolving it means changing the publisher's clipping definition, which is a producer change and explicitly out of scope for PLAN-AUDIOVIZ (§11); tracked in NEXTSTEPS-AUDIOVIZ.md."
+    }
+  ]
+}
