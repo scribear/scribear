@@ -41,6 +41,19 @@ const CONFIG_SCHEMA = Type.Object({
   // asymmetry is the safe direction.
   DEPLOYMENT_ENV: Type.String({ default: '' }),
 
+  // Which `deployment/compose.yml` is running this stack. Set as a literal in
+  // that file rather than interpolated from .env, so it describes the file
+  // itself; Deployment Check compares it against the `EXPECTED_COMPOSE_FILE_
+  // VERSION` baked into this image.
+  //
+  // Optional, and a plain string rather than an integer, for the same reason
+  // DEPLOYMENT_ENV above is: absent means the running compose file predates
+  // this check, which is a finding to report and not a reason to refuse to
+  // boot — and a deployment whose compose file is out of date is exactly the
+  // one that must still start so an operator can read the console and find
+  // out why.
+  COMPOSE_FILE_VERSION: Type.String({ default: '' }),
+
   // Session Manager gateway
   ADMIN_API_KEY: Type.String({ minLength: 1 }),
   SESSION_MANAGER_BASE_URL: Type.String({ minLength: 1 }),
@@ -187,6 +200,10 @@ export class AppConfig {
       // Shared with the health rollup: both ask sibling containers a question
       // an operator is waiting on, so one knob should bound both.
       timeoutMs: this._env.HEALTH_CHECK_TIMEOUT_SEC * SECOND_MS,
+      // Passed through raw. The service decides what an unset or unparseable
+      // value means, so that this getter stays a description of the
+      // environment rather than a second place the rule lives.
+      reportedComposeFileVersion: this._env.COMPOSE_FILE_VERSION,
       targets: [
         {
           name: 'session-manager',

@@ -242,8 +242,24 @@ export interface ContainerVersion {
   detail?: string;
 }
 
+/** 'match' | 'stale' (the compose file is older than the images) | 'ahead' (the
+ *  images are older than the compose file) | 'unknown' (the file reported
+ *  nothing, so it predates this check and is at least that old). */
+export type ComposeFileStatus = 'match' | 'stale' | 'ahead' | 'unknown';
+
+/** How `deployment/compose.yml` compares to the file admin-server's image was
+ *  built for. The compose file is the one part of a deployment that is not an
+ *  image, so pulling images cannot update it and no container can read it. */
+export interface ComposeFileVersion {
+  expected: number;
+  /** Null when the compose file reported nothing, or nothing numeric. */
+  reported: number | null;
+  status: ComposeFileStatus;
+}
+
 export interface DeploymentVersionsReport {
   containers: ContainerVersion[];
+  composeFile: ComposeFileVersion;
   /** The commit the deployment is taken to be — whichever the most containers
    *  report. Null when nothing reported one. */
   expectedCommit: string | null;

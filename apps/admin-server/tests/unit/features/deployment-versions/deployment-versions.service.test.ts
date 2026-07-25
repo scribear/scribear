@@ -3,7 +3,11 @@ import { afterEach, beforeEach, describe, expect, vi } from 'vitest';
 import type { BuildInfo } from '@scribear/base-fastify-server';
 
 import type { DeploymentVersionsConfig } from '#src/server/features/deployment-versions/deployment-versions.service.js';
-import { DeploymentVersionsService } from '#src/server/features/deployment-versions/deployment-versions.service.js';
+import {
+  DeploymentVersionsService,
+  EXPECTED_COMPOSE_FILE_VERSION,
+  resolveComposeFileVersion,
+} from '#src/server/features/deployment-versions/deployment-versions.service.js';
 
 const COMMIT = 'def6e68f0b3c4a1d9e2f5a7b8c0d1e2f3a4b5c6d';
 const OLDER = '17db8150a2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7';
@@ -34,6 +38,10 @@ function config(
       { name: 'node-server', url: 'http://node-server:80/build-info' },
     ],
     nonReporting: [{ name: 'scribear-db', detail: 'no HTTP surface' }],
+    // A compose file in step with this image unless a test says otherwise,
+    // derived from the constant so that bumping the version does not silently
+    // turn every other test's deployment into a stale one.
+    reportedComposeFileVersion: String(EXPECTED_COMPOSE_FILE_VERSION),
     ...overrides,
   };
 }
@@ -314,5 +322,98 @@ describe('DeploymentVersionsService', (it) => {
     for (const call of fetchMock.mock.calls) {
       expect((call[1] as RequestInit).signal).toBeInstanceOf(AbortSignal);
     }
+  });
+
+  // The compose file is the one part of a deployment that is not an image, so
+  // nothing above can see it: every container can be on the newest commit while
+  // the file wiring them together is a release old.
+  it('reports the compose file even when no container answers', async () => {
+    // Arrange
+    vi.stubGlobal('fetch', () => Promise.reject(new Error('ECONNREFUSED')));
+
+    // Act
+    const report = await new DeploymentVersionsService(
+      config({ reportedComposeFileVersion: '' }),
+    ).report();
+
+    // Assert
+    expect(report.composeFile.status).toBe('unknown');
+    expect(report.composeFile.expected).toBe(EXPECTED_COMPOSE_FILE_VERSION);
+  });
+});
+
+describe('resolveComposeFileVersion', (it) => {
+  it('matches a compose file built for this image', () => {
+    // Act
+    const result = resolveComposeFileVersion(
+      String(EXPECTED_COMPOSE_FILE_VERSION),
+    );
+
+    // Assert
+    expect(result).toEqual({
+      expected: EXPECTED_COMPOSE_FILE_VERSION,
+      reported: EXPECTED_COMPOSE_FILE_VERSION,
+      status: 'match',
+    });
+  });
+
+  // The failure this whole mechanism exists for: images pulled, file not
+  // copied, so services and variables the new images expect are simply absent.
+  it('calls a compose file older than the images stale', () => {
+    // Act
+    const result = resolveComposeFileVersion(
+      String(EXPECTED_COMPOSE_FILE_VERSION - 1),
+    );
+
+    // Assert
+    expect(result.status).toBe('stale');
+    expect(result.reported).toBe(EXPECTED_COMPOSE_FILE_VERSION - 1);
+  });
+
+  // The mirror image, and just as much a partial upgrade: the file was copied
+  // and the images were not pulled. Reported separately because the remedy is
+  // the opposite one.
+  it('calls a compose file newer than the images ahead', () => {
+    // Act
+    const result = resolveComposeFileVersion(
+      String(EXPECTED_COMPOSE_FILE_VERSION + 1),
+    );
+
+    // Assert
+    expect(result.status).toBe('ahead');
+  });
+
+  // Absent is not a mismatch and not an all-clear: it means the running file
+  // predates this variable, so it is at least that old and nothing more can be
+  // said about it.
+  it('reports an absent variable as unknown rather than a mismatch', () => {
+    // Act
+    const result = resolveComposeFileVersion('');
+
+    // Assert
+    expect(result).toEqual({
+      expected: EXPECTED_COMPOSE_FILE_VERSION,
+      reported: null,
+      status: 'unknown',
+    });
+  });
+
+  // A hand-edited compose file can say anything. None of it is worth throwing
+  // over on a page an operator opened *because* the deployment is suspect.
+  it('reports a value that is not a version number as unknown', () => {
+    // Act & Assert
+    for (const raw of ['v2', '1.0', 'latest', '-1']) {
+      expect(resolveComposeFileVersion(raw).status).toBe('unknown');
+    }
+  });
+
+  // Compose passes the literal through verbatim, and a stray space in a
+  // hand-edited file should not read as a compose file that never reported.
+  it('tolerates surrounding whitespace', () => {
+    // Act & Assert
+    expect(
+      resolveComposeFileVersion(` ${String(EXPECTED_COMPOSE_FILE_VERSION)} `)
+        .status,
+    ).toBe('match');
   });
 });

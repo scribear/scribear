@@ -12,6 +12,40 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — the Deployment Check notices an out-of-date `compose.yml`
+
+### A new `compose.yml` row on the Deployment Check page
+
+`deployment/compose.yml` is not part of any image, so `docker compose pull`
+never updates it. Until now nothing noticed: a stack could run this month's
+images against last month's file, missing whichever services, environment
+variables and wiring the new images expect, with every container reporting
+green.
+
+`compose.yml` now carries a version number of its own, and admin-server compares
+it against the version its image was built for. The result is one more row at
+the bottom of **Deployment Check → Deployed versions**, beside the containers:
+
+| Status | What it means | What to do |
+| --- | --- | --- |
+| `in step` | The file matches these images. | Nothing. |
+| `old file` | The images are newer than `compose.yml` — you pulled without copying the file. | Copy the current [`compose.yml`](compose.yml) from the repo over `deployment/compose.yml`, keep your `.env`, and run `docker compose up -d`. |
+| `old images` | `compose.yml` is newer than the images — the file was copied but not everything was pulled. | `docker compose pull && docker compose up -d`. |
+| `not reported` | The running file predates this check, so it is at least that old. | Same as `old file`: copy the current file and `docker compose up -d`. |
+
+Expect `not reported` on the first upgrade to this release, until the new file is
+in place.
+
+**Nothing here can stop a stack from starting.** The version is a plain literal
+in `compose.yml` — it changes what the console *reports* and never what runs,
+it is not `:?`-guarded, and it is deliberately **not** an `.env` key: an `.env`
+carried over from an older release is exactly the thing that goes stale, so
+letting it supply this value would let the stale half of a deployment vouch for
+the other half. There is nothing to add to `.env` for this, and editing the
+literal by hand only makes the console report something untrue.
+
+---
+
 ## Unreleased — audio meter and audio telemetry in the admin console
 
 The admin console gains an **Audio meter** nav item and a live **audio health**
