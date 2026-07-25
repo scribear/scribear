@@ -32,6 +32,41 @@ ENV HOST=0.0.0.0
 ENV PORT=80
 ENV PROVIDER_CONFIG_PATH=/app/provider_config.json
 
+# Build provenance. Baked in here and reported at runtime by GET /build-info,
+# which the admin console's Deployment Check aggregates across the whole stack —
+# it is how an operator confirms every container came from one commit. Empty
+# defaults so a plain `docker build` still works and reports "unknown" rather
+# than failing; CI and build-containers.sh supply the real values. Last in the
+# file because these change on every commit and nothing expensive may sit below
+# them.
+#
+# SCRIBEAR_BUILD_SERVICE is the compose service name, which is the same for
+# every device variant; the published image name is what carries the -cpu /
+# -cuda<n> suffix.
+ARG BUILD_COMMIT=""
+ARG BUILD_REF=""
+ARG BUILD_TIME=""
+ARG BUILD_VERSION=""
+ARG BUILD_TAGS=""
+ARG BUILD_PR=""
+ARG BUILD_ORIGIN=""
+
+ENV SCRIBEAR_BUILD_SERVICE=transcription-service \
+    SCRIBEAR_BUILD_COMMIT=${BUILD_COMMIT} \
+    SCRIBEAR_BUILD_REF=${BUILD_REF} \
+    SCRIBEAR_BUILD_TIME=${BUILD_TIME} \
+    SCRIBEAR_BUILD_VERSION=${BUILD_VERSION} \
+    SCRIBEAR_BUILD_TAGS=${BUILD_TAGS} \
+    SCRIBEAR_BUILD_PR=${BUILD_PR} \
+    SCRIBEAR_BUILD_ORIGIN=${BUILD_ORIGIN}
+
+LABEL org.opencontainers.image.title="scribear/transcription-service" \
+      org.opencontainers.image.revision="${BUILD_COMMIT}" \
+      org.opencontainers.image.version="${BUILD_VERSION}" \
+      org.opencontainers.image.created="${BUILD_TIME}" \
+      org.scribear.build.pull-request="${BUILD_PR}" \
+      org.scribear.build.origin="${BUILD_ORIGIN}"
+
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --start-interval=1s --retries=3 CMD curl -f http://localhost:80/probes/liveness || exit 1
 
 CMD ["python", "src/index.py"]

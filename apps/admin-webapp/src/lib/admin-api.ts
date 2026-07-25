@@ -184,6 +184,60 @@ export interface ConfigCheckReport {
   checkedAt: string;
 }
 
+// ---- Deployment versions ----
+// Mirrors `DeploymentVersionsReport` in
+// apps/admin-server/src/server/features/deployment-versions/deployment-versions.service.ts.
+
+/** Where the image a container is running came from. Kept loose for the same
+ *  reason `HealthComponent.status` is. */
+export type BuildOrigin = 'ci' | 'local' | 'unknown';
+
+/** What one container reports about the artifact it was built from. Every
+ *  string field is the literal 'unknown' when the build did not supply it —
+ *  never blank, so a missing value cannot be read as a failed probe. */
+export interface ContainerBuildInfo {
+  service: string;
+  version: string;
+  commit: string;
+  ref: string;
+  builtAt: string;
+  imageTags: string[];
+  pullRequest: number | null;
+  origin: BuildOrigin;
+  /** Built from a working tree with uncommitted changes. */
+  dirty: boolean;
+}
+
+/** 'ok' | 'unsupported' (image predates build reporting) | 'unreachable' |
+ *  'not-reported' (no surface to ask, by design). */
+export type VersionProbeStatus =
+  | 'ok'
+  | 'unsupported'
+  | 'unreachable'
+  | 'not-reported';
+
+export interface ContainerVersion {
+  service: string;
+  status: VersionProbeStatus;
+  /** Null for every status other than 'ok'. */
+  build: ContainerBuildInfo | null;
+  detail?: string;
+}
+
+export interface DeploymentVersionsReport {
+  containers: ContainerVersion[];
+  /** The commit the deployment is taken to be — whichever the most containers
+   *  report. Null when nothing reported one. */
+  expectedCommit: string | null;
+  /** Services whose commit is not `expectedCommit`. */
+  mismatched: string[];
+  locallyBuilt: string[];
+  dirty: string[];
+  /** Containers answered, and none knows its own commit. */
+  unstamped: boolean;
+  checkedAt: string;
+}
+
 // ---- Fleet telemetry (B1.7 §2.5) ----
 // Mirrors `FleetSnapshot` in
 // apps/admin-server/src/server/shared/services/fleet-telemetry.service.ts and
@@ -497,6 +551,15 @@ export class AdminApiClient {
   // ---- Config check ----
   configCheck(): Promise<ConfigCheckReport> {
     return this._request('GET', '/config-check');
+  }
+
+  // ---- Deployment versions ----
+  /** Probes every container concurrently server-side, so this is one request
+   *  whatever the stack's size. Separate from `configCheck` deliberately: the
+   *  two answer different questions and neither should wait on the other's
+   *  probes. */
+  deploymentVersions(): Promise<DeploymentVersionsReport> {
+    return this._request('GET', '/deployment-versions');
   }
 
   // ---- Demo caption room ----

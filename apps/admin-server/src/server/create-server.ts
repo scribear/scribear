@@ -13,6 +13,7 @@ import { auditRouter } from './features/audit/audit.router.js';
 import { authRouter } from './features/auth/auth.router.js';
 import { configCheckRouter } from './features/config-check/config-check.router.js';
 import { demoRoomRouter } from './features/demo-room/demo-room.router.js';
+import { deploymentVersionsRouter } from './features/deployment-versions/deployment-versions.router.js';
 import { devicesRouter } from './features/devices/devices.router.js';
 import { fleetRouter } from './features/fleet/fleet.router.js';
 import { healthRouter } from './features/health/health.router.js';
@@ -50,6 +51,7 @@ async function createServer(config: AppConfig) {
   fastify.register(probesRouter);
   fastify.register(healthRouter);
   fastify.register(configCheckRouter);
+  fastify.register(deploymentVersionsRouter);
   fastify.register(authRouter, {
     loginMax: config.rateLimitConfig.loginMax,
     loginWindowMs: config.rateLimitConfig.loginWindowMs,

@@ -8,7 +8,7 @@
   },
   {
     "image_name": "scribear/scribear-nginx",
-    "build_context": "infra/scribear-nginx",
+    "build_context": ".",
     "dockerfile": "infra/scribear-nginx/Dockerfile",
     "workspace": "infra/scribear-nginx",
     "version_file": "infra/scribear-nginx/package.json"

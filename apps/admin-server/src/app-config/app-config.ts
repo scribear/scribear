@@ -3,10 +3,11 @@ import { randomBytes } from 'node:crypto';
 import { Type } from 'typebox';
 import type { Static } from 'typebox';
 
-import { LogLevel } from '@scribear/base-fastify-server';
+import { BUILD_INFO_PATH, LogLevel } from '@scribear/base-fastify-server';
 
 import type { AdminDbClientConfig } from '#src/db/admin-db-client.js';
 import type { ConfigCheckConfig } from '#src/server/features/config-check/config-check.service.js';
+import type { DeploymentVersionsConfig } from '#src/server/features/deployment-versions/deployment-versions.service.js';
 import type { HealthCheckerConfig } from '#src/server/features/health/health.service.js';
 import type { RateLimitConfig } from '#src/server/plugins/rate-limit.plugin.js';
 import type { AzureAuthConfig } from '#src/server/shared/services/azure-oidc-auth.service.js';
@@ -17,6 +18,14 @@ import type { SessionConfig } from '#src/server/shared/services/session.service.
 
 const MINUTE_MS = 60_000;
 const SECOND_MS = 1_000;
+
+/**
+ * Where the nginx-served containers keep their build document.
+ *
+ * `BUILD_INFO_PATH` plus a `.json` extension, so that nginx serves it with the
+ * right content type off its default mime map and no per-image config.
+ */
+const BUILD_INFO_FILE = `${BUILD_INFO_PATH}.json`;
 
 const CONFIG_SCHEMA = Type.Object({
   LOG_LEVEL: Type.Enum(LogLevel),
@@ -45,6 +54,29 @@ const CONFIG_SCHEMA = Type.Object({
   // Per-component, and the components are checked concurrently, so this is
   // also the worst case for the whole rollup. Kept short: an admin is waiting.
   HEALTH_CHECK_TIMEOUT_SEC: Type.Integer({ minimum: 1, default: 3 }),
+
+  // Deployment Check's per-container version table. In-cluster base URLs of the
+  // containers the health rollup does not already name, reached only for their
+  // unauthenticated build documents.
+  //
+  // All defaulted to their compose service names, unlike the two above: these
+  // exist so an unusual deployment *can* redirect them, not because anyone has
+  // to set them. A deployment that renames a service overrides the one URL
+  // rather than gaining a required variable, and an .env written before this
+  // release needs no edit at all.
+  MONITORING_SIDECAR_BASE_URL: Type.String({
+    default: 'http://monitoring-sidecar:80',
+  }),
+  CLIENT_WEBAPP_BASE_URL: Type.String({ default: 'http://client-webapp:80' }),
+  STANDALONE_WEBAPP_BASE_URL: Type.String({
+    default: 'http://standalone-webapp:80',
+  }),
+  KIOSK_WEBAPP_BASE_URL: Type.String({ default: 'http://kiosk-webapp:80' }),
+  ADMIN_WEBAPP_BASE_URL: Type.String({ default: 'http://admin-webapp:80' }),
+  // Plain HTTP, and port 80 specifically: the proxy answers its build document
+  // only on its unencrypted listener, so that publishing it on 443 does not put
+  // the deployment's commit hash on the public web. See infra/scribear-nginx.
+  NGINX_BASE_URL: Type.String({ default: 'http://nginx:80' }),
 
   // Fleet telemetry backplane (B1.7 §2.5). Defaulted, unlike the URLs above:
   // an unset value means this deployment predates B1.7 or has not opted in,
@@ -133,6 +165,81 @@ export class AppConfig {
           // /api/<service>/v1 prefix, unlike every Node service.
           name: 'transcription-service',
           readinessUrl: `${this._env.TRANSCRIPTION_SERVICE_BASE_URL}/probes/readiness`,
+        },
+      ],
+    };
+  }
+
+  /**
+   * Which container to ask for its build, and where its build document lives.
+   *
+   * admin-server is absent deliberately — the service reads its own in-process
+   * rather than making a request to itself.
+   *
+   * The path differs by container kind and that is not incidental: the Node
+   * services and transcription-service serve `/build-info` from a route, while
+   * the webapps and the proxy are nginx serving a static `build-info.json`
+   * generated at image build time. One path would have meant one of those two
+   * groups doing something unnatural.
+   */
+  get deploymentVersionsConfig(): DeploymentVersionsConfig {
+    return {
+      // Shared with the health rollup: both ask sibling containers a question
+      // an operator is waiting on, so one knob should bound both.
+      timeoutMs: this._env.HEALTH_CHECK_TIMEOUT_SEC * SECOND_MS,
+      targets: [
+        {
+          name: 'session-manager',
+          url: `${this._env.SESSION_MANAGER_BASE_URL}${BUILD_INFO_PATH}`,
+        },
+        {
+          name: 'node-server',
+          url: `${this._env.NODE_SERVER_BASE_URL}${BUILD_INFO_PATH}`,
+        },
+        {
+          name: 'transcription-service',
+          url: `${this._env.TRANSCRIPTION_SERVICE_BASE_URL}${BUILD_INFO_PATH}`,
+        },
+        {
+          name: 'monitoring-sidecar',
+          url: `${this._env.MONITORING_SIDECAR_BASE_URL}${BUILD_INFO_PATH}`,
+        },
+        {
+          name: 'client-webapp',
+          url: `${this._env.CLIENT_WEBAPP_BASE_URL}${BUILD_INFO_FILE}`,
+        },
+        {
+          name: 'standalone-webapp',
+          url: `${this._env.STANDALONE_WEBAPP_BASE_URL}${BUILD_INFO_FILE}`,
+        },
+        {
+          name: 'kiosk-webapp',
+          url: `${this._env.KIOSK_WEBAPP_BASE_URL}${BUILD_INFO_FILE}`,
+        },
+        {
+          name: 'admin-webapp',
+          url: `${this._env.ADMIN_WEBAPP_BASE_URL}${BUILD_INFO_FILE}`,
+        },
+        {
+          name: 'nginx',
+          url: `${this._env.NGINX_BASE_URL}${BUILD_INFO_FILE}`,
+        },
+      ],
+      // Listed rather than omitted. An operator scanning this table for what is
+      // deployed needs to see every container in compose.yml, and a service
+      // that is simply absent reads as an oversight; a service that says why it
+      // is blank does not. Both are stock upstream images with a thin wrapper,
+      // and neither speaks a protocol this console could ask the question in.
+      nonReporting: [
+        {
+          name: 'scribear-db',
+          detail:
+            'Postgres has no HTTP surface to report a build on. Its version moves with IMAGE_TAG like every other image — check it with `docker compose images scribear-db`.',
+        },
+        {
+          name: 'redis',
+          detail:
+            'Redis has no HTTP surface to report a build on. Its version moves with IMAGE_TAG like every other image — check it with `docker compose images redis`.',
         },
       ],
     };

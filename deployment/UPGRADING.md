@@ -12,6 +12,70 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — every container reports what it was built from
+
+The admin console's **Deployment Check** page gained a **Deployed versions**
+table: one row per container, showing the version, commit, branch, build time
+and image tags it was built from. Nothing to add to `.env` — the six new
+admin-server variables all default to their compose service names.
+
+### Why it exists
+
+Every service knows its own build and no service knows anyone else's, so an
+upgrade that pulled some images and not others has been invisible from inside
+the stack. The health rollup cannot see it either: a container running last
+month's image is a perfectly healthy container, and it stays green.
+
+The table takes the commit the most containers report as the deployment's, and
+names any container that disagrees. That is the case worth watching for — it is
+what a `docker compose up -d` that half-failed, or a service pinned to a
+different `IMAGE_TAG`, looks like from the outside.
+
+### What the statuses mean
+
+| Status | What happened |
+| --- | --- |
+| `reporting` | Answered with its build. |
+| `old image` | Answered, and has no build document — the image predates this release, so it was **not** recreated by your last upgrade. |
+| `no answer` | Could not be reached at all. The container is down, not stale. |
+| `n/a` | `scribear-db` and `redis` have no HTTP surface to report a build on. Their versions still move with `IMAGE_TAG`; read them with `docker compose images`. |
+
+The first upgrade to this release is the one time `old image` is expected: it
+appears for anything that has not been recreated yet. Run `docker compose up -d`
+in `deployment/` and re-check — every row should turn to `reporting`.
+
+### Locally built images
+
+`build-containers.sh` now stamps the commit it built from, marks the image as a
+local build, and appends `-dirty` when the working tree had uncommitted
+changes. A stack started straight from a checkout (`npm run dev`) has no image
+to stamp and says so, rather than showing a table of blanks.
+
+### Reading it without the console
+
+Every value is also an image label, so a shell on the host answers the same
+question:
+
+```
+docker compose images
+docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
+  ghcr.io/scribear/admin-server:latest
+```
+
+### Note for anyone building images by hand
+
+`scribear-nginx` now builds from the repository root rather than from
+`infra/scribear-nginx`, because it shares the webapps' build-info generator:
+
+```
+docker build -f infra/scribear-nginx/Dockerfile .
+```
+
+`build-containers.sh` and CI already do this; only a hand-rolled `docker build`
+needs changing.
+
+---
+
 ## 0.3.0 — migrations run themselves
 
 Every deploy now applies the database schema as part of `docker compose up

@@ -19,6 +19,8 @@ import { AuthController } from '#src/server/features/auth/auth.controller.js';
 import { ConfigCheckController } from '#src/server/features/config-check/config-check.controller.js';
 import { ConfigCheckService } from '#src/server/features/config-check/config-check.service.js';
 import { DemoRoomController } from '#src/server/features/demo-room/demo-room.controller.js';
+import { DeploymentVersionsController } from '#src/server/features/deployment-versions/deployment-versions.controller.js';
+import { DeploymentVersionsService } from '#src/server/features/deployment-versions/deployment-versions.service.js';
 import { DevicesController } from '#src/server/features/devices/devices.controller.js';
 import { FleetController } from '#src/server/features/fleet/fleet.controller.js';
 import { HealthController } from '#src/server/features/health/health.controller.js';
@@ -108,6 +110,17 @@ function registerDependencies(
       lifetime: Lifetime.SINGLETON,
     }),
     configCheckController: asClass(ConfigCheckController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+
+    // Deployment versions. SINGLETON like the health checker and for the same
+    // reason: it holds only its target list, and rebuilding that per request
+    // would buy nothing.
+    deploymentVersionsConfig: asValue(config.deploymentVersionsConfig),
+    deploymentVersionsService: asClass(DeploymentVersionsService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    deploymentVersionsController: asClass(DeploymentVersionsController, {
       lifetime: Lifetime.SCOPED,
     }),
 

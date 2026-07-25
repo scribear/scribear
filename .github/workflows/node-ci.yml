@@ -191,15 +191,22 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # PR images are not published: nothing consumes them, and the build still
-      # proves the image compiles. To turn them back on, set the repository
-      # variable PUBLISH_PR_IMAGES to "true" - no code change needed.
+      # PRs into main or staging publish a PR-<n> image, so a reviewer can pull
+      # the exact build under review instead of rebuilding it. The tag moves
+      # with the PR head - `PR-157` is always that PR's latest push, and the
+      # image says which commit it is via GET /build-info.
+      #
+      # Set the repository variable PUBLISH_PR_IMAGES to "false" to switch this
+      # off (or "true" to publish for every base branch); either is a one-field
+      # change with no code edit. Fork PRs never push whatever it says - their
+      # GITHUB_TOKEN is read-only, and build-container detects that and builds
+      # without publishing.
       - name: Resolve image tags
         id: tags
         uses: ./.github/actions/resolve-container-tags
         with:
           version_file: ${{ matrix.version_file }}
-          publish_pr_images: ${{ vars.PUBLISH_PR_IMAGES || 'false' }}
+          publish_pr_images: ${{ vars.PUBLISH_PR_IMAGES }}
 
       # cache_variant is deliberately unset: PR builds read the staging/main
       # caches but write nothing. See build-container for why.
@@ -209,6 +216,7 @@ jobs:
           image_name: ${{ matrix.image_name }}
           build_context: ${{ matrix.build_context }}
           dockerfile: ${{ matrix.dockerfile }}
+          build_args: ${{ steps.tags.outputs.build_args }}
           custom_tags: ${{ steps.tags.outputs.tags }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
 

@@ -16,6 +16,11 @@ import type {
   ConfigCheckService,
 } from '#src/server/features/config-check/config-check.service.js';
 import type { DemoRoomController } from '#src/server/features/demo-room/demo-room.controller.js';
+import type { DeploymentVersionsController } from '#src/server/features/deployment-versions/deployment-versions.controller.js';
+import type {
+  DeploymentVersionsConfig,
+  DeploymentVersionsService,
+} from '#src/server/features/deployment-versions/deployment-versions.service.js';
 import type { DevicesController } from '#src/server/features/devices/devices.controller.js';
 import type { FleetController } from '#src/server/features/fleet/fleet.controller.js';
 import type { HealthController } from '#src/server/features/health/health.controller.js';
@@ -94,6 +99,11 @@ interface AppDependencies extends BaseDependencies {
   configCheckConfig: ConfigCheckConfig;
   configCheckService: ConfigCheckService;
   configCheckController: ConfigCheckController;
+
+  // Deployment versions
+  deploymentVersionsConfig: DeploymentVersionsConfig;
+  deploymentVersionsService: DeploymentVersionsService;
+  deploymentVersionsController: DeploymentVersionsController;
 
   // Rooms
   roomsController: RoomsController;
