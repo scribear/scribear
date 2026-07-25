@@ -30,9 +30,7 @@ const FIXTURES_PATH = fileURLToPath(
 interface Expected {
   rmsDbfs: number;
   peakDbfs: number;
-  /** Absent for fixtures the two implementations disagree about — those are
-   *  pinned per-side against `knownDivergences` instead. */
-  clippingPct?: number;
+  clippingPct: number;
 }
 
 interface ToneFixture {
@@ -44,13 +42,6 @@ interface ToneFixture {
   expected: Expected;
 }
 
-interface Divergence {
-  name: string;
-  fixture: string;
-  publisherClippingPct: number;
-  standalonePageClippingPct: number;
-}
-
 interface WavFixture {
   path: string;
   sampleRate: number;
@@ -58,11 +49,18 @@ interface WavFixture {
   expected: Expected;
 }
 
+interface LimitedToneFixture extends ToneFixture {
+  /** Gain applied before hard-limiting. */
+  preLimitGain: number;
+  /** Ceiling the signal is limited to; defaults to full scale. */
+  limitCeiling?: number;
+}
+
 interface Fixtures {
   toleranceDb: number;
   wav: WavFixture;
   tones: ToneFixture[];
-  knownDivergences: Divergence[];
+  limitedTones: LimitedToneFixture[];
 }
 
 interface Readings {
@@ -169,9 +167,7 @@ describe('cross-check: shared tone fixtures', (it) => {
       expect(
         Math.abs(readings.heldPeakDb - tone.expected.peakDbfs),
       ).toBeLessThan(TOLERANCE_DB);
-      if (tone.expected.clippingPct !== undefined) {
-        expect(readings.clippingPercent).toBe(tone.expected.clippingPct * 100);
-      }
+      expect(readings.clippingPercent).toBe(tone.expected.clippingPct * 100);
     });
   }
 });
@@ -219,7 +215,7 @@ describe('cross-check: known speech WAV', (it) => {
 
   it('exposes no clipping for an excerpt that has none', () => {
     expect(readWavFixture().clippingPercent).toBe(
-      (fixtures.wav.expected.clippingPct ?? 0) * 100,
+      fixtures.wav.expected.clippingPct * 100,
     );
   });
 
@@ -243,40 +239,59 @@ describe('cross-check: known speech WAV', (it) => {
   });
 });
 
-/** Looks a tone fixture up by name, failing loudly if it was renamed. */
-function toneFixture(name: string): ToneFixture {
-  const found = fixtures.tones.find((t) => t.name === name);
-  if (!found)
-    throw new Error(`No tone fixture named "${name}" in the manifest`);
-  return found;
+/** Hard-limits a tone to +/-`limitCeiling` after applying its pre-limit gain.
+ *  A ceiling below CLIP_THRESHOLD yields a flat plateau that must NOT be charged. */
+function limitedSineSamples(fixture: LimitedToneFixture): Float32Array {
+  const ceiling = fixture.limitCeiling ?? 1;
+  const out = sineSamples(fixture);
+  for (let i = 0; i < out.length; i += 1) {
+    out[i] = Math.max(
+      -ceiling,
+      Math.min(ceiling, fixture.preLimitGain * out[i]),
+    );
+  }
+  return out;
 }
 
-describe('cross-check: known divergences', (it) => {
+describe('cross-check: hard-limited audio', (it) => {
   /*
-   * A divergence that is only written down rots. Asserting both sides means
-   * neither implementation can drift further without a failure, and closing one
-   * requires updating the manifest deliberately rather than finding out later
-   * from a confused operator looking at two contradictory screens.
+   * The counterpart to the clean full-scale sine above. Requiring a run at the
+   * rail is only the right rule if it still catches real clipping, so these pin
+   * the positive cases too — and one fixture whose plateau sits *below* the
+   * threshold, which pins the threshold from below. Between them, both halves of
+   * the shared rule (threshold and minimum run) fail a test if either drifts.
    */
-  for (const divergence of fixtures.knownDivergences) {
-    it(`pins the standalone page's side of "${divergence.name}"`, () => {
+  for (const tone of fixtures.limitedTones) {
+    it(`charges "${tone.name}" the shared fraction`, () => {
       // Arrange
-      const tone = toneFixture(divergence.fixture);
+      const core = new dsp.AudioMeterCore(tone.sampleRate);
 
       // Act
-      const core = new dsp.AudioMeterCore(tone.sampleRate);
-      feed(core, sineSamples(tone));
+      feed(core, limitedSineSamples(tone));
+      const readings = core.read();
 
-      // Assert — this page requires a flat run at the rail before charging
-      // clipping, so a mathematically full-scale sine reads clean here while
-      // the publisher charges it 12.5%. Not a bug asserted as correct: a
-      // disagreement held still until the producer change that resolves it.
-      expect(core.read().clippingPercent).toBe(
-        divergence.standalonePageClippingPct * 100,
+      // Assert — an exact comparison: clippingPct is a counted fraction of
+      // samples, not a measurement, so the two implementations must agree to
+      // the digit rather than within a dB tolerance.
+      expect(readings.clippingPercent).toBeCloseTo(
+        tone.expected.clippingPct * 100,
+        4,
       );
-      expect(core.read().clippingPercent).not.toBe(
-        divergence.publisherClippingPct * 100,
+      expect(Math.abs(readings.rmsDb - tone.expected.rmsDbfs)).toBeLessThan(
+        TOLERANCE_DB,
       );
     });
   }
+
+  it('puts genuinely clipped audio past the dashboard crit threshold', () => {
+    // The rule must still be actionable: a red "clipping" chip fires at 1%.
+    const clipping = fixtures.limitedTones.filter(
+      (t) => t.expected.clippingPct > 0,
+    );
+
+    expect(clipping.length).toBeGreaterThan(0);
+    for (const tone of clipping) {
+      expect(tone.expected.clippingPct).toBeGreaterThan(0.01);
+    }
+  });
 });

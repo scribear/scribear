@@ -14,12 +14,29 @@ from src.shared.utils.np_circular_buffer import NPCircularBuffer
 # (roughly -96 dBFS full scale), so it reads as "silent" without being -inf.
 DB_FLOOR = -120.0
 
-# Samples within this of full scale (1.0) count as clipped. A hard `== 1.0`
-# check would miss real clipping: a source that clipped in its original
-# integer domain and was then decoded to float32 rarely lands on exactly
-# 1.0 after the conversion's rounding, so a small tolerance is what actually
-# catches it.
-CLIP_EPSILON = 1e-4
+# Clipping detection. A sample counts as clipped when its magnitude is at or
+# above CLIP_THRESHOLD *and* it belongs to a run of at least CLIP_MIN_RUN
+# consecutive such samples.
+#
+# Both halves matter, and both are deliberately the same numbers the standalone
+# meter page uses (`clipThreshold` / `clipMinRun` in `audio-meter.html`), so the
+# dashboard and that page cannot report contradictory clipping for the same
+# audio - the cross-check gate in `tools/audio-meter-crosscheck/` holds them to
+# it.
+#
+# The threshold is not an exact `== 1.0` test: a source that clipped in its
+# original integer domain and was then decoded to float32 rarely lands on
+# exactly 1.0 after the conversion's rounding, and lossy codecs leave ripple
+# near the rail, so a tolerance is what actually catches real clipping.
+CLIP_THRESHOLD = 0.99
+
+# The run requirement is what distinguishes clipping from a waveform that merely
+# touches full scale. A clean full-scale sine reaches 1.0 at each crest, one
+# isolated sample at a time, and is not clipped - charging it as clipped put a
+# red "clipping" chip on the dashboard for undistorted audio. Actual clipping is
+# a *flat* run at the rail, so it takes at least two consecutive samples to
+# count.
+CLIP_MIN_RUN = 2
 
 
 @dataclass(frozen=True)
@@ -34,13 +51,54 @@ class AudioLevelStats:
 
     rms_dbfs: float
     peak_dbfs: float
-    #: Fraction (0..1) of samples within CLIP_EPSILON of full scale.
+    #: Fraction (0..1) of samples at or above CLIP_THRESHOLD in runs of at
+    #: least CLIP_MIN_RUN consecutive samples.
     clipping_pct: float
     #: True when rms_dbfs is at or below the configured silence floor.
     silence: bool
     #: Low-percentile RMS across sub-windows of the current buffer - an
     #: estimate of the ambient noise floor, distinct from momentary silence.
     noise_floor_dbfs: float
+
+
+def _clipped_fraction(window: npt.NDArray) -> float:
+    """
+    Fraction of a window sitting at the rail in runs of CLIP_MIN_RUN or more
+
+    Run-length encodes the "at or above CLIP_THRESHOLD" mask and counts every
+    sample belonging to a qualifying run, matching the standalone meter page's
+    incremental `clipRun` counter sample for sample.
+
+    A run straddling the *start* of the window can be undercounted, because the
+    window is a snapshot of a rolling buffer and the samples before it are gone.
+    That only matters when the visible part of such a run is shorter than
+    CLIP_MIN_RUN, i.e. at most one sample out of a 10-second window, so it is
+    left alone rather than carrying counter state across snapshots.
+
+    Args:
+        window  - The current window of float samples in [-1.0, 1.0]
+
+    Returns:
+        Fraction (0..1) of the window charged as clipped, 0.0 for an empty
+        window
+    """
+    if window.size == 0:
+        return 0.0
+
+    at_rail = np.abs(window) >= CLIP_THRESHOLD
+    if not at_rail.any():
+        return 0.0
+
+    # Run boundaries, from the transitions in the mask. `edges` brackets the
+    # array with False so a run touching either end still produces a transition
+    # rather than needing to be special-cased.
+    edges = np.diff(at_rail.astype(np.int8), prepend=0, append=0)
+    starts = np.flatnonzero(edges == 1)
+    ends = np.flatnonzero(edges == -1)
+    lengths = ends - starts
+
+    clipped = int(lengths[lengths >= CLIP_MIN_RUN].sum())
+    return clipped / window.size
 
 
 def dbfs(value: float) -> float:
@@ -148,7 +206,7 @@ class AudioMeter:
         rms = float(np.sqrt(np.mean(np.square(window, dtype=np.float64))))
         peak = float(np.max(np.abs(window)))
 
-        clipping_pct = float(np.mean(np.abs(window) >= 1.0 - CLIP_EPSILON))
+        clipping_pct = _clipped_fraction(window)
 
         rms_dbfs = dbfs(rms)
         silence = rms_dbfs <= dbfs(self._silence_threshold)

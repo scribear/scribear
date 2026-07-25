@@ -104,8 +104,12 @@ export const AUDIO_THRESHOLDS = {
   /**
    * Fraction (0..1) of clipped samples above which the session is crit, i.e.
    * 1 % of samples. Compared against `clippingPct`, which the publisher emits
-   * as a fraction (`np.mean(...)` in `audio_meter.py`), *not* as a percentage —
-   * use `formatClippingPct` to render it.
+   * as a fraction, *not* as a percentage — use `formatClippingPct` to render it.
+   *
+   * 1 % matches the point at which the standalone meter page announces
+   * "Clipping detected. Reduce input gain." (`audio-meter.html`), so the two
+   * surfaces escalate together. It counts only runs at the rail, so a source
+   * that merely touches full scale never reaches it.
    */
   clippingPctCrit: 0.01,
   /** RMS below this is very low — likely a muted or far mic. */
@@ -119,10 +123,11 @@ export const AUDIO_THRESHOLDS = {
 /**
  * Renders `AudioLevelStats.clippingPct` as a percentage for display.
  *
- * The field is a **fraction** (0..1) — `np.mean(np.abs(window) >= 1 - eps)` in
- * `audio_meter.py` — so it has to be scaled by 100 before a `%` suffix. Shared
- * by the session card and the session detail page so the two surfaces cannot
- * disagree about the units (D4: one instrument, not two dialects).
+ * The field is a **fraction** (0..1) — the share of the window at the rail in
+ * runs, per `audio_meter.py` — so it has to be scaled by 100 before a `%`
+ * suffix. Shared by the session card and the session detail page so the two
+ * surfaces cannot disagree about the units (D4: one instrument, not two
+ * dialects).
  *
  * Values below 0.01 % are rendered as `<0.01%` rather than rounding to a flat
  * `0.00%`, which would claim "no clipping" on a chip that is only shown because

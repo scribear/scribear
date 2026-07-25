@@ -30,6 +30,30 @@ whoever is at the room's PC. The page needs a secure context (HTTPS or
 a LAN IP will see the mic button fail — use HTTPS or open it from the machine
 itself.
 
+### Clipping is now measured as runs at the rail (behaviour change)
+
+`clippingPct` on published audio telemetry changed meaning. It used to count
+**any** sample within 1e-4 of full scale; it now counts samples at or above
+**0.99** of full scale that belong to a run of at least **two consecutive**
+samples — the same rule the standalone meter page has always used.
+
+The old definition charged undistorted audio as clipping. A clean tone at full
+scale reaches 1.0 at one isolated sample per crest, which at 16 kHz worked out to
+12.5 % of samples — past the 1 % threshold for a red **clipping** chip. So:
+
+- Sessions that showed a red `clipping` chip while sounding fine, and whose audio
+  simply ran hot to full scale, will now read normally. If a room's chip
+  disappears after this upgrade, that is this change, not a metering regression.
+- Genuinely clipped audio is unaffected: a hard-limited source has flat runs at
+  the rail and still reads far above the threshold (a sine driven 3.5 dB into a
+  limiter reads ~62 %, identically on both surfaces).
+- No dashboard, alert, or env-var change is needed. No other field moved, and
+  nothing outside the dashboard's display and status derivation reads this field.
+
+The two implementations are now held to one expectation table in
+`tools/audio-meter-crosscheck/`, so this class of disagreement fails CI rather
+than reaching an operator.
+
 ### No new env var
 
 The audio panel rides `TRANSCRIPTION_REDIS_URL`, the same switch the fleet view

@@ -400,7 +400,12 @@ export interface AudioLevelStats {
   rmsDbfs: number;
   /** Sample peak of the current metering window, in dBFS. */
   peakDbfs: number;
-  /** Fraction (0..1) of samples in the window within CLIP_EPSILON of full scale. */
+  /** Fraction (0..1) of samples in the window at or above 0.99 full scale in
+   *  runs of at least 2 consecutive samples. The run requirement is what
+   *  separates clipping from a waveform that merely touches full scale: a clean
+   *  full-scale sine reaches 1.0 one isolated sample at a time and reads 0 here.
+   *  Same rule and constants as the standalone meter page, so the two surfaces
+   *  agree - see tools/audio-meter-crosscheck/. */
   clippingPct: number;
   /** True when the window's RMS is at or below the configured silence threshold. */
   silence: boolean;

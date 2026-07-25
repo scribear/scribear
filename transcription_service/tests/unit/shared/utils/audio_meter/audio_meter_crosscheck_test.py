@@ -187,51 +187,69 @@ class TestSharedWavFixture:
         assert snapshot.silence is False
 
 
-def _tone_fixture(name: str) -> dict:
-    """Looks a tone fixture up by name, failing loudly if it was renamed."""
-    for tone in FIXTURES["tones"]:
-        if tone["name"] == name:
-            return tone
-    raise AssertionError(
-        f"No tone fixture named {name!r} in the shared manifest"
-    )
-
-
-class TestKnownDivergences:
+def _limited_sine(fixture: dict) -> np.ndarray:
     """
-    Pins this side of each documented cross-surface disagreement.
+    The fixture's tone, hard-limited after its pre-limit gain
 
-    A divergence that is merely written down rots. Asserting both sides means
-    neither implementation can drift further without a test failing, and closing
-    one requires updating the manifest deliberately rather than discovering the
-    change later from a confused operator.
+    `limitCeiling` defaults to full scale. A ceiling below 1.0 puts the plateau
+    inside the CLIP_THRESHOLD..1.0 band, which is what pins that constant.
+    """
+    ceiling = fixture.get("limitCeiling", 1.0)
+    return np.clip(
+        fixture["preLimitGain"] * _sine(fixture).astype(np.float64),
+        -ceiling,
+        ceiling,
+    ).astype(np.float32)
+
+
+class TestSharedLimitedFixtures:
+    """
+    Gate: hard-limited audio is charged identically on both sides.
+
+    The counterpart to the clean full-scale sine above. Requiring a run at the
+    rail is only the right rule if it still catches real clipping, so these pin
+    the positive cases too - and one fixture whose plateau sits *below* the
+    threshold, which pins the threshold from below. Between them, both halves of
+    the shared rule (threshold and minimum run) fail a test if either drifts.
     """
 
     @pytest.mark.parametrize(
-        "divergence",
-        FIXTURES["knownDivergences"],
-        ids=[d["name"] for d in FIXTURES["knownDivergences"]],
+        "fixture",
+        FIXTURES["limitedTones"],
+        ids=[t["name"] for t in FIXTURES["limitedTones"]],
     )
-    def test_publisher_side_of_the_divergence_is_unchanged(self, divergence):
-        """
-        This meter charges a full-scale sine as clipping; the page does not.
-
-        Not a bug being asserted as correct - a disagreement being held still.
-        The publisher counts any sample within CLIP_EPSILON of full scale with no
-        run-length requirement, so audio that legitimately touches full scale
-        reads as 12.5% clipped here and 0% on the standalone page. Changing it is
-        a producer change, out of scope for PLAN-AUDIOVIZ (§11).
-        """
+    def test_charges_the_shared_fraction(self, fixture):
+        """A hard-limited tone's clipping_pct matches the shared value."""
         # Arrange
-        fixture = _tone_fixture(divergence["fixture"])
+        samples = _limited_sine(fixture)
 
         # Act
-        snapshot = _snapshot(fixture["sampleRate"], _sine(fixture))
+        snapshot = _snapshot(fixture["sampleRate"], samples)
+
+        # Assert - exact, not within a tolerance: clipping_pct is a counted
+        # fraction of samples, so the two implementations must agree to the
+        # digit rather than within a dB.
+        expected = fixture["expected"]
+        assert snapshot.clipping_pct == pytest.approx(
+            expected["clippingPct"], abs=1e-6
+        )
+        assert abs(snapshot.rms_dbfs - expected["rmsDbfs"]) < TOLERANCE_DB
+
+    def test_clipping_fixtures_clear_the_dashboard_crit_threshold(self):
+        """
+        The rule must stay actionable, not merely quiet.
+
+        A red "clipping" chip fires at 1%, so every fixture that is supposed to
+        represent real clipping has to land above it.
+        """
+        # Arrange
+        clipping = [
+            f
+            for f in FIXTURES["limitedTones"]
+            if f["expected"]["clippingPct"] > 0
+        ]
 
         # Assert
-        assert snapshot.clipping_pct == pytest.approx(
-            divergence["publisherClippingPct"]
-        )
-        # The dashboard's crit threshold is 1%, so this divergence is not
-        # cosmetic: it is the difference between a red chip and a green one.
-        assert snapshot.clipping_pct > 0.01
+        assert clipping
+        for fixture in clipping:
+            assert fixture["expected"]["clippingPct"] > 0.01

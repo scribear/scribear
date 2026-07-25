@@ -230,9 +230,9 @@ describe('setProviderKey', (it) => {
 });
 
 describe('formatClippingPct', (it) => {
-  // `clippingPct` is a FRACTION (0..1) — `np.mean(np.abs(window) >= 1 - eps)`
-  // in audio_meter.py — so rendering it with a bare `%` suffix understates
-  // clipping by 100x. These pin the units down for both surfaces that show it.
+  // `clippingPct` is a FRACTION (0..1) — the share of the window at the rail in
+  // runs, per audio_meter.py — so rendering it with a bare `%` suffix
+  // understates clipping by 100x. These pin the units for both surfaces.
   it('scales the fraction to a percentage', () => {
     expect(formatClippingPct(0.05)).toBe('5.00%');
   });
