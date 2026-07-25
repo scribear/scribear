@@ -298,6 +298,14 @@ const SessionCard = ({
               sx={{
                 justifyContent: 'space-between',
                 alignItems: 'flex-start',
+                // Clearance for the absolutely-positioned "Open live captions"
+                // button above, which has an opaque background and a higher
+                // z-index: without it the button paints over the last ~18px of
+                // this row, and since the audio chip is the rightmost thing in
+                // it, "audio: good" rendered as "audio: goo". Measured in a
+                // browser at every breakpoint — the chip is the text half of
+                // "never colour alone" (D1), so it has to be readable whole.
+                pr: 2.5,
               }}
             >
               <Typography
