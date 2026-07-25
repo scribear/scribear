@@ -22,6 +22,9 @@ export default mergeConfig(
         // B5: trivial transport/wiring — one-line registrations and {status:'ok'}
         //     handlers exercised by integration. Unit tests would be pure
         //     coverage-chasing; see PLAN-MORE-TESTCOVERAGE.md §B5.
+        //
+        // Additional low-risk files: thin transport controllers and routers
+        // that delegate to unit-tested services. Integration-covered by design.
         exclude: [
           'src/index.ts',
           '**/*.py',
@@ -32,6 +35,8 @@ export default mergeConfig(
           'src/server/features/probes/liveness.controller.ts',
           'src/server/features/probes/probes.router.ts',
           'src/server/features/status/status.router.ts',
+          'src/server/features/status/status.controller.ts',
+          'src/server/features/transcription-stream/transcription-stream.router.ts',
         ],
       },
       projects: [
