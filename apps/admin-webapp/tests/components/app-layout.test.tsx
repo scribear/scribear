@@ -46,6 +46,20 @@ describe('AppLayout', (it) => {
     expect(results.violations).toHaveLength(0);
   });
 
+  it('routes the Documentation nav item in-app rather than straight to the wiki', () => {
+    // The item sits between two very different kinds of link — Deployment Check
+    // (in-app) and the audio meter (external) — and the wiki cards it leads to
+    // are themselves `target="_blank"`. Pin that this one navigates the SPA, so
+    // it cannot drift into being a sixth external link.
+    renderLayout();
+
+    const link = document.querySelector('a[href="/documentation"]');
+
+    expect(link).not.toBeNull();
+    expect(link).not.toHaveAttribute('target');
+    expect(link?.textContent).toContain('Documentation');
+  });
+
   it('renders the audio meter nav item as an external link that opens a new tab', () => {
     renderLayout();
 

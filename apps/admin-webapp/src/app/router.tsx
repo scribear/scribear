@@ -8,6 +8,7 @@ import { ConfigCheckPage } from '#src/features/config-check/config-check-page';
 import { DashboardPage } from '#src/features/dashboard/dashboard-page';
 import { DeviceDetailPage } from '#src/features/devices/device-detail-page';
 import { DevicesListPage } from '#src/features/devices/devices-list-page';
+import { DocumentationPage } from '#src/features/documentation/documentation-page';
 import { KioskWizardPage } from '#src/features/kiosk-setup/kiosk-wizard-page';
 import { RoomDetailPage } from '#src/features/rooms/room-detail-page';
 import { RoomsListPage } from '#src/features/rooms/rooms-list-page';
@@ -32,6 +33,7 @@ export const AppRoutes = () => (
         <Route path="/kiosk-setup" element={<KioskWizardPage />} />
         <Route path="/audit" element={<AuditPage />} />
         <Route path="/config-check" element={<ConfigCheckPage />} />
+        <Route path="/documentation" element={<DocumentationPage />} />
       </Route>
     </Route>
     <Route path="*" element={<Navigate to="/" replace />} />

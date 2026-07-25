@@ -6,6 +6,7 @@ import GraphicEqIcon from '@mui/icons-material/GraphicEq';
 import HistoryIcon from '@mui/icons-material/History';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MeetingRoomIcon from '@mui/icons-material/MeetingRoom';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import SpaceDashboardIcon from '@mui/icons-material/SpaceDashboard';
 import TabletIcon from '@mui/icons-material/Tablet';
@@ -66,6 +67,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Set up a kiosk', to: '/kiosk-setup', icon: <TabletIcon /> },
   { label: 'Audit log', to: '/audit', icon: <HistoryIcon /> },
   { label: 'Deployment Check', to: '/config-check', icon: <FactCheckIcon /> },
+  { label: 'Documentation', to: '/documentation', icon: <MenuBookIcon /> },
   {
     label: 'Audio meter (this device)',
     href: audioMeterHref(),
