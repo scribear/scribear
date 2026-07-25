@@ -39,7 +39,7 @@ const LOCAL_PROVIDER = {
       utilization: 0.98,
       liveJobCount: 5,
       totalJobsRegistered: 41,
-      contextIds: ['faster-whisper', 'silero'],
+      contextIds: [1, 2],
       alive: true,
       activeJobs: [
         { jobId: 12, sessionUid: 'session-1', roomUid: 'room-1' },
@@ -487,5 +487,37 @@ describe('node server snapshot schemas', () => {
     // Assert
     expect(SESSION_SNAPSHOT_SCHEMA.properties).toHaveProperty('nodeInstanceId');
     expect(NODE_SNAPSHOT_SCHEMA.properties).toHaveProperty('nodeInstanceId');
+  });
+});
+
+describe('TRANSCRIPTION_HOST_SNAPSHOT_SCHEMA contextIds', () => {
+  it('requires integer context ids, because the publisher emits sorted(set[int])', () => {
+    // Arrange - the shape `worker_view.py` actually writes: opaque numeric ids.
+    const worker = {
+      workerId: 0,
+      utilization: 0.5,
+      liveJobCount: 1,
+      totalJobsRegistered: 3,
+      contextIds: [1, 2],
+      alive: true,
+      activeJobs: [],
+    };
+
+    // Act / Assert - integers accept.
+    expect(Value.Check(TRANSCRIPTION_WORKER_SCHEMA, worker)).toBe(true);
+
+    // Assert - context *tags* are rejected. This schema declared
+    // `Type.Array(Type.String())` from the day it was written, and nothing
+    // noticed for as long as the reader cast instead of validating: the
+    // monitoring sidecar's hand-written restatement of the same endpoint had
+    // `Type.Array(Type.Number())` all along. Turning on validation without
+    // fixing this would have dropped every transcription-host snapshot and
+    // blanked both the hosts and providers sections of the fleet view.
+    expect(
+      Value.Check(TRANSCRIPTION_WORKER_SCHEMA, {
+        ...worker,
+        contextIds: ['faster-whisper', 'silero'],
+      }),
+    ).toBe(false);
   });
 });

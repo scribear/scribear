@@ -14,7 +14,10 @@ import {
   type TelemetryRedisClient,
   type TranscriptionHostSnapshot,
   nodeSnapshotKey,
+  parseNodeSnapshot,
   parseSessionAudioSnapshot,
+  parseSessionSnapshot,
+  parseTranscriptionHostSnapshot,
   sessionSnapshotKey,
   transcriptionHostSnapshotKey,
   transcriptionSessionAudioKey,
@@ -42,6 +45,13 @@ type SnapshotParseFailure = Extract<
 /** One index member whose value was dropped, and the parser's reason. */
 interface DroppedSnapshot extends Omit<SnapshotParseFailure, 'ok'> {
   member: string;
+  /**
+   * True when the snapshot failed validation but was returned anyway, because
+   * its index is still in `onInvalid: 'keep'` mode. The log has to say which,
+   * or an operator cannot tell "the dashboard is missing this host" from
+   * "the dashboard is showing this host from an unvalidated payload".
+   */
+  kept: boolean;
 }
 
 /**
@@ -67,36 +77,6 @@ export const VALIDATION_DROP_LOG_INTERVAL_MS = 60_000;
  * the parser's own capped list of validator messages.
  */
 const MAX_LOGGED_DROPS = 3;
-
-/**
- * Parser for an index whose values are still trusted: JSON only, no shape
- * check. This is what `_readIndexed` did to every index before PLAN-AUDIOVIZ
- * §12.5, and `nodes`, `sessions` and `transcriptionHosts` still pass it — so
- * `NodeSnapshot`, `SessionSnapshot` and `TranscriptionHostSnapshot` are cast,
- * not validated, and a field that changes in their publishers still reaches
- * the dashboard as `undefined`. §12.5 scopes converting those three out
- * deliberately; doing it later means exporting a parser beside each of those
- * schemas and naming it at that call site instead of this function, and
- * nothing else.
- *
- * The `try` is not optional even without a shape check: a value that is not
- * JSON at all used to throw out of the `MGET` loop and cost the caller the
- * whole `/fleet` response, which is the same all-or-nothing failure the
- * validating path exists to avoid.
- */
-function parseUnvalidated<T>(raw: string): SnapshotParseResult<T> {
-  try {
-    return { ok: true, value: JSON.parse(raw) as T };
-  } catch (error) {
-    return {
-      ok: false,
-      reason: 'malformed-json',
-      errors: [
-        error instanceof Error ? error.message : 'JSON.parse threw a non-Error',
-      ],
-    };
-  }
-}
 
 /** One provider merged across every Transcription Service host serving it. */
 export interface MergedProvider {
@@ -226,21 +206,30 @@ export class FleetTelemetryService {
           NODE_INDEX_KEY,
           now - NODE_TTL_MS,
           nodeSnapshotKey,
-          parseUnvalidated,
+          parseNodeSnapshot,
+          // Log-only: this schema has never been checked against its
+          // publisher. See `_readIndexed`'s `onInvalid` docs.
+          'keep',
         ),
         this._readIndexed<SessionSnapshot>(
           redis,
           SESSION_INDEX_KEY,
           now - NODE_TTL_MS,
           sessionSnapshotKey,
-          parseUnvalidated,
+          parseSessionSnapshot,
+          // Log-only: this schema has never been checked against its
+          // publisher. See `_readIndexed`'s `onInvalid` docs.
+          'keep',
         ),
         this._readIndexed<TranscriptionHostSnapshot>(
           redis,
           TRANSCRIPTION_HOST_INDEX_KEY,
           now - TRANSCRIPTION_HOST_TTL_MS,
           transcriptionHostSnapshotKey,
-          parseUnvalidated,
+          parseTranscriptionHostSnapshot,
+          // Log-only: this schema has never been checked against its
+          // publisher. See `_readIndexed`'s `onInvalid` docs.
+          'keep',
         ),
         this._readIndexed<SessionAudioSnapshot>(
           redis,
@@ -276,13 +265,39 @@ export class FleetTelemetryService {
    * A value `parse` rejects is dropped the same way, and logged, for the same
    * reason: one bad snapshot must cost an operator one member's telemetry
    * rather than the entire `/fleet` response. `parse` is what decides what
-   * "bad" means — a validating parser rejects a payload whose shape has
-   * drifted from the schema it was written against, `parseUnvalidated` only
-   * rejects a value that is not JSON.
+   * "bad" means — every index now names a validating parser exported beside
+   * its own schema, so a payload whose shape has drifted from the schema it was
+   * written against is caught rather than cast.
    *
    * `parse` is required rather than optional: an index reading its values
    * without validation is a choice worth making at each call site, not a
-   * default that three of the four fell into.
+   * default that three of the four fell into. All four now validate; what
+   * still differs between them is `onInvalid`.
+   *
+   * `onInvalid` decides whether a rejected snapshot is dropped or kept, and the
+   * two answers exist because the four schemas do not have equal standing as
+   * descriptions of what their publishers actually write:
+   *
+   * - `'drop'` is for a schema that has been checked against its publisher. The
+   *   session-audio schema has: an integration test seeds a real Redis with a
+   *   publisher-shaped payload and asserts it round-trips, and a unit test
+   *   asserts the pre-stage-graph shape is rejected outright.
+   * - `'keep'` validates and logs but still returns the value, for a schema that
+   *   has never been enforced against its publisher. Turning those to `'drop'`
+   *   in one step would risk blanking half the fleet view on a mirror that has
+   *   silently drifted — and the fixtures in this app's own tests were written
+   *   *from* these schemas rather than captured from the publishers, so a green
+   *   suite would not disprove it. Logging first converts an invisible drift
+   *   into a visible one at zero risk; flip an index to `'drop'` once its log
+   *   stays quiet, or once a cross-check pins its publisher.
+   *
+   * The risk is not uniform across the three. `NodeSnapshot`/`SessionSnapshot`
+   * are published by `node-server`, which declares `const record: SessionSnapshot`
+   * and `const instance: NodeSnapshot` against these very types, so the compiler
+   * already holds that shape. `TranscriptionHostSnapshot` is published by
+   * Transcription Service's `redis_telemetry_publisher.py`, which hand-builds a
+   * dict and `json.dumps` it — a mirror across a language boundary with no
+   * compiler and, until now, no check. That is the one this exists for.
    *
    * `redis` is a parameter rather than read from `this._redis` because the
    * caller has already proved it non-null; reading the field here would force
@@ -294,6 +309,7 @@ export class FleetTelemetryService {
     minScore: number,
     keyFor: (member: string) => string,
     parse: SnapshotParser<T>,
+    onInvalid: 'drop' | 'keep' = 'drop',
   ): Promise<T[]> {
     const members = await redis.zrangebyscore(indexKey, minScore, '+inf');
     if (members.length === 0) return [];
@@ -317,7 +333,15 @@ export class FleetTelemetryService {
         member,
         reason: result.reason,
         errors: result.errors,
+        kept: onInvalid === 'keep',
       });
+      // Malformed JSON is unusable whatever `onInvalid` says - there is no
+      // value to keep. Only a schema mismatch can be passed through, and it is
+      // cast rather than validated, which is exactly what this index did
+      // before it had a parser at all.
+      if (onInvalid === 'keep' && result.reason === 'schema-mismatch') {
+        snapshots.push(JSON.parse(value) as T);
+      }
     }
 
     if (dropped.length > 0) this._logDroppedSnapshots(indexKey, dropped);

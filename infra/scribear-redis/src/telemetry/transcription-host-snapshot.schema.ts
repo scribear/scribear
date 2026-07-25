@@ -2,6 +2,7 @@ import { Type } from 'typebox';
 import type { Static } from 'typebox';
 
 import { SNAPSHOT_ENVELOPE_PROPERTIES } from './snapshot-envelope.schema.js';
+import { type SnapshotParseResult, parseSnapshot } from './snapshot-parse.js';
 
 /**
  * One job a worker is actively running, correlated to the opaque session/room
@@ -42,9 +43,9 @@ export const TRANSCRIPTION_WORKER_SCHEMA = Type.Object({
   totalJobsRegistered: Type.Integer({
     description: 'Monotonic since process start.',
   }),
-  contextIds: Type.Array(Type.String(), {
+  contextIds: Type.Array(Type.Integer(), {
     description:
-      'Model contexts loaded on this worker. Each is a full copy of its model, which is why worker count is bounded by memory rather than by cores.',
+      'Ids of the model contexts loaded on this worker. Each context is a full copy of its model, which is why worker count is bounded by memory rather than by cores. Integers, not context tags: the publisher holds `context_ids: set[int]` and emits `sorted(...)` of it (`worker_view.py`), so these are opaque numeric ids and carry no name. The monitoring sidecar, which restates the same endpoint by hand, has always had this right (`transcription-metrics.schema.ts`).',
   }),
   alive: Type.Boolean({
     description:
@@ -157,3 +158,25 @@ export const TRANSCRIPTION_HOST_SNAPSHOT_SCHEMA = Type.Object({
 export type TranscriptionHostSnapshot = Static<
   typeof TRANSCRIPTION_HOST_SNAPSHOT_SCHEMA
 >;
+
+/**
+ * Validating parser for a Transcription Service host key's value.
+ *
+ * This is the one of the four snapshot schemas with no compiler behind it.
+ * `redis_telemetry_publisher.py` hand-builds the record as a Python dict and
+ * `json.dumps` it, so this schema is a mirror across a language boundary that
+ * nothing has ever checked - the same arrangement that produced two real
+ * cross-surface divergences in the audio meter before a shared expectation
+ * table caught them.
+ *
+ * The reader therefore validates with this in log-only mode: a mismatch is
+ * reported but the payload is still served, because a hard drop on an
+ * unverified mirror would blank the transcription-host half of the fleet view
+ * on exactly the drift this is meant to reveal. Promote it once the log stays
+ * quiet against a real deployment, or once a gate pins the Python side.
+ */
+export function parseTranscriptionHostSnapshot(
+  raw: string,
+): SnapshotParseResult<TranscriptionHostSnapshot> {
+  return parseSnapshot(TRANSCRIPTION_HOST_SNAPSHOT_SCHEMA, raw);
+}

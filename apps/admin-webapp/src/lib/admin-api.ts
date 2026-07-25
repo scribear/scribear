@@ -346,7 +346,13 @@ export interface TranscriptionWorker {
   utilization: number;
   liveJobCount: number;
   totalJobsRegistered: number;
-  contextIds: string[];
+  /**
+   * Opaque numeric context ids, NOT context tags. The publisher holds
+   * `context_ids: set[int]` and emits `sorted(...)` of it, so there is no name
+   * here to render. This mirror said `string[]` until the reader started
+   * validating and the real payload disagreed.
+   */
+  contextIds: number[];
   alive: boolean;
   activeJobs: {
     jobId: number;
