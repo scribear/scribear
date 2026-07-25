@@ -4,6 +4,7 @@ import type {
   FleetEvent,
   NodeSnapshot,
   ProviderHealth,
+  SessionAudioSnapshot,
   SessionSnapshot,
   TelemetryRedisClient,
   TranscriptionHostSnapshot,
@@ -14,10 +15,12 @@ import {
   SESSION_INDEX_KEY,
   TRANSCRIPTION_HOST_INDEX_KEY,
   TRANSCRIPTION_HOST_TTL_MS,
+  TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
   createTelemetryRedisClient,
   nodeSnapshotKey,
   sessionSnapshotKey,
   transcriptionHostSnapshotKey,
+  transcriptionSessionAudioKey,
 } from '@scribear/scribear-redis';
 
 import type { FleetSnapshot } from '#src/server/shared/services/fleet-telemetry.service.js';
@@ -181,6 +184,7 @@ describe('Fleet route wired to a real fleet backplane', () => {
         sessions: [],
         transcriptionHosts: [],
         providers: [],
+        sessionAudio: [],
       });
     });
   });
@@ -302,6 +306,46 @@ describe('Fleet route wired to a real fleet backplane', () => {
           (h) => h.transcriptionHost === staleHost,
         ),
       ).toBe(false);
+    });
+
+    it('reads a published audio snapshot from the audio index', async () => {
+      // Arrange — published directly, bypassing the publisher, to exercise the
+      // reader's contract with the key schema.
+      const now = Date.now();
+      const audio: SessionAudioSnapshot = {
+        rmsDbfs: -21.3,
+        peakDbfs: -9.8,
+        clippingPct: 0,
+        silence: false,
+        noiseFloorDbfs: -62.0,
+        updatedAt: now,
+        vadStats: {
+          vadEnabled: true,
+          speechActiveRatio: 0.55,
+          segmentCount: 5,
+          meanSegmentDurationSec: 0.9,
+          speechToPauseRatio: 1.2,
+          snrDb: 22.1,
+        },
+        sessionUid: '00000000-0000-0000-0000-000audio0001',
+        roomUid: null,
+        transcriptionHost: 'fleet-test-ts',
+      };
+      await redis.set(
+        transcriptionSessionAudioKey(audio.sessionUid),
+        JSON.stringify(audio),
+      );
+      await redis.zadd(
+        TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
+        now,
+        audio.sessionUid,
+      );
+
+      // Act
+      const { body } = await fetchFleet();
+
+      // Assert
+      expect(body.data?.sessionAudio).toEqual([audio]);
     });
   });
 

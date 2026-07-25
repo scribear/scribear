@@ -80,6 +80,24 @@ const BASE = '/api/admin/v1';
  *  stream hook needs the raw URL. */
 export const FLEET_STREAM_URL = `${BASE}/fleet/stream`;
 
+/**
+ * How often `useFleet()` re-reads `/fleet` on a timer, in addition to the
+ * SSE (re)connect re-fetch. Audio levels move on a 2 s publish throttle with a
+ * 10 s TTL; a 5 s poll means a reading is at most ~7 s old, and a genuinely
+ * dead stream disappears within one poll of expiry. Node/session counters are
+ * slow-moving enough that this also refreshes them usefully, which is a fix
+ * but a behaviour change to a shipped panel.
+ */
+export const FLEET_POLL_INTERVAL_MS = 5_000;
+
+/**
+ * Expiry on session audio-stats keys — 5 × 2 s = 10 s. Restated from
+ * `infra/scribear-redis/src/telemetry/telemetry-timing.ts` (same reasoning as
+ * the fleet mirrors: that package pulls in ioredis). Used by the session detail
+ * page to flag a stale audio reading.
+ */
+export const AUDIO_STATS_TTL_MS = 10_000;
+
 export interface AuthConfig {
   local: boolean;
   sso: boolean;
@@ -365,8 +383,84 @@ export interface TranscriptionHostSnapshot {
   providers: Record<string, ProviderHealth>;
 }
 
+// ---- Audio-level telemetry (B2.1/B2.2) ----
+// Mirrors `AudioLevelStats`, `VadStats` and `SessionAudioSnapshot` from
+// infra/scribear-redis/src/telemetry/session-audio-snapshot.schema.ts, for the
+// same reason the fleet mirrors above exist: @scribear/scribear-redis pulls in
+// ioredis and has no browser-safe entry point. The nullability comments are
+// copied verbatim from the schema — they encode real semantics (§6.2 of
+// PLAN-AUDIOVIZ) that a UI gets wrong by default.
+
 /**
- * One provider merged across every Transcription Service host serving it.
+ * Audio-level readout for one session's most recent metering window
+ * (B2.1: RMS/peak dBFS, clipping, silence, noise floor).
+ */
+export interface AudioLevelStats {
+  /** RMS level of the current metering window, in dBFS. */
+  rmsDbfs: number;
+  /** Sample peak of the current metering window, in dBFS. */
+  peakDbfs: number;
+  /** Fraction (0..1) of samples in the window within CLIP_EPSILON of full scale. */
+  clippingPct: number;
+  /** True when the window's RMS is at or below the configured silence threshold. */
+  silence: boolean;
+  /** 10th-percentile RMS across 1s sub-windows of the metering window - an
+   *  ambient noise-floor estimate, distinct from momentary silence. */
+  noiseFloorDbfs: number;
+}
+
+/**
+ * Per-batch voice-activity-detection statistics for one session (B2.2).
+ *
+ * Every field but `vadEnabled` is nullable, because "not meaningful" is a real,
+ * distinct state here, not an edge case: `vadEnabled: false` means VAD never
+ * ran, so the rest carries no signal at all; `vadEnabled: true` with the rest
+ * present means VAD ran and measured something (including a real, meaningful
+ * "found no speech" reading of `speechActiveRatio: 0`); `segmentCount: 0`
+ * still nulls out `meanSegmentDurationSec` (no segment to average) and `snrDb`
+ * (no signal side to compare against noise) even while VAD is on.
+ */
+export interface VadStats {
+  /** Whether Silero VAD (config vad_detector) was enabled for this batch -
+   *  always meaningful, even when every field below is null. */
+  vadEnabled: boolean;
+  /** Fraction (0..1) of the buffer VAD marked as speech. Null when vadEnabled is false. */
+  speechActiveRatio: number | null;
+  /** Number of speech segments VAD found in the buffer. Null when vadEnabled is false. */
+  segmentCount: number | null;
+  /** Mean speech-segment duration, in seconds. Null when vadEnabled is false, or
+   *  when no segments were found (undefined, not zero). */
+  meanSegmentDurationSec: number | null;
+  /** speechActiveRatio / (1 - speechActiveRatio). Null when vadEnabled is false,
+   *  or when speechActiveRatio is 1.0 (divide-by-zero guard at "all speech, no pause"). */
+  speechToPauseRatio: number | null;
+  /** Mean in-range RMS (dBFS) minus mean out-of-range RMS (dBFS), i.e. a VAD-gated
+   *  signal-to-noise estimate. Null when vadEnabled is false, or when one side of
+   *  the comparison has no samples (the buffer read as 0% or 100% speech). */
+  snrDb: number | null;
+}
+
+/**
+ * One live session's audio-level telemetry as published to the backplane:
+ * its latest `AudioLevelStats` plus VAD statistics (B2.2), the snapshot
+ * envelope, and the session/room identifiers it was computed for.
+ *
+ * `vadStats` is a required key whose *value* may be null - `AudioLevelStats`
+ * and `VadStats` are produced by different mechanisms in the worker (a
+ * persistent meter vs. a transient per-batch computation) and published
+ * together in one write rather than two keys.
+ */
+export interface SessionAudioSnapshot extends AudioLevelStats {
+  /** Publish time in epoch milliseconds, on the publishing host's clock. */
+  updatedAt: number;
+  vadStats: VadStats | null;
+  sessionUid: string;
+  roomUid: string | null;
+  /** Identity of the publishing Transcription Service host. */
+  transcriptionHost: string;
+}
+
+/** One provider merged across every Transcription Service host serving it.
  * `status` is `down` only when every host reporting this key is `down`, `ok`
  * only when every host is `ok`; `activeSessions` is summed.
  */
@@ -383,6 +477,13 @@ export interface FleetSnapshot {
   sessions: SessionSnapshot[];
   transcriptionHosts: TranscriptionHostSnapshot[];
   providers: MergedProvider[];
+  /**
+   * Latest audio-level/VAD reading per live session, from Transcription
+   * Service's own index — deliberately NOT joined to `sessions` (D2 of
+   * PLAN-AUDIOVIZ: the two publishers do not coordinate, and both
+   * asymmetries are signals, not noise).
+   */
+  sessionAudio: SessionAudioSnapshot[];
 }
 
 /**

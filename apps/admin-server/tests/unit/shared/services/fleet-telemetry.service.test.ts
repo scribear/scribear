@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, vi } from 'vitest';
 import type {
   NodeSnapshot,
   ProviderHealth,
+  SessionAudioSnapshot,
   SessionSnapshot,
   TelemetryRedisClient,
   TranscriptionHostSnapshot,
@@ -11,9 +12,11 @@ import {
   NODE_INDEX_KEY,
   SESSION_INDEX_KEY,
   TRANSCRIPTION_HOST_INDEX_KEY,
+  TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
   nodeSnapshotKey,
   sessionSnapshotKey,
   transcriptionHostSnapshotKey,
+  transcriptionSessionAudioKey,
 } from '@scribear/scribear-redis';
 
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
@@ -98,6 +101,32 @@ interface Harness {
   logger: MockLogger;
 }
 
+function fakeAudioSnapshot(
+  sessionUid: string,
+  overrides: Partial<SessionAudioSnapshot> = {},
+): SessionAudioSnapshot {
+  return {
+    rmsDbfs: -23.4,
+    peakDbfs: -12.1,
+    clippingPct: 0,
+    silence: false,
+    noiseFloorDbfs: -65.0,
+    updatedAt: NOW,
+    vadStats: {
+      vadEnabled: true,
+      speechActiveRatio: 0.42,
+      segmentCount: 3,
+      meanSegmentDurationSec: 1.2,
+      speechToPauseRatio: 0.72,
+      snrDb: 18.5,
+    },
+    sessionUid,
+    roomUid: null,
+    transcriptionHost: 'ts-a',
+    ...overrides,
+  };
+}
+
 function buildHarness(): Harness {
   const redis = new FakeRedis();
   const logger = createMockLogger();
@@ -148,6 +177,7 @@ describe('FleetTelemetryService', () => {
       expect(snap.sessions).toEqual([]);
       expect(snap.transcriptionHosts).toEqual([]);
       expect(snap.providers).toEqual([]);
+      expect(snap.sessionAudio).toEqual([]);
     });
 
     it('reads live nodes, sessions and hosts from their indexes', async () => {
@@ -223,6 +253,93 @@ describe('FleetTelemetryService', () => {
       const snap = await h.service.snapshot();
 
       expect(snap.nodes).toEqual([]);
+    });
+
+    it('reads live audio snapshots from the transcription-session-audio index', async () => {
+      // A snapshot with VAD stats present — the "everything measured" case.
+      const audio = fakeAudioSnapshot('session-a');
+      h.redis.set(
+        transcriptionSessionAudioKey('session-a'),
+        audio,
+        TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
+        'session-a',
+      );
+
+      const snap = await h.service.snapshot();
+
+      expect(snap.sessionAudio).toEqual([audio]);
+    });
+
+    it('reads an audio snapshot whose vadStats is null (VAD not produced)', async () => {
+      const audio = fakeAudioSnapshot('session-b', { vadStats: null });
+      h.redis.set(
+        transcriptionSessionAudioKey('session-b'),
+        audio,
+        TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
+        'session-b',
+      );
+
+      const snap = await h.service.snapshot();
+
+      expect(snap.sessionAudio).toEqual([audio]);
+      expect(snap.sessionAudio[0]?.vadStats).toBeNull();
+    });
+
+    it('returns audio present even when no matching session exists (D2: no join)', async () => {
+      // Audio present, session absent — the two publishers do not coordinate.
+      // The audio index is a distinct index from the session index; the reader
+      // returns audio flat without joining, so this asymmetry is preserved.
+      const audio = fakeAudioSnapshot('orphan-session');
+      h.redis.set(
+        transcriptionSessionAudioKey('orphan-session'),
+        audio,
+        TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
+        'orphan-session',
+      );
+
+      const snap = await h.service.snapshot();
+
+      expect(snap.sessions).toEqual([]);
+      expect(snap.sessionAudio).toEqual([audio]);
+    });
+
+    it('returns sessions present even when no audio snapshot exists', async () => {
+      // Session present, audio absent — nothing has decoded audio for this
+      // session in >=10s. This is failure mode C1 and is itself a finding.
+      const session: SessionSnapshot = {
+        sessionUid: 'no-audio-session',
+        providerKey: 'whisper',
+        sourceCount: 1,
+        subscriberCount: 1,
+        pendingChunkCount: 0,
+        upstreamState: 'OPEN',
+        upstreamRetryAttempt: 0,
+        latency: [],
+        updatedAt: NOW,
+        nodeInstanceId: 'node-a',
+        processUid: '00000000-0000-0000-0000-000000000001',
+      };
+      h.redis.set(
+        sessionSnapshotKey(session.sessionUid),
+        session,
+        SESSION_INDEX_KEY,
+        session.sessionUid,
+      );
+
+      const snap = await h.service.snapshot();
+
+      expect(snap.sessions).toEqual([session]);
+      expect(snap.sessionAudio).toEqual([]);
+    });
+
+    it('drops an audio index member whose snapshot key has expired', async () => {
+      // Same hole-dropping path as the other indexes: a member in the audio
+      // index whose key has expired between the ZRANGEBYSCORE and the MGET.
+      h.redis.zsets.set(TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY, ['ghost-audio']);
+
+      const snap = await h.service.snapshot();
+
+      expect(snap.sessionAudio).toEqual([]);
     });
   });
 

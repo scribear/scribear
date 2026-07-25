@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 
 import type { FleetSnapshot, SessionStatusEvent } from '#src/lib/admin-api';
-import { FLEET_STREAM_URL, adminApi } from '#src/lib/admin-api';
+import {
+  FLEET_POLL_INTERVAL_MS,
+  FLEET_STREAM_URL,
+  adminApi,
+} from '#src/lib/admin-api';
 import { isApiErrorCode } from '#src/lib/api-error';
 
 export interface FleetState {
@@ -103,6 +107,24 @@ export function useFleet(): FleetState {
 
     return () => {
       es.close();
+    };
+  }, []);
+
+  // Poll cadence: re-read `/fleet` on a timer in addition to the SSE
+  // (re)connect re-fetch. Audio levels move on a 2 s publish throttle with a
+  // 10 s TTL, so a frozen dBFS readout (the old behaviour: fetch once, then
+  // only on reconnect) is worse than none — it looks live. The timer is
+  // gated on `document.hidden` so an operator with the dashboard parked on a
+  // second monitor does not poll all night.
+  useEffect(() => {
+    const tick = () => {
+      if (!document.hidden) {
+        setRefreshNonce((n) => n + 1);
+      }
+    };
+    const id = window.setInterval(tick, FLEET_POLL_INTERVAL_MS);
+    return () => {
+      window.clearInterval(id);
     };
   }, []);
 

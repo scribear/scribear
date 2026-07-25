@@ -1,17 +1,21 @@
 import {
+  AUDIO_STATS_TTL_MS,
   NODE_INDEX_KEY,
   NODE_TTL_MS,
   type NodeSnapshot,
   type ProviderHealth,
   SESSION_INDEX_KEY,
+  type SessionAudioSnapshot,
   type SessionSnapshot,
   TRANSCRIPTION_HOST_INDEX_KEY,
   TRANSCRIPTION_HOST_TTL_MS,
+  TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
   type TelemetryRedisClient,
   type TranscriptionHostSnapshot,
   nodeSnapshotKey,
   sessionSnapshotKey,
   transcriptionHostSnapshotKey,
+  transcriptionSessionAudioKey,
 } from '@scribear/scribear-redis';
 
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
@@ -42,6 +46,14 @@ export interface FleetSnapshot {
   sessions: SessionSnapshot[];
   transcriptionHosts: TranscriptionHostSnapshot[];
   providers: MergedProvider[];
+  /**
+   * Latest audio-level/VAD reading per live session, from Transcription
+   * Service's own index — deliberately NOT joined to `sessions` (D2 of
+   * PLAN-AUDIOVIZ: the two publishers do not coordinate, and both asymmetries
+   * — session present without audio, audio present without session — are
+   * signals, not noise).
+   */
+  sessionAudio: SessionAudioSnapshot[];
 }
 
 /**
@@ -123,26 +135,33 @@ export class FleetTelemetryService {
     const redis = this._redis;
     const now = Date.now();
 
-    const [nodes, sessions, transcriptionHosts] = await Promise.all([
-      readIndexed<NodeSnapshot>(
-        redis,
-        NODE_INDEX_KEY,
-        now - NODE_TTL_MS,
-        nodeSnapshotKey,
-      ),
-      readIndexed<SessionSnapshot>(
-        redis,
-        SESSION_INDEX_KEY,
-        now - NODE_TTL_MS,
-        sessionSnapshotKey,
-      ),
-      readIndexed<TranscriptionHostSnapshot>(
-        redis,
-        TRANSCRIPTION_HOST_INDEX_KEY,
-        now - TRANSCRIPTION_HOST_TTL_MS,
-        transcriptionHostSnapshotKey,
-      ),
-    ]);
+    const [nodes, sessions, transcriptionHosts, sessionAudio] =
+      await Promise.all([
+        readIndexed<NodeSnapshot>(
+          redis,
+          NODE_INDEX_KEY,
+          now - NODE_TTL_MS,
+          nodeSnapshotKey,
+        ),
+        readIndexed<SessionSnapshot>(
+          redis,
+          SESSION_INDEX_KEY,
+          now - NODE_TTL_MS,
+          sessionSnapshotKey,
+        ),
+        readIndexed<TranscriptionHostSnapshot>(
+          redis,
+          TRANSCRIPTION_HOST_INDEX_KEY,
+          now - TRANSCRIPTION_HOST_TTL_MS,
+          transcriptionHostSnapshotKey,
+        ),
+        readIndexed<SessionAudioSnapshot>(
+          redis,
+          TRANSCRIPTION_SESSION_AUDIO_INDEX_KEY,
+          now - AUDIO_STATS_TTL_MS,
+          transcriptionSessionAudioKey,
+        ),
+      ]);
 
     return {
       generatedAt: now,
@@ -150,6 +169,7 @@ export class FleetTelemetryService {
       sessions,
       transcriptionHosts,
       providers: mergeProviders(transcriptionHosts),
+      sessionAudio,
     };
   }
 }

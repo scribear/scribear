@@ -4,7 +4,11 @@ import { afterEach, beforeEach, describe, expect, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
 
 import type { FleetSnapshot, SessionStatusEvent } from '#src/lib/admin-api';
-import { FLEET_STREAM_URL, adminApi } from '#src/lib/admin-api';
+import {
+  FLEET_POLL_INTERVAL_MS,
+  FLEET_STREAM_URL,
+  adminApi,
+} from '#src/lib/admin-api';
 import { useFleet } from '#src/features/dashboard/use-fleet';
 
 vi.mock('#src/lib/admin-api', async (importOriginal) => {
@@ -21,6 +25,7 @@ const emptySnapshot: FleetSnapshot = {
   sessions: [],
   transcriptionHosts: [],
   providers: [],
+  sessionAudio: [],
 };
 
 /**
@@ -165,5 +170,95 @@ describe('useFleet', (it) => {
 
     // Assert
     expect(FakeEventSource.instances).toHaveLength(1);
+  });
+});
+
+describe('useFleet poll timer', (it) => {
+  let originalEventSource: typeof globalThis.EventSource | undefined;
+  let originalHidden: boolean;
+
+  beforeEach(() => {
+    FakeEventSource.instances = [];
+    originalEventSource = globalThis.EventSource;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    globalThis.EventSource = FakeEventSource as any;
+    vi.useFakeTimers();
+    vi.mocked(adminApi.fleet).mockResolvedValue(emptySnapshot);
+    originalHidden = document.hidden;
+    Object.defineProperty(document, 'hidden', {
+      value: false,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    if (originalEventSource) {
+      globalThis.EventSource = originalEventSource;
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (globalThis as any).EventSource;
+    }
+    Object.defineProperty(document, 'hidden', {
+      value: originalHidden,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  it('re-fetches /fleet on the poll interval', () => {
+    // Arrange
+    renderHook(() => useFleet());
+    // The initial mount fetch + the SSE open re-fetch.
+    const fetchesAfterMount = vi.mocked(adminApi.fleet).mock.calls.length;
+
+    // Act: advance past one poll interval
+    act(() => {
+      vi.advanceTimersByTime(FLEET_POLL_INTERVAL_MS);
+    });
+
+    // Assert: the timer fired and re-fetched
+    expect(vi.mocked(adminApi.fleet).mock.calls.length).toBeGreaterThan(
+      fetchesAfterMount,
+    );
+  });
+
+  it('does not re-fetch while the document is hidden', () => {
+    // Arrange
+    renderHook(() => useFleet());
+    const fetchesAfterMount = vi.mocked(adminApi.fleet).mock.calls.length;
+
+    // Act: hide the document and advance past a poll interval
+    Object.defineProperty(document, 'hidden', {
+      value: true,
+      writable: true,
+      configurable: true,
+    });
+    act(() => {
+      vi.advanceTimersByTime(FLEET_POLL_INTERVAL_MS * 3);
+    });
+
+    // Assert: no additional fetches while hidden
+    expect(vi.mocked(adminApi.fleet).mock.calls.length).toBe(
+      fetchesAfterMount,
+    );
+  });
+
+  it('clears the timer on unmount', () => {
+    // Arrange
+    const { unmount } = renderHook(() => useFleet());
+    const fetchesAfterMount = vi.mocked(adminApi.fleet).mock.calls.length;
+
+    // Act
+    unmount();
+    act(() => {
+      vi.advanceTimersByTime(FLEET_POLL_INTERVAL_MS * 5);
+    });
+
+    // Assert: no additional fetches after unmount
+    expect(vi.mocked(adminApi.fleet).mock.calls.length).toBe(
+      fetchesAfterMount,
+    );
   });
 });

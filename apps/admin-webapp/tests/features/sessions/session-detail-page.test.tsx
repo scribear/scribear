@@ -11,11 +11,25 @@ import { ApiError } from '#src/lib/api-error';
 import { renderWithProviders } from '../../utils/render-with-providers';
 import { buildSession } from './fixtures';
 
-vi.mock('#src/lib/admin-api', () => ({
-  adminApi: {
-    getSession: vi.fn(),
-    getSessionJoinCode: vi.fn(),
-  },
+vi.mock('#src/lib/admin-api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('#src/lib/admin-api')>();
+  return {
+    ...actual,
+    adminApi: {
+      getSession: vi.fn(),
+      getSessionJoinCode: vi.fn(),
+    },
+  };
+});
+
+vi.mock('#src/features/dashboard/use-fleet', () => ({
+  useFleet: vi.fn(() => ({
+    snapshot: null,
+    sessionEvents: new Map(),
+    connected: false,
+    available: false,
+    refresh: vi.fn(),
+  })),
 }));
 
 const SESSION_UID = 'session-1';

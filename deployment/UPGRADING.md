@@ -12,6 +12,42 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — audio meter and audio telemetry in the admin console
+
+The admin console gains an **Audio meter** nav item and a live **audio health**
+strip on each session card. The meter is the same self-contained page the
+monitoring sidecar already serves, now reachable from the admin UI at
+`/admin/audio-meter.html` through the existing nginx — no new service, no new
+port, no nginx change.
+
+### What the audio meter is for
+
+It measures the **local microphone of the device that opens it** — run it on the
+room's source machine, not the operator's laptop. An operator at the source
+machine clicks the nav item; one who is remote copies the URL and sends it to
+whoever is at the room's PC. The page needs a secure context (HTTPS or
+`localhost`) for `getUserMedia`, so a deployment running nginx on plain HTTP to
+a LAN IP will see the mic button fail — use HTTPS or open it from the machine
+itself.
+
+### No new env var
+
+The audio panel rides `TRANSCRIPTION_REDIS_URL`, the same switch the fleet view
+already uses. If the fleet view works in an environment, audio telemetry is
+being published there too — there is no second flag to turn on. The
+`audio-meter.html` page itself needs no backend at all.
+
+### Where the page moved
+
+The standalone meter page moved from `apps/monitoring-sidecar/public/` to the
+shared `libs/audio-meter-page/` directory so both the sidecar and admin-webapp
+serve the same file. The sidecar's `/api/monitoring/v1/audio-meter` route keeps
+working unchanged for in-cluster/port-forward use; `AUDIO_METER_PATH`'s default
+updated to match the new location, so an override is only needed if a deployment
+had set it explicitly.
+
+---
+
 ## Unreleased — every container reports what it was built from
 
 The admin console's **Deployment Check** page gained a **Deployed versions**
