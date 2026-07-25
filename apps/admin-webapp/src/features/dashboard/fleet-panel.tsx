@@ -270,7 +270,17 @@ const SessionCard = ({
   };
 
   return (
-    <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
+    // `sm: 6` used to give two 12-wide columns at the sm breakpoint, but
+    // `AppLayout`'s sidebar is a fixed ~232px at every viewport width (it does
+    // not collapse below `md`), so a 600px viewport leaves ~320px of grid
+    // content — two columns there means ~150px cards, well under the ~180px
+    // the audio strip (bar `minWidth: 60` + gap + the dBFS readout's `4.5em`
+    // + CardContent padding) needs. `md`/`lg` already give a wide enough card
+    // (measured ~196px+ in a real browser) and are left alone. Staying single
+    // column through the whole `sm` range (320-620px of content) trades grid
+    // density for a card that never has to fit two things into one column's
+    // width.
+    <Grid size={{ xs: 12, sm: 12, md: 4, lg: 3 }}>
       <Card variant="outlined" sx={{ position: 'relative' }}>
         <IconButton
           size="small"
@@ -295,9 +305,25 @@ const SessionCard = ({
             <Stack
               direction="row"
               spacing={1}
+              useFlexGap
               sx={{
                 justifyContent: 'space-between',
                 alignItems: 'flex-start',
+                // A real (UUID) session UID and the status/audio chips are
+                // both rigid content competing for one line: the chips carry
+                // `flexShrink: 0` (their labels must stay whole, D1 below),
+                // so on a card too narrow for both, flexbox had nowhere to
+                // take the space from except the UID — squeezing it down
+                // past its longest unbreakable hyphen segment and forcing a
+                // real horizontal overflow past the card edge (visible as
+                // the audio chip's tail sitting under the neighbouring
+                // grid cell / icon button). `flexWrap: 'wrap'` lets the chip
+                // group drop to its own line instead, so the UID always gets
+                // either the full row (chips wrapped below) or a row with
+                // real spare width (chips fit beside it) — never a width
+                // narrower than its own content demands.
+                flexWrap: 'wrap',
+                rowGap: 0.5,
                 // Clearance for the absolutely-positioned "Open live captions"
                 // button above, which has an opaque background and a higher
                 // z-index: without it the button paints over the last ~18px of
@@ -310,7 +336,22 @@ const SessionCard = ({
             >
               <Typography
                 variant="body2"
-                sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}
+                sx={{
+                  fontFamily: 'monospace',
+                  // `break-all` allows a break between *any* two characters,
+                  // which the flex-item min-content calculation takes
+                  // literally: the browser sizes this item's floor as one
+                  // glyph wide, so a narrow card (or, before the Grid change
+                  // above, every card at `sm`) rendered the UID one character
+                  // per line. `overflow-wrap: break-word` breaks only when a
+                  // run genuinely does not fit, and — unlike `break-all` — it
+                  // does not enter the min-content calculation, so it does
+                  // not force the item to shrink pre-emptively. Session UIDs
+                  // are UUIDs, so the hyphens already give the browser a
+                  // normal break opportunity every 4-12 characters; nothing
+                  // here hides a character, it only ever adds a line break.
+                  overflowWrap: 'break-word',
+                }}
               >
                 {session.sessionUid}
               </Typography>

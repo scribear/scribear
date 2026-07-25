@@ -228,6 +228,76 @@ describe('SessionCard audio strip', (it) => {
   });
 });
 
+describe('SessionCard layout', (it) => {
+  beforeEach(() => {
+    vi.mocked(useFleet).mockReset();
+  });
+
+  it('stays a full-width column through the whole `sm` range, not two-up', () => {
+    // AppLayout's sidebar is a fixed ~232px at every viewport width, so a
+    // `sm: 6` card (the old value) got ~150px at a 600px viewport — too
+    // narrow for the audio strip (bar + dBFS readout) to fit without
+    // clipping, measured in a real browser. jsdom does no layout, so this
+    // can't see the resulting pixel widths; it only pins the breakpoint prop
+    // Grid actually receives, as a proxy for "don't go back to two columns
+    // before the sidebar's fixed cost stops mattering".
+    const container = mountFleet(
+      [visibleSession({ sessionUid: 'session-1' })],
+      [buildAudio({}, { sessionUid: 'session-1' })],
+    );
+
+    const sessionGrid = [...container.querySelectorAll('.MuiGrid-root')].find(
+      (el) => el.className.includes('MuiGrid-grid-xs-12'),
+    );
+
+    expect(sessionGrid?.className).toContain('MuiGrid-grid-sm-12');
+    expect(sessionGrid?.className).not.toContain('MuiGrid-grid-sm-6');
+  });
+
+  it('lets the header row wrap the status/audio chips below the session UID', () => {
+    // A full UUID and the two rigid (flexShrink: 0) chips are both fixed-size
+    // content competing for one line; on a card too narrow for both, the only
+    // place flexbox could take space from used to be the UID itself — down
+    // past its longest unbreakable hyphen segment, which overflowed the card
+    // (measured in a real browser: the audio chip's tail landed under the
+    // neighbouring grid cell). `flexWrap: 'wrap'` lets the chip group drop to
+    // its own line instead. jsdom does no layout, so it can't see the
+    // overflow or the wrap actually happen — this only asserts the
+    // declaration is present.
+    const container = mountFleet(
+      [visibleSession({ sessionUid: 'session-1' })],
+      [buildAudio({}, { sessionUid: 'session-1' })],
+    );
+
+    const header = container.querySelector(
+      '.MuiCardContent-root .MuiStack-root',
+    );
+
+    expect(header).not.toBeNull();
+    expect(getComputedStyle(header!).flexWrap).toBe('wrap');
+  });
+
+  it('wraps the session UID at natural break points instead of one character per line', () => {
+    // `word-break: break-all` allows a break between *any* two characters,
+    // which the browser's min-content calculation takes literally: the
+    // flex item's floor becomes one glyph wide, so — squeezed against the
+    // fixed-size chips — the UID rendered one character per line (measured in
+    // a real browser). `overflow-wrap: break-word` only breaks a run that
+    // truly doesn't fit, and unlike `break-all` it doesn't enter the
+    // min-content calculation, so it doesn't pre-emptively shrink. This only
+    // pins the declaration change; jsdom can't see how a UUID actually wraps.
+    mountFleet(
+      [visibleSession({ sessionUid: 'session-1' })],
+      [buildAudio({}, { sessionUid: 'session-1' })],
+    );
+
+    const uid = screen.getByText('session-1');
+
+    expect(getComputedStyle(uid).overflowWrap).toBe('break-word');
+    expect(getComputedStyle(uid).wordBreak).not.toBe('break-all');
+  });
+});
+
 describe('SessionCard with a throughput-only snapshot', (it) => {
   beforeEach(() => {
     vi.mocked(useFleet).mockReset();
