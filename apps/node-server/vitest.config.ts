@@ -15,7 +15,24 @@ export default mergeConfig(
         // lives beside the fixture it produces; it is not application source
         // and must not be fed to the JS coverage instrumenter. The same goes
         // for the JSON fixtures it emits — data, not code.
-        exclude: ['src/index.ts', '**/*.py', '**/*.json'],
+        //
+        // B1: dev-only swagger plugin — two register calls, no production impact.
+        // B4: type-only module (AppDependencies interface + declare module) — no
+        //     runtime code beyond a side-effect import.
+        // B5: trivial transport/wiring — one-line registrations and {status:'ok'}
+        //     handlers exercised by integration. Unit tests would be pure
+        //     coverage-chasing; see PLAN-MORE-TESTCOVERAGE.md §B5.
+        exclude: [
+          'src/index.ts',
+          '**/*.py',
+          '**/*.json',
+          'src/server/plugins/swagger.ts',
+          'src/server/plugins/websocket.ts',
+          '**/app-dependencies.ts',
+          'src/server/features/probes/liveness.controller.ts',
+          'src/server/features/probes/probes.router.ts',
+          'src/server/features/status/status.router.ts',
+        ],
       },
       projects: [
         {

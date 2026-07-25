@@ -10,7 +10,21 @@ export default mergeConfig(
         // Process entrypoint: bootstraps and starts the server. It has no unit-
         // testable logic and is exercised by the integration suite, so exclude
         // it rather than report it as uncovered.
-        exclude: ['src/index.ts'],
+        //
+        // B3: migrate.ts is a separate one-shot CLI process (compose db-migrate)
+        //     — straight-line control flow with process.exit, verified by deployment.
+        // B1: dev-only swagger plugin — two register calls, no production impact.
+        // B4: type-only module (AppDependencies interface + declare module) — no
+        //     runtime code beyond a side-effect import.
+        // B5: trivial transport/wiring — single fastify.route call exercised by
+        //     integration. See PLAN-MORE-TESTCOVERAGE.md §B5.
+        exclude: [
+          'src/index.ts',
+          'src/migrate.ts',
+          'src/server/plugins/swagger.ts',
+          '**/app-dependencies.ts',
+          'src/server/features/database/database.router.ts',
+        ],
       },
       projects: [
         {
