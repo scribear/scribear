@@ -330,6 +330,7 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
    */
   mute(): void {
     this._muted = true;
+    this._sendSourceState(false);
   }
 
   /**
@@ -337,6 +338,26 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
    */
   unmute(): void {
     this._muted = false;
+    this._sendSourceState(true);
+  }
+
+  /**
+   * Send the current mic state to the node server so the fleet dashboard can
+   * distinguish "mic is off" from "something broke" when no audio arrives.
+   * No-op when no socket is connected (the state will be seeded on the next
+   * AUTH_OK). Safe to call from `mute`/`unmute` which may fire before a
+   * socket exists.
+   */
+  private _sendSourceState(
+    microphoneActive: boolean,
+    socket?: WebSocketClient<typeof TRANSCRIPTION_STREAM_SCHEMA>,
+  ): void {
+    const sock = socket ?? this._socket;
+    if (sock === null) return;
+    sock.send({
+      type: TranscriptionStreamClientMessageType.SOURCE_STATE,
+      microphoneActive,
+    });
   }
 
   private async _initialize(): Promise<void> {
@@ -729,6 +750,9 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
           // lost — closing the socket 1008 `binary-before-auth` and looping.
           if (isSource) {
             void this._beginAudioCapture(socket);
+            // Seed the server with the current mic state so the fleet
+            // dashboard knows whether audio is expected to flow.
+            this._sendSourceState(!this._muted, socket);
           }
           break;
         case TranscriptionStreamServerMessageType.TRANSCRIPT:

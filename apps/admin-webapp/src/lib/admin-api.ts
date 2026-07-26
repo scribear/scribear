@@ -321,8 +321,8 @@ export interface SessionSnapshot {
    * distinguish "kiosk sent nothing" from "upstream broke").
    */
   audioFramesReceived?: number;
-  latency: LatencySeries[];
-  /** Publish time, epoch ms, on the publishing host's clock. */
+  sourceMicrophoneActive?: boolean | null;
+  latency: LatencySeries[]; /** Publish time, epoch ms, on the publishing host's clock. */
   updatedAt: number;
   nodeInstanceId: string;
   processUid: string;
@@ -597,6 +597,7 @@ export interface SessionStatusEvent {
   sessionUid: string;
   transcriptionServiceConnected: boolean;
   sourceDeviceConnected: boolean;
+  sourceMicrophoneActive?: boolean | null;
   /** Publish time, epoch ms, on the publisher's clock. */
   at: number;
 }

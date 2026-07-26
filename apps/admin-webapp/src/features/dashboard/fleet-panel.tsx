@@ -401,6 +401,10 @@ const SessionCard = ({
               {event &&
                 !event.transcriptionServiceConnected &&
                 ' · ASR disconnected'}
+              {event &&
+                event.sourceDeviceConnected &&
+                event.sourceMicrophoneActive === false &&
+                ' · mic off'}
             </Typography>
             {p95 !== null && (
               <Typography
@@ -431,7 +435,9 @@ const SessionCard = ({
                 ? session.audioFramesReceived !== undefined &&
                   session.audioFramesReceived > 0
                   ? 'audio received, not reaching ASR'
-                  : 'no audio from source'
+                  : event?.sourceMicrophoneActive === false
+                    ? 'mic off'
+                    : 'no audio from source'
                 : 'no audio telemetry'}
             </Typography>
           ) : headline === undefined ? (

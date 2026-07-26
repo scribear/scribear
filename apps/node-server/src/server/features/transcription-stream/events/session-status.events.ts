@@ -13,6 +13,9 @@ import type { ChannelDefinition } from '#src/server/shared/services/event-bus.se
 export const SESSION_STATUS_MESSAGE_SCHEMA = Type.Object({
   transcriptionServiceConnected: Type.Boolean(),
   sourceDeviceConnected: Type.Boolean(),
+  sourceMicrophoneActive: Type.Optional(
+    Type.Union([Type.Boolean(), Type.Null()]),
+  ),
 });
 export type SessionStatusMessage = Static<typeof SESSION_STATUS_MESSAGE_SCHEMA>;
 
