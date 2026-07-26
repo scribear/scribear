@@ -136,6 +136,12 @@ export const STATUS_SESSION_SCHEMA = Type.Object(
           'Binary frames received from the source since the session opened, counted before decode so a malformed frame still registers as "the source is sending something" (the malformed subset is `decodeDropsTotal`). Monotonic per session, resets on session end. Lets the fleet dashboard distinguish "source sent nothing" (0) from "source is sending but the ASR is silent" (>0) — the two cases that "no audio reaching ASR" alone cannot tell apart. Optional for backward-compat with older publishers that do not emit it.',
       }),
     ),
+    sourceMicrophoneActive: Type.Optional(
+      Type.Union([Type.Boolean(), Type.Null()], {
+        description:
+          'Whether at least one connected source has its microphone active (unmuted). Null when no source has reported state yet. Absent when no source has reported and the publisher predates the field. Lets the fleet dashboard distinguish "mic is off" from "something broke" when no audio frames arrive.',
+      }),
+    ),
     latency: Type.Array(LATENCY_SERIES_SCHEMA, {
       description: `Per-session latency (B1.4). ${LATENCY_ARRAY_DESCRIPTION} Retained per session and discarded when the session’s last connection closes, so unlike the process-wide series these describe live rooms only.`,
     }),

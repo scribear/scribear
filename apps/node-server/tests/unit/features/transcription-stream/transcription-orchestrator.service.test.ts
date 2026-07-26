@@ -14,6 +14,7 @@ import { SessionStatusChannel } from '#src/server/features/transcription-stream/
 import { TranscriptChannel } from '#src/server/features/transcription-stream/events/transcript.events.js';
 import {
   type SessionConfigPollFactory,
+  type SourceHandle,
   TranscriptionOrchestratorService,
 } from '#src/server/features/transcription-stream/transcription-orchestrator.service.js';
 import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
@@ -129,7 +130,10 @@ function makeHarness(
  */
 async function runUpstreamHandshake(
   h: Harness,
-  sender: { send: ReturnType<typeof vi.fn>; sendBinary: ReturnType<typeof vi.fn> },
+  sender: {
+    send: ReturnType<typeof vi.fn>;
+    sendBinary: ReturnType<typeof vi.fn>;
+  },
 ): Promise<void> {
   const overrides = h.transcriptionStreamFactory.mock.calls[0]?.[1] as {
     onHandshake: (
@@ -347,6 +351,7 @@ describe('TranscriptionOrchestratorService', () => {
       expect(statuses).toContainEqual({
         transcriptionServiceConnected: true,
         sourceDeviceConnected: true,
+        sourceMicrophoneActive: null,
       });
     });
   });
@@ -491,7 +496,7 @@ describe('TranscriptionOrchestratorService', () => {
       await registerAndDrain(h, SESSION_UID);
 
       // Act - drop one of two registrations.
-      a();
+      a.unregister();
 
       // Assert
       expect(h.upstream.terminate).not.toHaveBeenCalled();
@@ -501,7 +506,7 @@ describe('TranscriptionOrchestratorService', () => {
 
     it('tears down the upstream and publishes a final disconnected status when the last source unregisters', async () => {
       // Arrange
-      const unregister = await registerAndDrain(h, SESSION_UID);
+      const handle = await registerAndDrain(h, SESSION_UID);
       h.upstream.setOpen();
 
       const statuses: {
@@ -517,7 +522,7 @@ describe('TranscriptionOrchestratorService', () => {
       );
 
       // Act
-      unregister();
+      handle.unregister();
 
       // Assert
       expect(h.upstream.terminate).toHaveBeenCalledWith(
@@ -529,15 +534,21 @@ describe('TranscriptionOrchestratorService', () => {
       expect(statuses[statuses.length - 1]).toEqual({
         transcriptionServiceConnected: false,
         sourceDeviceConnected: false,
+        // `null`, not `false`. With the last source gone the mic state is
+        // unknown, not known-off; `false` would render "mic off" against a
+        // session that has no source at all, and would contradict
+        // `getStatus()`, which answers `null` for a session it holds no state
+        // for.
+        sourceMicrophoneActive: null,
       });
     });
 
     it('stops forwarding audio after the last source unregisters', async () => {
       // Arrange
-      const unregister = await registerAndDrain(h, SESSION_UID);
+      const handle = await registerAndDrain(h, SESSION_UID);
 
       // Act
-      unregister();
+      handle.unregister();
       h.upstream.sendBinary.mockClear();
       h.bus.publish(AudioFrameChannel, Buffer.from([1]), SESSION_UID);
 
@@ -555,6 +566,7 @@ describe('TranscriptionOrchestratorService', () => {
       expect(status).toEqual({
         transcriptionServiceConnected: false,
         sourceDeviceConnected: false,
+        sourceMicrophoneActive: null,
       });
     });
 
@@ -570,6 +582,7 @@ describe('TranscriptionOrchestratorService', () => {
       expect(status).toEqual({
         transcriptionServiceConnected: true,
         sourceDeviceConnected: true,
+        sourceMicrophoneActive: null,
       });
     });
   });
@@ -660,12 +673,12 @@ describe('TranscriptionOrchestratorService telemetry (B1.1)', () => {
 
 /**
  * Helper: register a source and drain the long-poll's first data event so
- * the registration promise resolves, returning the unregister function.
+ * the registration promise resolves, returning the source handle.
  */
 async function registerAndDrain(
   h: Harness,
   sessionUid: string,
-): Promise<() => void> {
+): Promise<SourceHandle> {
   const promise = h.orchestrator.registerSource(sessionUid);
   h.longPoll.emit('data', fakeSession({ uid: sessionUid }));
   return await promise;

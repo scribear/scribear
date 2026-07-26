@@ -18,6 +18,7 @@ function gauges(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
     upstreamState: 'OPEN',
     upstreamRetryAttempt: 0,
     audioFramesReceived: 0,
+    sourceMicrophoneActive: null,
     ...overrides,
   };
 }

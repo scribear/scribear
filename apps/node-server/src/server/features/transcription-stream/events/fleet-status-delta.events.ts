@@ -14,6 +14,9 @@ export const FLEET_STATUS_DELTA_SCHEMA = Type.Object({
   sessionUid: Type.String(),
   transcriptionServiceConnected: Type.Boolean(),
   sourceDeviceConnected: Type.Boolean(),
+  sourceMicrophoneActive: Type.Optional(
+    Type.Union([Type.Boolean(), Type.Null()]),
+  ),
   at: Type.Integer(),
 });
 export type FleetStatusDelta = Static<typeof FLEET_STATUS_DELTA_SCHEMA>;

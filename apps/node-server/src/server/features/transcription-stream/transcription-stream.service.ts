@@ -13,6 +13,7 @@ import { LatencyChannel } from './events/latency.events.js';
 import { SessionEndedChannel } from './events/session-ended.events.js';
 import { SessionStatusChannel } from './events/session-status.events.js';
 import { TranscriptChannel } from './events/transcript.events.js';
+import type { SourceHandle } from './transcription-orchestrator.service.js';
 import type { TranscriptionStreamRole } from './transcription-stream.auth.js';
 
 type ServerMessage = Static<
@@ -54,7 +55,7 @@ export class TranscriptionStreamService extends EventEmitter<TranscriptionStream
   private _unsubscribeLatency: (() => void) | null = null;
   private _unsubscribeSessionStatus: (() => void) | null = null;
   private _unsubscribeSessionEnded: (() => void) | null = null;
-  private _orchestratorUnregister: (() => void) | null = null;
+  private _orchestratorHandle: SourceHandle | null = null;
   private _closed = false;
   private _metrics: AppDependencies['nodeServerMetricsService'];
   /**
@@ -86,7 +87,7 @@ export class TranscriptionStreamService extends EventEmitter<TranscriptionStream
    */
   async start(): Promise<void> {
     if (this._role === 'source') {
-      const unregister =
+      const handle =
         await this._transcriptionOrchestratorService.registerSource(
           this._sessionUid,
         );
@@ -94,10 +95,10 @@ export class TranscriptionStreamService extends EventEmitter<TranscriptionStream
       // registration; if so, immediately release the registration and bail
       // out before subscribing to the buses.
       if (this._closed) {
-        unregister();
+        handle.unregister();
         return;
       }
-      this._orchestratorUnregister = unregister;
+      this._orchestratorHandle = handle;
     }
 
     // Counted here rather than in the constructor: a connection only costs
@@ -186,6 +187,18 @@ export class TranscriptionStreamService extends EventEmitter<TranscriptionStream
   }
 
   /**
+   * Forward a source-state message (mic active/on/off) to the orchestrator.
+   * Only meaningful for source-role connections; client-role connections are
+   * ignored. The orchestrator aggregates across sources and publishes a
+   * session-status delta so the fleet dashboard can distinguish "mic is off"
+   * from "something broke."
+   */
+  handleSourceState(microphoneActive: boolean): void {
+    if (this._closed) return;
+    this._orchestratorHandle?.setMicrophoneActive(microphoneActive);
+  }
+
+  /**
    * Called by the controller when the underlying socket closes. Releases
    * orchestrator and bus resources held by this connection.
    */
@@ -214,7 +227,7 @@ export class TranscriptionStreamService extends EventEmitter<TranscriptionStream
     this._unsubscribeSessionStatus = null;
     this._unsubscribeSessionEnded?.();
     this._unsubscribeSessionEnded = null;
-    this._orchestratorUnregister?.();
-    this._orchestratorUnregister = null;
+    this._orchestratorHandle?.unregister();
+    this._orchestratorHandle = null;
   }
 }

@@ -272,6 +272,14 @@ export class TranscriptionStreamController {
             t1: Date.now(),
           });
           break;
+        case TranscriptionStreamClientMessageType.SOURCE_STATE:
+          // Forward the source's mic state to the orchestrator so the fleet
+          // dashboard can distinguish "mic is off" from "something broke."
+          // Ignored for client-role connections (no orchestrator handle).
+          if (ready) {
+            service?.handleSourceState(parsed.microphoneActive);
+          }
+          break;
       }
     });
   }

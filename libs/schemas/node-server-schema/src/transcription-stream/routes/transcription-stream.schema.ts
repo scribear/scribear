@@ -12,6 +12,7 @@ import { TRANSCRIPT_FRAGMENT_SCHEMA } from '#src/transcription-stream/entities/t
 export enum TranscriptionStreamClientMessageType {
   AUTH = 'auth',
   TIME_SYNC_PING = 'timeSyncPing',
+  SOURCE_STATE = 'sourceState',
 }
 
 export enum TranscriptionStreamServerMessageType {
@@ -53,6 +54,13 @@ const TRANSCRIPTION_STREAM_SCHEMA = {
       type: Type.Literal(TranscriptionStreamClientMessageType.TIME_SYNC_PING),
       t0: Type.Number(),
     }),
+    // Source reports its microphone state so the fleet dashboard can
+    // distinguish "mic is off" from "something broke" when no audio frames
+    // arrive. Sent on mute/unmute transitions and once after AUTH_OK to seed.
+    Type.Object({
+      type: Type.Literal(TranscriptionStreamClientMessageType.SOURCE_STATE),
+      microphoneActive: Type.Boolean(),
+    }),
   ]),
   allowServerBinaryMessage: false,
   serverMessage: Type.Union([
@@ -74,6 +82,12 @@ const TRANSCRIPTION_STREAM_SCHEMA = {
         description:
           'Whether at least one source device is currently authenticated and streaming audio for this session.',
       }),
+      sourceMicrophoneActive: Type.Optional(
+        Type.Union([Type.Boolean(), Type.Null()], {
+          description:
+            'Whether at least one connected source has its microphone active (unmuted). Null when no source has reported state yet. Absent when no source has reported and the publisher predates the field.',
+        }),
+      ),
     }),
     Type.Object({
       type: Type.Literal(TranscriptionStreamServerMessageType.SESSION_ENDED),

@@ -18,6 +18,9 @@ export const SESSION_STATUS_EVENT_SCHEMA = Type.Object({
   sessionUid: Type.String(),
   transcriptionServiceConnected: Type.Boolean(),
   sourceDeviceConnected: Type.Boolean(),
+  sourceMicrophoneActive: Type.Optional(
+    Type.Union([Type.Boolean(), Type.Null()]),
+  ),
   at: Type.Integer({
     description:
       'Publish time in epoch milliseconds, on the publisher’s clock.',
