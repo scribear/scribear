@@ -14,6 +14,7 @@ import { SessionStatusChannel } from '#src/server/features/transcription-stream/
 import { TranscriptChannel } from '#src/server/features/transcription-stream/events/transcript.events.js';
 import {
   type SessionConfigPollFactory,
+  type SourceHandle,
   TranscriptionOrchestratorService,
 } from '#src/server/features/transcription-stream/transcription-orchestrator.service.js';
 import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
@@ -122,6 +123,30 @@ function makeHarness(
   };
 }
 
+/**
+ * Invoke the `onHandshake` the orchestrator registered on the upstream client,
+ * with a fresh sender. Each call stands for one connection: the first one, or
+ * any reconnect the client makes on its own after a drop.
+ */
+async function runUpstreamHandshake(
+  h: Harness,
+  sender: {
+    send: ReturnType<typeof vi.fn>;
+    sendBinary: ReturnType<typeof vi.fn>;
+  },
+): Promise<void> {
+  const overrides = h.transcriptionStreamFactory.mock.calls[0]?.[1] as {
+    onHandshake: (
+      sender: unknown,
+      messages: { on: () => void; off: () => void },
+    ) => Promise<void>;
+  };
+  await overrides.onHandshake(sender, {
+    on: () => undefined,
+    off: () => undefined,
+  });
+}
+
 describe('TranscriptionOrchestratorService', () => {
   let h: Harness;
 
@@ -145,19 +170,78 @@ describe('TranscriptionOrchestratorService', () => {
       // Assert
       expect(h.poolFactory).toHaveBeenCalledWith(SESSION_UID);
       expect(h.longPoll.start).toHaveBeenCalledTimes(1);
-      expect(h.transcriptionStreamFactory).toHaveBeenCalledWith({
-        params: { providerKey: PROVIDER_KEY },
-      });
+      expect(h.transcriptionStreamFactory).toHaveBeenCalledWith(
+        { params: { providerKey: PROVIDER_KEY } },
+        expect.objectContaining({ onHandshake: expect.any(Function) }),
+      );
       expect(h.upstream.start).toHaveBeenCalledTimes(1);
-      expect(h.upstream.send).toHaveBeenCalledWith(
+
+      // Auth and config are the handshake, not a one-time send after start().
+      const sender = { send: vi.fn(), sendBinary: vi.fn() };
+      await runUpstreamHandshake(h, sender);
+
+      expect(sender.send).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'auth', api_key: 'tx-key' }),
       );
-      expect(h.upstream.send).toHaveBeenCalledWith(
+      expect(sender.send).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'config',
           config: { sample_rate: 48000, num_channels: 1 },
           session_uid: SESSION_UID,
           room_uid: ROOM_UID,
+        }),
+      );
+    });
+
+    it('re-sends auth and config on every reconnect', async () => {
+      // A session that survives an upstream blip is the whole point: the
+      // transcription service closes 1008 on unauthenticated binary, and this
+      // client reconnects on its own. Sending credentials once meant the first
+      // blip broke the session permanently while the source kept streaming.
+      // Arrange
+      const promise = h.orchestrator.registerSource(SESSION_UID);
+      h.longPoll.emit('data', fakeSession());
+      await promise;
+
+      // Act - three independent connections, as three reconnects would be.
+      const senders = [
+        { send: vi.fn(), sendBinary: vi.fn() },
+        { send: vi.fn(), sendBinary: vi.fn() },
+        { send: vi.fn(), sendBinary: vi.fn() },
+      ];
+      for (const sender of senders) await runUpstreamHandshake(h, sender);
+
+      // Assert
+      for (const sender of senders) {
+        expect(sender.send).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'auth', api_key: 'tx-key' }),
+        );
+        expect(sender.send).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'config', session_uid: SESSION_UID }),
+        );
+      }
+    });
+
+    it('replays the current config on reconnect, not the one it opened with', async () => {
+      // Arrange
+      const promise = h.orchestrator.registerSource(SESSION_UID);
+      h.longPoll.emit('data', fakeSession());
+      await promise;
+
+      // Act - a config bump arrives, then the upstream reconnects.
+      h.longPoll.emit('data', {
+        ...fakeSession(),
+        transcriptionStreamConfig: { sample_rate: 16000, num_channels: 2 },
+        sessionConfigVersion: 2,
+      });
+      const sender = { send: vi.fn(), sendBinary: vi.fn() };
+      await runUpstreamHandshake(h, sender);
+
+      // Assert
+      expect(sender.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'config',
+          config: { sample_rate: 16000, num_channels: 2 },
         }),
       );
     });
@@ -267,6 +351,7 @@ describe('TranscriptionOrchestratorService', () => {
       expect(statuses).toContainEqual({
         transcriptionServiceConnected: true,
         sourceDeviceConnected: true,
+        sourceMicrophoneActive: null,
       });
     });
   });
@@ -288,6 +373,26 @@ describe('TranscriptionOrchestratorService', () => {
       // Assert
       expect(h.upstream.sendBinary).toHaveBeenCalledTimes(1);
       expect(h.upstream.sendBinary).toHaveBeenCalledWith(frame);
+    });
+
+    it('counts every received frame in audioFramesReceived and exposes it in sessionSnapshots', async () => {
+      // Arrange
+      await registerAndDrain(h, SESSION_UID);
+
+      const frame = Buffer.from(
+        encodeAudioFrame({ chunkId: 'c1' }, new Uint8Array([1, 2, 3])),
+      );
+
+      // Act — send three well-formed frames.
+      h.bus.publish(AudioFrameChannel, frame, SESSION_UID);
+      h.bus.publish(AudioFrameChannel, frame, SESSION_UID);
+      h.bus.publish(AudioFrameChannel, frame, SESSION_UID);
+
+      // Assert — the counter is per-session, monotonic, and visible in the
+      // snapshot the fleet dashboard reads.
+      const { sessions } = h.orchestrator.sessionSnapshots(10);
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]?.audioFramesReceived).toBe(3);
     });
 
     it('drops a malformed (non-SAFP) frame instead of forwarding it', async () => {
@@ -391,7 +496,7 @@ describe('TranscriptionOrchestratorService', () => {
       await registerAndDrain(h, SESSION_UID);
 
       // Act - drop one of two registrations.
-      a();
+      a.unregister();
 
       // Assert
       expect(h.upstream.terminate).not.toHaveBeenCalled();
@@ -401,7 +506,7 @@ describe('TranscriptionOrchestratorService', () => {
 
     it('tears down the upstream and publishes a final disconnected status when the last source unregisters', async () => {
       // Arrange
-      const unregister = await registerAndDrain(h, SESSION_UID);
+      const handle = await registerAndDrain(h, SESSION_UID);
       h.upstream.setOpen();
 
       const statuses: {
@@ -417,7 +522,7 @@ describe('TranscriptionOrchestratorService', () => {
       );
 
       // Act
-      unregister();
+      handle.unregister();
 
       // Assert
       expect(h.upstream.terminate).toHaveBeenCalledWith(
@@ -429,15 +534,21 @@ describe('TranscriptionOrchestratorService', () => {
       expect(statuses[statuses.length - 1]).toEqual({
         transcriptionServiceConnected: false,
         sourceDeviceConnected: false,
+        // `null`, not `false`. With the last source gone the mic state is
+        // unknown, not known-off; `false` would render "mic off" against a
+        // session that has no source at all, and would contradict
+        // `getStatus()`, which answers `null` for a session it holds no state
+        // for.
+        sourceMicrophoneActive: null,
       });
     });
 
     it('stops forwarding audio after the last source unregisters', async () => {
       // Arrange
-      const unregister = await registerAndDrain(h, SESSION_UID);
+      const handle = await registerAndDrain(h, SESSION_UID);
 
       // Act
-      unregister();
+      handle.unregister();
       h.upstream.sendBinary.mockClear();
       h.bus.publish(AudioFrameChannel, Buffer.from([1]), SESSION_UID);
 
@@ -455,6 +566,7 @@ describe('TranscriptionOrchestratorService', () => {
       expect(status).toEqual({
         transcriptionServiceConnected: false,
         sourceDeviceConnected: false,
+        sourceMicrophoneActive: null,
       });
     });
 
@@ -470,6 +582,7 @@ describe('TranscriptionOrchestratorService', () => {
       expect(status).toEqual({
         transcriptionServiceConnected: true,
         sourceDeviceConnected: true,
+        sourceMicrophoneActive: null,
       });
     });
   });
@@ -560,12 +673,12 @@ describe('TranscriptionOrchestratorService telemetry (B1.1)', () => {
 
 /**
  * Helper: register a source and drain the long-poll's first data event so
- * the registration promise resolves, returning the unregister function.
+ * the registration promise resolves, returning the source handle.
  */
 async function registerAndDrain(
   h: Harness,
   sessionUid: string,
-): Promise<() => void> {
+): Promise<SourceHandle> {
   const promise = h.orchestrator.registerSource(sessionUid);
   h.longPoll.emit('data', fakeSession({ uid: sessionUid }));
   return await promise;

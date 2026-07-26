@@ -133,6 +133,7 @@ function makeMetrics() {
     recordOrchestratorFailure: vi.fn(),
     recordConnectionOpen: vi.fn(),
     recordConnectionClose: vi.fn(),
+    recordBinaryBeforeAuthDrop: vi.fn(),
   };
 }
 
@@ -395,17 +396,17 @@ describe('TranscriptionStreamController', () => {
       );
     });
 
-    it('closes with 1008 binary-before-auth when a source sends binary before authenticating', () => {
+    it('drops pre-auth binary without closing and counts it (H1)', () => {
       const h = makeHarness('source');
       h.handlers.message(Buffer.from([1]), true);
 
-      expect(h.socket.close).toHaveBeenCalledWith(1008, 'binary-before-auth');
-      expect(h.metrics.recordWsClose).toHaveBeenCalledWith(
-        1008,
-        'binary-before-auth',
-        'source',
-        'server',
-      );
+      // Old behaviour closed 1008 `binary-before-auth` and reconnect-looped
+      // the kiosk; new behaviour drops the worthless pre-auth frame and lets
+      // the socket live to complete auth, after which audio flows.
+      expect(h.socket.close).not.toHaveBeenCalled();
+      expect(h.metrics.recordBinaryBeforeAuthDrop).toHaveBeenCalledTimes(1);
+      // The drop must NOT be double-counted as a ws close.
+      expect(h.metrics.recordWsClose).not.toHaveBeenCalled();
     });
 
     it('closes with 1007 invalid-json when a text message is not valid JSON', () => {

@@ -75,10 +75,40 @@ export interface SessionSnapshot {
   pendingChunkCount: number;
   upstreamState: ConnectionState;
   upstreamRetryAttempt: number;
+  /**
+   * Binary frames received from the source since the session opened, counted
+   * before decode (so a malformed frame still counts as "the source is sending
+   * something"; the malformed subset is tracked by `decodeDropsTotal`).
+   * Monotonic per session (resets when `SessionState` is destroyed). The fleet
+   * dashboard uses this to distinguish "source sent nothing" (0) from "source
+   * is sending but the ASR is silent" (>0) — the ambiguity that made the
+   * original "no audio arriving" report a blind guess.
+   */
+  audioFramesReceived: number;
+  /**
+   * `true` if any connected source reports its mic active, `false` if every
+   * source that has reported says otherwise, `null` if none has reported. The
+   * third case is not the same as "off" and must stay distinguishable: an
+   * older kiosk never sends the message at all.
+   */
+  sourceMicrophoneActive: boolean | null;
+}
+
+/**
+ * Handle returned by {@link TranscriptionOrchestratorService.registerSource}.
+ * The caller MUST call `unregister` when the source connection closes. The
+ * caller SHOULD call `setMicrophoneActive` when the source's mic state
+ * changes (and once after auth to seed it).
+ */
+export interface SourceHandle {
+  unregister: () => void;
+  setMicrophoneActive: (active: boolean) => void;
 }
 
 interface SessionState {
   sourceCount: number;
+  /** Monotonic counter for per-source IDs within this session. */
+  nextSourceId: number;
   /**
    * Provider the upstream was opened against. Read from the session's initial
    * config and kept, rather than re-read from the long-poll on demand, because
@@ -89,6 +119,22 @@ interface SessionState {
   providerKey: string;
   /** Room this session belongs to, if known. Same rationale as `providerKey`. */
   roomUid: string | null;
+  /**
+   * Binary frames received from the source since the session opened.
+   * Incremented in the `AudioFrameChannel` callback before decode, so a
+   * malformed frame still counts as "received" (the source is sending
+   * *something*) — `recordDecodeDrop` already tracks the malformed subset.
+   * Monotonic per session; reset to 0 when `SessionState` is created.
+   */
+  audioFramesReceived: number;
+  /**
+   * Per-source microphone state, keyed by a source ID assigned at
+   * registration. `true` = mic active (unmuted), `false` = mic off.
+   * Absent = source has not reported yet. The aggregate
+   * `sourceMicrophoneActive` is computed in `_setStatus` as "any source
+   * reports true", or `null` when no source has reported.
+   */
+  sourceMicStates: Map<number, boolean | undefined>;
   upstream: UpstreamClient;
   longPoll: SessionConfigPoll;
   audioUnsubscribe: () => void;
@@ -177,19 +223,28 @@ export class TranscriptionOrchestratorService {
    * session opens the upstream transcription connection and starts tracking
    * config via long-poll; subsequent registrations just bump the ref count.
    *
-   * Returns an unregister function the caller MUST invoke when the source
-   * connection closes. The upstream is torn down when the count returns to 0.
+   * Returns a {@link SourceHandle} whose `unregister` the caller MUST invoke
+   * when the source connection closes, and whose `setMicrophoneActive` the
+   * caller SHOULD invoke to report mic state. The upstream is torn down when
+   * the count returns to 0.
    */
-  async registerSource(sessionUid: string): Promise<() => void> {
+  async registerSource(sessionUid: string): Promise<SourceHandle> {
     let state = this._sessions.get(sessionUid);
     if (state === undefined) {
       state = await this._openSession(sessionUid);
       this._sessions.set(sessionUid, state);
     }
+    const sourceId = state.nextSourceId++;
     state.sourceCount += 1;
+    state.sourceMicStates.set(sourceId, undefined);
     this._setStatus(sessionUid, state);
-    return () => {
-      this._unregisterSource(sessionUid);
+    return {
+      unregister: () => {
+        this._unregisterSource(sessionUid, sourceId);
+      },
+      setMicrophoneActive: (active: boolean) => {
+        this._setSourceMicrophone(sessionUid, sourceId, active);
+      },
     };
   }
 
@@ -225,6 +280,7 @@ export class TranscriptionOrchestratorService {
       return {
         transcriptionServiceConnected: false,
         sourceDeviceConnected: false,
+        sourceMicrophoneActive: null,
       };
     }
     return state.status;
@@ -267,6 +323,8 @@ export class TranscriptionOrchestratorService {
         pendingChunkCount: state.pendingChunks.size,
         upstreamState: state.upstream.state,
         upstreamRetryAttempt: state.upstream.attempt,
+        audioFramesReceived: state.audioFramesReceived,
+        sourceMicrophoneActive: this._aggregateMicState(state),
       });
     }
     return { sessions, truncated: this._sessions.size > sessions.length };
@@ -281,11 +339,13 @@ export class TranscriptionOrchestratorService {
     const next: SessionStatusMessage = {
       transcriptionServiceConnected: state.upstream.state === 'OPEN',
       sourceDeviceConnected: state.sourceCount > 0,
+      sourceMicrophoneActive: this._aggregateMicState(state),
     };
     if (
       next.transcriptionServiceConnected ===
         state.status.transcriptionServiceConnected &&
-      next.sourceDeviceConnected === state.status.sourceDeviceConnected
+      next.sourceDeviceConnected === state.status.sourceDeviceConnected &&
+      next.sourceMicrophoneActive === state.status.sourceMicrophoneActive
     ) {
       return;
     }
@@ -296,6 +356,38 @@ export class TranscriptionOrchestratorService {
       ...next,
       at: Date.now(),
     });
+  }
+
+  /**
+   * Computes the aggregate mic state: `true` if any source reports mic
+   * active, `false` if all sources report mic off, `null` if no source has
+   * reported yet. A disconnected source is removed from the map by
+   * `_unregisterSource`, so stale entries don't influence the aggregate.
+   */
+  private _aggregateMicState(state: SessionState): boolean | null {
+    if (state.sourceMicStates.size === 0) return null;
+    let anyReported = false;
+    for (const micState of state.sourceMicStates.values()) {
+      if (micState === true) return true;
+      if (micState === false) anyReported = true;
+    }
+    return anyReported ? false : null;
+  }
+
+  /**
+   * Update one source's mic state and recompute the aggregate. Called by the
+   * `SourceHandle.setMicrophoneActive` closure.
+   */
+  private _setSourceMicrophone(
+    sessionUid: string,
+    sourceId: number,
+    active: boolean,
+  ): void {
+    const state = this._sessions.get(sessionUid);
+    if (state === undefined) return;
+    if (!state.sourceMicStates.has(sourceId)) return;
+    state.sourceMicStates.set(sourceId, active);
+    this._setStatus(sessionUid, state);
   }
 
   /**
@@ -402,14 +494,56 @@ export class TranscriptionOrchestratorService {
     const longPoll = this._sessionConfigPollFactory(sessionUid);
     const initial = await this._awaitFirstConfig(longPoll, sessionUid);
 
-    const upstream = this._transcriptionServiceClient.transcriptionStream({
-      params: { providerKey: initial.transcriptionProviderId },
-    });
+    // The config the upstream must be (re)told about on every connection. Held
+    // in a mutable box rather than read from `initial` so a reconnect after a
+    // config bump replays the CURRENT config, not the one this session opened
+    // with. Updated by the long-poll handler below.
+    let currentConfig = initial;
+
+    const upstream = this._transcriptionServiceClient.transcriptionStream(
+      { params: { providerKey: initial.transcriptionProviderId } },
+      {
+        // Auth and config belong in the handshake, not in a one-time send after
+        // start(). The transcription service closes 1008 "Audio chunk before
+        // authentication" on any binary that arrives unauthenticated, and this
+        // client reconnects automatically - so sending them once meant that the
+        // FIRST upstream blip permanently broke the session: reconnect, forward
+        // audio, get closed, repeat forever, with the source still happily
+        // streaming and nothing reaching a provider.
+        //
+        // Running here also fixes the ordering hazard. `onHandshake`'s sender
+        // writes straight to the socket while the client is still HANDSHAKING,
+        // and the outbound queue is not flushed until it reaches OPEN. Audio
+        // buffered during the outage therefore lands strictly after auth and
+        // config, instead of racing ahead of them - and it can no longer evict
+        // them, which a 64-slot drop-oldest queue at ~10 frames/s otherwise did
+        // after ~6.4s of any upstream that was slow to accept (a cold CUDA
+        // model load being the obvious one).
+        onHandshake: (sender) => {
+          sender.send({
+            type: TranscriptionStreamClientMessageType.AUTH,
+            api_key: this._transcriptionApiKey,
+          });
+          sender.send({
+            type: TranscriptionStreamClientMessageType.CONFIG,
+            // Trusted by Session Manager when the session was created; the
+            // upstream provider validates its own config schema on receipt.
+            config: currentConfig.transcriptionStreamConfig as never,
+            session_uid: sessionUid,
+            room_uid: currentConfig.roomUid,
+          });
+          return Promise.resolve();
+        },
+      },
+    );
 
     const state: SessionState = {
       sourceCount: 0,
+      nextSourceId: 0,
       providerKey: initial.transcriptionProviderId,
       roomUid: initial.roomUid,
+      audioFramesReceived: 0,
+      sourceMicStates: new Map(),
       upstream,
       longPoll,
       audioUnsubscribe: () => {
@@ -465,23 +599,17 @@ export class TranscriptionOrchestratorService {
       this._setStatus(sessionUid, state);
     });
 
+    // Auth and config are sent by `onHandshake` above, on this connection and
+    // on every reconnect after it.
     upstream.start();
-    upstream.send({
-      type: TranscriptionStreamClientMessageType.AUTH,
-      api_key: this._transcriptionApiKey,
-    });
-    upstream.send({
-      type: TranscriptionStreamClientMessageType.CONFIG,
-      // Trusted by Session Manager when the session was created; the
-      // upstream provider validates its own config schema on receipt.
-      config: initial.transcriptionStreamConfig as never,
-      session_uid: sessionUid,
-      room_uid: initial.roomUid,
-    });
 
     state.audioUnsubscribe = this._eventBus.subscribe(
       AudioFrameChannel,
       (frame) => {
+        // Count every frame the source sent — before decode, so a malformed
+        // frame still registers as "the source is sending something." The
+        // malformed subset is tracked separately by recordDecodeDrop.
+        state.audioFramesReceived += 1;
         // Stamp ingress on the monotonic clock before any work, so the
         // pipeline latency excludes our own decode cost.
         const recvMono = performance.now();
@@ -515,6 +643,9 @@ export class TranscriptionOrchestratorService {
     );
 
     longPoll.on('data', (session) => {
+      // Keep the handshake's view current, so a reconnect replays this config
+      // rather than the one the session opened with.
+      currentConfig = session;
       // Future iteration: reconnect the upstream if `transcriptionProviderId`
       // changed, or push a new CONFIG message if only the config did. For
       // now we just log so the long-poll keeps the cursor advancing and we
@@ -623,10 +754,11 @@ export class TranscriptionOrchestratorService {
     });
   }
 
-  private _unregisterSource(sessionUid: string): void {
+  private _unregisterSource(sessionUid: string, sourceId: number): void {
     const state = this._sessions.get(sessionUid);
     if (state === undefined) return;
     state.sourceCount -= 1;
+    state.sourceMicStates.delete(sourceId);
     if (state.sourceCount > 0) {
       this._setStatus(sessionUid, state);
       return;
@@ -650,7 +782,17 @@ export class TranscriptionOrchestratorService {
     ) {
       this._eventBus.publish(
         SessionStatusChannel,
-        { transcriptionServiceConnected: false, sourceDeviceConnected: false },
+        {
+          transcriptionServiceConnected: false,
+          sourceDeviceConnected: false,
+          // `null`, not `false`: the last source has gone, so the mic state is
+          // unknown rather than known-off. Reporting `false` here would put
+          // "mic off" on a session that has no source at all - which is the
+          // same species of misleading readout this field exists to remove,
+          // and would disagree with `getStatus()`, which already answers
+          // `null` for a session it holds no state for.
+          sourceMicrophoneActive: null,
+        },
         sessionUid,
       );
     }

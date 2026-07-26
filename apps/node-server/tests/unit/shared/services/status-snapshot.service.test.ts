@@ -17,6 +17,8 @@ function gauges(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
     pendingChunkCount: 3,
     upstreamState: 'OPEN',
     upstreamRetryAttempt: 0,
+    audioFramesReceived: 0,
+    sourceMicrophoneActive: null,
     ...overrides,
   };
 }

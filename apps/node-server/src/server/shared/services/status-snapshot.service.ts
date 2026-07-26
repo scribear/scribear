@@ -45,6 +45,7 @@ export class StatusSnapshotService {
       summary: {
         activeSessionCount: this._orchestrator.activeSessionCount,
         decodeDropsTotal: counters.decodeDropsTotal,
+        binaryBeforeAuthDropsTotal: counters.binaryBeforeAuthDropsTotal,
         pendingChunkEvictionsTotal: counters.pendingChunkEvictionsTotal,
         upstreamChurnTotal: counters.upstreamChurnTotal,
         authSuccessTotal: counters.authSuccessTotal,

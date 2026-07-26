@@ -214,7 +214,21 @@ export class TranscriptionStreamController {
           return;
         }
         if (!ready) {
-          closeWith(1008, 'binary-before-auth');
+          // Drop pre-auth binary and count it rather than closing the socket.
+          // A source that begins streaming before AUTH_OK (the kiosk did this
+          // historically, starting capture on socket `open`) would otherwise be
+          // closed 1008 `binary-before-auth` and reconnect-loop: the default
+          // auto-reconnect re-sends AUTH, the next first chunk again beats
+          // AUTH_OK, and the cycle repeats with no audio ever delivered. The
+          // frame is worthless here regardless — the orchestrator has not
+          // subscribed yet — so dropping is strictly the better failure mode:
+          // the socket lives to complete auth, after which audio flows.
+          // The auth-timeout watchdog still closes a socket that never auths.
+          this._metrics.recordBinaryBeforeAuthDrop();
+          this._logger.debug(
+            { sessionUid, role },
+            'dropping binary frame received before auth completed',
+          );
           return;
         }
         const buffer = Buffer.isBuffer(data)
@@ -257,6 +271,14 @@ export class TranscriptionStreamController {
             t0: parsed.t0,
             t1: Date.now(),
           });
+          break;
+        case TranscriptionStreamClientMessageType.SOURCE_STATE:
+          // Forward the source's mic state to the orchestrator so the fleet
+          // dashboard can distinguish "mic is off" from "something broke."
+          // Ignored for client-role connections (no orchestrator handle).
+          if (ready) {
+            service?.handleSourceState(parsed.microphoneActive);
+          }
           break;
       }
     });

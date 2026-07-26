@@ -314,8 +314,16 @@ export interface SessionSnapshot {
   pendingChunkCount: number;
   upstreamState: UpstreamState;
   upstreamRetryAttempt: number;
-  latency: LatencySeries[];
-  /** Publish time, epoch ms, on the publishing host's clock. */
+  /**
+   * Binary frames received from the source since the session opened, counted
+   * before decode (malformed frames included - they still prove the source is
+   * sending). Optional: older node-server publishers that predate it omit it.
+   * 0 = source sent nothing; >0 = source is sending (lets the fleet view
+   * distinguish "kiosk sent nothing" from "upstream broke").
+   */
+  audioFramesReceived?: number;
+  sourceMicrophoneActive?: boolean | null;
+  latency: LatencySeries[]; /** Publish time, epoch ms, on the publishing host's clock. */
   updatedAt: number;
   nodeInstanceId: string;
   processUid: string;
@@ -590,6 +598,7 @@ export interface SessionStatusEvent {
   sessionUid: string;
   transcriptionServiceConnected: boolean;
   sourceDeviceConnected: boolean;
+  sourceMicrophoneActive?: boolean | null;
   /** Publish time, epoch ms, on the publisher's clock. */
   at: number;
 }

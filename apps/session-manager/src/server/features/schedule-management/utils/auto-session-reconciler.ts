@@ -8,6 +8,14 @@ import { buildAutoSessionRow } from './occurrence-to-session.js';
 import { materializeWindow } from './window-materializer.js';
 
 /**
+ * The largest value a JS `Date` can hold, standing in for the database's
+ * `'infinity'` upper bound on an open-ended session. Slots are always clipped
+ * to a window's own end, so using it as a blocker end simply means "blocks
+ * everything after this point", which is what an open-ended session does.
+ */
+const END_OF_TIME = new Date(8_640_000_000_000_000);
+
+/**
  * Brings the room's auto sessions into agreement with its active windows and
  * non-auto sessions over `[now, windowEnd]`. Used by every schedule and
  * window write path.
@@ -71,9 +79,21 @@ export async function reconcileAutoSessions(
 
   const blockerSessions = nonAuto.map((s) => ({
     effectiveStart: s.effectiveStart,
-    // Open-ended on-demand sessions block any auto session beyond `now` -
-    // model that as a session that ends at the materialization horizon.
-    effectiveEnd: s.effectiveEnd ?? windowEnd,
+    // Open-ended on-demand sessions block every auto session after them, so
+    // they have to block to the actual end of time rather than to the
+    // materialization horizon.
+    //
+    // Bounding them at `windowEnd` looks equivalent and is not: window
+    // occurrences are expanded per local day and routinely run PAST the
+    // horizon (a 00:00-23:59 daily window on the horizon day ends at 23:59,
+    // hours after a horizon that lands mid-afternoon). That leaves a gap
+    // between the blocker's end and the occurrence's end, the materializer
+    // dutifully fills it with an AUTO slot, and that slot overlaps a session
+    // the database models as `[start, infinity)`. The deferred exclusion
+    // constraint then rejects the whole transaction at COMMIT - so creating an
+    // on-demand session in any room with auto-sessions enabled failed with a
+    // 500 rather than pre-empting the AUTO session as intended.
+    effectiveEnd: s.effectiveEnd ?? END_OF_TIME,
   }));
 
   const active = await repo.findActiveAutoSession(db, roomUid, now);

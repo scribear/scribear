@@ -130,6 +130,18 @@ export const STATUS_SESSION_SCHEMA = Type.Object(
       description:
         'Consecutive reconnect attempts for this session’s upstream. Non-zero while flapping; back to 0 once a connection is established.',
     }),
+    audioFramesReceived: Type.Optional(
+      Type.Integer({
+        description:
+          'Binary frames received from the source since the session opened, counted before decode so a malformed frame still registers as "the source is sending something" (the malformed subset is `decodeDropsTotal`). Monotonic per session, resets on session end. Lets the fleet dashboard distinguish "source sent nothing" (0) from "source is sending but the ASR is silent" (>0) — the two cases that "no audio reaching ASR" alone cannot tell apart. Optional for backward-compat with older publishers that do not emit it.',
+      }),
+    ),
+    sourceMicrophoneActive: Type.Optional(
+      Type.Union([Type.Boolean(), Type.Null()], {
+        description:
+          'Whether at least one connected source has its microphone active (unmuted). Null when no source has reported state yet. Absent when no source has reported and the publisher predates the field. Lets the fleet dashboard distinguish "mic is off" from "something broke" when no audio frames arrive.',
+      }),
+    ),
     latency: Type.Array(LATENCY_SERIES_SCHEMA, {
       description: `Per-session latency (B1.4). ${LATENCY_ARRAY_DESCRIPTION} Retained per session and discarded when the session’s last connection closes, so unlike the process-wide series these describe live rooms only.`,
     }),
@@ -169,6 +181,18 @@ export const STATUS_PROCESS_SCHEMA = Type.Object({
     decodeDropsTotal: Type.Integer({
       description: 'Malformed SAFP frames dropped rather than forwarded (U2).',
     }),
+    // Optional for the same reason as `audioFramesReceived` below, and it
+    // matters more here: this record is republished to Redis and read back by
+    // admin-server through a strict `Value.Check`, so a required field that an
+    // older publisher omits does not degrade to a missing counter - it fails
+    // the whole snapshot and the node disappears from the fleet view for the
+    // length of a rolling deploy.
+    binaryBeforeAuthDropsTotal: Type.Optional(
+      Type.Integer({
+        description:
+          'Binary frames a source sent before its AUTH handshake completed. Dropped rather than closed: a source that starts streaming before AUTH_OK would otherwise be closed 1008 `binary-before-auth` and reconnect-loop, because each reconnect re-sends AUTH and the next first chunk again beats AUTH_OK. Optional for backward-compat with publishers that predate it.',
+      }),
+    ),
     pendingChunkEvictionsTotal: Type.Integer({
       description:
         'Uncorrelated audio frames evicted at the per-session cap (N3).',

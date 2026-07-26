@@ -943,6 +943,50 @@ describe('Schedule Management Routes', () => {
       expect(res.json<{ code: string }>().code).toBe('ROOM_NOT_FOUND');
     });
 
+    it('pre-empts a running AUTO session instead of failing on the overlap constraint', async () => {
+      // Regression: an open-ended ON_DEMAND session is `[start, infinity)` in
+      // the database, but the reconciler used to model it as merely blocking up
+      // to the materialization horizon. Window occurrences run past that
+      // horizon (a round-the-clock window on the horizon day ends at 23:59,
+      // hours after a horizon that lands mid-afternoon), so the materializer
+      // filled the leftover gap with an AUTO slot that overlapped the
+      // open-ended session, and the deferred exclusion constraint rejected the
+      // whole transaction at COMMIT. The effect was that a room with
+      // auto-sessions switched on could not create an on-demand session at all.
+      // Arrange - a room whose auto-session window is active right now.
+      const { roomUid } = await setupRoom();
+      await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/update-room-schedule-config`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { roomUid, autoSessionEnabled: true },
+      });
+      const window = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/create-auto-session-window`,
+        headers: { authorization: ADMIN_HEADER },
+        body: defaultWindowBody(roomUid, {
+          localStartTime: '00:00:00',
+          localEndTime: '23:59:59',
+          daysOfWeek: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'],
+          activeStart: '2020-01-01T00:00:00.000Z',
+        }),
+      });
+      expect(window.statusCode).toBe(201);
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/create-on-demand-session`,
+        headers: { authorization: ADMIN_HEADER },
+        body: makeBody(roomUid, { name: 'Pre-empts the AUTO session' }),
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(201);
+      expect(res.json<{ type: string }>().type).toBe('ON_DEMAND');
+    });
+
     it('returns 409 when another non-AUTO session is already active', async () => {
       // Arrange
       const { roomUid } = await setupRoom();

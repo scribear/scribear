@@ -42,6 +42,7 @@ import {
 
 import { JoinSessionModal } from '#src/features/session-provider/components/join-session-modal';
 import { LatencyBadge } from '#src/features/session-provider/components/latency-badge';
+import { LeaveSessionButton } from '#src/features/session-provider/components/leave-session-button';
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
 /**
@@ -135,7 +136,7 @@ export const Root = () => {
       isHeaderHideEnabled={isHeaderHideEnabled}
       onToggleHeaderHide={() => dispatch(toggleHeaderHide())}
       drawerContent={DrawerMenus}
-      headerButtons={[]}
+      headerButtons={[<LeaveSessionButton key="leave" />]}
       headerBreakpoint="md"
     >
       <JoinSessionModal />

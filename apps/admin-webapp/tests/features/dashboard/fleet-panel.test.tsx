@@ -342,15 +342,22 @@ describe('SessionCard with no audio snapshot', (it) => {
     vi.mocked(useFleet).mockReset();
   });
 
-  it('renders "no audio reaching ASR" for an OPEN session rather than an empty strip', () => {
+  it('names the source as the suspect for an OPEN session with no frames received', () => {
     // PLAN-AUDIOVIZ §7.2: when there is no snapshot for an OPEN session the
     // strip must render the finding, not disappear — the absence *is* failure
     // mode C1. An empty space reads as "nothing to report".
     //
+    // `audioFramesReceived: 0` splits that finding one level further: the
+    // upstream is open and node-server has received nothing, so the source is
+    // the thing to go and look at.
+    //
     // The session event is only here to get the card past the grid's default
     // `['crit','warn']` connectivity filter; an OPEN session with a healthy
     // stream derives `good` and would be filtered out.
-    const session = buildSession({ upstreamState: 'OPEN' });
+    const session = buildSession({
+      upstreamState: 'OPEN',
+      audioFramesReceived: 0,
+    });
     const events = new Map<string, SessionStatusEvent>([
       [
         session.sessionUid,
@@ -366,7 +373,38 @@ describe('SessionCard with no audio snapshot', (it) => {
 
     mountFleet([session], [], events);
 
-    expect(screen.getByText('no audio reaching ASR')).toBeInTheDocument();
+    expect(screen.getByText('no audio from source')).toBeInTheDocument();
+  });
+
+  it('blames the pipeline, not the source, once frames have been received', () => {
+    // The other half of the split. Same visible state - upstream OPEN, no audio
+    // snapshot - but node-server has counted frames from the source, so the
+    // microphone is provably fine and the break is downstream. Telling these
+    // two apart is the whole point of the counter: without it both read as "no
+    // audio reaching ASR" and every investigation starts by checking the mic.
+    const session = buildSession({
+      upstreamState: 'OPEN',
+      audioFramesReceived: 1200,
+    });
+    const events = new Map<string, SessionStatusEvent>([
+      [
+        session.sessionUid,
+        {
+          t: 'session',
+          sessionUid: session.sessionUid,
+          transcriptionServiceConnected: false,
+          sourceDeviceConnected: true,
+          at: 1_000,
+        },
+      ],
+    ]);
+
+    mountFleet([session], [], events);
+
+    expect(
+      screen.getByText('audio received, not reaching ASR'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('no audio from source')).not.toBeInTheDocument();
   });
 
   it('renders the softer "no audio telemetry" when the session is not OPEN', () => {
@@ -375,7 +413,7 @@ describe('SessionCard with no audio snapshot', (it) => {
     mountFleet([visibleSession({ upstreamState: 'CONNECTING' })], []);
 
     expect(screen.getByText('no audio telemetry')).toBeInTheDocument();
-    expect(screen.queryByText('no audio reaching ASR')).not.toBeInTheDocument();
+    expect(screen.queryByText('no audio from source')).not.toBeInTheDocument();
   });
 });
 

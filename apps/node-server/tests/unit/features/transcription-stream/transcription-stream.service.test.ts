@@ -38,17 +38,22 @@ function makeHarness(
   const logger = createMockLogger();
   const bus = new EventBusService(logger as never);
   const unregisterSource = vi.fn();
+  const setMicrophoneActive = vi.fn();
   const registerSource = vi.fn(() => {
     if (options.registerThrows) {
       return Promise.reject(new Error('orchestrator-down'));
     }
-    return Promise.resolve(unregisterSource);
+    return Promise.resolve({
+      unregister: unregisterSource,
+      setMicrophoneActive,
+    });
   });
   const getStatus = vi.fn(
     () =>
       options.initialStatus ?? {
         transcriptionServiceConnected: false,
         sourceDeviceConnected: false,
+        sourceMicrophoneActive: null,
       },
   );
   const orchestrator = {
@@ -190,11 +195,17 @@ describe('TranscriptionStreamService', () => {
 
     it('releases the orchestrator registration when the connection closed mid-start', async () => {
       // Arrange - delay the registerSource resolution so we can close before it returns.
-      let resolveRegister: (unregister: () => void) => void = () => undefined;
+      let resolveRegister: (handle: {
+        unregister: () => void;
+        setMicrophoneActive: () => void;
+      }) => void = () => undefined;
       const unregister = vi.fn();
       const registerSource = vi.fn(
         () =>
-          new Promise<() => void>((resolve) => {
+          new Promise<{
+            unregister: () => void;
+            setMicrophoneActive: () => void;
+          }>((resolve) => {
             resolveRegister = resolve;
           }),
       );
@@ -221,7 +232,10 @@ describe('TranscriptionStreamService', () => {
       // Act - close before resolving the registration.
       const pending = service.start();
       service.close();
-      resolveRegister(unregister);
+      resolveRegister({
+        unregister,
+        setMicrophoneActive: vi.fn(),
+      });
       await pending;
 
       // Assert
