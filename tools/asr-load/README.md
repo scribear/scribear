@@ -68,9 +68,20 @@ neither column alone would have shown it.
 
 Expect `max` to be several times `mean`. Each job period re-transcribes the
 whole buffer, so cost tracks buffer length, which VAD and finalization keep
-short most of the time and occasionally do not. A `max` near
-`100% × sessions × (job period / transcribe time)` means the provider is at the
-edge of keeping up; past that it is falling behind and latency grows.
+short most of the time and occasionally do not.
+
+A session costs roughly `100% × (transcribe time / job period)`, which makes
+**100% per session the edge**: there, a transcribe takes as long as the period
+that triggers it and no slack is left. Past it the provider falls behind and
+caption latency grows with nothing reporting an error. On an RTX 5070 Ti with
+`turbo`, a full 30s buffer takes ~680ms against a 500ms period, so a single
+session's `max` sits near 100% during full-buffer bursts even with the CPU waste
+gone.
+
+`--sessions` does not multiply that cost the way you might expect:
+`num_workers` (default 1) bounds concurrency independently of cores, because
+sessions sharing a worker take turns in its job loop. Three sessions cost about
+one core in total, not three.
 
 ## Options
 
