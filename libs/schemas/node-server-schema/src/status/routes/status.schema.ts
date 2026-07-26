@@ -175,10 +175,18 @@ export const STATUS_PROCESS_SCHEMA = Type.Object({
     decodeDropsTotal: Type.Integer({
       description: 'Malformed SAFP frames dropped rather than forwarded (U2).',
     }),
-    binaryBeforeAuthDropsTotal: Type.Integer({
-      description:
-        'Binary frames a source sent before its AUTH handshake completed (H1). Dropped rather than closed: a source that starts streaming before AUTH_OK would otherwise be closed 1008 `binary-before-auth` and reconnect-loop, because each reconnect re-sends AUTH and the next first chunk again beats AUTH_OK.',
-    }),
+    // Optional for the same reason as `audioFramesReceived` below, and it
+    // matters more here: this record is republished to Redis and read back by
+    // admin-server through a strict `Value.Check`, so a required field that an
+    // older publisher omits does not degrade to a missing counter - it fails
+    // the whole snapshot and the node disappears from the fleet view for the
+    // length of a rolling deploy.
+    binaryBeforeAuthDropsTotal: Type.Optional(
+      Type.Integer({
+        description:
+          'Binary frames a source sent before its AUTH handshake completed. Dropped rather than closed: a source that starts streaming before AUTH_OK would otherwise be closed 1008 `binary-before-auth` and reconnect-loop, because each reconnect re-sends AUTH and the next first chunk again beats AUTH_OK. Optional for backward-compat with publishers that predate it.',
+      }),
+    ),
     pendingChunkEvictionsTotal: Type.Integer({
       description:
         'Uncorrelated audio frames evicted at the per-session cap (N3).',
