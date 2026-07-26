@@ -684,7 +684,44 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
       ? this._nodeServerClient.transcriptionStreamSource
       : this._nodeServerClient.transcriptionStreamClient;
 
-    const socket = factory({ params: { sessionUid: session.uid } });
+    const socket = factory(
+      { params: { sessionUid: session.uid } },
+      {
+        // Authenticate in the handshake and wait for `authOk` before the client
+        // reports OPEN. The node server closes the socket with 1008
+        // `binary-before-auth` on any binary frame that arrives before auth has
+        // completed, and completing it is not instant on the server side: the
+        // first source on a session waits for `registerSource` to fetch the
+        // session config. Sending `auth` from the `open` handler and starting
+        // capture on the next line left that as a race the source lost whenever
+        // the server was the slower of the two.
+        //
+        // Doing it here closes the race by construction rather than by timing:
+        // `sendBinary` only reaches the socket once the client is OPEN, and the
+        // client does not reach OPEN until this resolves. It also means every
+        // reconnect re-authenticates with the current token, instead of relying
+        // on the `open` handler to remember to.
+        onHandshake: async (sender, messages) => {
+          const sessionToken = this._sessionToken;
+          if (sessionToken === null) return;
+          sender.send({
+            type: TranscriptionStreamClientMessageType.AUTH,
+            sessionToken,
+          });
+          await new Promise<void>((resolve) => {
+            const onMessage = (msg: {
+              type: TranscriptionStreamServerMessageType;
+            }) => {
+              if (msg.type === TranscriptionStreamServerMessageType.AUTH_OK) {
+                messages.off('message', onMessage);
+                resolve();
+              }
+            };
+            messages.on('message', onMessage);
+          });
+        },
+      },
+    );
     this._socket = socket;
 
     socket.on('stateChange', (to) => {
@@ -698,14 +735,14 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     });
 
     socket.on('open', () => {
-      // Send the auth message once the socket is open. The server replies
-      // with `authOk`; we just wait for it as part of the message stream.
+      // Auth already completed in the handshake above, so reaching OPEN means
+      // the server has accepted us and binary frames are safe to send.
+      //
+      // This fires again on every reconnect, so both calls below must be safe
+      // to repeat: each replaces its predecessor rather than stacking a second
+      // interval and a second live microphone stream on top of it.
       const sessionToken = this._sessionToken;
       if (sessionToken === null) return;
-      socket.send({
-        type: TranscriptionStreamClientMessageType.AUTH,
-        sessionToken,
-      });
       this._scheduleTokenRefresh(sessionToken, session.uid);
 
       if (isSource) {
@@ -785,12 +822,24 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
       });
     };
     sendPing();
+    // Replace rather than stack: this runs again on every reconnect, and a
+    // leaked interval would keep pinging on behalf of a dead socket forever.
+    if (this._timeSyncTimer !== null) clearInterval(this._timeSyncTimer);
     this._timeSyncTimer = setInterval(sendPing, TIME_SYNC_INTERVAL_MS);
   }
 
   private async _beginAudioCapture(
     socket: WebSocketClient<typeof TRANSCRIPTION_STREAM_SCHEMA>,
   ): Promise<void> {
+    // A reconnect calls this again. The previous stream captured the previous
+    // socket handle, so its chunks are already discarded by the identity check
+    // below - but it is still an open AudioContext with a live worklet, and
+    // leaving one behind per reconnect leaks them for the life of the page.
+    if (this._audioStream !== null) {
+      this._microphoneService.closeAudioStream(this._audioStream);
+      this._audioStream = null;
+    }
+
     const stream = await this._microphoneService.getAudioStream(
       AUDIO_CHANNELS,
       AUDIO_SAMPLE_RATE,
