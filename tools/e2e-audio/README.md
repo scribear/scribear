@@ -20,12 +20,11 @@ and a deliberately broken upstream.
 ## Run
 
 ```bash
-# One-shot: does audio flow at all?
-node tools/e2e-audio/kiosk-audio-e2e.mjs --activation-code ABCD1234
+# Everything, from nothing: provisions a device/room/session, then checks audio.
+npm run e2e:audio -- --provision
 
 # The regression check: break the upstream mid-stream, require recovery.
-node tools/e2e-audio/kiosk-audio-e2e.mjs \
-  --activation-code ABCD1234 \
+npm run e2e:audio -- --provision \
   --stream-seconds 120 \
   --restart-cmd 'docker compose -f deployment/compose.yml restart transcription-service'
 ```
@@ -35,7 +34,12 @@ result as JSON for CI.
 
 ## Setup
 
-The device must be registered and its room must have an active session:
+`--provision` does it for you: it reads `SESSION_MANAGER_API_KEY` from
+`deployment/.env`, registers a device, creates a room with that device as its
+source, and opens an on-demand session — all uniquely named, so repeated runs
+never collide.
+
+Do it by hand only if you want to point at an existing device:
 
 ```bash
 cd deployment
@@ -44,8 +48,20 @@ cd deployment
 ./create-session.sh <roomUid> e2e-session # on-demand, starts immediately
 ```
 
-Activation codes are **single-use**: each run needs a fresh one, or a device
-that is already activated in a profile you keep.
+then pass `--activation-code`. Activation codes are **single-use**, which is
+the main reason `--provision` exists: the manual path burns a device per run
+and every failed run leaves an orphan room behind.
+
+## Testing a calendared session
+
+The point of a calendared session is that the kiosk is already running and idle
+when the session starts, so it must make the UPCOMING → ACTIVE transition on its
+own. Create the schedule, then start the run with a wait long enough to cover
+the gap:
+
+```bash
+npm run e2e:audio -- --activation-code ABCD1234 --session-wait-seconds 300
+```
 
 ## Options
 

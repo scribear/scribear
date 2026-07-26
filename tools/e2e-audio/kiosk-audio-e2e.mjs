@@ -3,11 +3,20 @@
  * transcription provider, and does it stay working after the upstream restarts?
  *
  * Usage:
+ *   node tools/e2e-audio/kiosk-audio-e2e.mjs --provision [options]
  *   node tools/e2e-audio/kiosk-audio-e2e.mjs --activation-code <CODE> [options]
  *
  * Options:
+ *   --provision            register a device, room and on-demand session first,
+ *                          reading the admin key from deployment/.env. Removes
+ *                          the manual setup entirely; without it you must
+ *                          supply --activation-code for an existing device
+ *                          whose room already has an active session.
  *   --base-url <url>       default https://localhost
  *   --stream-seconds <n>   default 45   how long to stream before scoring
+ *   --session-wait-seconds <n>  default 60. Raise it to test a CALENDARED
+ *                          session, where the kiosk must be running and idle
+ *                          before the session starts.
  *   --restart-cmd <cmd>    shell command that restarts the transcription
  *                          service. When given, it runs mid-stream and the run
  *                          only passes if transcripts resume afterwards.
@@ -22,12 +31,11 @@
  * connection. Nothing short of driving the real browser and then breaking the
  * upstream underneath it catches that.
  *
- * Requires a running stack (deployment/compose.yml) and a registered source
- * device whose room has an active session. Chrome is auto-detected from
- * CHROME_PATH, then the usual system locations.
+ * Requires a running stack (deployment/compose.yml). Chrome is auto-detected
+ * from CHROME_PATH, then the usual system locations.
  */
 import { execSync } from 'node:child_process';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -67,11 +75,13 @@ function parseArgs(argv) {
     activationCode: '',
     restartCmd: '',
     sessionWaitSeconds: 60,
+    provision: false,
     json: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (flag === '--json') args.json = true;
+    else if (flag === '--provision') args.provision = true;
     else if (flag === '--base-url') args.baseUrl = argv[++i];
     else if (flag === '--stream-seconds')
       args.streamSeconds = Number(argv[++i]);
@@ -84,6 +94,72 @@ function parseArgs(argv) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Read `deployment/.env` for the admin key. Deliberately a plain scan rather
+ * than a dotenv dependency: one key is needed and the file's own values are
+ * unquoted shell-hostile strings, so `source`-ing it is worse than reading it.
+ */
+function loadDeploymentEnv() {
+  const path = join(__dirname, '..', '..', 'deployment', '.env');
+  if (!existsSync(path)) {
+    throw new Error(`--provision needs ${path}, which does not exist.`);
+  }
+  const env = {};
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    const match = /^\s*([A-Z0-9_]+)\s*=\s*(.*)$/.exec(line);
+    if (match) env[match[1]] = match[2].trim().replace(/^["']|["']$/g, '');
+  }
+  return env;
+}
+
+/**
+ * Register a device, put it in a fresh room as the source, and open an
+ * on-demand session there. Returns the activation code.
+ *
+ * Worth automating rather than documenting: activation codes are single-use, so
+ * the manual path burns a device per run and every failed run leaves another
+ * orphan room behind.
+ */
+function provision(baseUrl, log) {
+  const env = loadDeploymentEnv();
+  const key = env.SESSION_MANAGER_API_KEY;
+  if (!key) {
+    throw new Error('deployment/.env has no SESSION_MANAGER_API_KEY.');
+  }
+  const api = `${baseUrl}/api/session-manager/v1`;
+  const post = (path, body) => {
+    const out = execSync(
+      `curl -sk -X POST ${api}/${path} -H 'Content-Type: application/json' ` +
+        `-H 'Authorization: Bearer ${key}' -d '${JSON.stringify(body)}'`,
+      { encoding: 'utf8' },
+    );
+    const parsed = JSON.parse(out);
+    if (parsed.code) {
+      throw new Error(`${path} failed: ${parsed.code} ${parsed.message ?? ''}`);
+    }
+    return parsed;
+  };
+
+  // Unique names so repeated runs never collide on a leftover room.
+  const stamp = `e2e-${process.pid}-${Math.floor(Date.now() / 1000)}`;
+  const device = post('device-management/register-device', { name: stamp });
+  const room = post('room-management/create-room', {
+    name: stamp,
+    timezone: 'UTC',
+    autoSessionEnabled: false,
+    sourceDeviceUids: [device.deviceUid],
+  });
+  post('schedule-management/create-on-demand-session', {
+    roomUid: room.uid,
+    name: stamp,
+    joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS'],
+    transcriptionProviderId: 'whisper',
+    transcriptionStreamConfig: {},
+  });
+  log(`--- provisioned device ${device.deviceUid} in room ${room.uid}`);
+  return device.activationCode;
+}
 
 /** Click the first visible control whose text or aria-label contains `needle`. */
 function clickByText(page, needle) {
@@ -105,6 +181,10 @@ async function main() {
   const log = (...m) => {
     if (!args.json) console.log(...m);
   };
+
+  if (args.provision) {
+    args.activationCode = provision(args.baseUrl, log);
+  }
 
   const browser = await puppeteer.launch({
     executablePath: resolveChrome(),
