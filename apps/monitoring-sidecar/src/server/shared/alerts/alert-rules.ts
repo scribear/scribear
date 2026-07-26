@@ -74,6 +74,15 @@ export interface AlertThresholds {
   bufferOverflowCount: number;
   /** p95 real-time factor at or above which T1 fires (1.0 = realtime). */
   rtfP95: number;
+  /**
+   * Mean real-time factor over `rateWindowMs` — the duty ratio — at or above
+   * which the T1 early warning fires. Below {@link rtfP95}'s 1.0 line on
+   * purpose: at 0.8 the provider is still keeping up, but has only a fifth of a
+   * period of headroom left and no signal of its own that it is losing it.
+   */
+  asrDutyRatio: number;
+  /** Minimum RTF observations in the window before that mean is trusted. */
+  asrDutyRatioMinJobs: number;
   /** Consecutive failed polls before a probe is called down. */
   probeFailureThreshold: number;
   /** Fraction of WS closes that are auth rejections before S2 fires. */
@@ -100,6 +109,16 @@ export const DEFAULT_THRESHOLDS: AlertThresholds = {
   decodeDropCount: 10,
   bufferOverflowCount: 5,
   rtfP95: 1.0,
+  // 80% of the period budget. Measured basis: on an RTX 5070 Ti with whisper
+  // `turbo`, a full 30 s buffer costs ~680 ms against the CUDA config's 500 ms
+  // job period (1.36x), and the scheduler answers that by silently dropping
+  // periods. 0.8 leaves roughly one period of headroom to notice in.
+  asrDutyRatio: 0.8,
+  // ~10 s of a single stream at a 500 ms period, and at least a couple of poll
+  // cycles. Low enough that any real load clears it by two orders of magnitude
+  // (a 120 s window is ~240 observations per stream), high enough that a
+  // provider which has served a handful of jobs cannot produce an alert.
+  asrDutyRatioMinJobs: 20,
   probeFailureThreshold: 2,
   authFailureRatio: 0.5,
   authFailureMinSamples: 5,
@@ -231,6 +250,103 @@ export const transcriptionSaturationRule: AlertRule = (ctx) => {
         'Transcription service is saturated — more concurrent streams than num_workers can serve, or the model fell back to CPU. Check worker count and GPU availability; latency will keep climbing until load drops.',
       value: rtf,
       threshold: ctx.thresholds.rtfP95,
+    });
+  }
+  return alerts;
+};
+
+/**
+ * §3 T1, early — the provider is spending most of its period budget on every
+ * pass, which is how falling behind starts and is entirely silent.
+ *
+ * {@link transcriptionSaturationRule} above is the outage: p95 RTF at or past
+ * the 1.0 realtime line. This is the hour before it, and it exists because
+ * nothing else in the stack notices. When a job overruns `job_period_ms` the
+ * worker pool does not queue or error — `worker_process.py` advances the job's
+ * `period_start_ns` by whole periods in a loop until it passes now, so missed
+ * periods are simply *dropped*. The effective period becomes a multiple of the
+ * configured one; captions get staler while transcript counts, health checks
+ * and every error counter stay clean. Measured on an RTX 5070 Ti with whisper
+ * `turbo`, a full 30 s buffer costs ~680 ms against a 500 ms period — 1.36x
+ * budget, invisible everywhere.
+ *
+ * **A mean over the alert window, not the reported p95.** The p95 was the
+ * obvious candidate and is wrong twice over for a sub-1.0 tripwire. Per-job cost
+ * tracks the length of the *unfinalized* buffer, which grows between
+ * finalizations and is re-transcribed in full each period, so in healthy
+ * operation the worst few percent of jobs sit several times above the typical
+ * one: a p95 pinned at 0.8 would fire on a provider whose real duty cycle is
+ * 0.3. And the reported p95 is computed over transcription-service's own
+ * 4096-sample ring, which never expires by time, so after a heavy session ends
+ * it keeps reporting the same figure and a gauge-only rule can never clear. The
+ * windowed mean has neither problem, and it makes "sustained" structural rather
+ * than bolted on — it is an average over `rateWindowMs` (120 s ≈ 240 job
+ * periods), which no single spiky period can move. There is no cross-poll
+ * hysteresis mechanism in this subsystem to reuse, and this rule does not need
+ * one.
+ *
+ * `asrDutyRatioJobsTotal` in the window doubles as the floor, the same
+ * minimum-samples guard {@link authFailureRule} and {@link clockSkewRule} use:
+ * under it the mean is a handful of jobs, and zero means the provider is idle
+ * rather than healthy.
+ *
+ * **`buffer_overflow_seconds` is corroboration in the message, not a
+ * condition.** It has its own rule already ({@link bufferOverflowRule}, T2),
+ * and it is a *consequence* — audio force-finalized because the buffer hit
+ * `max_buffer_len_sec`. Requiring it would blind this rule to the common case:
+ * VAD gating and finalization usually keep the buffer well short of the cap, so
+ * a provider can burn its entire period budget and overflow nothing. Reporting
+ * it when it is non-zero is still worth it, because the two travel together and
+ * it tells the operator whether audio is already being lost.
+ */
+export const transcriptionFallingBehindRule: AlertRule = (ctx) => {
+  const window = ctx.thresholds.rateWindowMs;
+  const windowSec = String(Math.round(window / 1000));
+  const alerts: Alert[] = [];
+
+  // Series are enumerated from the counter rather than from a fixed label name,
+  // as `upstreamChurnRule` does: `{service, providerKey}` is what the poller
+  // writes, and matching on whatever a series carries keeps the rule correct if
+  // a second transcription service is ever polled.
+  for (const { labels } of ctx.metrics.asrDutyRatioJobsTotal.entries()) {
+    const jobs = ctx.metrics.asrDutyRatioJobsTotal.windowCount(
+      labels,
+      window,
+      ctx.nowMs,
+    );
+    if (jobs < ctx.thresholds.asrDutyRatioMinJobs) continue;
+
+    const ratio =
+      ctx.metrics.asrDutyRatioSumTotal.windowCount(labels, window, ctx.nowMs) /
+      jobs;
+    if (ratio < ctx.thresholds.asrDutyRatio) continue;
+
+    // Same `{service, providerKey}` label set, so this matches the overflow
+    // series for exactly this provider.
+    const overflowSeconds =
+      ctx.metrics.asrBufferOverflowSecondsTotal.windowCount(
+        labels,
+        window,
+        ctx.nowMs,
+      );
+    const overflowNote =
+      overflowSeconds > 0
+        ? `; ${overflowSeconds.toFixed(1)}s of audio already force-finalized`
+        : '';
+
+    const providerKey = labels['providerKey'] ?? 'unknown';
+    alerts.push({
+      id: `asr-falling-behind:${providerKey}`,
+      failureModes: ['T1'],
+      // A warning, not critical: captions are still arriving. Escalating at 1.0
+      // would double-report the event `transcriptionSaturationRule` already
+      // owns at that line.
+      severity: AlertSeverity.WARNING,
+      stage: PipelineStage.TRANSCRIPTION,
+      summary: `Transcription for ${providerKey} is using ${String(Math.round(ratio * 100))}% of its realtime budget (mean RTF ${ratio.toFixed(2)} over ${windowSec}s, threshold ${ctx.thresholds.asrDutyRatio.toFixed(2)}, ${String(Math.round(jobs))} jobs)${overflowNote}.`,
+      likelyCause: `${providerKey} cannot comfortably keep up: each pass costs ${ratio.toFixed(2)}s of compute per second of audio it ingests, and a period the job overruns is dropped rather than queued — so the only symptom is captions falling further behind while every counter and probe stays green. The levers are provider config, not capacity: raise job_period_ms (fewer, larger passes), lower max_buffer_len_sec (each pass re-transcribes the whole unfinalized buffer, so cost tracks its length), or run a smaller model. Adding workers or CPU will not help — one stream is one job, and its passes run one at a time.`,
+      value: ratio,
+      threshold: ctx.thresholds.asrDutyRatio,
     });
   }
   return alerts;
@@ -736,6 +852,7 @@ export const canaryQualityRule: AlertRule = (ctx) => {
 export const DEFAULT_RULES: readonly AlertRule[] = [
   upstreamChurnRule,
   transcriptionSaturationRule,
+  transcriptionFallingBehindRule,
   workerDeadRule,
   bufferOverflowRule,
   decodeDropRule,

@@ -77,6 +77,13 @@ const CONFIG_SCHEMA = Type.Object({
   ALERT_DECODE_DROP_COUNT: Type.Integer({ minimum: 1, default: 10 }),
   ALERT_BUFFER_OVERFLOW_COUNT: Type.Integer({ minimum: 1, default: 5 }),
   ALERT_RTF_P95: Type.Number({ minimum: 0, default: 1.0 }),
+  /**
+   * Mean RTF (duty ratio) over `ALERT_RATE_WINDOW_SEC` at or above which the T1
+   * early warning fires. Must stay below `ALERT_RTF_P95` to be worth anything —
+   * the point is to fire while captions are still on time.
+   */
+  ALERT_ASR_DUTY_RATIO: Type.Number({ minimum: 0, default: 0.8 }),
+  ALERT_ASR_DUTY_RATIO_MIN_JOBS: Type.Integer({ minimum: 1, default: 20 }),
   ALERT_PROBE_FAILURE_THRESHOLD: Type.Integer({ minimum: 1, default: 2 }),
   ALERT_AUTH_FAILURE_RATIO: Type.Number({
     minimum: 0,
@@ -245,6 +252,8 @@ export class AppConfig {
       decodeDropCount: this._env.ALERT_DECODE_DROP_COUNT,
       bufferOverflowCount: this._env.ALERT_BUFFER_OVERFLOW_COUNT,
       rtfP95: this._env.ALERT_RTF_P95,
+      asrDutyRatio: this._env.ALERT_ASR_DUTY_RATIO,
+      asrDutyRatioMinJobs: this._env.ALERT_ASR_DUTY_RATIO_MIN_JOBS,
       probeFailureThreshold: this._env.ALERT_PROBE_FAILURE_THRESHOLD,
       authFailureRatio: this._env.ALERT_AUTH_FAILURE_RATIO,
       authFailureMinSamples: this._env.ALERT_AUTH_FAILURE_MIN_SAMPLES,

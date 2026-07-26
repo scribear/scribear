@@ -14,6 +14,7 @@ import {
   pendingChunkEvictionRule,
   probeDownRule,
   statusPollUnavailableRule,
+  transcriptionFallingBehindRule,
   transcriptionSaturationRule,
   upstreamChurnRule,
   workerDeadRule,
@@ -89,6 +90,37 @@ function probe(overrides: Partial<ProbeStatus> = {}): ProbeStatus {
     lastCheckedMs: NOW,
     ...overrides,
   };
+}
+
+/** The `{service, providerKey}` label set the transcription poller writes. */
+function providerLabels(providerKey = 'whisper') {
+  return { service: 'transcription-service', providerKey };
+}
+
+/**
+ * Folds RTF observations into the duty-ratio counters the way the poller does:
+ * one increment per poll carrying that poll's summed ratios and job count.
+ *
+ * Split across polls rather than added as a single lump because that is the
+ * shape the rolling window actually sees, and because the spike test depends on
+ * one poll differing from its neighbours.
+ */
+function observeDutyRatio(
+  metrics: MetricsRegistry,
+  options: {
+    meanRtf: number;
+    jobs?: number;
+    polls?: number;
+    atMs?: number;
+    providerKey?: string;
+  },
+): void {
+  const { meanRtf, jobs = 40, polls = 3, atMs = NOW, providerKey } = options;
+  const labels = providerLabels(providerKey);
+  for (let poll = 0; poll < polls; poll++) {
+    metrics.asrDutyRatioSumTotal.inc(labels, meanRtf * jobs, atMs);
+    metrics.asrDutyRatioJobsTotal.inc(labels, jobs, atMs);
+  }
 }
 
 describe('alert rules', () => {
@@ -250,6 +282,119 @@ describe('alert rules', () => {
 
       // Assert
       expect(alerts).toHaveLength(0);
+    });
+  });
+
+  describe('transcription falling behind realtime (T1, early)', (it) => {
+    it('fires on a sustained mean duty ratio above the threshold', () => {
+      // Arrange — 0.9 of the period budget spent on every pass for the whole
+      // window. Nothing errors in this state; the scheduler just drops the
+      // periods it overruns.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: 0.9 });
+
+      // Act
+      const alerts = transcriptionFallingBehindRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]?.severity).toBe(AlertSeverity.WARNING);
+      expect(alerts[0]?.stage).toBe(PipelineStage.TRANSCRIPTION);
+      expect(alerts[0]?.failureModes).toContain('T1');
+      expect(alerts[0]?.summary).toContain('mean RTF 0.90');
+      expect(alerts[0]?.summary).toContain('90% of its realtime budget');
+      // The levers are provider config, and the alert has to say which.
+      expect(alerts[0]?.likelyCause).toContain('job_period_ms');
+      expect(alerts[0]?.likelyCause).toContain('max_buffer_len_sec');
+    });
+
+    it('stays silent below the threshold', () => {
+      // Arrange
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: 0.5 });
+
+      // Act
+      const alerts = transcriptionFallingBehindRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('does not fire on a single spiky observation among healthy ones', () => {
+      // Arrange — bursty per-pass cost is normal and expected: the buffer grows
+      // between finalizations and is re-transcribed in full, so the odd pass
+      // costs many times the typical one. 240 passes at 0.3 plus one at 30
+      // averages 0.42, which must not alert.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: 0.3, polls: 6 });
+      observeDutyRatio(metrics, { meanRtf: 30, jobs: 1, polls: 1 });
+
+      // Act
+      const alerts = transcriptionFallingBehindRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('names the provider that is behind and leaves the healthy one alone', () => {
+      // Arrange — providers do not share a budget; one saturated model must not
+      // implicate the other.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: 1.2, providerKey: 'whisper-turbo' });
+      observeDutyRatio(metrics, { meanRtf: 0.2, providerKey: 'whisper-tiny' });
+
+      // Act
+      const alerts = transcriptionFallingBehindRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]?.id).toBe('asr-falling-behind:whisper-turbo');
+      expect(alerts[0]?.summary).toContain('whisper-turbo');
+    });
+
+    it('ignores a provider with too few observations to average', () => {
+      // Arrange — a provider that has served six jobs has no meaningful mean,
+      // the same minimum-samples guard the auth-ratio and skew rules apply.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: 3.0, jobs: 2, polls: 3 });
+
+      // Act
+      const alerts = transcriptionFallingBehindRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('stops firing once the load that produced it has aged out', () => {
+      // Arrange — this is why the rule reads differenced counters rather than
+      // the reported p95 gauge: transcription-service's sample ring never
+      // expires by time, so its percentiles stay high indefinitely after a
+      // heavy session ends.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: 1.4, atMs: NOW - 240_000 });
+
+      // Act
+      const alerts = transcriptionFallingBehindRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('corroborates with force-finalized audio when the buffer is also overflowing', () => {
+      // Arrange — overflow is a consequence, not a condition (T2 owns it), but
+      // it tells the operator audio is already being discarded.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: 0.85 });
+      metrics.asrBufferOverflowSecondsTotal.inc(providerLabels(), 12.5, NOW);
+
+      // Act
+      const alerts = transcriptionFallingBehindRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]?.summary).toContain(
+        '12.5s of audio already force-finalized',
+      );
     });
   });
 

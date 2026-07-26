@@ -76,6 +76,36 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
       expect(metrics.asrBufferOverflowTotal.get(providerLabels)).toBe(7);
     });
 
+    it('differences the RTF histogram’s lifetime sum and count', async () => {
+      // Arrange — the two fields the T1 early-warning rule averages. They are
+      // lifetime totals like any counter, so only the delta may be folded;
+      // taking them absolutely would recount every job on every poll and pin the
+      // windowed mean to the process’s whole history.
+      const { metrics, poller } = createPoller();
+      service.setBody(
+        metricsBody({
+          histograms: {
+            asrRtf: [histogramSeries(0.5, { count: 100, sum: 50 })],
+          },
+        }),
+      );
+      await poller.pollOnce();
+
+      // Act — 20 further jobs averaging 0.9.
+      service.setBody(
+        metricsBody({
+          histograms: {
+            asrRtf: [histogramSeries(0.9, { count: 120, sum: 68 })],
+          },
+        }),
+      );
+      await poller.pollOnce();
+
+      // Assert
+      expect(metrics.asrDutyRatioJobsTotal.get(providerLabels)).toBe(120);
+      expect(metrics.asrDutyRatioSumTotal.get(providerLabels)).toBe(68);
+    });
+
     it('maps the two no-speech counters onto one kind-labelled series', async () => {
       // Arrange — the retired log parser produced this exact shape, so no
       // downstream rule had to change when the source did.

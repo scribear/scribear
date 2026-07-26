@@ -87,8 +87,33 @@ export class TranscriptionMetricsPollerService extends AbsoluteStatusPoller<Tran
 
   protected _apply(body: TranscriptionMetricsBody): void {
     this._applyCounters(body);
+    this._applyRtfTotals(body);
     this._applyWorkerGauges(body);
     this._applyQuantileGauges(body);
+  }
+
+  /**
+   * Folds the RTF histogram's lifetime `sum` and `count` into counters.
+   *
+   * Both fields have been on the wire since B1.2 and the schema comment beside
+   * them already says they "behave like counters, so they are differenced" —
+   * nothing differenced them until the T1 early-warning rule needed a *mean*
+   * RTF over the sidecar's own alert window. The quantile gauges below cannot
+   * supply one: a pre-computed percentile is not re-averageable, and it is
+   * taken over a ring that never expires by time, so it stays high after the
+   * load that produced it has gone. A differenced total does both correctly.
+   *
+   * Deliberately *not* gated on `sampleCount`, unlike the gauges. An empty ring
+   * makes a percentile meaningless, but says nothing about the lifetime totals,
+   * and skipping the fold would drop that poll's delta permanently.
+   */
+  private _applyRtfTotals(body: TranscriptionMetricsBody): void {
+    const service = this._config.service;
+    for (const series of body.histograms.asrRtf) {
+      const labels = { service, providerKey: providerOf(series.labels) };
+      this._advance(this._metrics.asrDutyRatioSumTotal, labels, series.sum);
+      this._advance(this._metrics.asrDutyRatioJobsTotal, labels, series.count);
+    }
   }
 
   private _applyCounters(body: TranscriptionMetricsBody): void {

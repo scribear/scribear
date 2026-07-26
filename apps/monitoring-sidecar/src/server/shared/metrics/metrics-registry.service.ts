@@ -372,6 +372,52 @@ export class MetricsRegistry {
     'Seconds of audio ingested by transcription jobs, by provider.',
   );
 
+  /**
+   * The two halves of a *windowed mean* RTF, per provider: the sum of the
+   * per-job ratios transcription-service observed, and the number of jobs that
+   * contributed one.
+   *
+   * {@link asrRtf} cannot answer "has this been true for a while?", which is
+   * the whole question behind §3 T1. It republishes percentiles the far end
+   * pre-computed over its own 4096-sample ring, and a percentile cannot be
+   * re-averaged, re-windowed or aggregated. Worse, that ring never expires by
+   * time — it only evicts when new samples arrive — so a p95 left behind by a
+   * finished session reads exactly like a live one. These are lifetime totals
+   * instead (`sum` and `count` on the same histogram series, which the endpoint
+   * has always reported and nothing consumed), so differencing them across
+   * polls yields a mean over an arbitrary window, and yields *nothing at all*
+   * while the provider is idle.
+   *
+   * Named `duty_ratio` rather than `asr_rtf_sum` / `asr_rtf_count` on purpose:
+   * those two suffixes belong to the Prometheus summary convention, i.e. to the
+   * `scribear_asr_rtf` family, and these are separate counter families over a
+   * different window. "Duty ratio" is also what the number means in this
+   * deployment — each job period ingests roughly one period of live audio, so
+   * execution seconds per second of ingested audio is the fraction of the
+   * period budget the job spent. The two readings only diverge for a client
+   * pushing audio faster than realtime, which is rejected outright (see
+   * {@link asrAudioTooFastTotal}).
+   */
+  readonly asrDutyRatioSumTotal = new Counter(
+    'scribear_asr_duty_ratio_sum_total',
+    'Sum of per-job real-time factors observed by transcription-service, by provider.',
+  );
+
+  /**
+   * Jobs that contributed a real-time-factor observation;
+   * {@link asrDutyRatioSumTotal}'s denominator.
+   *
+   * Not the same population as {@link asrJobsCompletedTotal}: RTF is recorded
+   * for failed executions too (a job that raised still consumed worker time)
+   * and skipped for a job that ingested no audio (the ratio would divide by
+   * zero). Using the jobs counter as a stand-in denominator would therefore
+   * quietly bias the mean, which is why this exists at all.
+   */
+  readonly asrDutyRatioJobsTotal = new Counter(
+    'scribear_asr_duty_ratio_jobs_total',
+    'Transcription jobs that contributed a real-time-factor observation, by provider.',
+  );
+
   /** Jobs whose buffer filled and were force-finalized (§3 T2). */
   readonly asrBufferOverflowTotal = new Counter(
     'scribear_asr_buffer_overflow_total',
@@ -539,6 +585,8 @@ export class MetricsRegistry {
       this.asrJobsCompletedTotal,
       this.asrJobsFailedTotal,
       this.asrAudioSecondsTotal,
+      this.asrDutyRatioSumTotal,
+      this.asrDutyRatioJobsTotal,
       this.asrBufferOverflowTotal,
       this.asrBufferOverflowSecondsTotal,
       this.asrAudioTooFastTotal,
