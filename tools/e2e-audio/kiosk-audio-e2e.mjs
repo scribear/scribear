@@ -66,6 +66,7 @@ function parseArgs(argv) {
     streamSeconds: 45,
     activationCode: '',
     restartCmd: '',
+    sessionWaitSeconds: 60,
     json: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -74,6 +75,8 @@ function parseArgs(argv) {
     else if (flag === '--base-url') args.baseUrl = argv[++i];
     else if (flag === '--stream-seconds')
       args.streamSeconds = Number(argv[++i]);
+    else if (flag === '--session-wait-seconds')
+      args.sessionWaitSeconds = Number(argv[++i]);
     else if (flag === '--activation-code') args.activationCode = argv[++i];
     else if (flag === '--restart-cmd') args.restartCmd = argv[++i];
   }
@@ -177,8 +180,16 @@ async function main() {
   // would flip it on with nothing to measure, and the click-and-verify loop
   // below would then toggle it back off looking for frames that could not
   // arrive yet.
-  log('--- waiting for the session socket');
-  for (let waited = 0; waited < 60 && !sourceSocketOpen; waited += 2) {
+  //
+  // Raise `--session-wait-seconds` to test a CALENDARED session: the whole
+  // point there is that the kiosk is already running and idle when the session
+  // starts, so it has to make the UPCOMING -> ACTIVE transition on its own.
+  log(`--- waiting up to ${args.sessionWaitSeconds}s for the session socket`);
+  for (
+    let waited = 0;
+    waited < args.sessionWaitSeconds && !sourceSocketOpen;
+    waited += 2
+  ) {
     await sleep(2000);
   }
   if (!sourceSocketOpen) {
@@ -186,6 +197,7 @@ async function main() {
       'Kiosk never opened a transcription-stream socket - is a session active in its room?',
     );
   }
+  log('--- session socket open');
 
   // The microphone control is a TOGGLE, so a fixed number of clicks is a coin
   // flip. Click, then confirm audio is actually on the wire before continuing.
