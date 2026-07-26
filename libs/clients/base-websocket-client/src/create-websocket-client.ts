@@ -10,16 +10,29 @@ import type {
 import { WebSocketClient } from './websocket-client.js';
 
 /**
+ * Connection settings a caller may supply, either baked into a factory at
+ * {@link createWebSocketClient} time or overridden per factory call. Everything
+ * {@link WebSocketClientOptions} accepts except the four fields that identify
+ * the connection itself, which the factory always supplies.
+ *
+ * Named rather than inlined because it appears in three positions that must
+ * stay identical, and because callers building their own options object want
+ * something to annotate it with.
+ */
+export type WebSocketClientFactoryOptions<S extends BaseWebSocketRouteSchema> =
+  Omit<WebSocketClientOptions<S>, 'schema' | 'route' | 'baseUrl' | 'params'>;
+
+/**
  * Typed factory produced by {@link createWebSocketClient}. Each call creates
  * an independent {@link WebSocketClient} instance, so multiple simultaneous
  * connections to the same route are each started by a separate call.
+ *
+ * The optional second argument overrides the factory's baked options for this
+ * one instance; anything left unset keeps the baked value.
  */
 type WebSocketClientFactory<S extends BaseWebSocketRouteSchema> = (
   params: ConnectParams<S>,
-  overrides?: Omit<
-    WebSocketClientOptions<S>,
-    'schema' | 'route' | 'baseUrl' | 'params'
-  >,
+  overrides?: WebSocketClientFactoryOptions<S>,
 ) => WebSocketClient<S>;
 
 /**
@@ -43,17 +56,11 @@ function createWebSocketClient<S extends BaseWebSocketRouteSchema>(
   schema: S,
   route: BaseRouteDefinition,
   baseUrl: string,
-  options?: Omit<
-    WebSocketClientOptions<S>,
-    'schema' | 'route' | 'baseUrl' | 'params'
-  >,
+  options?: WebSocketClientFactoryOptions<S>,
 ): WebSocketClientFactory<S> {
   return (
     params: ConnectParams<S>,
-    overrides?: Omit<
-      WebSocketClientOptions<S>,
-      'schema' | 'route' | 'baseUrl' | 'params'
-    >,
+    overrides?: WebSocketClientFactoryOptions<S>,
   ): WebSocketClient<S> =>
     new WebSocketClient({
       schema,
