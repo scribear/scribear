@@ -369,6 +369,26 @@ describe('TranscriptionOrchestratorService', () => {
       expect(h.upstream.sendBinary).toHaveBeenCalledWith(frame);
     });
 
+    it('counts every received frame in audioFramesReceived and exposes it in sessionSnapshots', async () => {
+      // Arrange
+      await registerAndDrain(h, SESSION_UID);
+
+      const frame = Buffer.from(
+        encodeAudioFrame({ chunkId: 'c1' }, new Uint8Array([1, 2, 3])),
+      );
+
+      // Act — send three well-formed frames.
+      h.bus.publish(AudioFrameChannel, frame, SESSION_UID);
+      h.bus.publish(AudioFrameChannel, frame, SESSION_UID);
+      h.bus.publish(AudioFrameChannel, frame, SESSION_UID);
+
+      // Assert — the counter is per-session, monotonic, and visible in the
+      // snapshot the fleet dashboard reads.
+      const { sessions } = h.orchestrator.sessionSnapshots(10);
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]?.audioFramesReceived).toBe(3);
+    });
+
     it('drops a malformed (non-SAFP) frame instead of forwarding it', async () => {
       // Arrange
       const promise = h.orchestrator.registerSource(SESSION_UID);

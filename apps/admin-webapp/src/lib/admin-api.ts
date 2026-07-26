@@ -314,6 +314,13 @@ export interface SessionSnapshot {
   pendingChunkCount: number;
   upstreamState: UpstreamState;
   upstreamRetryAttempt: number;
+  /**
+   * Well-formed SAFP frames received from the source since the session opened.
+   * Optional: older node-server publishers that predate the field omit it.
+   * 0 = source sent nothing; >0 = source is sending (lets the fleet view
+   * distinguish "kiosk sent nothing" from "upstream broke").
+   */
+  audioFramesReceived?: number;
   latency: LatencySeries[];
   /** Publish time, epoch ms, on the publishing host's clock. */
   updatedAt: number;

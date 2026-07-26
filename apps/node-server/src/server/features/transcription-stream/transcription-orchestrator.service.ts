@@ -75,6 +75,14 @@ export interface SessionSnapshot {
   pendingChunkCount: number;
   upstreamState: ConnectionState;
   upstreamRetryAttempt: number;
+  /**
+   * Well-formed SAFP frames received from the source since the session opened.
+   * Monotonic per session (resets when `SessionState` is destroyed). The fleet
+   * dashboard uses this to distinguish "source sent nothing" (0) from "source
+   * is sending but the ASR is silent" (>0) — the ambiguity that made the
+   * original "no audio arriving" report a blind guess.
+   */
+  audioFramesReceived: number;
 }
 
 interface SessionState {
@@ -89,6 +97,14 @@ interface SessionState {
   providerKey: string;
   /** Room this session belongs to, if known. Same rationale as `providerKey`. */
   roomUid: string | null;
+  /**
+   * Well-formed SAFP frames received from the source since the session opened.
+   * Incremented in the `AudioFrameChannel` callback before decode, so a
+   * malformed frame still counts as "received" (the source is sending
+   * *something*) — `recordDecodeDrop` already tracks the malformed subset.
+   * Monotonic per session; reset to 0 when `SessionState` is created.
+   */
+  audioFramesReceived: number;
   upstream: UpstreamClient;
   longPoll: SessionConfigPoll;
   audioUnsubscribe: () => void;
@@ -267,6 +283,7 @@ export class TranscriptionOrchestratorService {
         pendingChunkCount: state.pendingChunks.size,
         upstreamState: state.upstream.state,
         upstreamRetryAttempt: state.upstream.attempt,
+        audioFramesReceived: state.audioFramesReceived,
       });
     }
     return { sessions, truncated: this._sessions.size > sessions.length };
@@ -447,6 +464,7 @@ export class TranscriptionOrchestratorService {
       sourceCount: 0,
       providerKey: initial.transcriptionProviderId,
       roomUid: initial.roomUid,
+      audioFramesReceived: 0,
       upstream,
       longPoll,
       audioUnsubscribe: () => {
@@ -509,6 +527,10 @@ export class TranscriptionOrchestratorService {
     state.audioUnsubscribe = this._eventBus.subscribe(
       AudioFrameChannel,
       (frame) => {
+        // Count every frame the source sent — before decode, so a malformed
+        // frame still registers as "the source is sending something." The
+        // malformed subset is tracked separately by recordDecodeDrop.
+        state.audioFramesReceived += 1;
         // Stamp ingress on the monotonic clock before any work, so the
         // pipeline latency excludes our own decode cost.
         const recvMono = performance.now();

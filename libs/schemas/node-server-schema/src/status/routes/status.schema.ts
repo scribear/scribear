@@ -95,7 +95,7 @@ const LATENCY_ARRAY_DESCRIPTION =
   'Latency distributions, one entry per (measure, kind). A series that has never been observed is omitted rather than reported as zeroes - notably, `e2e` series are absent entirely when no source supplies a send timestamp, which is not the same as an end-to-end latency of zero. Milliseconds throughout.';
 
 /**
- * One live session's gauges.
+ * One live session’s gauges.
  *
  * Exported because this process is not the only place these records surface:
  * the Redis telemetry backplane publishes the same record per session so the
@@ -108,7 +108,7 @@ export const STATUS_SESSION_SCHEMA = Type.Object(
   {
     sessionUid: Type.String({ format: 'uuid' }),
     // Optional so a session record produced before this field existed still
-    // validates, and nullable because a session's room is not always known.
+    // validates, and nullable because a session’s room is not always known.
     roomUid: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     providerKey: Type.String({
       description:
@@ -130,6 +130,12 @@ export const STATUS_SESSION_SCHEMA = Type.Object(
       description:
         'Consecutive reconnect attempts for this session’s upstream. Non-zero while flapping; back to 0 once a connection is established.',
     }),
+    audioFramesReceived: Type.Optional(
+      Type.Integer({
+        description:
+          'Well-formed SAFP frames received from the source since the session opened (monotonic per session, resets on session end). Lets the fleet dashboard distinguish "source sent nothing" (0) from "source is sending but the ASR is silent" (>0) — the two cases that "no audio reaching ASR" alone cannot tell apart. Optional for backward-compat with older publishers that do not emit it.',
+      }),
+    ),
     latency: Type.Array(LATENCY_SERIES_SCHEMA, {
       description: `Per-session latency (B1.4). ${LATENCY_ARRAY_DESCRIPTION} Retained per session and discarded when the session’s last connection closes, so unlike the process-wide series these describe live rooms only.`,
     }),
@@ -137,7 +143,7 @@ export const STATUS_SESSION_SCHEMA = Type.Object(
   { $id: 'NodeServerStatusSession' },
 );
 
-/** One live session's gauges. @see {@link STATUS_SESSION_SCHEMA} */
+/** One live session’s gauges. @see {@link STATUS_SESSION_SCHEMA} */
 export type StatusSession = Static<typeof STATUS_SESSION_SCHEMA>;
 
 /**
