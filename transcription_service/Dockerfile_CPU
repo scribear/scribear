@@ -32,6 +32,22 @@ ENV HOST=0.0.0.0
 ENV PORT=80
 ENV PROVIDER_CONFIG_PATH=/app/provider_config.json
 
+# See the same block in Dockerfile_CUDA for the measurements. Capped here too,
+# and it matters *more* on this image, not less: this variant is the one that
+# runs a CPU-device model, so the incidental OpenBLAS pool competes directly
+# with CTranslate2's own inference threads for the same cores.
+#
+# CPU inference parallelism is not lost to this - it comes from
+# `cpu_threads` in the context config, which CTranslate2 applies with
+# omp_set_num_threads() and which therefore overrides this value for its own
+# compute. Measured, 30s buffer, whisper turbo, 20 cores: 17.97s/4.00 cores
+# uncapped, 61.79s/1.00 core capped with no cpu_threads (the regression this
+# guards against), 19.33s/3.83 cores capped with cpu_threads=4 - parity with
+# uncapped, minus 19 spinning threads. That default is applied in code for the
+# cpu device, so this cap cannot silently serialise inference.
+ENV OMP_NUM_THREADS=1
+ENV OPENBLAS_NUM_THREADS=1
+
 # Build provenance. Baked in here and reported at runtime by GET /build-info,
 # which the admin console's Deployment Check aggregates across the whole stack —
 # it is how an operator confirms every container came from one commit. Empty

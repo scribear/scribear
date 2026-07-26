@@ -62,6 +62,23 @@ ENV HOST=0.0.0.0
 ENV PORT=80
 ENV PROVIDER_CONFIG_PATH=/app/provider_config.json
 
+# Importing numpy loads OpenBLAS, which spawns one thread per core (19 on a
+# 20-core host) and *spin-waits* between calls rather than sleeping. Whisper
+# calls into it constantly - the streaming job re-transcribes its whole buffer
+# every job period - so that pool never idles long enough to back off. Measured
+# on an RTX 5070 Ti: one 30s-buffer transcribe cost 4.59 cores of CPU
+# uncapped against 0.99 capped, for byte-identical transcripts and slightly
+# *lower* latency (0.75s -> 0.68s), the pool having only added contention. The
+# real inference is on the GPU; none of that CPU was doing any of it.
+#
+# Safe to pin at 1 here because CTranslate2 does not rely on this value: it
+# calls omp_set_num_threads() itself from its own `cpu_threads` (see
+# FasterWhisperContextConfig.cpu_threads), so a CPU-device model still gets its
+# intra-op pool. This bounds only the incidental pools nothing here asked for.
+# Override in compose if a provider ever genuinely needs a CPU thread pool.
+ENV OMP_NUM_THREADS=1
+ENV OPENBLAS_NUM_THREADS=1
+
 # Build provenance. Baked in here and reported at runtime by GET /build-info,
 # which the admin console's Deployment Check aggregates across the whole stack —
 # it is how an operator confirms every container came from one commit. Empty

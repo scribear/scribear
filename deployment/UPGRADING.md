@@ -12,6 +12,62 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — transcription-service stops burning CPU it never used
+
+Nothing to change in `.env` or `compose.yml`. Pull the new
+`transcription-service-*` image and the CPU drop comes with it.
+
+### What it was doing
+
+A single streaming session on a GPU cost **400–450% CPU** — four and a half
+cores, on a host whose actual inference was running on the GPU. Almost none of
+that was work. Importing `numpy` loads OpenBLAS, which starts one thread per
+core (19 on a 20-core host) and *spin-waits* between calls instead of sleeping.
+The streaming provider re-transcribes its whole buffer every `job_period_ms`, so
+that pool never idled long enough to back off, and 19 threads spun for the life
+of every session.
+
+Measured on an RTX 5070 Ti, whisper `turbo`, one 30s buffer per call:
+
+| | wall per call | CPU per call | cores |
+| --- | --- | --- | --- |
+| before | 0.75s | 3.45s | 4.59 |
+| after | 0.68s | 0.67s | 0.99 |
+
+Transcripts are byte-identical and latency is slightly *better* — the pool was
+only adding contention. End to end on the live stack, one streaming session went
+from 400–450% to ~25% of a core, and three concurrent sessions now fit in ~0.8
+cores.
+
+### If you set `OMP_NUM_THREADS` yourself
+
+The images now set `OMP_NUM_THREADS=1` and `OPENBLAS_NUM_THREADS=1`. An
+`environment:` entry in your own `compose.yml` still overrides them, and on the
+CPU image raising them is a pessimisation, not a tuning knob: it restores the
+spinning pool alongside the inference threads, competing for the same cores.
+
+### CPU inference parallelism moved to `provider_config.json`
+
+The cap above would otherwise have serialised CPU-device inference, which reads
+the same variable — 61.8s against 17.97s for a 30s buffer. CTranslate2's thread
+count is now set explicitly instead of inherited, and is configurable per
+context:
+
+```json
+{
+  "context_uid": "faster-whisper",
+  "context_config": { "model": "turbo", "device": "cpu", "cpu_threads": 8 }
+}
+```
+
+Unset means 4 on `cpu` (CTranslate2's own default, and parity with the previous
+image: 19.33s against 17.97s, minus the 19 spinning threads) and 1 on `cuda`,
+where the encoder and decoder are on the GPU and no CPU pool is wanted. Raise it
+on a CPU deployment with cores to spare — but count workers first, since
+`num_workers` copies of it each claim that many threads.
+
+---
+
 ## Unreleased — the Deployment Check notices an out-of-date `compose.yml`
 
 ### A new `compose.yml` row on the Deployment Check page
