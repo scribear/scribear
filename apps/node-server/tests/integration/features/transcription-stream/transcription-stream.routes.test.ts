@@ -13,7 +13,7 @@ import {
 import type { SessionTokenPayload } from '@scribear/session-manager-schema';
 
 import { seedSession } from '#tests/utils/seed-session.js';
-import { useServer } from '#tests/utils/use-server.js';
+import { TEST_SERVICE_API_KEY, useServer } from '#tests/utils/use-server.js';
 
 const FAR_FUTURE = Math.floor(Date.now() / 1000) + 3600;
 const DEBUG_SAMPLE_RATE = 48000;
@@ -218,6 +218,146 @@ describe('Transcription Stream Routes', () => {
       expect(closed.code).toBe(1008);
       expect(closed.reason).toBe('missing-scope');
     });
+  });
+
+  describe('pre-auth binary handling (H1)', (it) => {
+    /** Reads the binaryBeforeAuthDropsTotal counter off /status. */
+    async function readBinaryBeforeAuthDrops(): Promise<number> {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: '/api/node-server/v1/status',
+        headers: { authorization: `Bearer ${TEST_SERVICE_API_KEY}` },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      return body.summary.binaryBeforeAuthDropsTotal;
+    }
+
+    /**
+     * Resolves if the socket is still open after `ms`, rejects if it closes.
+     * The pre-auth binary guard must DROP, not close — a close here is the H1
+     * regression (the old 1008 `binary-before-auth` that reconnect-looped the
+     * kiosk).
+     */
+    function expectStaysOpen(ws: WebSocket, ms: number): Promise<void> {
+      return new Promise((resolve, reject) => {
+        const onClose = (code: number, reason: Buffer) => {
+          cleanup();
+          reject(
+            new Error(
+              `socket closed unexpectedly: ${String(code)} ${reason.toString('utf8')}`,
+            ),
+          );
+        };
+        const timer = setTimeout(() => {
+          cleanup();
+          resolve();
+        }, ms);
+        function cleanup() {
+          clearTimeout(timer);
+          ws.off('close', onClose);
+        }
+        ws.on('close', onClose);
+      });
+    }
+
+    it(
+      'drops pre-auth binary without closing, then auth and audio still flow',
+      { timeout: 60_000 },
+      async () => {
+        // Arrange
+        const before = await readBinaryBeforeAuthDrops();
+        const ws = await server.fastify.injectWS(sourcePath(realSessionUid));
+        const { messages, stop } = collectMessages(ws);
+
+        // Act 1 — send two binary frames BEFORE auth. Old behaviour closed
+        // 1008 `binary-before-auth` on the first and reconnect-looped; new
+        // behaviour drops and counts, and the socket must stay open.
+        ws.send(
+          Buffer.from(
+            encodeAudioFrame({ chunkId: crypto.randomUUID() }, TEST_AUDIO),
+          ),
+        );
+        ws.send(
+          Buffer.from(
+            encodeAudioFrame({ chunkId: crypto.randomUUID() }, TEST_AUDIO),
+          ),
+        );
+
+        // Act 2 — authenticate immediately. The pre-auth binaries were
+        // dropped; AUTH now runs and the auth-timeout watchdog still has its
+        // full window (the binaries did not consume any of it).
+        ws.send(
+          JSON.stringify({
+            type: TranscriptionStreamClientMessageType.AUTH,
+            sessionToken: signToken({
+              sessionUid: realSessionUid,
+              clientId: 'preauth-src',
+              scopes: ['SEND_AUDIO', 'RECEIVE_TRANSCRIPTIONS'],
+              exp: FAR_FUTURE,
+            }),
+          }),
+        );
+
+        // Assert 1 — no close from the pre-auth binaries. A 1008 close would
+        // have fired within milliseconds, so one second is a strong signal.
+        await expectStaysOpen(ws, 1000);
+
+        // Assert 2 — the socket survived, so AUTH_OK arrives.
+        await vi.waitFor(
+          () => {
+            expect(
+              messages.find(
+                (m) => m.type === TranscriptionStreamServerMessageType.AUTH_OK,
+              ),
+            ).toBeDefined();
+          },
+          { timeout: 15_000 },
+        );
+
+        // Assert 3 — the dropped frames were counted.
+        const after = await readBinaryBeforeAuthDrops();
+        expect(after).toBeGreaterThanOrEqual(before + 2);
+
+        // Act 3 + Assert 4 — wait for the upstream to open, send audio, and
+        // confirm a transcript comes back. Proves the pre-auth drop did not
+        // leave the connection in a state that blocks real audio.
+        await vi.waitFor(
+          () => {
+            const status = [...messages]
+              .reverse()
+              .find(
+                (m) =>
+                  m.type ===
+                  TranscriptionStreamServerMessageType.SESSION_STATUS,
+              );
+            expect(status).toMatchObject({
+              transcriptionServiceConnected: true,
+            });
+          },
+          { timeout: 30_000 },
+        );
+
+        ws.send(
+          Buffer.from(
+            encodeAudioFrame({ chunkId: crypto.randomUUID() }, TEST_AUDIO),
+          ),
+        );
+
+        await vi.waitFor(
+          () => {
+            const transcripts = messages.filter(
+              (m) => m.type === TranscriptionStreamServerMessageType.TRANSCRIPT,
+            );
+            expect(transcripts.length).toBeGreaterThan(0);
+          },
+          { timeout: 30_000 },
+        );
+
+        stop();
+        ws.terminate();
+      },
+    );
   });
 
   describe('source role with live upstream', (it) => {

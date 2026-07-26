@@ -698,8 +698,10 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
     });
 
     socket.on('open', () => {
-      // Send the auth message once the socket is open. The server replies
-      // with `authOk`; we just wait for it as part of the message stream.
+      // Send the auth message once the socket is open. The server replies with
+      // `authOk`; audio capture is deferred until that arrives (see the AUTH_OK
+      // case below) so no binary frame can beat auth and trip the node server's
+      // pre-auth binary guard.
       const sessionToken = this._sessionToken;
       if (sessionToken === null) return;
       socket.send({
@@ -709,16 +711,25 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
       this._scheduleTokenRefresh(sessionToken, session.uid);
 
       if (isSource) {
+        // Clock sync is safe before auth: the server answers TIME_SYNC_PING
+        // pre-auth, so starting it now lets `sentAt` populate as early as
+        // possible. Audio capture, by contrast, must wait for AUTH_OK.
         this._startTimeSync(socket);
-        void this._beginAudioCapture(socket);
       }
     });
 
     socket.on('message', (msg) => {
       switch (msg.type) {
         case TranscriptionStreamServerMessageType.AUTH_OK:
-          // Auth acknowledged. No further action needed - audio/transcripts
-          // flow on the established channel.
+          // Auth acknowledged. Begin audio capture now (sources only): the
+          // server only sends AUTH_OK once `ready` is true, so frames sent
+          // from here cannot trip the pre-auth binary guard. Starting on
+          // `open` instead raced the first chunk against AUTH_OK and, on a
+          // fresh session where the orchestrator's upstream open is slow,
+          // lost — closing the socket 1008 `binary-before-auth` and looping.
+          if (isSource) {
+            void this._beginAudioCapture(socket);
+          }
           break;
         case TranscriptionStreamServerMessageType.TRANSCRIPT:
           this.emit('transcript', {

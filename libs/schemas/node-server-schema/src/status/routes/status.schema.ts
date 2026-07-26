@@ -169,6 +169,10 @@ export const STATUS_PROCESS_SCHEMA = Type.Object({
     decodeDropsTotal: Type.Integer({
       description: 'Malformed SAFP frames dropped rather than forwarded (U2).',
     }),
+    binaryBeforeAuthDropsTotal: Type.Integer({
+      description:
+        'Binary frames a source sent before its AUTH handshake completed (H1). Dropped rather than closed: a source that starts streaming before AUTH_OK would otherwise be closed 1008 `binary-before-auth` and reconnect-loop, because each reconnect re-sends AUTH and the next first chunk again beats AUTH_OK.',
+    }),
     pendingChunkEvictionsTotal: Type.Integer({
       description:
         'Uncorrelated audio frames evicted at the per-session cap (N3).',
