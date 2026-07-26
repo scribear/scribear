@@ -26,7 +26,8 @@
     "test:unit": "npm run test:unit --workspaces --if-present",
     "a11y:axe": "node tools/a11y/axe-scan.mjs",
     "a11y:mock": "node tools/a11y/mock-server.mjs",
-    "a11y:axe:authed": "node tools/a11y/axe-scan-authed.mjs"
+    "a11y:axe:authed": "node tools/a11y/axe-scan-authed.mjs",
+    "e2e:audio": "node tools/e2e-audio/kiosk-audio-e2e.mjs"
   },
   "engines": {
     "node": ">=24.0.0"
