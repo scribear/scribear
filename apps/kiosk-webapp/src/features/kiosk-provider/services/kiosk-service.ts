@@ -708,6 +708,19 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
             type: TranscriptionStreamClientMessageType.AUTH,
             sessionToken,
           });
+          // Probe the clock now rather than waiting for `open`. The node server
+          // answers `timeSyncPing` without auth, and the reply reaches the
+          // normal `message` handler even mid-handshake, so firing it here buys
+          // a full auth round trip - which on a cold session is however long
+          // `registerSource` takes to fetch the config. That is the difference
+          // between the first audio chunks carrying `sentAt` (and so reporting
+          // end-to-end latency) and only the later ones doing so.
+          if (isSource) {
+            sender.send({
+              type: TranscriptionStreamClientMessageType.TIME_SYNC_PING,
+              t0: Date.now(),
+            });
+          }
           await new Promise<void>((resolve) => {
             const onMessage = (msg: {
               type: TranscriptionStreamServerMessageType;
