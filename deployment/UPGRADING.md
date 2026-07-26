@@ -19,25 +19,25 @@ Nothing to change in `.env` or `compose.yml`. Pull the new
 
 ### What it was doing
 
-A single streaming session on a GPU cost **400–450% CPU** — four and a half
-cores, on a host whose actual inference was running on the GPU. Almost none of
+A single streaming session on a GPU cost **2.4 cores** of CPU, peaking over
+five, on a host whose actual inference was running on the GPU. Almost none of
 that was work. Importing `numpy` loads OpenBLAS, which starts one thread per
 core (19 on a 20-core host) and *spin-waits* between calls instead of sleeping.
 The streaming provider re-transcribes its whole buffer every `job_period_ms`, so
 that pool never idled long enough to back off, and 19 threads spun for the life
 of every session.
 
-Measured on an RTX 5070 Ti, whisper `turbo`, one 30s buffer per call:
+End to end, one session for 90s via `npm run asr:load`, 895 chunks each side:
 
-| | wall per call | CPU per call | cores |
-| --- | --- | --- | --- |
-| before | 0.75s | 3.45s | 4.59 |
-| after | 0.68s | 0.67s | 0.99 |
+| | transcripts/1000 chunks | CPU mean | CPU max | cores/session |
+| --- | --- | --- | --- | --- |
+| before | 174.3 | 238.8% | 513% | 2.39 |
+| after | 176.5 | 33.5% | 101% | 0.34 |
 
-Transcripts are byte-identical and latency is slightly *better* — the pool was
-only adding contention. End to end on the live stack, one streaming session went
-from 400–450% to ~25% of a core, and three concurrent sessions now fit in ~0.8
-cores.
+Same transcripts, **7× less CPU**. Isolated to one 30s-buffer `transcribe` call
+on an RTX 5070 Ti, whisper `turbo`, the waste is starker still — 4.59 cores
+against 0.99, with latency slightly *better* (0.75s → 0.68s), the pool having
+only added contention. Three concurrent sessions now fit inside a single core.
 
 ### If you set `OMP_NUM_THREADS` yourself
 

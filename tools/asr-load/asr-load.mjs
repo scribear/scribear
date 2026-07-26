@@ -27,12 +27,12 @@
  * once. This talks to the service directly, so the CPU it reports is the
  * service's, and it scales to as many sessions as the box will take.
  *
- * It was written to measure a bug where a single GPU session cost 4.5 cores of
+ * It was written to measure a bug where a single GPU session cost 2.4 cores of
  * CPU (OpenBLAS spinning a thread per core - see deployment/UPGRADING.md), and
  * the shape of that bug is why the tool reports **cost per session** rather than
  * pass/fail: throughput and transcripts looked perfect throughout. What gave it
  * away was cores-per-session, and what proved the fix was that transcripts per
- * 1000 chunks did not move while cores-per-session fell 17x.
+ * 1000 chunks did not move (174.3 -> 176.5) while cores-per-session fell 7x.
  *
  * Requires a running stack (deployment/compose.yml).
  */

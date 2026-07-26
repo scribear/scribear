@@ -28,12 +28,12 @@ reports is the service's own, and it scales to as many sessions as the box takes
 ## What it reports, and what to read
 
 ```
-transcript messages   : 194
-finalized words       : 250
-  per 1000 chunks     : 228.5
-transcripts/1000 chunk: 177.3
-container CPU         : 24.6% mean, 82.8% max (24 samples)
-cores per session     : 0.25
+transcript messages   : 158
+finalized words       : 206
+  per 1000 chunks     : 230.2
+transcripts/1000 chunk: 176.5
+container CPU         : 33.5% mean, 101.18% max (45 samples)
+cores per session     : 0.34
 ```
 
 The pair that matters is **rates against cost**. The rates say the service is
@@ -50,11 +50,19 @@ change that moves one without the other is the interesting kind:
 Rates are per 1000 chunks rather than per second so runs of different lengths
 and session counts compare directly.
 
-This is what the tool was written for. A single GPU session cost 4.5 cores
+This is what the tool was written for. A single GPU session cost 2.4 cores
 because OpenBLAS spun a thread per core (`deployment/UPGRADING.md`), and
 throughput, transcripts and latency all looked perfect the whole time — the only
-signal was cores-per-session, and the only proof of the fix was that rates did
-not move while cost fell 17×.
+signal was cores-per-session. Two 90s runs of this tool either side of the fix,
+895 chunks each:
+
+|        | transcripts/1000 | words/1000 | CPU mean | CPU max | cores/session |
+| ------ | ---------------- | ---------- | -------- | ------- | ------------- |
+| before | 174.3            | 227.9      | 238.8%   | 513%    | 2.39          |
+| after  | 176.5            | 230.2      | 33.5%    | 101%    | 0.34          |
+
+Rates within 1.3%, cost down 7×. That is the shape of a waste finding, and
+neither column alone would have shown it.
 
 ## Interpreting `max`
 
