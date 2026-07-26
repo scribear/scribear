@@ -402,9 +402,46 @@ export class TranscriptionOrchestratorService {
     const longPoll = this._sessionConfigPollFactory(sessionUid);
     const initial = await this._awaitFirstConfig(longPoll, sessionUid);
 
-    const upstream = this._transcriptionServiceClient.transcriptionStream({
-      params: { providerKey: initial.transcriptionProviderId },
-    });
+    // The upstream's onHandshake re-sends AUTH+CONFIG on every (re)connection
+    // (H2), so it must read the *current* config, not the initial value. A
+    // small mutable holder closed over by the handshake and updated by the
+    // long-poll handler below keeps the latest config reachable without a
+    // forward-declaration of `state` (which `state` needs `upstream`, and
+    // `upstream` needs the handshake). `providerKey` and `roomUid` are fixed
+    // for the life of the upstream, so they are read from `initial` directly.
+    const handshakeConfig: { value: Session['transcriptionStreamConfig'] } = {
+      value: initial.transcriptionStreamConfig,
+    };
+
+    const upstream = this._transcriptionServiceClient.transcriptionStream(
+      { params: { providerKey: initial.transcriptionProviderId } },
+      {
+        onHandshake: (sender) => {
+          // Re-sent on every (re)connection, not just the first. The
+          // transcription service closes 1008 on audio that arrives before
+          // auth AND before config, so the old single connect-time send
+          // permanently broke a session after any upstream flap: the client
+          // reconnected, sent only audio, and was closed again — forever.
+          // Sending here also subsumes H3: AUTH/CONFIG bypass the send queue
+          // entirely (so overflow can no longer evict them), and the queue
+          // flush — audio — only runs after this resolves, guaranteeing auth
+          // precedes audio on every connection.
+          sender.send({
+            type: TranscriptionStreamClientMessageType.AUTH,
+            api_key: this._transcriptionApiKey,
+          });
+          sender.send({
+            type: TranscriptionStreamClientMessageType.CONFIG,
+            // Trusted by Session Manager when the session was created; the
+            // upstream provider validates its own config schema on receipt.
+            config: handshakeConfig.value as never,
+            session_uid: sessionUid,
+            room_uid: initial.roomUid,
+          });
+          return Promise.resolve();
+        },
+      },
+    );
 
     const state: SessionState = {
       sourceCount: 0,
@@ -466,18 +503,8 @@ export class TranscriptionOrchestratorService {
     });
 
     upstream.start();
-    upstream.send({
-      type: TranscriptionStreamClientMessageType.AUTH,
-      api_key: this._transcriptionApiKey,
-    });
-    upstream.send({
-      type: TranscriptionStreamClientMessageType.CONFIG,
-      // Trusted by Session Manager when the session was created; the
-      // upstream provider validates its own config schema on receipt.
-      config: initial.transcriptionStreamConfig as never,
-      session_uid: sessionUid,
-      room_uid: initial.roomUid,
-    });
+    // AUTH + CONFIG are sent by the upstream's onHandshake on every
+    // (re)connection — see the factory call above.
 
     state.audioUnsubscribe = this._eventBus.subscribe(
       AudioFrameChannel,
@@ -515,10 +542,12 @@ export class TranscriptionOrchestratorService {
     );
 
     longPoll.on('data', (session) => {
-      // Future iteration: reconnect the upstream if `transcriptionProviderId`
-      // changed, or push a new CONFIG message if only the config did. For
-      // now we just log so the long-poll keeps the cursor advancing and we
-      // can observe config-bump events in production.
+      // Keep the upstream's onHandshake current: a later config bump must be
+      // the value re-sent on the next upstream (re)connection, not the stale
+      // initial one (H2). A `transcriptionProviderId` change still does not
+      // move a live upstream — that remains a future iteration — but the
+      // config payload itself is now kept live for the next handshake.
+      handshakeConfig.value = session.transcriptionStreamConfig;
       this._logger.info(
         { sessionUid, version: session.sessionConfigVersion },
         'session config changed',

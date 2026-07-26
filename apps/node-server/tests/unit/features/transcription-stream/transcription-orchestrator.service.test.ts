@@ -79,6 +79,13 @@ interface Harness {
   poolFactory: ReturnType<typeof vi.fn>;
   transcriptionStreamFactory: ReturnType<typeof vi.fn>;
   metrics: NodeServerMetricsService;
+  /** Sender passed to the upstream's onHandshake; records AUTH/CONFIG sends. */
+  handshakeSender: {
+    send: ReturnType<typeof vi.fn>;
+    sendBinary: ReturnType<typeof vi.fn>;
+  };
+  /** Invokes the captured onHandshake, simulating one upstream (re)connection. */
+  invokeHandshake: () => Promise<void>;
 }
 
 function makeHarness(
@@ -94,7 +101,21 @@ function makeHarness(
   const poolFactory = vi.fn(
     () => longPoll,
   ) as unknown as SessionConfigPollFactory & ReturnType<typeof vi.fn>;
-  const transcriptionStreamFactory = vi.fn(() => upstream);
+  const handshakeSender = { send: vi.fn(), sendBinary: vi.fn() };
+  let capturedOnHandshake:
+    | ((sender: typeof handshakeSender) => Promise<void> | void)
+    | undefined;
+  const transcriptionStreamFactory = vi.fn(
+    (
+      _params: unknown,
+      opts?: {
+        onHandshake?: (sender: typeof handshakeSender) => Promise<void> | void;
+      },
+    ) => {
+      capturedOnHandshake = opts?.onHandshake;
+      return upstream;
+    },
+  );
   const transcriptionServiceClient = {
     transcriptionStream: transcriptionStreamFactory,
   } as unknown as ConstructorParameters<
@@ -111,6 +132,12 @@ function makeHarness(
     metrics,
   );
 
+  const invokeHandshake = async (): Promise<void> => {
+    if (capturedOnHandshake !== undefined) {
+      await capturedOnHandshake(handshakeSender);
+    }
+  };
+
   return {
     orchestrator,
     bus,
@@ -119,6 +146,8 @@ function makeHarness(
     poolFactory,
     transcriptionStreamFactory,
     metrics,
+    handshakeSender,
+    invokeHandshake,
   };
 }
 
@@ -145,17 +174,67 @@ describe('TranscriptionOrchestratorService', () => {
       // Assert
       expect(h.poolFactory).toHaveBeenCalledWith(SESSION_UID);
       expect(h.longPoll.start).toHaveBeenCalledTimes(1);
-      expect(h.transcriptionStreamFactory).toHaveBeenCalledWith({
-        params: { providerKey: PROVIDER_KEY },
-      });
+      // The factory is now called with a per-call onHandshake that re-sends
+      // AUTH+CONFIG on every (re)connection (H2).
+      expect(h.transcriptionStreamFactory).toHaveBeenCalledWith(
+        { params: { providerKey: PROVIDER_KEY } },
+        expect.objectContaining({ onHandshake: expect.any(Function) }),
+      );
       expect(h.upstream.start).toHaveBeenCalledTimes(1);
-      expect(h.upstream.send).toHaveBeenCalledWith(
+
+      // AUTH + CONFIG are sent via the upstream's onHandshake, not via
+      // upstream.send after start().
+      await h.invokeHandshake();
+      expect(h.handshakeSender.send).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'auth', api_key: 'tx-key' }),
       );
-      expect(h.upstream.send).toHaveBeenCalledWith(
+      expect(h.handshakeSender.send).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'config',
           config: { sample_rate: 48000, num_channels: 1 },
+          session_uid: SESSION_UID,
+          room_uid: ROOM_UID,
+        }),
+      );
+    });
+
+    it('re-sends AUTH+CONFIG on every (re)connection, using the latest config (H2)', async () => {
+      // Arrange - open the session; the initial config is the fakeSession
+      // default (48000 Hz).
+      await registerAndDrain(h, SESSION_UID);
+
+      // Act 1 - first connection: AUTH + initial CONFIG.
+      await h.invokeHandshake();
+      expect(h.handshakeSender.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'config',
+          config: { sample_rate: 48000, num_channels: 1 },
+        }),
+      );
+
+      // Bump the config via the long-poll. The orchestrator keeps state.config
+      // current so the next handshake re-sends the updated value.
+      h.handshakeSender.send.mockClear();
+      h.longPoll.emit(
+        'data',
+        fakeSession({
+          transcriptionStreamConfig: { sample_rate: 16000, num_channels: 1 },
+        }),
+      );
+
+      // Act 2 - a reconnect is a second onHandshake invocation. Old behaviour
+      // sent AUTH+CONFIG exactly once at session open, so a reconnect sent only
+      // audio and was closed 1008 ("Audio chunk before authentication") by the
+      // transcription service — forever, because the client reconnects and
+      // repeats the mistake. The handshake must re-send both, with the new config.
+      await h.invokeHandshake();
+      expect(h.handshakeSender.send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'auth', api_key: 'tx-key' }),
+      );
+      expect(h.handshakeSender.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'config',
+          config: { sample_rate: 16000, num_channels: 1 },
           session_uid: SESSION_UID,
           room_uid: ROOM_UID,
         }),
