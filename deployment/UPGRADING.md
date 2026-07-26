@@ -66,6 +66,22 @@ where the encoder and decoder are on the GPU and no CPU pool is wanted. Raise it
 on a CPU deployment with cores to spare — but count workers first, since
 `num_workers` copies of it each claim that many threads.
 
+### Context tags in the templates lost their device suffix
+
+**Nothing to do.** A context `tags` entry is only a match string, resolved
+inside the one `provider_config.json` that declares it, so your existing file
+keeps working untouched and nothing in the images or the API knows these names.
+Called out only because a diff against the templates now shows it.
+
+The CUDA template had been tagging a `"device": "cuda"` context
+`whisper_cpu_context`, which reads as a misconfiguration to anyone debugging one
+— it cost real time during the CPU investigation above. The device belongs in
+`context_config`, which already states it, so the tags no longer repeat it:
+`whisper_cpu_context` → `whisper_context`, and
+`crisper_whisper_cpu_context` / `crisper_whisper_cuda_context` →
+`crisper_whisper_context`. The CPU and CUDA templates now use one tag
+vocabulary and differ only where they should, in `context_config`.
+
 ---
 
 ## Unreleased — the Deployment Check notices an out-of-date `compose.yml`
