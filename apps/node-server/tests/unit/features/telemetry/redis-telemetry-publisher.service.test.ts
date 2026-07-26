@@ -88,6 +88,7 @@ function fakeProcess(): StatusProcess {
     summary: {
       activeSessionCount: 1,
       decodeDropsTotal: 0,
+      binaryBeforeAuthDropsTotal: 0,
       pendingChunkEvictionsTotal: 0,
       upstreamChurnTotal: 2,
       authSuccessTotal: 3,

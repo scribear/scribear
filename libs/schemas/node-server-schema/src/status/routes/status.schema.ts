@@ -130,6 +130,12 @@ export const STATUS_SESSION_SCHEMA = Type.Object(
       description:
         'Consecutive reconnect attempts for this session’s upstream. Non-zero while flapping; back to 0 once a connection is established.',
     }),
+    audioFramesReceived: Type.Optional(
+      Type.Integer({
+        description:
+          'Binary frames received from the source since the session opened, counted before decode so a malformed frame still registers as "the source is sending something" (the malformed subset is `decodeDropsTotal`). Monotonic per session, resets on session end. Lets the fleet dashboard distinguish "source sent nothing" (0) from "source is sending but the ASR is silent" (>0) — the two cases that "no audio reaching ASR" alone cannot tell apart. Optional for backward-compat with older publishers that do not emit it.',
+      }),
+    ),
     latency: Type.Array(LATENCY_SERIES_SCHEMA, {
       description: `Per-session latency (B1.4). ${LATENCY_ARRAY_DESCRIPTION} Retained per session and discarded when the session’s last connection closes, so unlike the process-wide series these describe live rooms only.`,
     }),
@@ -168,6 +174,10 @@ export const STATUS_PROCESS_SCHEMA = Type.Object({
     }),
     decodeDropsTotal: Type.Integer({
       description: 'Malformed SAFP frames dropped rather than forwarded (U2).',
+    }),
+    binaryBeforeAuthDropsTotal: Type.Integer({
+      description:
+        'Binary frames a source sent before its AUTH handshake completed (H1). Dropped rather than closed: a source that starts streaming before AUTH_OK would otherwise be closed 1008 `binary-before-auth` and reconnect-loop, because each reconnect re-sends AUTH and the next first chunk again beats AUTH_OK.',
     }),
     pendingChunkEvictionsTotal: Type.Integer({
       description:

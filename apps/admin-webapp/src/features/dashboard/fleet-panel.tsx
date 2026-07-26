@@ -428,7 +428,10 @@ const SessionCard = ({
           {audio === undefined ? (
             <Typography variant="caption" color="error">
               {session.upstreamState === 'OPEN'
-                ? 'no audio reaching ASR'
+                ? session.audioFramesReceived !== undefined &&
+                  session.audioFramesReceived > 0
+                  ? 'audio received, not reaching ASR'
+                  : 'no audio from source'
                 : 'no audio telemetry'}
             </Typography>
           ) : headline === undefined ? (

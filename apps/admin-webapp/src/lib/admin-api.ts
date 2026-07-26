@@ -314,6 +314,14 @@ export interface SessionSnapshot {
   pendingChunkCount: number;
   upstreamState: UpstreamState;
   upstreamRetryAttempt: number;
+  /**
+   * Binary frames received from the source since the session opened, counted
+   * before decode (malformed frames included - they still prove the source is
+   * sending). Optional: older node-server publishers that predate it omit it.
+   * 0 = source sent nothing; >0 = source is sending (lets the fleet view
+   * distinguish "kiosk sent nothing" from "upstream broke").
+   */
+  audioFramesReceived?: number;
   latency: LatencySeries[];
   /** Publish time, epoch ms, on the publishing host's clock. */
   updatedAt: number;

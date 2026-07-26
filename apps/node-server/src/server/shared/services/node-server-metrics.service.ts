@@ -202,6 +202,7 @@ export class NodeServerMetricsService {
   private _latency = new LatencyAggregate(PROCESS_LATENCY_CAPACITY);
 
   private _decodeDropsTotal = 0;
+  private _binaryBeforeAuthDropsTotal = 0;
   private _pendingChunkEvictionsTotal = 0;
   private _upstreamChurnTotal = 0;
   private _authSuccessTotal = 0;
@@ -250,6 +251,19 @@ export class NodeServerMetricsService {
   /** A malformed SAFP frame was dropped instead of forwarded upstream (U2). */
   recordDecodeDrop(): void {
     this._decodeDropsTotal += 1;
+  }
+
+  /**
+   * A binary frame arrived before the connection authenticated (H1). Dropped
+   * rather than closed: a source that begins streaming before AUTH_OK would
+   * otherwise be closed 1008 `binary-before-auth` and reconnect-loop, because
+   * the auto-reconnect re-sends AUTH and the next first chunk again beats
+   * AUTH_OK. Dropping is strictly the better failure mode — the frame is
+   * worthless before auth (the orchestrator isn't subscribed yet) and the
+   * socket lives to complete auth, after which audio flows normally.
+   */
+  recordBinaryBeforeAuthDrop(): void {
+    this._binaryBeforeAuthDropsTotal += 1;
   }
 
   /**
@@ -397,6 +411,7 @@ export class NodeServerMetricsService {
       processUid: this.processUid,
       processStartedAt: this.processStartedAt,
       decodeDropsTotal: this._decodeDropsTotal,
+      binaryBeforeAuthDropsTotal: this._binaryBeforeAuthDropsTotal,
       pendingChunkEvictionsTotal: this._pendingChunkEvictionsTotal,
       upstreamChurnTotal: this._upstreamChurnTotal,
       authSuccessTotal: this._authSuccessTotal,
