@@ -20,6 +20,8 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
 import type {
+  ComposeFileStatus,
+  ComposeFileVersion,
   ContainerVersion,
   DeploymentVersionsReport,
   VersionProbeStatus,
@@ -42,6 +44,65 @@ const STATUS_META: Record<
   unsupported: { label: 'old image', color: 'warning' },
   unreachable: { label: 'no answer', color: 'error' },
   'not-reported': { label: 'n/a', color: 'default' },
+};
+
+/**
+ * The compose file's four outcomes, as a row and as a banner.
+ *
+ * Every one of them is an icon *and* a word: colour alone would leave `stale`
+ * and `ahead` — the two an operator has to tell apart to know whether to copy a
+ * file or pull images — indistinguishable to anyone reading this in greyscale
+ * or with a colour vision deficiency.
+ */
+const COMPOSE_STATUS_META: Record<
+  ComposeFileStatus,
+  {
+    label: string;
+    color: 'success' | 'warning' | 'default';
+    severity: 'success' | 'warning' | 'info';
+    icon: React.ReactElement;
+    /** Headline of the banner. States the finding, not the status name. */
+    title: string;
+    /** What it means and what to do about it. */
+    detail: string;
+  }
+> = {
+  match: {
+    label: 'in step',
+    color: 'success',
+    severity: 'success',
+    icon: <CheckCircleIcon fontSize="small" />,
+    title: 'The compose file matches these images',
+    detail:
+      'deployment/compose.yml is the version these images were built for.',
+  },
+  stale: {
+    label: 'old file',
+    color: 'warning',
+    severity: 'warning',
+    icon: <WarningIcon fontSize="small" />,
+    title: 'This stack is running an old compose file',
+    detail:
+      'The images were pulled but deployment/compose.yml was not updated, so services, environment variables or wiring these images expect may simply be absent. Copy the current deployment/compose.yml from the repo and run `docker compose up -d`.',
+  },
+  ahead: {
+    label: 'old images',
+    color: 'warning',
+    severity: 'warning',
+    icon: <WarningIcon fontSize="small" />,
+    title: 'The compose file is newer than these images',
+    detail:
+      'deployment/compose.yml was updated but the images were not all pulled, so this stack is half upgraded. Run `docker compose pull && docker compose up -d` in deployment/.',
+  },
+  unknown: {
+    label: 'not reported',
+    color: 'default',
+    severity: 'info',
+    icon: <HelpOutlinedIcon fontSize="small" />,
+    title: 'The compose file did not report a version',
+    detail:
+      'It predates this check, so it is at least that old — which is not the same as being wrong, only unverifiable. Copy the current deployment/compose.yml from the repo and run `docker compose up -d` to start reporting it.',
+  },
 };
 
 function shortCommit(commit: string): string {
@@ -180,6 +241,71 @@ const ContainerRow = ({
 };
 
 /**
+ * The compose file, as a row in the same table.
+ *
+ * It is not a container and does not pretend to be one — it has no commit,
+ * branch or build time, and says so with the same em dash a container that did
+ * not supply a field uses. It belongs here anyway: an operator reading this
+ * table is asking "is this deployment consistent?", and the file wiring the
+ * containers together is the one piece of it that no image carries and no
+ * `docker compose pull` updates.
+ */
+const ComposeFileRow = ({
+  composeFile,
+}: {
+  composeFile: ComposeFileVersion;
+}) => {
+  const meta = COMPOSE_STATUS_META[composeFile.status];
+
+  return (
+    <TableRow hover>
+      <TableCell sx={{ fontWeight: 500 }}>compose.yml</TableCell>
+      <TableCell>
+        {composeFile.reported === null
+          ? '—'
+          : `v${String(composeFile.reported)}`}
+      </TableCell>
+      <TableCell>—</TableCell>
+      <TableCell>—</TableCell>
+      <TableCell>—</TableCell>
+      <TableCell>
+        <Tooltip
+          title={`These images were built for compose file v${String(composeFile.expected)}.`}
+        >
+          <Chip
+            size="small"
+            variant="outlined"
+            label={`expects v${String(composeFile.expected)}`}
+          />
+        </Tooltip>
+      </TableCell>
+      <TableCell>
+        <Stack
+          direction="row"
+          spacing={0.5}
+          useFlexGap
+          sx={{
+            alignItems: 'center',
+            flexWrap: 'wrap',
+          }}
+        >
+          <Chip
+            size="small"
+            color={meta.color}
+            variant="outlined"
+            icon={meta.icon}
+            label={meta.label}
+          />
+          <Tooltip title={meta.detail}>
+            <HelpOutlinedIcon fontSize="small" color="disabled" />
+          </Tooltip>
+        </Stack>
+      </TableCell>
+    </TableRow>
+  );
+};
+
+/**
  * What each container in this deployment was built from.
  *
  * This is the only place in the console that can answer the question, and the
@@ -215,6 +341,7 @@ export const DeploymentVersionsTable = ({
 
   const mismatched = new Set(report.mismatched);
   const stale = report.containers.filter((c) => c.status === 'unsupported');
+  const composeMeta = COMPOSE_STATUS_META[report.composeFile.status];
 
   return (
     <Box>
@@ -261,6 +388,20 @@ export const DeploymentVersionsTable = ({
           not recreated by the last upgrade.
         </Alert>
       )}
+      {/* Only when there is something to say. A green "the compose file
+          matches" banner on top of the green commit banner would double the
+          reassurance and halve the chance either is read; the row in the table
+          below carries the match case. */}
+      {report.composeFile.status !== 'match' && (
+        <Alert
+          severity={composeMeta.severity}
+          icon={composeMeta.icon}
+          sx={{ mb: 2 }}
+        >
+          <AlertTitle>{composeMeta.title}</AlertTitle>
+          {composeMeta.detail}
+        </Alert>
+      )}
       {report.locallyBuilt.length > 0 && !report.unstamped && (
         <Alert severity="info" sx={{ mb: 2 }}>
           <AlertTitle>Locally built images are running here</AlertTitle>
@@ -299,6 +440,9 @@ export const DeploymentVersionsTable = ({
                 isMismatched={mismatched.has(container.service)}
               />
             ))}
+            {/* Last, below every container: it is part of the deployment but
+                not part of the fleet of images above it. */}
+            <ComposeFileRow composeFile={report.composeFile} />
           </TableBody>
         </Table>
       </TableContainer>
@@ -313,10 +457,12 @@ export const DeploymentVersionsTable = ({
         }}
       >
         <RemoveCircleOutlinedIcon fontSize="inherit" />
-        Every value is baked into the image at build time, so it describes the
-        artifact rather than the source tree it sits next to. An em dash means
-        the build did not supply that field. Read{' '}
-        {new Date(report.checkedAt).toLocaleString()}.
+        Every container value is baked into the image at build time, so it
+        describes the artifact rather than the source tree it sits next to. An
+        em dash means the build did not supply that field. The{' '}
+        <code>compose.yml</code> row is the exception: it is not an image, and
+        its version is the literal the running compose file passes to
+        admin-server. Read {new Date(report.checkedAt).toLocaleString()}.
       </Typography>
     </Box>
   );

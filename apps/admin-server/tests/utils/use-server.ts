@@ -4,6 +4,7 @@ import { LogLevel } from '@scribear/base-fastify-server';
 
 import type { AppConfig } from '#src/app-config/app-config.js';
 import createServer from '#src/server/create-server.js';
+import { EXPECTED_COMPOSE_FILE_VERSION } from '#src/server/features/deployment-versions/deployment-versions.service.js';
 
 export const TEST_ADMIN_KEY = 'test-admin-key';
 export const TEST_USERNAME = 'engrit';
@@ -106,6 +107,11 @@ export function buildTestAppConfig(
     // document without listing all eleven of the real stack's containers.
     deploymentVersionsConfig: {
       timeoutMs: 500,
+      // A compose file in step with this image, so a test that cares about the
+      // compose-file row states the mismatch it is testing. Derived from the
+      // constant rather than written as a number, or bumping the version would
+      // silently turn the default deployment into a stale one.
+      reportedComposeFileVersion: String(EXPECTED_COMPOSE_FILE_VERSION),
       targets: [
         { name: 'session-manager', url: `${TEST_SM_BASE_URL}/build-info` },
         { name: 'node-server', url: `${TEST_NODE_BASE_URL}/build-info` },

@@ -148,6 +148,29 @@ services:
     expose:
       - "80"
     environment:
+      # The identity of *this file*, so the admin console can notice that new
+      # images are running against an old compose file. Nothing else in the
+      # stack can see that: this file is not part of any image, so an operator
+      # who pulls new images without copying it gets missing services, missing
+      # variables and changed wiring, silently. admin-server compares this
+      # against the value baked into its own image and reports the result on
+      # the Deployment Check page.
+      #
+      # A literal, deliberately, and never `${COMPOSE_FILE_VERSION:-}`: a
+      # carried-over .env is exactly the thing that goes stale, so letting it
+      # supply this value would let the stale half of a deployment vouch for
+      # the other half. Nothing about it belongs in .env.
+      #
+      # Bump it when a change to this file is one an operator must redeploy
+      # for - a new service, a new or renamed variable, changed wiring - and
+      # bump `EXPECTED_COMPOSE_FILE_VERSION` in admin-server to match. A unit
+      # test fails if the two ever disagree, or if this file changes without
+      # someone deciding which of the two cases they are in.
+      #
+      # Not `:?`-guarded, like DEPLOYMENT_ENV below and unlike the secrets: it
+      # changes what is *reported*, never what runs, and must not be able to
+      # stop a stack from starting.
+      COMPOSE_FILE_VERSION: "1"
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80

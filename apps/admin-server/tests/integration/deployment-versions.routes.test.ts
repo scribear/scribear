@@ -3,6 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, vi } from 'vitest';
 import type { BuildInfo } from '@scribear/base-fastify-server';
 
 import type { DeploymentVersionsReport } from '#src/server/features/deployment-versions/deployment-versions.service.js';
+import { EXPECTED_COMPOSE_FILE_VERSION } from '#src/server/features/deployment-versions/deployment-versions.service.js';
 import {
   TEST_CLIENT_WEBAPP_BASE_URL,
   TEST_NODE_BASE_URL,
@@ -110,6 +111,27 @@ describe('Deployment versions route', () => {
       ]);
       expect(data.mismatched).toEqual([]);
       expect(data.expectedCommit).toBe(COMMIT);
+    });
+
+    // The compose file rides the same payload rather than a route of its own:
+    // it is the same question ("is this deployment consistent?") and it needs no
+    // probe, so a second request would be a second round trip for a comparison
+    // between one environment variable and one constant.
+    it('carries the compose file alongside the containers', async () => {
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: URL,
+        headers: { cookie },
+      });
+
+      // Assert
+      const { data } = res.json<DeploymentVersionsBody>();
+      expect(data.composeFile).toEqual({
+        expected: EXPECTED_COMPOSE_FILE_VERSION,
+        reported: EXPECTED_COMPOSE_FILE_VERSION,
+        status: 'match',
+      });
     });
   });
 

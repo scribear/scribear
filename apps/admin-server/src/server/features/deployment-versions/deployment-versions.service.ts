@@ -35,8 +35,69 @@ export interface ContainerVersion {
   detail?: string | undefined;
 }
 
+/**
+ * The `compose.yml` this image expects to be run by.
+ *
+ * Baked in here rather than read from anywhere at runtime, which is the whole
+ * mechanism: this number travels inside the image, the number in
+ * `deployment/compose.yml` travels with the file, and comparing them is the
+ * only way a container can notice that the two were upgraded separately.
+ *
+ * Bump it — and the literal in `deployment/compose.yml` — whenever a change to
+ * that file is one an operator must redeploy for: a new service, a new or
+ * renamed environment variable, changed wiring. Leave both alone for a comment
+ * or a doc tweak. `tests/unit/features/deployment-versions/compose-file-
+ * version.test.ts` fails if the two ever disagree, or if that file changes
+ * without someone having made that call.
+ */
+export const EXPECTED_COMPOSE_FILE_VERSION = 1;
+
+/**
+ * How the running `compose.yml` compares to the one this image was built for.
+ *
+ * - `match` — the file and the images agree.
+ * - `stale` — the file is older than the images: someone pulled without
+ *   copying the new `deployment/compose.yml`, so services, variables or wiring
+ *   the new images expect are simply absent.
+ * - `ahead` — the images are older than the file: the file was copied but the
+ *   images were not pulled, or only some were.
+ * - `unknown` — the file reported nothing, so it predates this check entirely
+ *   and is at least that old.
+ *
+ * `stale` and `ahead` are kept apart even though both are "the deployment is
+ * inconsistent", for the same reason `unsupported` and `unreachable` are: the
+ * remedy differs. One operator needs to copy a file, the other needs to pull
+ * images, and telling either of them only that something is out of step leaves
+ * them to guess which.
+ *
+ * `unknown` is kept apart from both for a different reason: it is not a
+ * measured mismatch but the *absence* of a measurement. Reporting it as a
+ * mismatch would assert something this check cannot see, and reporting it as a
+ * match would be a false all-clear on the one deployment most likely to be out
+ * of date — a compose file old enough to predate this variable.
+ */
+export type ComposeFileStatus = 'match' | 'stale' | 'ahead' | 'unknown';
+
+/** How the running `compose.yml` compares to the one this image expects. */
+export interface ComposeFileVersion {
+  /** What this image was built for — `EXPECTED_COMPOSE_FILE_VERSION`. */
+  expected: number;
+  /**
+   * What the running compose file said, or null when it said nothing — either
+   * because it predates this check, or because it named something that is not
+   * a version number, which this check cannot tell apart and does not try to.
+   */
+  reported: number | null;
+  status: ComposeFileStatus;
+}
+
 export interface DeploymentVersionsReport {
   containers: ContainerVersion[];
+  /**
+   * The compose file itself, which is the one part of a deployment that is not
+   * an image and therefore never moves when images are pulled.
+   */
+  composeFile: ComposeFileVersion;
   /**
    * The commit this deployment is taken to be, or null when nothing reported
    * one. Every `mismatched` entry is measured against it.
@@ -84,6 +145,36 @@ export interface DeploymentVersionsConfig {
   timeoutMs: number;
   targets: VersionProbeTarget[];
   nonReporting: NonReportingContainer[];
+  /**
+   * `COMPOSE_FILE_VERSION` exactly as the environment gave it — a raw string,
+   * empty when unset, and not trusted to be a number. It is compared against
+   * `EXPECTED_COMPOSE_FILE_VERSION`, never used for anything else.
+   */
+  reportedComposeFileVersion: string;
+}
+
+/**
+ * Compares the running compose file's version against this image's.
+ *
+ * Everything that is not a plain non-negative integer is `unknown` rather than
+ * an error: an absent variable, a blank one and a typo all mean the same thing
+ * here — nothing can be concluded — and none of them is worth failing a page an
+ * operator opened to diagnose a deployment.
+ */
+export function resolveComposeFileVersion(raw: string): ComposeFileVersion {
+  const trimmed = raw.trim();
+  const reported = /^\d+$/.test(trimmed) ? Number(trimmed) : null;
+
+  const status: ComposeFileStatus =
+    reported === null
+      ? 'unknown'
+      : reported === EXPECTED_COMPOSE_FILE_VERSION
+        ? 'match'
+        : reported < EXPECTED_COMPOSE_FILE_VERSION
+          ? 'stale'
+          : 'ahead';
+
+  return { expected: EXPECTED_COMPOSE_FILE_VERSION, reported, status };
 }
 
 /**
@@ -205,6 +296,13 @@ function resolveExpectedCommit(
  * admin-server's own row is read in-process rather than over a loopback
  * request: it is the same value the route would return, and a console that
  * could not reach itself would drop the one row it can always speak for.
+ *
+ * The compose file is reported alongside them because it is the one part of a
+ * deployment that is not an image: pulling images cannot update it, no
+ * container can read it, and a stack running new images against an old
+ * `compose.yml` is missing services and variables while every row above says
+ * `ok`. It is compared by version number rather than read, which is why it is
+ * an environment variable — see `EXPECTED_COMPOSE_FILE_VERSION`.
  */
 export class DeploymentVersionsService {
   private _config: DeploymentVersionsConfig;
@@ -245,6 +343,12 @@ export class DeploymentVersionsService {
 
     return {
       containers,
+      // Not probed and not awaited: the compose file cannot be asked anything,
+      // so this is a comparison between one environment variable and one
+      // constant, and it answers even when every container above is down.
+      composeFile: resolveComposeFileVersion(
+        this._config.reportedComposeFileVersion,
+      ),
       expectedCommit,
       mismatched: containers
         .filter((c) => hasKnownCommit(c) && c.build?.commit !== expectedCommit)

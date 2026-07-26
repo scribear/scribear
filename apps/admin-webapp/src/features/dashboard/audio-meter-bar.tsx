@@ -202,6 +202,16 @@ export const AudioMeterBar = ({
           fontFamily: 'monospace',
           fontVariantNumeric: 'tabular-nums',
           whiteSpace: 'nowrap',
+          // `minWidth` alone was not a floor: setting it overrides a flex
+          // item's default `min-width: auto`, which is the thing that stops an
+          // item shrinking below its content. The bar beside this asks for
+          // `width: 100%`, so the readout lost the negotiation and "-23.4 dBFS"
+          // rendered clipped mid-word on a session card at every viewport width
+          // — measured in a real browser; jsdom has no layout, so no unit test
+          // could have seen it. The figure is the accessible value this
+          // component exists to show (SC 1.4.1), so it never shrinks; the bar
+          // is the part that gives way, down to its own 60px floor.
+          flexShrink: 0,
           minWidth: '4.5em',
           textAlign: 'right',
         }}
