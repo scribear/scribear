@@ -402,9 +402,48 @@ export class TranscriptionOrchestratorService {
     const longPoll = this._sessionConfigPollFactory(sessionUid);
     const initial = await this._awaitFirstConfig(longPoll, sessionUid);
 
-    const upstream = this._transcriptionServiceClient.transcriptionStream({
-      params: { providerKey: initial.transcriptionProviderId },
-    });
+    // The config the upstream must be (re)told about on every connection. Held
+    // in a mutable box rather than read from `initial` so a reconnect after a
+    // config bump replays the CURRENT config, not the one this session opened
+    // with. Updated by the long-poll handler below.
+    let currentConfig = initial;
+
+    const upstream = this._transcriptionServiceClient.transcriptionStream(
+      { params: { providerKey: initial.transcriptionProviderId } },
+      {
+        // Auth and config belong in the handshake, not in a one-time send after
+        // start(). The transcription service closes 1008 "Audio chunk before
+        // authentication" on any binary that arrives unauthenticated, and this
+        // client reconnects automatically - so sending them once meant that the
+        // FIRST upstream blip permanently broke the session: reconnect, forward
+        // audio, get closed, repeat forever, with the source still happily
+        // streaming and nothing reaching a provider.
+        //
+        // Running here also fixes the ordering hazard. `onHandshake`'s sender
+        // writes straight to the socket while the client is still HANDSHAKING,
+        // and the outbound queue is not flushed until it reaches OPEN. Audio
+        // buffered during the outage therefore lands strictly after auth and
+        // config, instead of racing ahead of them - and it can no longer evict
+        // them, which a 64-slot drop-oldest queue at ~10 frames/s otherwise did
+        // after ~6.4s of any upstream that was slow to accept (a cold CUDA
+        // model load being the obvious one).
+        onHandshake: (sender) => {
+          sender.send({
+            type: TranscriptionStreamClientMessageType.AUTH,
+            api_key: this._transcriptionApiKey,
+          });
+          sender.send({
+            type: TranscriptionStreamClientMessageType.CONFIG,
+            // Trusted by Session Manager when the session was created; the
+            // upstream provider validates its own config schema on receipt.
+            config: currentConfig.transcriptionStreamConfig as never,
+            session_uid: sessionUid,
+            room_uid: currentConfig.roomUid,
+          });
+          return Promise.resolve();
+        },
+      },
+    );
 
     const state: SessionState = {
       sourceCount: 0,
@@ -465,19 +504,9 @@ export class TranscriptionOrchestratorService {
       this._setStatus(sessionUid, state);
     });
 
+    // Auth and config are sent by `onHandshake` above, on this connection and
+    // on every reconnect after it.
     upstream.start();
-    upstream.send({
-      type: TranscriptionStreamClientMessageType.AUTH,
-      api_key: this._transcriptionApiKey,
-    });
-    upstream.send({
-      type: TranscriptionStreamClientMessageType.CONFIG,
-      // Trusted by Session Manager when the session was created; the
-      // upstream provider validates its own config schema on receipt.
-      config: initial.transcriptionStreamConfig as never,
-      session_uid: sessionUid,
-      room_uid: initial.roomUid,
-    });
 
     state.audioUnsubscribe = this._eventBus.subscribe(
       AudioFrameChannel,
@@ -515,6 +544,9 @@ export class TranscriptionOrchestratorService {
     );
 
     longPoll.on('data', (session) => {
+      // Keep the handshake's view current, so a reconnect replays this config
+      // rather than the one the session opened with.
+      currentConfig = session;
       // Future iteration: reconnect the upstream if `transcriptionProviderId`
       // changed, or push a new CONFIG message if only the config did. For
       // now we just log so the long-poll keeps the cursor advancing and we

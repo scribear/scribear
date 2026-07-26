@@ -16,6 +16,10 @@ import { WebSocketClient } from './websocket-client.js';
  */
 type WebSocketClientFactory<S extends BaseWebSocketRouteSchema> = (
   params: ConnectParams<S>,
+  overrides?: Omit<
+    WebSocketClientOptions<S>,
+    'schema' | 'route' | 'baseUrl' | 'params'
+  >,
 ) => WebSocketClient<S>;
 
 /**
@@ -29,7 +33,11 @@ type WebSocketClientFactory<S extends BaseWebSocketRouteSchema> = (
  * @param route URL pattern for the WebSocket endpoint.
  * @param baseUrl Base URL of the server. HTTP schemes are translated to ws/wss.
  * @param options Shared connection settings applied to every instance produced
- *   by this factory (backoff, queue policy, handshake, etc.).
+ *   by this factory (backoff, queue policy, handshake, etc.). Each call to the
+ *   factory may override any of them, which is what makes a per-connection
+ *   `onHandshake` possible: a handshake that has to replay per-session
+ *   credentials or config cannot be baked into a factory shared by every
+ *   session, but it is exactly the handshake that must survive a reconnect.
  */
 function createWebSocketClient<S extends BaseWebSocketRouteSchema>(
   schema: S,
@@ -40,8 +48,21 @@ function createWebSocketClient<S extends BaseWebSocketRouteSchema>(
     'schema' | 'route' | 'baseUrl' | 'params'
   >,
 ): WebSocketClientFactory<S> {
-  return (params: ConnectParams<S>): WebSocketClient<S> =>
-    new WebSocketClient({ schema, route, baseUrl, params, ...options });
+  return (
+    params: ConnectParams<S>,
+    overrides?: Omit<
+      WebSocketClientOptions<S>,
+      'schema' | 'route' | 'baseUrl' | 'params'
+    >,
+  ): WebSocketClient<S> =>
+    new WebSocketClient({
+      schema,
+      route,
+      baseUrl,
+      params,
+      ...options,
+      ...overrides,
+    });
 }
 
 export { createWebSocketClient };

@@ -122,6 +122,27 @@ function makeHarness(
   };
 }
 
+/**
+ * Invoke the `onHandshake` the orchestrator registered on the upstream client,
+ * with a fresh sender. Each call stands for one connection: the first one, or
+ * any reconnect the client makes on its own after a drop.
+ */
+async function runUpstreamHandshake(
+  h: Harness,
+  sender: { send: ReturnType<typeof vi.fn>; sendBinary: ReturnType<typeof vi.fn> },
+): Promise<void> {
+  const overrides = h.transcriptionStreamFactory.mock.calls[0]?.[1] as {
+    onHandshake: (
+      sender: unknown,
+      messages: { on: () => void; off: () => void },
+    ) => Promise<void>;
+  };
+  await overrides.onHandshake(sender, {
+    on: () => undefined,
+    off: () => undefined,
+  });
+}
+
 describe('TranscriptionOrchestratorService', () => {
   let h: Harness;
 
@@ -145,19 +166,78 @@ describe('TranscriptionOrchestratorService', () => {
       // Assert
       expect(h.poolFactory).toHaveBeenCalledWith(SESSION_UID);
       expect(h.longPoll.start).toHaveBeenCalledTimes(1);
-      expect(h.transcriptionStreamFactory).toHaveBeenCalledWith({
-        params: { providerKey: PROVIDER_KEY },
-      });
+      expect(h.transcriptionStreamFactory).toHaveBeenCalledWith(
+        { params: { providerKey: PROVIDER_KEY } },
+        expect.objectContaining({ onHandshake: expect.any(Function) }),
+      );
       expect(h.upstream.start).toHaveBeenCalledTimes(1);
-      expect(h.upstream.send).toHaveBeenCalledWith(
+
+      // Auth and config are the handshake, not a one-time send after start().
+      const sender = { send: vi.fn(), sendBinary: vi.fn() };
+      await runUpstreamHandshake(h, sender);
+
+      expect(sender.send).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'auth', api_key: 'tx-key' }),
       );
-      expect(h.upstream.send).toHaveBeenCalledWith(
+      expect(sender.send).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'config',
           config: { sample_rate: 48000, num_channels: 1 },
           session_uid: SESSION_UID,
           room_uid: ROOM_UID,
+        }),
+      );
+    });
+
+    it('re-sends auth and config on every reconnect', async () => {
+      // A session that survives an upstream blip is the whole point: the
+      // transcription service closes 1008 on unauthenticated binary, and this
+      // client reconnects on its own. Sending credentials once meant the first
+      // blip broke the session permanently while the source kept streaming.
+      // Arrange
+      const promise = h.orchestrator.registerSource(SESSION_UID);
+      h.longPoll.emit('data', fakeSession());
+      await promise;
+
+      // Act - three independent connections, as three reconnects would be.
+      const senders = [
+        { send: vi.fn(), sendBinary: vi.fn() },
+        { send: vi.fn(), sendBinary: vi.fn() },
+        { send: vi.fn(), sendBinary: vi.fn() },
+      ];
+      for (const sender of senders) await runUpstreamHandshake(h, sender);
+
+      // Assert
+      for (const sender of senders) {
+        expect(sender.send).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'auth', api_key: 'tx-key' }),
+        );
+        expect(sender.send).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'config', session_uid: SESSION_UID }),
+        );
+      }
+    });
+
+    it('replays the current config on reconnect, not the one it opened with', async () => {
+      // Arrange
+      const promise = h.orchestrator.registerSource(SESSION_UID);
+      h.longPoll.emit('data', fakeSession());
+      await promise;
+
+      // Act - a config bump arrives, then the upstream reconnects.
+      h.longPoll.emit('data', {
+        ...fakeSession(),
+        transcriptionStreamConfig: { sample_rate: 16000, num_channels: 2 },
+        sessionConfigVersion: 2,
+      });
+      const sender = { send: vi.fn(), sendBinary: vi.fn() };
+      await runUpstreamHandshake(h, sender);
+
+      // Assert
+      expect(sender.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'config',
+          config: { sample_rate: 16000, num_channels: 2 },
         }),
       );
     });
