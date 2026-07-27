@@ -4,6 +4,8 @@ import { screen, waitFor } from '@testing-library/react';
 import { Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, vi } from 'vitest';
 
+import { DEMO_ROOM_UID } from '@scribear/session-manager-schema';
+
 import { RoomDetailPage } from '#src/features/rooms/room-detail-page';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError } from '#src/lib/api-error';
@@ -19,12 +21,15 @@ vi.mock('#src/lib/admin-api', () => ({
 
 const ROOM_UID = 'room-1';
 
-function renderPage(ui: ReactElement = <RoomDetailPage />) {
+function renderPage(
+  ui: ReactElement = <RoomDetailPage />,
+  roomUid: string = ROOM_UID,
+) {
   return renderWithProviders(
     <Routes>
       <Route path="/rooms/:roomUid" element={ui} />
     </Routes>,
-    { route: `/rooms/${ROOM_UID}` },
+    { route: `/rooms/${roomUid}` },
   );
 }
 
@@ -150,6 +155,72 @@ describe('RoomDetailPage', () => {
       // Assert
       expect(screen.getByText(ROOM_UID)).toBeInTheDocument();
       expect(screen.getByText('device-1')).toBeInTheDocument();
+    });
+  });
+
+  describe('demo caption room', (it) => {
+    it('disables the device controls and explains that there is no audio path', async () => {
+      // Arrange - the demo room's captions come from a fixture, so the Session
+      // Manager refuses these two mutations (409). Disabling them here is what
+      // stops an operator from discovering the rule by hitting an error.
+      vi.mocked(adminApi.roomDetail).mockResolvedValue(
+        buildRoomDetail({
+          room: { uid: DEMO_ROOM_UID, name: 'Demo — Alice in Wonderland' },
+          devices: [
+            buildDevice({
+              uid: 'device-1',
+              name: 'Member',
+              roomUid: DEMO_ROOM_UID,
+              isSource: false,
+            }),
+          ],
+        }),
+      );
+
+      // Act
+      renderPage(<RoomDetailPage />, DEMO_ROOM_UID);
+      await waitForLoad();
+
+      // Assert
+      expect(screen.getByRole('button', { name: 'Add device' })).toBeDisabled();
+      expect(
+        screen.getByRole('button', { name: 'Set as source' }),
+      ).toBeDisabled();
+      expect(screen.getByText(/there is no audio path/i)).toBeInTheDocument();
+      // Detaching stays available: it is the only way to clean up a device
+      // attached before the refusal existed.
+      expect(screen.getByRole('button', { name: 'Remove' })).toBeEnabled();
+    });
+
+    it('leaves the same controls enabled for an ordinary room', async () => {
+      // Arrange - the case that matters most: a guard keyed off the wrong thing
+      // would disable device management for every real room.
+      vi.mocked(adminApi.roomDetail).mockResolvedValue(
+        buildRoomDetail({
+          room: { uid: ROOM_UID, name: 'Room 101' },
+          devices: [
+            buildDevice({
+              uid: 'device-1',
+              name: 'Kiosk 1',
+              roomUid: ROOM_UID,
+              isSource: false,
+            }),
+          ],
+        }),
+      );
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      expect(screen.getByRole('button', { name: 'Add device' })).toBeEnabled();
+      expect(
+        screen.getByRole('button', { name: 'Set as source' }),
+      ).toBeEnabled();
+      expect(
+        screen.queryByText(/there is no audio path/i),
+      ).not.toBeInTheDocument();
     });
   });
 });

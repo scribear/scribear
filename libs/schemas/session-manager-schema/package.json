@@ -11,6 +11,7 @@
     }
   },
   "type": "module",
+  "sideEffects": false,
   "imports": {
     "#src/*": {
       "development": "./src/*",

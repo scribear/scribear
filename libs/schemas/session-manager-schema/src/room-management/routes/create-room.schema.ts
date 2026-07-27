@@ -18,7 +18,7 @@ import { ROOM_SCHEMA } from '../entities/room.schema.js';
 
 const CREATE_ROOM_SCHEMA = {
   description:
-    'Create a new room. The `timezone` must be a valid IANA identifier.',
+    "Create a new room. The `timezone` must be a valid IANA identifier. Refused with 409 when the requested source device is the demo caption room's placeholder device, which can never send audio.",
   tags: [ROOM_MANAGEMENT_TAG],
   security: ADMIN_API_KEY_SECURITY,
   headers: Type.Object({
@@ -56,6 +56,10 @@ const CREATE_ROOM_SCHEMA = {
       }),
       Type.Object({
         code: Type.Literal('TOO_MANY_SOURCE_DEVICES'),
+        message: Type.String(),
+      }),
+      Type.Object({
+        code: Type.Literal('DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE'),
         message: Type.String(),
       }),
     ]),

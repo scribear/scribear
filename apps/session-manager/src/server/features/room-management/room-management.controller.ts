@@ -17,6 +17,25 @@ import {
 
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
 
+/**
+ * Refusals for the synthetic demo caption room. 409 rather than 422: the
+ * request is well formed and the caller is not confused about the schema — it
+ * conflicts with the state of a specific resource, exactly like the sibling
+ * `DEVICE_ALREADY_IN_ROOM` / `WOULD_LEAVE_ROOM_WITHOUT_SOURCE` refusals. The
+ * messages name the reason (no audio path) so an operator does not read this as
+ * a transient failure to retry.
+ */
+const DEMO_ROOM_NOT_ASSIGNABLE_MESSAGE =
+  'The demo caption room is a synthetic caption source with no audio path — ' +
+  'its captions are published from a fixture, so a device attached to it ' +
+  'would never be recorded or transcribed. Devices cannot be added to it or ' +
+  'made its source device.';
+
+const DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE_MESSAGE =
+  "The demo caption room's placeholder source device is not a real device — " +
+  'it is never activated and can never send audio, so it cannot be added to a ' +
+  'room or made a room source device.';
+
 export class RoomManagementController {
   private _roomManagementService: AppDependencies['roomManagementService'];
 
@@ -87,6 +106,12 @@ export class RoomManagementController {
         'At least one source device is required.',
       );
     }
+    if (result === 'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE') {
+      throw HttpError.conflict(
+        'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE',
+        DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE_MESSAGE,
+      );
+    }
     if (result === 'DEVICE_NOT_FOUND') {
       throw HttpError.notFound('DEVICE_NOT_FOUND', 'Source device not found.');
     }
@@ -148,6 +173,18 @@ export class RoomManagementController {
       deviceUid,
       asSource,
     });
+    if (result === 'DEMO_ROOM_NOT_ASSIGNABLE') {
+      throw HttpError.conflict(
+        'DEMO_ROOM_NOT_ASSIGNABLE',
+        DEMO_ROOM_NOT_ASSIGNABLE_MESSAGE,
+      );
+    }
+    if (result === 'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE') {
+      throw HttpError.conflict(
+        'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE',
+        DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE_MESSAGE,
+      );
+    }
     if (result === 'ROOM_NOT_FOUND') {
       throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
     }
@@ -197,6 +234,18 @@ export class RoomManagementController {
       roomUid,
       deviceUid,
     );
+    if (result === 'DEMO_ROOM_NOT_ASSIGNABLE') {
+      throw HttpError.conflict(
+        'DEMO_ROOM_NOT_ASSIGNABLE',
+        DEMO_ROOM_NOT_ASSIGNABLE_MESSAGE,
+      );
+    }
+    if (result === 'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE') {
+      throw HttpError.conflict(
+        'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE',
+        DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE_MESSAGE,
+      );
+    }
     if (result === 'ROOM_NOT_FOUND') {
       throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
     }

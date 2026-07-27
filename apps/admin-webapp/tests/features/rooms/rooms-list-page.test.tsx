@@ -1,16 +1,20 @@
 import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, vi } from 'vitest';
+
+import { DEMO_SOURCE_DEVICE_UID } from '@scribear/session-manager-schema';
 
 import { RoomsListPage } from '#src/features/rooms/rooms-list-page';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError } from '#src/lib/api-error';
 
 import { renderWithProviders } from '../../utils/render-with-providers';
-import { buildRoom } from './fixtures';
+import { buildDevice, buildRoom } from './fixtures';
 
 vi.mock('#src/lib/admin-api', () => ({
   adminApi: {
     listRooms: vi.fn(),
+    listDevices: vi.fn(),
   },
 }));
 
@@ -144,6 +148,46 @@ describe('RoomsListPage', () => {
       // Assert
       expect(screen.getByText('Room 101')).toBeInTheDocument();
       expect(screen.getByText('room-1')).toBeInTheDocument();
+    });
+  });
+
+  describe('demo placeholder source device', (it) => {
+    it('omits it from the source-device picker but keeps ordinary devices', async () => {
+      // Arrange - the demo room's placeholder device is never activated and can
+      // never send audio, so create-room refuses it (409). Offering it would be
+      // a choice that always fails; every other device must still be offered.
+      const user = userEvent.setup();
+      vi.mocked(adminApi.listRooms).mockResolvedValue({
+        items: [],
+        nextCursor: null,
+      });
+      vi.mocked(adminApi.listDevices).mockResolvedValue({
+        items: [
+          buildDevice({
+            uid: DEMO_SOURCE_DEVICE_UID,
+            name: 'demo-caption-room-source',
+          }),
+          buildDevice({ uid: 'device-2', name: 'Kiosk 2' }),
+        ],
+        nextCursor: null,
+      });
+      renderWithProviders(<RoomsListPage />);
+      await waitForLoad();
+
+      // Act
+      await user.click(screen.getByRole('button', { name: /new room/i }));
+      await waitFor(() => {
+        expect(adminApi.listDevices).toHaveBeenCalled();
+      });
+      await user.click(screen.getByRole('combobox', { name: 'Source device' }));
+
+      // Assert
+      expect(
+        screen.getByRole('option', { name: 'Kiosk 2' }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('option', { name: 'demo-caption-room-source' }),
+      ).not.toBeInTheDocument();
     });
   });
 });

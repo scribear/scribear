@@ -227,6 +227,29 @@ describe('RoomManagementController', () => {
       ).rejects.toMatchObject({ statusCode: 404, code: 'DEVICE_NOT_FOUND' });
     });
 
+    it("throws 409 when service returns 'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE'", async () => {
+      // Arrange - create-room's only reachable demo-room state is the
+      // placeholder source device; a created room can never be the demo room.
+      mockService.createRoom.mockResolvedValue(
+        'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE',
+      );
+      const mockReq = {
+        body: {
+          name: 'Room',
+          timezone: 'America/New_York',
+          sourceDeviceUids: ['d-1'],
+        },
+      };
+
+      // Act + Assert
+      await expect(
+        controller.createRoom(mockReq as never, mockRes as never),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE',
+      });
+    });
+
     it("throws 409 when service returns 'DEVICE_ALREADY_IN_ROOM'", async () => {
       // Arrange
       mockService.createRoom.mockResolvedValue('DEVICE_ALREADY_IN_ROOM');
@@ -395,6 +418,42 @@ describe('RoomManagementController', () => {
       });
     });
 
+    it("throws 409 with a message naming the missing audio path when service returns 'DEMO_ROOM_NOT_ASSIGNABLE'", async () => {
+      // Arrange - the refusal is only useful if the operator learns *why*, so
+      // the message (not just the code) is asserted here.
+      mockService.addDeviceToRoom.mockResolvedValue('DEMO_ROOM_NOT_ASSIGNABLE');
+      const mockReq = {
+        body: { roomUid: 'room-1', deviceUid: 'device-1', asSource: false },
+      };
+
+      // Act + Assert
+      await expect(
+        controller.addDeviceToRoom(mockReq as never, mockRes as never),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'DEMO_ROOM_NOT_ASSIGNABLE',
+        message: expect.stringContaining('no audio path') as string,
+      });
+    });
+
+    it("throws 409 when service returns 'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE'", async () => {
+      // Arrange
+      mockService.addDeviceToRoom.mockResolvedValue(
+        'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE',
+      );
+      const mockReq = {
+        body: { roomUid: 'room-1', deviceUid: 'device-1', asSource: false },
+      };
+
+      // Act + Assert
+      await expect(
+        controller.addDeviceToRoom(mockReq as never, mockRes as never),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE',
+      });
+    });
+
     it('calls the service with roomUid, deviceUid, and asSource from the body', async () => {
       // Arrange
       mockService.addDeviceToRoom.mockResolvedValue(undefined);
@@ -524,6 +583,38 @@ describe('RoomManagementController', () => {
       await expect(
         controller.setSourceDevice(mockReq as never, mockRes as never),
       ).rejects.toMatchObject({ statusCode: 404, code: 'DEVICE_NOT_IN_ROOM' });
+    });
+
+    it("throws 409 when service returns 'DEMO_ROOM_NOT_ASSIGNABLE'", async () => {
+      // Arrange - 409 (not 422) to match the sibling refused-but-well-formed
+      // conflicts on these routes; the request is fine, the target resource is
+      // the problem.
+      mockService.setSourceDevice.mockResolvedValue('DEMO_ROOM_NOT_ASSIGNABLE');
+      const mockReq = { body: { roomUid: 'room-1', deviceUid: 'device-1' } };
+
+      // Act + Assert
+      await expect(
+        controller.setSourceDevice(mockReq as never, mockRes as never),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'DEMO_ROOM_NOT_ASSIGNABLE',
+      });
+    });
+
+    it("throws 409 when service returns 'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE'", async () => {
+      // Arrange
+      mockService.setSourceDevice.mockResolvedValue(
+        'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE',
+      );
+      const mockReq = { body: { roomUid: 'room-1', deviceUid: 'device-1' } };
+
+      // Act + Assert
+      await expect(
+        controller.setSourceDevice(mockReq as never, mockRes as never),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE',
+      });
     });
 
     it('sends 204 with null on success', async () => {

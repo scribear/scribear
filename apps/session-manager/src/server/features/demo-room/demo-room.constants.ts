@@ -15,16 +15,23 @@
 export const DEFAULT_DEMO_SESSION_UID = 'deadbeef-0000-4000-8000-000000000001';
 
 /**
- * Fixed uid of the demo room's placeholder source device, in the same spirit
- * as {@link DEFAULT_DEMO_SESSION_UID}: seeding by a fixed uid (rather than
- * letting the DB generate one) lets the insert be a genuine
- * `ON CONFLICT (uid) DO NOTHING`, so restarts and racing instances converge
- * on one row instead of each creating their own placeholder device.
+ * Fixed uids of the demo room and its placeholder source device, in the same
+ * spirit as {@link DEFAULT_DEMO_SESSION_UID}: seeding by a fixed uid (rather
+ * than letting the DB generate one) lets the insert be a genuine
+ * `ON CONFLICT (uid) DO NOTHING`, so restarts and racing instances converge on
+ * one row instead of each creating their own placeholder device and room.
+ *
+ * Unlike the session uid — which is duplicated in the Node Server because the
+ * two services agree on it through the `DEMO_SESSION_UID` env var — these two
+ * are *reserved* uids that room-management refuses to attach devices to (see
+ * `RoomManagementService`), and the admin console disables the same controls
+ * against them. That makes them API contract, so they live in the shared schema
+ * package and are re-exported here for the seeder and the guards.
  */
-export const DEMO_SOURCE_DEVICE_UID = 'deadbeef-0000-4000-8000-000000000002';
-
-/** Fixed uid of the demo room, for the same reason as {@link DEMO_SOURCE_DEVICE_UID}. */
-export const DEMO_ROOM_UID = 'deadbeef-0000-4000-8000-000000000003';
+export {
+  DEMO_ROOM_UID,
+  DEMO_SOURCE_DEVICE_UID,
+} from '@scribear/session-manager-schema';
 
 /** Display name of the room the demo session lives in. */
 export const DEMO_ROOM_NAME = 'Demo — Alice in Wonderland';
