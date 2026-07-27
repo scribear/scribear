@@ -19,6 +19,27 @@ import type { AppDependencies } from '#src/server/dependency-injection/app-depen
 
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
+/**
+ * Refusals for mutating the demo caption room's placeholder source device.
+ * 409, matching the sibling `WOULD_LEAVE_ROOM_WITHOUT_SOURCE` refusal on the
+ * same endpoint: the device exists and the request is well formed, it just
+ * conflicts with the device's role as a fixed placeholder the demo room
+ * requires.
+ */
+const DEMO_SOURCE_DEVICE_NOT_DELETABLE_MESSAGE =
+  "That is the demo caption room's placeholder source device — deleting it " +
+  'would strand the demo room without a source until the next restart, and ' +
+  'nothing else can be attached in its place (the room refuses every other ' +
+  'device). To remove the feature, disable DEMO_ROOM_ENABLED instead.';
+
+const DEMO_SOURCE_DEVICE_NOT_REREGISTRABLE_MESSAGE =
+  "That is the demo caption room's placeholder source device — it is " +
+  'deliberately never activated and nobody holds its activation code. ' +
+  'Re-registering it would mint a fresh code for a row that exists only to ' +
+  "satisfy the room's source-device requirement, letting some physical " +
+  'device claim its identity for no benefit, since it can never be attached ' +
+  'anywhere else.';
+
 export class DeviceManagementController {
   private _useSecureCookie: boolean;
   private _deviceManagementService: AppDependencies['deviceManagementService'];
@@ -111,6 +132,12 @@ export class DeviceManagementController {
     const result = await this._deviceManagementService.reregisterDevice(
       req.body.deviceUid,
     );
+    if (result === 'DEMO_SOURCE_DEVICE_NOT_REREGISTRABLE') {
+      throw HttpError.conflict(
+        'DEMO_SOURCE_DEVICE_NOT_REREGISTRABLE',
+        DEMO_SOURCE_DEVICE_NOT_REREGISTRABLE_MESSAGE,
+      );
+    }
     if (result === 'DEVICE_NOT_FOUND') {
       throw HttpError.notFound('DEVICE_NOT_FOUND', 'Device not found.');
     }
@@ -184,6 +211,12 @@ export class DeviceManagementController {
     const result = await this._deviceManagementService.deleteDevice(
       req.body.deviceUid,
     );
+    if (result === 'DEMO_SOURCE_DEVICE_NOT_DELETABLE') {
+      throw HttpError.conflict(
+        'DEMO_SOURCE_DEVICE_NOT_DELETABLE',
+        DEMO_SOURCE_DEVICE_NOT_DELETABLE_MESSAGE,
+      );
+    }
     if (result === 'DEVICE_NOT_FOUND') {
       throw HttpError.notFound('DEVICE_NOT_FOUND', 'Device not found.');
     }

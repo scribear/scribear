@@ -304,6 +304,20 @@ describe('RoomManagementController', () => {
       ).rejects.toMatchObject({ statusCode: 404, code: 'ROOM_NOT_FOUND' });
     });
 
+    it("throws 409 when service returns 'DEMO_ROOM_NOT_RENAMABLE'", async () => {
+      // Arrange
+      mockService.updateRoom.mockResolvedValue('DEMO_ROOM_NOT_RENAMABLE');
+      const mockReq = { body: { roomUid: 'room-1', name: 'New Name' } };
+
+      // Act + Assert
+      await expect(
+        controller.updateRoom(mockReq as never, mockRes as never),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'DEMO_ROOM_NOT_RENAMABLE',
+      });
+    });
+
     it('serializes createdAt to ISO string on success', async () => {
       // Arrange
       mockService.updateRoom.mockResolvedValue({
@@ -359,6 +373,20 @@ describe('RoomManagementController', () => {
       await expect(
         controller.deleteRoom(mockReq as never, mockRes as never),
       ).rejects.toMatchObject({ statusCode: 404, code: 'ROOM_NOT_FOUND' });
+    });
+
+    it("throws 409 when service returns 'DEMO_ROOM_NOT_DELETABLE'", async () => {
+      // Arrange
+      mockService.deleteRoom.mockResolvedValue('DEMO_ROOM_NOT_DELETABLE');
+      const mockReq = { body: { roomUid: 'room-1' } };
+
+      // Act + Assert
+      await expect(
+        controller.deleteRoom(mockReq as never, mockRes as never),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'DEMO_ROOM_NOT_DELETABLE',
+      });
     });
 
     it('sends 204 with null on success', async () => {

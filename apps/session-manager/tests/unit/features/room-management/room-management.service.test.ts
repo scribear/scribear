@@ -807,6 +807,54 @@ describe('RoomManagementService', () => {
         ORDINARY_DEVICE_UID,
       );
     });
+
+    it("refuses to rename the demo room with 'DEMO_ROOM_NOT_RENAMABLE'", async () => {
+      // Arrange / Act
+      const result = await service.updateRoom(DEMO_ROOM_UID, {
+        name: 'New Name',
+      });
+
+      // Assert
+      expect(result).toBe('DEMO_ROOM_NOT_RENAMABLE');
+      expect(mockRoomRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('still renames an ordinary room whose uid resembles the demo room uid', async () => {
+      // Arrange
+      mockRoomRepo.update.mockResolvedValue(mockRoom);
+
+      // Act
+      const result = await service.updateRoom(ORDINARY_ROOM_UID, {
+        name: 'New Name',
+      });
+
+      // Assert
+      expect(result).toStrictEqual(mockRoom);
+      expect(mockRoomRepo.update).toHaveBeenCalledWith(ORDINARY_ROOM_UID, {
+        name: 'New Name',
+      });
+    });
+
+    it("refuses to delete the demo room with 'DEMO_ROOM_NOT_DELETABLE'", async () => {
+      // Arrange / Act
+      const result = await service.deleteRoom(DEMO_ROOM_UID);
+
+      // Assert
+      expect(result).toBe('DEMO_ROOM_NOT_DELETABLE');
+      expect(mockRoomRepo.delete).not.toHaveBeenCalled();
+    });
+
+    it('still deletes an ordinary room whose uid resembles the demo room uid', async () => {
+      // Arrange
+      mockRoomRepo.delete.mockResolvedValue(true);
+
+      // Act
+      const result = await service.deleteRoom(ORDINARY_ROOM_UID);
+
+      // Assert
+      expect(result).toBeUndefined();
+      expect(mockRoomRepo.delete).toHaveBeenCalledWith(ORDINARY_ROOM_UID);
+    });
   });
 
   /**

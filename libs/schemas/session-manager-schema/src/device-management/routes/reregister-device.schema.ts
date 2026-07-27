@@ -16,7 +16,7 @@ import { DEVICE_MANAGEMENT_TAG } from '#src/tags.js';
 
 const REREGISTER_DEVICE_SCHEMA = {
   description:
-    'Revoke an activated device and return a fresh activation code. The existing `DEVICE_TOKEN` is invalidated immediately by clearing the stored hash; outstanding session tokens remain valid until their natural expiry.',
+    "Revoke an activated device and return a fresh activation code. The existing `DEVICE_TOKEN` is invalidated immediately by clearing the stored hash; outstanding session tokens remain valid until their natural expiry. Refused with 409 for the demo caption room's placeholder source device, which is deliberately never activated.",
   tags: [DEVICE_MANAGEMENT_TAG],
   security: ADMIN_API_KEY_SECURITY,
   headers: Type.Object({
@@ -37,6 +37,10 @@ const REREGISTER_DEVICE_SCHEMA = {
     ...INVALID_ADMIN_KEY_REPLY_SCHEMA,
     404: Type.Object({
       code: Type.Literal('DEVICE_NOT_FOUND'),
+      message: Type.String(),
+    }),
+    409: Type.Object({
+      code: Type.Literal('DEMO_SOURCE_DEVICE_NOT_REREGISTRABLE'),
       message: Type.String(),
     }),
   },

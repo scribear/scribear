@@ -1,11 +1,33 @@
 import crypto from 'node:crypto';
 
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
+import { DEMO_SOURCE_DEVICE_UID } from '#src/server/features/demo-room/demo-room.constants.js';
 import { generateRandomCode } from '#src/server/utils/generate-random-code.js';
 
 const ACTIVATION_CODE_LENGTH = 8;
 const ACTIVATION_CODE_VALID_MINUTES = 5;
 const DEVICE_SECRET_BYTES = 64;
+
+/**
+ * The demo caption room's placeholder source device — the same reserved uid
+ * `RoomManagementService`'s own `isDemoSourceDevice` keys off of, checked here
+ * again for the two device-admin mutations that are reachable on an ordinary
+ * device row and were not already covered by the room-management guards:
+ * deleting it and re-registering it. Renaming is deliberately not guarded; a
+ * cosmetic label change does not touch the device's identity or its role as
+ * the demo room's source.
+ *
+ * Delete would strand the demo room without a source until the next restart's
+ * seeder recreates it, and nothing else can be attached in its place
+ * (`DEMO_ROOM_NOT_ASSIGNABLE` refuses every other device). Re-register would
+ * mint a fresh activation code for a row that is deliberately never activated
+ * and whose code nobody is meant to hold — a placeholder that exists only to
+ * satisfy the demo room's "has a source device" invariant, not a device to be
+ * re-provisioned.
+ */
+function isDemoSourceDevice(deviceUid: string): boolean {
+  return deviceUid === DEMO_SOURCE_DEVICE_UID;
+}
 
 export class DeviceManagementService {
   private _log: AppDependencies['logger'];
@@ -74,8 +96,13 @@ export class DeviceManagementService {
   /**
    * Resets a device to unactivated state (clears hash and active flag) and issues a new activation code.
    * @param deviceUid The device to reregister.
+   * @returns `'DEMO_SOURCE_DEVICE_NOT_REREGISTRABLE'` for the demo room's placeholder device.
    */
   async reregisterDevice(deviceUid: string) {
+    if (isDemoSourceDevice(deviceUid)) {
+      return 'DEMO_SOURCE_DEVICE_NOT_REREGISTRABLE';
+    }
+
     const existing = await this._deviceManagementRepository.findById(deviceUid);
     if (!existing) return 'DEVICE_NOT_FOUND';
 
@@ -149,9 +176,12 @@ export class DeviceManagementService {
   /**
    * Deletes a device. Blocked if the device is the current source of a room.
    * @param deviceUid The device to delete.
-   * @returns `WOULD_LEAVE_ROOM_WITHOUT_SOURCE` if the device is a room's source device.
+   * @returns `WOULD_LEAVE_ROOM_WITHOUT_SOURCE` if the device is a room's source device, or `DEMO_SOURCE_DEVICE_NOT_DELETABLE` for the demo room's placeholder device.
    */
   async deleteDevice(deviceUid: string) {
+    if (isDemoSourceDevice(deviceUid))
+      return 'DEMO_SOURCE_DEVICE_NOT_DELETABLE';
+
     const device = await this._deviceManagementRepository.findById(deviceUid);
     if (!device) return 'DEVICE_NOT_FOUND';
     if (device.isSource) return 'WOULD_LEAVE_ROOM_WITHOUT_SOURCE';

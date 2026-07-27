@@ -632,6 +632,36 @@ describe('Room Management Routes', () => {
       );
     });
 
+    it('returns 409 DEMO_ROOM_NOT_RENAMABLE when renaming the demo room', async () => {
+      // Arrange / Act - the demo room's name is fixed identity, same family as
+      // the assignment refusals above.
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/update-room`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { roomUid: DEMO_ROOM_UID, name: 'Not The Demo Room Anymore' },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe('DEMO_ROOM_NOT_RENAMABLE');
+    });
+
+    it('returns 409 DEMO_ROOM_NOT_DELETABLE when deleting the demo room', async () => {
+      // Arrange / Act - deleting it would strand its placeholder device, which
+      // nothing else can be attached in place of.
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/delete-room`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { roomUid: DEMO_ROOM_UID },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe('DEMO_ROOM_NOT_DELETABLE');
+    });
+
     it('returns 409 DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE when adding the demo placeholder device to an ordinary room', async () => {
       // Arrange - the mirror image: a real room, but a device that can never
       // send audio for it.

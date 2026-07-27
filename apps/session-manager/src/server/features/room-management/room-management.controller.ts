@@ -37,6 +37,29 @@ const DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE_MESSAGE =
   'room or made a room source device.';
 
 /**
+ * Refusals for mutating the demo room itself, rather than attaching something
+ * to it. Also 409: the room exists and the request is well formed, it just
+ * conflicts with the room's role as a fixed, seeded resource that other code
+ * (the seeder, the placeholder device, `DEMO_ROOM_ENABLED`) already assumes
+ * behaves exactly as seeded.
+ */
+const DEMO_ROOM_NOT_DELETABLE_MESSAGE =
+  'The demo caption room is reseeded at a fixed uid on every restart, so ' +
+  'deleting it here only forces a temporary outage of the demo feature ' +
+  "rather than disabling it — its placeholder source device can't be " +
+  'attached to any other room to compensate, and would sit stranded until ' +
+  'the next restart repairs it. Set DEMO_ROOM_ENABLED=false to disable the ' +
+  'feature instead.';
+
+const DEMO_ROOM_NOT_RENAMABLE_MESSAGE =
+  "The demo caption room's identity is fixed by the seeder and reserved the " +
+  'same way its uid is; renaming it here would not change what the room ' +
+  'actually is — device attachment is still refused by uid — so it would ' +
+  "only leave the room's display name out of step with the seeded identity " +
+  'everything else keys off of. Set DEMO_ROOM_ENABLED=false if it should ' +
+  'not appear at all.';
+
+/**
  * Refusals for the seeded operator test-audio rooms. Also 409, for the same
  * reason — but where the demo messages explain that nothing would happen, these
  * have to explain that something would: these devices are real, they stream
@@ -196,6 +219,12 @@ export class RoomManagementController {
       roomUid,
       updates,
     );
+    if (result === 'DEMO_ROOM_NOT_RENAMABLE') {
+      throw HttpError.conflict(
+        'DEMO_ROOM_NOT_RENAMABLE',
+        DEMO_ROOM_NOT_RENAMABLE_MESSAGE,
+      );
+    }
     if (result === 'ROOM_NOT_FOUND') {
       throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
     }
@@ -213,6 +242,12 @@ export class RoomManagementController {
     const result = await this._roomManagementService.deleteRoom(
       req.body.roomUid,
     );
+    if (result === 'DEMO_ROOM_NOT_DELETABLE') {
+      throw HttpError.conflict(
+        'DEMO_ROOM_NOT_DELETABLE',
+        DEMO_ROOM_NOT_DELETABLE_MESSAGE,
+      );
+    }
     if (result === 'ROOM_NOT_FOUND') {
       throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
     }

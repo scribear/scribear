@@ -246,9 +246,11 @@ export class RoomManagementService {
    * Updates the name of a room.
    * @param roomUid The room to update.
    * @param data Fields to update; omit any field to leave it unchanged.
-   * @returns The updated room, or `'ROOM_NOT_FOUND'`.
+   * @returns The updated room, or `'ROOM_NOT_FOUND'`, or `'DEMO_ROOM_NOT_RENAMABLE'`.
    */
   async updateRoom(roomUid: string, data: { name?: string }) {
+    if (isDemoRoom(roomUid)) return 'DEMO_ROOM_NOT_RENAMABLE';
+
     const room = await this._roomManagementRepository.update(roomUid, data);
     return room ?? 'ROOM_NOT_FOUND';
   }
@@ -256,9 +258,11 @@ export class RoomManagementService {
   /**
    * Deletes a room by UID.
    * @param roomUid The room to delete.
-   * @returns `undefined` on success, or `'ROOM_NOT_FOUND'` if the room does not exist.
+   * @returns `undefined` on success, or `'ROOM_NOT_FOUND'` / `'DEMO_ROOM_NOT_DELETABLE'`.
    */
   async deleteRoom(roomUid: string) {
+    if (isDemoRoom(roomUid)) return 'DEMO_ROOM_NOT_DELETABLE';
+
     const deleted = await this._roomManagementRepository.delete(roomUid);
     if (!deleted) return 'ROOM_NOT_FOUND';
     return;
