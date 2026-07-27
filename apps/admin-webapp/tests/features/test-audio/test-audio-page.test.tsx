@@ -162,7 +162,9 @@ describe('TestAudioPage', () => {
 
       // Assert
       expect(
-        screen.getByText(/scribear_asr_audio_too_fast_total flat at zero/),
+        screen.getByText(
+          /scribear_asr_audio_dropped_buffer_full_total flat at zero/,
+        ),
       ).toBeInTheDocument();
       expect(
         screen.getByText(/scribear_safp_decode_drops_total/),

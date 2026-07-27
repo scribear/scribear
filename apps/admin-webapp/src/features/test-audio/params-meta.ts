@@ -25,7 +25,10 @@ import type {
  * half right, and those captions now say what actually happens instead. Two
  * things a reader should carry: the numbers are hardware-dependent where the
  * caption says so, and a knob whose caption says "nothing moves" is reporting a
- * measured absence, not an untested guess.
+ * measured absence, not an untested guess. `speedup` was additionally measured
+ * against a live CPU stack (one otherwise-idle session, `TRANSCRIPTION_DEVICE=cpu`)
+ * once the GPU pass alone couldn't settle it — its caption is the one place two
+ * device-specific results sit side by side.
  */
 
 // ---- Run duration (§2: required on start, capped, auto-stops at expiry) ----
@@ -133,7 +136,7 @@ export const FAULT_KNOBS: FaultKnob[] = [
     step: 0.1,
     unit: '×',
     caption:
-      'Measured: on a GPU this knob trips nothing, at any setting it offers. 2.0× and 3.0× both ran the full two minutes and produced captions to the last frame, with scribear_asr_audio_too_fast_total flat at zero and no alert. "Client sent audio too quickly" is raised only when the 30-second buffer overflows, so this measures the transcription service\'s spare headroom rather than the send rate — at RTF ~0.35 it keeps up even at 2.96× realtime. Expect it to fire on CPU hardware, where RTF is around 0.47 at 1× (untested).',
+      "Measured: hardware-dependent — the knob whose behaviour differs most by device. On a GPU this knob trips nothing at any setting it offers: 2.0× and 3.0× both ran the full two minutes and produced captions to the last frame, with scribear_asr_audio_dropped_buffer_full_total flat at zero and no alert. On CPU (job_period_ms 5000ms against the GPU's 500ms) a single otherwise-idle session at 2.0× dropped 20.0s of audio across 202 decode batches in 120s and fired the asr-audio-dropped-buffer-full WARNING — captions kept coming (16 transcripts, close to the 1× baseline's 17-22) and the socket closed normally at the end of the run, not with a disconnect. The check fires when one decode batch (whatever arrived since the worker's last visit to the job) exceeds the 30-second buffer, so a longer job period needs less concurrent load to reach it — a lone CPU session at 2.0× got there where three concurrent GPU sessions at 2.96× did not. Overrun audio is dropped and counted, never raised, on both devices: nothing disconnects the session any more.",
   },
   {
     key: 'silencePct',
