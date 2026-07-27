@@ -1,5 +1,6 @@
 import { describe, expect } from 'vitest';
 
+import { DEMO_SOURCE_DEVICE_UID } from '#src/server/features/demo-room/demo-room.constants.js';
 import { useDb } from '#tests/utils/use-db.js';
 import { ADMIN_HEADER, useServer } from '#tests/utils/use-server.js';
 
@@ -309,6 +310,24 @@ describe('Device Management Routes', () => {
       expect(res.statusCode).toBe(404);
       expect(res.json<{ code: string }>().code).toBe('DEVICE_NOT_FOUND');
     });
+
+    it("returns 409 DEMO_SOURCE_DEVICE_NOT_REREGISTRABLE for the demo caption room's placeholder device", async () => {
+      // Arrange / Act - the guard runs on the uid alone, so this does not
+      // depend on the demo room actually being seeded (this suite runs with
+      // DEMO_ROOM_ENABLED off).
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${BASE}/reregister-device`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { deviceUid: DEMO_SOURCE_DEVICE_UID },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe(
+        'DEMO_SOURCE_DEVICE_NOT_REREGISTRABLE',
+      );
+    });
   });
 
   describe('POST /update-device', (it) => {
@@ -373,6 +392,23 @@ describe('Device Management Routes', () => {
       // Assert
       expect(res.statusCode).toBe(404);
       expect(res.json<{ code: string }>().code).toBe('DEVICE_NOT_FOUND');
+    });
+
+    it("returns 409 DEMO_SOURCE_DEVICE_NOT_DELETABLE for the demo caption room's placeholder device", async () => {
+      // Arrange / Act - deleting it would strand the demo room without a
+      // source; the guard runs on the uid alone, independent of DEMO_ROOM_ENABLED.
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${BASE}/delete-device`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { deviceUid: DEMO_SOURCE_DEVICE_UID },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe(
+        'DEMO_SOURCE_DEVICE_NOT_DELETABLE',
+      );
     });
 
     it('returns 409 when the device is the source of a room', async () => {

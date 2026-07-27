@@ -91,6 +91,41 @@ services:
       # session uid uses a built-in default shared with the Node Server, so it
       # does not need to be passed here.
       DEMO_ROOM_ENABLED: ${DEMO_ROOM_ENABLED:-true}
+      # Operator test-audio rooms (PLAN-TestAudioDevices). The SAME value as the
+      # test-audio-generator's TEST_AUDIO_DEVICE_SECRET below - this service and
+      # that one are the only two holders.
+      #
+      # Set, it seeds TEST-AUDIO-GOOD and TEST-AUDIO-FAULT, one source device
+      # each at a reserved uid, and one standing open-ended session per room, on
+      # every boot. Each device's stored credential is bcrypt(HMAC(secret,
+      # deviceUid)), which is exactly what the generator derives, so no token is
+      # ever transmitted or pasted, and there is no provisioning step at all.
+      #
+      # Unset seeds nothing at all, which is the state a deployment that has not
+      # asked for the feature is already in. Changing it and restarting rotates
+      # both credentials; the stored hash is re-written from the current value
+      # every boot.
+      TEST_AUDIO_DEVICE_SECRET: ${TEST_AUDIO_DEVICE_SECRET:-}
+      # Monitoring canary room (A2). The SAME value as monitoring-sidecar's
+      # CANARY_DEVICE_SECRET below - this service and that one are the only two
+      # holders. It replaced MONITORING_CANARY_DEVICE_TOKEN, which an operator
+      # produced by hand from a Set-Cookie header and pasted into .env.
+      #
+      # Set, it seeds MONITORING-CANARY, one source device at a reserved uid and
+      # one standing open-ended session, on every boot. The stored credential is
+      # bcrypt(HMAC(secret, deviceUid)), which is exactly what the sidecar
+      # derives, so no token is ever transmitted or pasted.
+      #
+      # A SEPARATE VARIABLE from TEST_AUDIO_DEVICE_SECRET above, deliberately.
+      # One secret would tie two unrelated decisions together: arming the
+      # operator test devices would also start an unattended canary probe every
+      # few minutes, and retiring them would silently stop monitoring. It would
+      # also give a third service the root key every synthetic device's
+      # credential is derived from.
+      #
+      # Unset seeds nothing and leaves the canary off, which is where a
+      # deployment that never provisioned a canary device already was.
+      CANARY_DEVICE_SECRET: ${MONITORING_CANARY_DEVICE_SECRET:-}
     depends_on:
       scribear-db:
         condition: service_healthy
@@ -170,7 +205,7 @@ services:
       # Not `:?`-guarded, like DEPLOYMENT_ENV below and unlike the secrets: it
       # changes what is *reported*, never what runs, and must not be able to
       # stop a stack from starting.
-      COMPOSE_FILE_VERSION: "3"
+      COMPOSE_FILE_VERSION: "5"
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
@@ -190,6 +225,20 @@ services:
       # (503 TELEMETRY_UNAVAILABLE) without affecting the /health rollup
       # above, which is a separate, always-on data path.
       REDIS_URL: ${ADMIN_REDIS_URL:-}
+      # Operator test-audio devices (PLAN-TestAudioDevices §3). Defaulted to the
+      # in-stack generator, which now starts with everything else, so the panel
+      # is wired with no .env entry at all. Point it elsewhere, or blank it, to
+      # turn the feature off: empty makes GET /api/admin/v1/test-audio answer
+      # {available: false, devices: []} at 200 and every mutation answer 503
+      # TEST_AUDIO_UNAVAILABLE - a disabled panel rather than an error to rule
+      # out.
+      #
+      # Only the key needs setting, and it must match the generator's own
+      # TEST_AUDIO_SERVICE_KEY below. It is injected server-side by admin-server
+      # and never reaches the browser. Until it is set the generator will not
+      # start, and this console reports the devices as unreachable.
+      TEST_AUDIO_BASE_URL: ${TEST_AUDIO_BASE_URL:-http://test-audio-generator:80}
+      TEST_AUDIO_SERVICE_KEY: ${TEST_AUDIO_SERVICE_KEY:-}
       ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET}
       ADMIN_LOCAL_CREDENTIALS: ${ADMIN_LOCAL_CREDENTIALS}
       # Defaulted to the bundled container. Point them at a managed Postgres
@@ -459,18 +508,55 @@ services:
       # The wiki's "Transcription on CPU-Only Hardware" page carries measured
       # values per model and thread count.
       ALERT_ASR_DUTY_RATIO: ${MONITORING_ASR_DUTY_RATIO:-}
+      # The T1 warning and the T1 CRITICAL, both the share of scheduled job
+      # periods in which no pass ran. The CRITICAL is keyed here rather than on
+      # p95 RTF because RTF *falls* as the shared worker saturates - measured
+      # 0.277 -> 0.139 across 1->8 GPU sessions while transcripts per 1000
+      # chunks collapsed 190 -> 48 - so no p95 bar separates healthy from
+      # saturated. Drops rose monotonically through the same sweep, and a CPU
+      # stack measured 2.9% healthy against 56.3% at 3 sessions.
       ALERT_ASR_DROPPED_PERIOD_RATIO: ${MONITORING_ASR_DROPPED_PERIOD_RATIO:-}
+      ALERT_ASR_DROPPED_PERIOD_CRITICAL_RATIO: ${MONITORING_ASR_DROPPED_PERIOD_CRITICAL_RATIO:-}
+      # Scheduled periods (`drops + passes`) needed before either share is
+      # believed. Matters most on CPU: at the CPU templates' 5000ms period a
+      # 120s window holds only ~24 of them, measured, so the default of 20 is
+      # met with little to spare. Raise ALERT_RATE_WINDOW_SEC rather than
+      # lowering this - but note the counters retain only 300s regardless.
+      ALERT_ASR_SCHEDULED_PERIOD_MIN_COUNT: ${MONITORING_ASR_SCHEDULED_PERIOD_MIN_COUNT:-}
       ALERT_ASR_TAIL_MIN_JOBS: ${MONITORING_ASR_TAIL_MIN_JOBS:-}
-      # Synthetic canary (A2). Empty disables it entirely, which is the
-      # default: the canary needs a registered device, and until one exists
-      # there is nothing to authenticate as. The one-time device registration
-      # is documented in apps/monitoring-sidecar/.env.example.
+      # p95 RTF at or above which the T1 CRITICAL fires. Also hardware-
+      # dependent, for the same reason as the trio above, and now plumbed for
+      # the same reason: tuning it used to mean forking this file. Empty means
+      # "use the sidecar default" (2.0 — see DEFAULT_THRESHOLDS.rtfP95).
+      ALERT_RTF_P95: ${MONITORING_RTF_P95:-}
+      # Passes needed in the window before ALERT_ASR_DUTY_RATIO is believed.
+      # Empty means "use the sidecar default" (20).
+      ALERT_ASR_DUTY_RATIO_MIN_JOBS: ${MONITORING_ASR_DUTY_RATIO_MIN_JOBS:-}
+      # Fallback tail bar for a transcription-service too old to report dropped
+      # periods (see ALERT_ASR_DROPPED_PERIOD_RATIO above). Empty means "use
+      # the sidecar default" (3.0).
+      ALERT_ASR_TAIL_P99_RTF: ${MONITORING_ASR_TAIL_P99_RTF:-}
+      # Synthetic canary (A2). The SAME value as session-manager's
+      # CANARY_DEVICE_SECRET above. Empty disables it entirely, which is the
+      # default: with no secret the Session Manager seeds no canary room and
+      # there is nothing to authenticate as.
       #
-      # The canary streams synthetic audio into whatever session is active in
-      # its device's room, so that device MUST belong to a dedicated canary
-      # room. Pointing it at a real teaching room would inject fixture speech
-      # into a live lecture's captions.
-      CANARY_DEVICE_TOKEN: ${MONITORING_CANARY_DEVICE_TOKEN:-}
+      # THERE IS NOTHING TO PROVISION. This replaced
+      # MONITORING_CANARY_DEVICE_TOKEN, which an operator obtained by
+      # registering a device, activating it and scraping DEVICE_TOKEN out of a
+      # Set-Cookie header - then attached that device to a room they created by
+      # hand. That last step decided whether fixture speech could reach a
+      # lecture. Now the Session Manager seeds the room, the device and a
+      # standing session under reserved uids, and this service derives the token
+      # it presents from the same secret and the same uid.
+      #
+      # The canary streams fixture speech into whatever session is active in its
+      # device's room, UNATTENDED, every CANARY_INTERVAL_SEC. That room binding
+      # is the entire safety boundary, and seeding it in code is stronger than
+      # wiring it by hand: there is no room to pick wrongly, and room-management
+      # refuses afterwards to move the device (409 CANARY_DEVICE_NOT_ASSIGNABLE)
+      # or to re-source the canary room (409 CANARY_ROOM_NOT_ASSIGNABLE).
+      CANARY_DEVICE_SECRET: ${MONITORING_CANARY_DEVICE_SECRET:-}
       CANARY_INTERVAL_SEC: ${MONITORING_CANARY_INTERVAL_SEC:-300}
       CANARY_RUN_DURATION_SEC: ${MONITORING_CANARY_RUN_SEC:-40}
       # Must match sample_rate / num_channels in the canary session's
@@ -478,6 +564,104 @@ services:
       # whose WAV header disagrees rather than resampling it.
       CANARY_SAMPLE_RATE: ${MONITORING_CANARY_SAMPLE_RATE:-16000}
       CANARY_CHANNELS: ${MONITORING_CANARY_CHANNELS:-1}
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # Operator test-audio devices (PLAN-TestAudioDevices).
+  #
+  # Two synthetic source devices an operator can point at a test room from the
+  # admin console: `good`, which plays clean speech at an adjustable level and
+  # noise floor, and `fault`, which reproduces on demand every audio fault the
+  # stack claims to report. It is what lets someone see what an alert looks like
+  # before it matters.
+  #
+  # STARTS WITH THE STACK. It was behind a compose profile while the concern was
+  # deployments that had never asked for it; there is one deployment and it
+  # wants this, so the profile was only a lever to remember to pull.
+  #
+  # It does need TEST_AUDIO_SERVICE_KEY set, and exits with a message naming
+  # that variable if it is not. Nothing else depends on this service, so that
+  # failure is one container rather than a stack that will not come up - which
+  # is why the key is not `:?`-guarded here.
+  #
+  # Running is not the same as armed. Without DEVICE_TOKENs both devices report
+  # configured:false and refuse to start, so an unprovisioned generator costs a
+  # container and changes no behaviour. Provisioning is the step that arms it.
+  #
+  # SAFETY: this service streams synthetic audio into whatever session is active
+  # in each device's room. A device token reaches ONLY ITS OWN DEVICE'S ROOM -
+  # neither device has any way to name another - so the device-to-room assignment
+  # is the entire safety boundary, and each device has its own dedicated test
+  # room. Pointing one at a teaching room would inject fixture speech into that
+  # lecture's live captions, silently.
+  #
+  # That assignment is SEEDED IN CODE by session-manager under reserved uids,
+  # which is stronger than an operator making it by hand: there is no argument to
+  # point at the wrong room, and room-management refuses to reassign either
+  # device afterwards (409 TEST_AUDIO_DEVICE_NOT_ASSIGNABLE).
+  # Operator test-audio devices.
+  #
+  # Started with the rest of the stack, not behind a profile. It was profiled
+  # while the concern was deployments that had never asked for it; there is one
+  # deployment and it wants this, so the profile was only a lever to remember to
+  # pull. A generator with no TEST_AUDIO_DEVICE_SECRET is inert - both devices
+  # report `configured: false` and refuse to start - so the cost of it running is
+  # a container and no behaviour.
+  test-audio-generator:
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/test-audio-generator:${IMAGE_TAG:-latest}
+    expose:
+      - "80"
+    environment:
+      LOG_LEVEL: ${TEST_AUDIO_LOG_LEVEL:-info}
+      # Inbound. Must match admin-server's TEST_AUDIO_SERVICE_KEY above.
+      #
+      # NOT `:?`-guarded, unlike NODE_SERVER_SERVICE_API_KEY. An empty value
+      # here matters more than most, not less: it matches the empty credential
+      # an unauthenticated caller presents as `Authorization: Bearer `, on a
+      # service that can put audio into a live room.
+      #
+      # The guard lives in the container instead, which refuses to start on an
+      # empty or CHANGEME value with a message naming this variable. So the
+      # failure mode for a deployment that has not set the key is this one
+      # container exiting and saying why, rather than `docker compose up`
+      # refusing to bring up the whole stack. Since this service is no longer
+      # behind a profile, that is the difference between one dead container and
+      # no ScribeAR at all - which is not a trade worth making for a service
+      # nothing else depends on.
+      TEST_AUDIO_SERVICE_KEY: ${TEST_AUDIO_SERVICE_KEY:-}
+      # The one credential the two synthetic sources need, shared with
+      # session-manager below and with nothing else. This service derives
+      # {deviceUid}:HMAC(secret, deviceUid) for each of its two fixed device
+      # uids; session-manager seeds bcrypt of the same value. Nothing is copied
+      # between them, so there is no provisioning step and no token in this file.
+      #
+      # Empty means BOTH devices report configured:false and refuse to start,
+      # which is two disabled cards on the admin page rather than an error, and
+      # session-manager seeds nothing. NOT `:?`-guarded, unlike the key above: an
+      # unarmed generator is inert rather than unsafe.
+      TEST_AUDIO_DEVICE_SECRET: ${TEST_AUDIO_DEVICE_SECRET:-}
+      SESSION_MANAGER_BASE_URL: http://session-manager:80
+      NODE_SERVER_BASE_URL: http://node-server:80
+      # The authoritative cap on one run. Every run auto-stops at its own
+      # durationSec with no further instruction, and this bounds what may be
+      # asked for; admin-server's schema rejects only absurd values, so lowering
+      # this is obeyed rather than contradicted. It is what stops a forgotten
+      # device streaming into a room overnight.
+      TEST_AUDIO_MAX_DURATION_SEC: ${TEST_AUDIO_MAX_DURATION_SEC:-1800}
+      # Must equal sample_rate / num_channels in the test rooms' sessions'
+      # transcriptionStreamConfig; the transcription service rejects audio whose
+      # WAV header disagrees rather than resampling it.
+      TEST_AUDIO_SAMPLE_RATE: ${TEST_AUDIO_SAMPLE_RATE:-16000}
+      TEST_AUDIO_CHANNELS: ${TEST_AUDIO_CHANNELS:-1}
+      # Which clip the fault device streams. FaultParams has no clip knob - one
+      # knob per fault and nothing else - so the source material is config.
+      TEST_AUDIO_FAULT_CLIP: ${TEST_AUDIO_FAULT_CLIP:-harvard}
+    depends_on:
+      session-manager:
+        condition: service_healthy
+      node-server:
+        condition: service_healthy
     networks:
       - backend
     restart: unless-stopped

@@ -1,16 +1,16 @@
 import { afterEach, describe, expect } from 'vitest';
 
 import type { BaseLogger } from '@scribear/base-fastify-server';
-
-import { CanaryAuthClient } from '#src/server/shared/canary/canary-auth.js';
-import { CanarySession } from '#src/server/shared/canary/canary-session.js';
-import { CanaryOutcome } from '#src/server/shared/canary/canary-types.js';
 import {
   type AudioChunk,
+  DeviceAuthClient,
   decodeWav,
   encodeWav,
   sliceIntoChunks,
-} from '#src/server/shared/canary/wav.js';
+} from '@scribear/test-audio-source';
+
+import { CanarySession } from '#src/server/shared/canary/canary-session.js';
+import { CanaryOutcome } from '#src/server/shared/canary/canary-types.js';
 import {
   type FakeNodeServer,
   type FakeNodeServerOptions,
@@ -48,7 +48,7 @@ function testChunks(): AudioChunk[] {
 }
 
 function canaryFor(server: FakeNodeServer): CanarySession {
-  const auth = new CanaryAuthClient({
+  const auth = new DeviceAuthClient({
     sessionManagerBaseUrl: server.baseUrl,
     deviceToken: 'device-uid:secret',
     timeoutMs: 2_000,

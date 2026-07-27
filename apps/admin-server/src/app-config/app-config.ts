@@ -9,6 +9,7 @@ import type { AdminDbClientConfig } from '#src/db/admin-db-client.js';
 import type { ConfigCheckConfig } from '#src/server/features/config-check/config-check.service.js';
 import type { DeploymentVersionsConfig } from '#src/server/features/deployment-versions/deployment-versions.service.js';
 import type { HealthCheckerConfig } from '#src/server/features/health/health.service.js';
+import type { TestAudioConfig } from '#src/server/features/test-audio/test-audio-gateway.service.js';
 import type { RateLimitConfig } from '#src/server/plugins/rate-limit.plugin.js';
 import type { AzureAuthConfig } from '#src/server/shared/services/azure-oidc-auth.service.js';
 import type { FleetTelemetryConfig } from '#src/server/shared/services/fleet-telemetry.service.js';
@@ -95,6 +96,17 @@ const CONFIG_SCHEMA = Type.Object({
   // an unset value means this deployment predates B1.7 or has not opted in,
   // and /fleet answers 503 rather than the BFF failing to boot.
   REDIS_URL: Type.String({ default: '' }),
+
+  // Operator test-audio devices (PLAN-TestAudioDevices §3). Empty base URL is
+  // the default and means the feature is off: the panel reads
+  // `{ available: false, devices: [] }` at 200 and every mutation 503s, the
+  // same "unprovisioned is a state, not a failure" shape REDIS_URL above uses.
+  // Most deployments never provision these, so requiring either variable would
+  // stop them booting over a diagnostic tool they do not run.
+  TEST_AUDIO_BASE_URL: Type.String({ default: '' }),
+  // The generator's service key. Held here and injected server-side, exactly
+  // like ADMIN_API_KEY — it never reaches the browser.
+  TEST_AUDIO_SERVICE_KEY: Type.String({ default: '' }),
 
   // Session cookie signing + lifetimes. Deliberately a plain string with an
   // empty default rather than `minLength: 32`: a boot-time length rule would
@@ -241,6 +253,10 @@ export class AppConfig {
           name: 'nginx',
           url: `${this._env.NGINX_BASE_URL}${BUILD_INFO_FILE}`,
         },
+        {
+          name: 'test-audio-generator',
+          url: `${this._env.TEST_AUDIO_BASE_URL}${BUILD_INFO_PATH}`,
+        },
       ],
       // Listed rather than omitted. An operator scanning this table for what is
       // deployed needs to see every container in compose.yml, and a service
@@ -269,6 +285,23 @@ export class AppConfig {
    */
   get fleetTelemetryConfig(): FleetTelemetryConfig {
     return { redisUrl: this._env.REDIS_URL };
+  }
+
+  /**
+   * Operator test-audio devices (PLAN-TestAudioDevices §3). Off unless
+   * `TEST_AUDIO_BASE_URL` is set — `TestAudioGatewayService` opens no
+   * connection and every mutation answers 503 `TEST_AUDIO_UNAVAILABLE` when it
+   * is empty, the same disabled-by-default shape as `fleetTelemetryConfig`.
+   */
+  get testAudioConfig(): TestAudioConfig {
+    return {
+      baseUrl: this._env.TEST_AUDIO_BASE_URL,
+      serviceKey: this._env.TEST_AUDIO_SERVICE_KEY,
+      // Shared with the health rollup deliberately, like the Config Check's
+      // own timeout: both ask a sibling container a question an operator is
+      // waiting on, so one knob should bound both.
+      timeoutMs: this._env.HEALTH_CHECK_TIMEOUT_SEC * SECOND_MS,
+    };
   }
 
   /**

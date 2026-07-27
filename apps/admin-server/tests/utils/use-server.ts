@@ -14,6 +14,8 @@ export const TEST_SM_BASE_URL = 'http://session-manager.test';
 export const TEST_NODE_BASE_URL = 'http://node-server.test';
 export const TEST_TS_BASE_URL = 'http://transcription-service.test';
 export const TEST_CLIENT_WEBAPP_BASE_URL = 'http://client-webapp.test';
+export const TEST_AUDIO_BASE_URL = 'http://test-audio-generator.test';
+export const TEST_AUDIO_SERVICE_KEY = 'test-audio-service-key';
 export const TEST_COOKIE_SECRET =
   'test-cookie-secret-at-least-32-characters-long!!';
 
@@ -30,6 +32,7 @@ export interface TestAppConfigOverrides {
   healthCheckerConfig?: Partial<AppConfig['healthCheckerConfig']>;
   deploymentVersionsConfig?: Partial<AppConfig['deploymentVersionsConfig']>;
   fleetTelemetryConfig?: Partial<AppConfig['fleetTelemetryConfig']>;
+  testAudioConfig?: Partial<AppConfig['testAudioConfig']>;
   configCheckConfig?: Partial<AppConfig['configCheckConfig']>;
   cookieSecret?: string;
 }
@@ -129,6 +132,19 @@ export function buildTestAppConfig(
     fleetTelemetryConfig: {
       redisUrl: '',
       ...overrides.fleetTelemetryConfig,
+    },
+    // Disabled by default too, like a deployment that has never provisioned
+    // the test-audio devices — which is most of them. Tests that exercise the
+    // generator pass a `baseUrl` explicitly. The key is always set so that a
+    // test enabling the feature does not also have to remember to configure
+    // the credential the BFF injects.
+    testAudioConfig: {
+      baseUrl: '',
+      serviceKey: TEST_AUDIO_SERVICE_KEY,
+      // Short: the generator is stubbed, so a real timeout would only ever be
+      // hit by a test that meant to hit it.
+      timeoutMs: 500,
+      ...overrides.testAudioConfig,
     },
     // A deployment with nothing wrong with it, so a test that cares about a
     // finding can spoil exactly one thing and assert on it. `declaredEnv` is

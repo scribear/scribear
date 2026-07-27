@@ -5,7 +5,7 @@ import {
   decodeWav,
   encodeWav,
   sliceIntoChunks,
-} from '#src/server/shared/canary/wav.js';
+} from '#src/wav.js';
 
 const SAMPLE_RATE = 16_000;
 

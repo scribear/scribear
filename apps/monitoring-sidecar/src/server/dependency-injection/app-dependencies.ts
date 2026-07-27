@@ -2,6 +2,10 @@
 import '@fastify/awilix';
 
 import type { BaseDependencies } from '@scribear/base-fastify-server';
+import type {
+  DeviceAuthClient,
+  DeviceAuthConfig,
+} from '@scribear/test-audio-source';
 
 import type { AppConfig, BaseConfig } from '#src/app-config/app-config.js';
 import type { AudioMeterController } from '#src/server/features/audio-meter/audio-meter.controller.js';
@@ -13,10 +17,6 @@ import type {
   AlertRule,
   AlertThresholds,
 } from '#src/server/shared/alerts/alert-rules.js';
-import type {
-  CanaryAuthClient,
-  CanaryAuthConfig,
-} from '#src/server/shared/canary/canary-auth.js';
 import type {
   CanaryRunnerConfig,
   CanaryRunnerService,
@@ -45,7 +45,7 @@ interface AppDependencies extends BaseDependencies {
   nodeStatusPollerConfig: NodeStatusPollerConfig;
   alertThresholds: AlertThresholds;
   alertRules: readonly AlertRule[];
-  canaryAuthConfig: CanaryAuthConfig;
+  deviceAuthConfig: DeviceAuthConfig;
   canaryRunnerConfig: CanaryRunnerConfig;
 
   // Shared services
@@ -54,7 +54,7 @@ interface AppDependencies extends BaseDependencies {
   nodeStatusPollerService: NodeStatusPollerService;
   transcriptionMetricsPollerConfig: TranscriptionMetricsPollerConfig;
   transcriptionMetricsPollerService: TranscriptionMetricsPollerService;
-  canaryAuthClient: CanaryAuthClient;
+  deviceAuthClient: DeviceAuthClient;
   canaryRunnerService: CanaryRunnerService;
   alertEvaluatorService: AlertEvaluatorService;
 

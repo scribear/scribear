@@ -8,7 +8,6 @@ import CircularProgress from '@mui/material/CircularProgress';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
-import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
 import Divider from '@mui/material/Divider';
 import Link from '@mui/material/Link';
@@ -23,6 +22,7 @@ import type { Device, Room } from '@scribear/session-manager-schema';
 
 import { ActivationCodeDisplay } from '#src/components/activation-code-display';
 import { ConfirmDialog } from '#src/components/confirm-dialog';
+import { KioskUrlInstructions } from '#src/components/kiosk-url-instructions';
 import { NameWithUid } from '#src/components/name-with-uid';
 import type { ReregisterDeviceResult } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
@@ -131,9 +131,7 @@ const ReregisterResultDialog = ({
             code={result.activationCode}
             expiry={result.expiry}
           />
-          <DialogContentText sx={{ mt: 2 }}>
-            On the kiosk browser, open /kiosk and enter this code.
-          </DialogContentText>
+          <KioskUrlInstructions />
         </Box>
       )}
     </DialogContent>

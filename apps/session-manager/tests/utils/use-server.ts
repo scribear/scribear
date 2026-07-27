@@ -5,7 +5,9 @@ import { LogLevel } from '@scribear/base-fastify-server';
 import type {
   AppConfig,
   BaseConfig,
+  CanaryRoomConfig,
   DemoRoomConfig,
+  TestAudioRoomsConfig,
 } from '#src/app-config/app-config.js';
 import type { DBClientConfig } from '#src/db/db-client.js';
 import createServer from '#src/server/create-server.js';
@@ -39,6 +41,8 @@ export interface TestAppConfigOverrides {
   devicePresenceConfig?: Partial<DevicePresenceConfig>;
   materializationWorkerConfig?: Partial<MaterializationWorkerConfig>;
   demoRoomConfig?: Partial<DemoRoomConfig>;
+  testAudioRoomsConfig?: Partial<TestAudioRoomsConfig>;
+  canaryRoomConfig?: Partial<CanaryRoomConfig>;
 }
 
 /**
@@ -100,6 +104,21 @@ export function buildTestAppConfig(
       enabled: false,
       sessionUid: 'deadbeef-0000-4000-8000-000000000001',
       ...overrides.demoRoomConfig,
+    },
+    // Off by default for the same reason as the demo room: ordinary suites
+    // must not find two seeded rooms and four seeded rows in their tables.
+    testAudioRoomsConfig: {
+      enabled: false,
+      deviceSecret: '',
+      ...overrides.testAudioRoomsConfig,
+    },
+    // Off by default for the same reason again: the canary seeder writes a
+    // room, a device, a membership and a session, and no ordinary suite should
+    // find them.
+    canaryRoomConfig: {
+      enabled: false,
+      deviceSecret: '',
+      ...overrides.canaryRoomConfig,
     },
   } as unknown as AppConfig;
 }

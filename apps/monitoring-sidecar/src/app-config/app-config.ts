@@ -3,12 +3,17 @@ import { Type } from 'typebox';
 import type { Static } from 'typebox';
 
 import { LogLevel } from '@scribear/base-fastify-server';
+import { CANARY_DEVICE_UID } from '@scribear/session-manager-schema';
+// The one derivation every seeded synthetic device shares; see its docblock for
+// why it keeps a test-audio name and why it lives behind a subpath export
+// (`node:crypto` must stay out of the two webapps' import graph).
+import { deriveTestAudioDeviceToken } from '@scribear/session-manager-schema/test-audio';
+import type { DeviceAuthConfig } from '@scribear/test-audio-source';
 
 import {
   type AlertThresholds,
   DEFAULT_THRESHOLDS,
 } from '#src/server/shared/alerts/alert-rules.js';
-import type { CanaryAuthConfig } from '#src/server/shared/canary/canary-auth.js';
 import type { CanaryRunnerConfig } from '#src/server/shared/canary/canary-runner.service.js';
 import type { NodeStatusPollerConfig } from '#src/server/shared/node-status/node-status-poller.service.js';
 import type {
@@ -113,30 +118,60 @@ const CONFIG_SCHEMA = Type.Object({
   ALERT_UPSTREAM_CHURN_COUNT: Type.Integer({ minimum: 1, default: 3 }),
   ALERT_DECODE_DROP_COUNT: Type.Integer({ minimum: 1, default: 10 }),
   ALERT_BUFFER_OVERFLOW_COUNT: Type.Integer({ minimum: 1, default: 5 }),
-  ALERT_RTF_P95: Type.Number({ minimum: 0, default: 1.0 }),
+  /**
+   * p95 RTF at or above which the T1 CRITICAL fires **for a
+   * transcription-service too old to count dropped periods**. Legacy fallback
+   * only: the CRITICAL is keyed on `ALERT_ASR_DROPPED_PERIOD_CRITICAL_RATIO`
+   * wherever the counter is reported.
+   *
+   * Was `Type.Number({default: 1.0})` while `DEFAULT_THRESHOLDS.rtfP95` said
+   * 2.0, so a deployment that left the variable unset got exactly the 1.0 that
+   * live verification had shown fires on a healthy stack — the schema default
+   * won because this field, unlike its neighbours, did not use `OPTIONAL_NUMBER`.
+   * It does now: empty-string-means-default, the same form as its siblings
+   * below, so `compose.yml` can plumb it through as `MONITORING_RTF_P95`
+   * without a number baked into two places that then drift — the sole default
+   * lives in `DEFAULT_THRESHOLDS.rtfP95`.
+   */
+  ALERT_RTF_P95: OPTIONAL_NUMBER,
   /**
    * Mean RTF (duty ratio) over `ALERT_RATE_WINDOW_SEC` at or above which the T1
    * early warning fires. Must stay below `ALERT_RTF_P95` to be worth anything —
    * the point is to fire while captions are still on time.
    */
   ALERT_ASR_DUTY_RATIO: OPTIONAL_NUMBER,
-  ALERT_ASR_DUTY_RATIO_MIN_JOBS: Type.Integer({ minimum: 1, default: 20 }),
+  ALERT_ASR_DUTY_RATIO_MIN_JOBS: OPTIONAL_NUMBER,
   /**
    * Share of a provider's job periods that may be dropped — no pass ran in them
    * at all, because the previous pass overran — over `ALERT_RATE_WINDOW_SEC`
    * before the T1 tail warning fires.
    *
-   * **Reasoned, not measured**, unlike `ALERT_ASR_DUTY_RATIO` beside it: it is
-   * set to the 1% the p99 RTF fallback path implies, so the alert means the same
-   * thing whichever signal produced it.
+   * **Measured**, and much higher than it looks like it should be: dropping
+   * periods is how this provider self-throttles under a long buffer, not a
+   * fault. A healthy single GPU session dropped 11.3%. This shipped at 1% on the
+   * reasoning that a dropped period is a lost caption update, and fired
+   * continuously on a stack with nothing wrong.
    */
   ALERT_ASR_DROPPED_PERIOD_RATIO: OPTIONAL_NUMBER,
   /**
-   * Minimum passes observed in the window before that share — or the reported
-   * p99 RTF standing in for it — is believed. Higher than
+   * Dropped-period share at or above which the T1 **CRITICAL** fires — the
+   * primary saturation signal, and the one metric measured whose slope rises as
+   * the shared worker saturates. Must stay above
+   * `ALERT_ASR_DROPPED_PERIOD_RATIO`, which is the warning below it.
+   */
+  ALERT_ASR_DROPPED_PERIOD_CRITICAL_RATIO: OPTIONAL_NUMBER,
+  /**
+   * Minimum *scheduled* periods (`drops + passes`) in the window before either
+   * dropped-period threshold is believed. Not a floor on passes: dropping a
+   * period removes a pass, so a pass floor rises out of reach exactly as the
+   * fault it guards gets worse.
+   */
+  ALERT_ASR_SCHEDULED_PERIOD_MIN_COUNT: OPTIONAL_NUMBER,
+  /**
+   * Minimum passes observed in the window before the reported p99 RTF standing
+   * in for the drop share is believed — **the fallback path only**. Higher than
    * `ALERT_ASR_DUTY_RATIO_MIN_JOBS` because a p99 over 24 samples is just the
-   * single worst pass, and because it is what stops a 1% share firing on one
-   * dropped period. Raising `ALERT_RATE_WINDOW_SEC` is the way to bring a
+   * single worst pass. Raising `ALERT_RATE_WINDOW_SEC` is the way to bring a
    * long-period provider above it.
    */
   ALERT_ASR_TAIL_MIN_JOBS: OPTIONAL_NUMBER,
@@ -146,7 +181,7 @@ const CONFIG_SCHEMA = Type.Object({
    * realtime line, which measured as routine: a healthy single session reported
    * p99 2.17 while captioning correctly.
    */
-  ALERT_ASR_TAIL_P99_RTF: Type.Number({ minimum: 0, default: 3.0 }),
+  ALERT_ASR_TAIL_P99_RTF: OPTIONAL_NUMBER,
   ALERT_PROBE_FAILURE_THRESHOLD: Type.Integer({ minimum: 1, default: 2 }),
   ALERT_AUTH_FAILURE_RATIO: Type.Number({
     minimum: 0,
@@ -185,14 +220,25 @@ const CONFIG_SCHEMA = Type.Object({
 
   // Synthetic canary (A2)
   /**
-   * The canary device's `DEVICE_TOKEN` cookie value, in `{deviceUid}:{secret}`
-   * form. Empty disables the canary entirely — it is the only credential the
-   * canary holds, and without it there is nothing to authenticate as.
+   * The deployment's canary secret, shared with the Session Manager and held by
+   * nothing else. Empty disables the canary entirely — it is the only credential
+   * the canary holds, and without it there is nothing to authenticate as.
    *
-   * Obtain it by registering a device via the admin API and calling
-   * `activate-device`; the response sets the cookie. See `.env.example`.
+   * **There is nothing to provision.** This replaced
+   * `MONITORING_CANARY_DEVICE_TOKEN`, which an operator obtained by registering
+   * a device through the admin API, activating it, and scraping `DEVICE_TOKEN`
+   * out of a `Set-Cookie` header — then had to attach that device to a room they
+   * created by hand, which is the step that decided whether fixture speech could
+   * reach a lecture. Now the Session Manager seeds the room, the device and a
+   * standing session under reserved uids from this same secret, and this service
+   * derives the token it presents ({@link deriveTestAudioDeviceToken}). No token
+   * is ever transmitted between the two.
+   *
+   * A **separate secret from `TEST_AUDIO_DEVICE_SECRET`**, deliberately: sharing
+   * one would mean arming the operator test devices also started an unattended
+   * canary, and retiring them silently stopped monitoring.
    */
-  CANARY_DEVICE_TOKEN: Type.String({ default: '' }),
+  CANARY_DEVICE_SECRET: Type.String({ default: '' }),
   /** Seconds between the end of one probe and the start of the next. */
   CANARY_INTERVAL_SEC: Type.Integer({ minimum: 10, default: 300 }),
   /** How long each probe streams audio for. */
@@ -322,21 +368,35 @@ export class AppConfig {
       upstreamChurnCount: this._env.ALERT_UPSTREAM_CHURN_COUNT,
       decodeDropCount: this._env.ALERT_DECODE_DROP_COUNT,
       bufferOverflowCount: this._env.ALERT_BUFFER_OVERFLOW_COUNT,
-      rtfP95: this._env.ALERT_RTF_P95,
+      rtfP95: threshold(this._env.ALERT_RTF_P95, DEFAULT_THRESHOLDS.rtfP95),
       asrDutyRatio: threshold(
         this._env.ALERT_ASR_DUTY_RATIO,
         DEFAULT_THRESHOLDS.asrDutyRatio,
       ),
-      asrDutyRatioMinJobs: this._env.ALERT_ASR_DUTY_RATIO_MIN_JOBS,
+      asrDutyRatioMinJobs: threshold(
+        this._env.ALERT_ASR_DUTY_RATIO_MIN_JOBS,
+        DEFAULT_THRESHOLDS.asrDutyRatioMinJobs,
+      ),
       asrDroppedPeriodRatio: threshold(
         this._env.ALERT_ASR_DROPPED_PERIOD_RATIO,
         DEFAULT_THRESHOLDS.asrDroppedPeriodRatio,
+      ),
+      asrDroppedPeriodCriticalRatio: threshold(
+        this._env.ALERT_ASR_DROPPED_PERIOD_CRITICAL_RATIO,
+        DEFAULT_THRESHOLDS.asrDroppedPeriodCriticalRatio,
+      ),
+      asrScheduledPeriodMinCount: threshold(
+        this._env.ALERT_ASR_SCHEDULED_PERIOD_MIN_COUNT,
+        DEFAULT_THRESHOLDS.asrScheduledPeriodMinCount,
       ),
       asrTailMinJobs: threshold(
         this._env.ALERT_ASR_TAIL_MIN_JOBS,
         DEFAULT_THRESHOLDS.asrTailMinJobs,
       ),
-      asrTailP99Rtf: this._env.ALERT_ASR_TAIL_P99_RTF,
+      asrTailP99Rtf: threshold(
+        this._env.ALERT_ASR_TAIL_P99_RTF,
+        DEFAULT_THRESHOLDS.asrTailP99Rtf,
+      ),
       probeFailureThreshold: this._env.ALERT_PROBE_FAILURE_THRESHOLD,
       authFailureRatio: this._env.ALERT_AUTH_FAILURE_RATIO,
       authFailureMinSamples: this._env.ALERT_AUTH_FAILURE_MIN_SAMPLES,
@@ -349,10 +409,18 @@ export class AppConfig {
     };
   }
 
-  get canaryAuthConfig(): CanaryAuthConfig {
+  get deviceAuthConfig(): DeviceAuthConfig {
+    const secret = this._env.CANARY_DEVICE_SECRET;
     return {
       sessionManagerBaseUrl: this._env.SESSION_MANAGER_BASE_URL,
-      deviceToken: this._env.CANARY_DEVICE_TOKEN,
+      // Derived, never configured. Empty stays empty rather than becoming a
+      // well-formed token for a device nobody seeded: with no secret the
+      // Session Manager seeded nothing, so a derived token could only ever
+      // fail to authenticate, and `canaryRunnerConfig.enabled` is false anyway.
+      deviceToken:
+        secret === ''
+          ? ''
+          : deriveTestAudioDeviceToken(secret, CANARY_DEVICE_UID),
       timeoutMs: this._env.PROBE_TIMEOUT_SEC * SECOND_MS,
     };
   }
@@ -364,9 +432,11 @@ export class AppConfig {
    */
   canaryRunnerConfig(expectedTranscript: string): CanaryRunnerConfig {
     return {
-      // No device token means no canary. Failing closed keeps a default
-      // deployment from emitting auth errors against session-manager forever.
-      enabled: this._env.CANARY_DEVICE_TOKEN.length > 0,
+      // No secret means no canary - and, on the other side, means the Session
+      // Manager seeded no room, device or session for one. Failing closed keeps
+      // a default deployment from emitting auth errors against session-manager
+      // forever.
+      enabled: this._env.CANARY_DEVICE_SECRET.length > 0,
       intervalMs: this._env.CANARY_INTERVAL_SEC * SECOND_MS,
       audioPath: this._env.CANARY_AUDIO_PATH,
       chunkMs: this._env.CANARY_CHUNK_MS,

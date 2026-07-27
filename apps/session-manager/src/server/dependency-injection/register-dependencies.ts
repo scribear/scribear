@@ -7,6 +7,7 @@ import {
 } from 'awilix';
 
 import { DBClient } from '#src/db/db-client.js';
+import { CanaryRoomSeeder } from '#src/server/features/canary-room/canary-room-seeder.js';
 import { DatabaseController } from '#src/server/features/database/database.controller.js';
 import { DemoRoomSeeder } from '#src/server/features/demo-room/demo-room-seeder.js';
 import { DemoRoomController } from '#src/server/features/demo-room/demo-room.controller.js';
@@ -25,6 +26,7 @@ import { ScheduleManagementService } from '#src/server/features/schedule-managem
 import { SessionAuthController } from '#src/server/features/session-auth/session-auth.controller.js';
 import { SessionAuthRepository } from '#src/server/features/session-auth/session-auth.repository.js';
 import { SessionAuthService } from '#src/server/features/session-auth/session-auth.service.js';
+import { TestAudioRoomsSeeder } from '#src/server/features/test-audio-rooms/test-audio-rooms-seeder.js';
 import { DeviceAuthRepository } from '#src/server/shared/repositories/device-auth.repository.js';
 import { AdminAuthService } from '#src/server/shared/services/admin-auth.service.js';
 import { DeviceAuthService } from '#src/server/shared/services/device-auth.service.js';
@@ -55,6 +57,8 @@ function registerDependencies(
     dbClientConfig: asValue(config.dbClientConfig),
     materializationWorkerConfig: asValue(config.materializationWorkerConfig),
     demoRoomConfig: asValue(config.demoRoomConfig),
+    testAudioRoomsConfig: asValue(config.testAudioRoomsConfig),
+    canaryRoomConfig: asValue(config.canaryRoomConfig),
 
     // Database
     dbClient: asClass(DBClient, { lifetime: Lifetime.SINGLETON }),
@@ -162,6 +166,20 @@ function registerDependencies(
     // route reports `enabled: false` when the feature is off), so unlike the
     // seeder it is not gated behind the flag at wiring time.
     demoRoomController: asClass(DemoRoomController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+
+    // Operator test-audio rooms. Same shape as `demoRoomSeeder` above:
+    // constructed regardless, resolved and run by `create-server.ts` only when
+    // `TEST_AUDIO_DEVICE_SECRET` is set. SCOPED for the same reason.
+    testAudioRoomsSeeder: asClass(TestAudioRoomsSeeder, {
+      lifetime: Lifetime.SCOPED,
+    }),
+
+    // Monitoring canary room. Same shape again: constructed regardless,
+    // resolved and run by `create-server.ts` only when `CANARY_DEVICE_SECRET`
+    // is set. SCOPED for the same reason.
+    canaryRoomSeeder: asClass(CanaryRoomSeeder, {
       lifetime: Lifetime.SCOPED,
     }),
 

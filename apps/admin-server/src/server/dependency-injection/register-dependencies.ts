@@ -29,6 +29,8 @@ import { LivenessController } from '#src/server/features/probes/liveness.control
 import { ReadinessController } from '#src/server/features/probes/readiness.controller.js';
 import { RoomsController } from '#src/server/features/rooms/rooms.controller.js';
 import { SchedulingController } from '#src/server/features/scheduling/scheduling.controller.js';
+import { TestAudioGatewayService } from '#src/server/features/test-audio/test-audio-gateway.service.js';
+import { TestAudioController } from '#src/server/features/test-audio/test-audio.controller.js';
 import { AuditRepository } from '#src/server/shared/repositories/audit.repository.js';
 import { AuditService } from '#src/server/shared/services/audit.service.js';
 import { AzureOidcAuthService } from '#src/server/shared/services/azure-oidc-auth.service.js';
@@ -134,6 +136,17 @@ function registerDependencies(
 
     // Scheduling
     schedulingController: asClass(SchedulingController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+
+    // Test audio devices. The gateway is SINGLETON for the same reason
+    // `sessionManagerGatewayService` is: it holds the upstream URL and the
+    // service key, and nothing about it is per-request.
+    testAudioConfig: asValue(config.testAudioConfig),
+    testAudioGatewayService: asClass(TestAudioGatewayService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
+    testAudioController: asClass(TestAudioController, {
       lifetime: Lifetime.SCOPED,
     }),
 

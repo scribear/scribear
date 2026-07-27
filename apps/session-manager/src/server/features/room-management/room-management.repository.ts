@@ -358,6 +358,45 @@ export class RoomManagementRepository {
   }
 
   /**
+   * Idempotently makes `deviceUid` the source device of `roomUid`.
+   *
+   * Unlike {@link addDeviceToRoom}, which has no conflict handling and throws on
+   * a second call, this is safe to run on every boot: the membership row is
+   * inserted if absent and left as the source if present. That is what the
+   * test-audio seeder needs — a plain insert would fail on the second boot with
+   * a primary-key violation, and the seeder must be a no-op on a stack that has
+   * simply been restarted.
+   *
+   * `DO UPDATE SET is_source = TRUE` rather than `DO NOTHING` is belt and
+   * braces rather than the main event: the `room_devices_ensure_source` and
+   * `room_devices_single_source` constraint triggers already make a demoted lone
+   * source unreachable through any API path (there is nothing to promote in its
+   * place, and room-management refuses to add one to a test-audio room), so in
+   * practice the conflict branch finds `is_source` already true. It is written
+   * to converge anyway because a `DO NOTHING` here would silently accept a
+   * hand-edited row that a re-seed is the natural remedy for.
+   *
+   * `ON CONFLICT (room_uid, device_uid)` is the primary key. The other unique
+   * index on this table — `idx_room_devices_device`, one room per device — is
+   * deliberately *not* handled: a conflict there means the device has been moved
+   * into a different room, which for a seeded synthetic source is exactly the
+   * situation that must fail loudly rather than be silently reconciled. Callers
+   * check for it before calling.
+   *
+   * @param roomUid The room the device is the source of.
+   * @param deviceUid The device to insert or promote.
+   */
+  async upsertSourceDevice(roomUid: string, deviceUid: string): Promise<void> {
+    await this._dbClient.db
+      .insertInto('room_devices')
+      .values({ room_uid: roomUid, device_uid: deviceUid, is_source: true })
+      .onConflict((oc) =>
+        oc.columns(['room_uid', 'device_uid']).doUpdateSet({ is_source: true }),
+      )
+      .execute();
+  }
+
+  /**
    * Removes a device from whichever room it belongs to.
    * @param deviceUid The device to remove.
    * @returns `true` if the membership row was deleted, `false` if the device was not in any room.

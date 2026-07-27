@@ -98,7 +98,33 @@ export const TRANSCRIPTION_METRICS_BODY_SCHEMA = Type.Object({
     asrAudioSecondsTotal: Type.Array(COUNTER_SERIES),
     bufferOverflowTotal: Type.Array(COUNTER_SERIES),
     bufferOverflowSecondsTotal: Type.Array(COUNTER_SERIES),
-    audioTooFastTotal: Type.Array(COUNTER_SERIES),
+    /**
+     * Decode batches whose tail the audio buffer had no room for, and the
+     * seconds of audio those drops threw away.
+     *
+     * Replaces `audioTooFastTotal`, which named a cause it could not observe.
+     * The old counter fired when one decode batch exceeded the buffer's free
+     * space and the job then *raised*, ending the session with "Client sent
+     * audio too quickly". But a batch is everything that arrived since the
+     * worker last reached that job, so its size is `client_rate ×
+     * scheduling_gap` — and the gap is the service's own. A realtime client
+     * tripped it whenever the pool stalled longer than the buffer holds, which
+     * is why the CPU cliff killed every live session at once and logged each
+     * one as client abuse. The overrun is now survivable: the tail is dropped
+     * and counted, the session continues.
+     *
+     * Optional for the same reason as `asrDroppedPeriodsTotal`: a
+     * transcription-service predating the rename sends `audioTooFastTotal`
+     * instead, and requiring the new name would turn every transcription metric
+     * into a `malformed` poll for the duration of a rolling upgrade. Absent
+     * simply means no drops are being reported — unlike the dropped-period
+     * counter there is no fallback signal and no behaviour that differs between
+     * "not reported" and "zero", so this needs no support gauge.
+     */
+    audioDroppedBufferFullTotal: Type.Optional(Type.Array(COUNTER_SERIES)),
+    audioDroppedBufferFullSecondsTotal: Type.Optional(
+      Type.Array(COUNTER_SERIES),
+    ),
     vadNoSpeechTotal: Type.Array(COUNTER_SERIES),
     noWordsTotal: Type.Array(COUNTER_SERIES),
     decodeDropsTotal: Type.Array(COUNTER_SERIES),

@@ -32,6 +32,11 @@ import type { LivenessController } from '#src/server/features/probes/liveness.co
 import type { ReadinessController } from '#src/server/features/probes/readiness.controller.js';
 import type { RoomsController } from '#src/server/features/rooms/rooms.controller.js';
 import type { SchedulingController } from '#src/server/features/scheduling/scheduling.controller.js';
+import type {
+  TestAudioConfig,
+  TestAudioGatewayService,
+} from '#src/server/features/test-audio/test-audio-gateway.service.js';
+import type { TestAudioController } from '#src/server/features/test-audio/test-audio.controller.js';
 import type { RateLimitConfig } from '#src/server/plugins/rate-limit.plugin.js';
 import type { AuditRepository } from '#src/server/shared/repositories/audit.repository.js';
 import type { AuditService } from '#src/server/shared/services/audit.service.js';
@@ -113,6 +118,11 @@ interface AppDependencies extends BaseDependencies {
 
   // Scheduling
   schedulingController: SchedulingController;
+
+  // Test audio devices
+  testAudioConfig: TestAudioConfig;
+  testAudioGatewayService: TestAudioGatewayService;
+  testAudioController: TestAudioController;
 
   // Demo caption room
   demoRoomController: DemoRoomController;

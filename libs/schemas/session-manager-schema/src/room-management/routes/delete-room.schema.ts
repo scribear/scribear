@@ -16,7 +16,9 @@ import { ROOM_MANAGEMENT_TAG } from '#src/tags.js';
 
 const DELETE_ROOM_SCHEMA = {
   description:
-    'Delete a room. Cascades to its schedules, sessions, and device memberships.',
+    'Delete a room. Cascades to its schedules, sessions, and device memberships. ' +
+    'Refused with 409 for the demo caption room, which is reseeded at a fixed ' +
+    'uid on every restart.',
   tags: [ROOM_MANAGEMENT_TAG],
   security: ADMIN_API_KEY_SECURITY,
   headers: Type.Object({
@@ -31,6 +33,10 @@ const DELETE_ROOM_SCHEMA = {
     ...INVALID_ADMIN_KEY_REPLY_SCHEMA,
     404: Type.Object({
       code: Type.Literal('ROOM_NOT_FOUND'),
+      message: Type.String(),
+    }),
+    409: Type.Object({
+      code: Type.Literal('DEMO_ROOM_NOT_DELETABLE'),
       message: Type.String(),
     }),
   },

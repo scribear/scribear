@@ -22,9 +22,13 @@ from .metric_types import (
 NS_PER_MS = 1_000_000
 NS_PER_SEC = 1_000_000_000
 
-# Label applied to executions whose job carried no label. Only reachable when a
-# result arrives after its job was deregistered, so it should stay near zero;
-# it is named rather than dropped so that it is visible if it does not.
+# Label applied to executions whose job carried no label. The label a job
+# execution reports travels with its own JobExecutionResult, stamped at
+# registration (see RegisterJobTask.label), so this is reachable only when the
+# caller registered the job with no label to begin with - never merely because
+# the job was since deregistered, which is exactly the case a saturation
+# collapse produces in bulk. It is named rather than dropped so that it is
+# visible if it does turn up.
 UNLABELED_PROVIDER = "unknown"
 
 
@@ -135,9 +139,14 @@ class MetricsRegistry:
             "buffer_overflow_seconds_total",
             "Seconds of audio discarded by those force-finalizations",
         )
-        self.audio_too_fast_total = Counter(
-            "audio_too_fast_total",
-            "Times a client pushed audio faster than realtime",
+        self.audio_dropped_buffer_full_total = Counter(
+            "audio_dropped_buffer_full_total",
+            "Times a decode batch overran the audio buffer and its tail was "
+            "dropped",
+        )
+        self.audio_dropped_buffer_full_seconds_total = Counter(
+            "audio_dropped_buffer_full_seconds_total",
+            "Seconds of audio dropped because the buffer was full",
         )
         self.vad_no_speech_total = Counter(
             "vad_no_speech_total",
@@ -196,7 +205,12 @@ class MetricsRegistry:
             TranscriptionJobCounter.BUFFER_OVERFLOW_SECONDS: (
                 self.buffer_overflow_seconds_total
             ),
-            TranscriptionJobCounter.AUDIO_TOO_FAST: self.audio_too_fast_total,
+            TranscriptionJobCounter.AUDIO_DROPPED_BUFFER_FULL: (
+                self.audio_dropped_buffer_full_total
+            ),
+            TranscriptionJobCounter.AUDIO_DROPPED_BUFFER_FULL_SECONDS: (
+                self.audio_dropped_buffer_full_seconds_total
+            ),
             TranscriptionJobCounter.VAD_NO_SPEECH: self.vad_no_speech_total,
             TranscriptionJobCounter.NO_WORDS: self.no_words_total,
             TranscriptionJobCounter.AUDIO_SECONDS_DECODED: (

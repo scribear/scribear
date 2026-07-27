@@ -27,6 +27,7 @@ import Typography from '@mui/material/Typography';
 
 import { useNavigate } from 'react-router-dom';
 
+import { DEMO_SOURCE_DEVICE_UID } from '@scribear/session-manager-schema';
 import type { Device, Room } from '@scribear/session-manager-schema';
 
 import { NameWithUid } from '#src/components/name-with-uid';
@@ -64,7 +65,12 @@ const CreateRoomDialog = ({ onClose, onCreated }: CreateRoomDialogProps) => {
     adminApi
       .listDevices({ limit: 200 })
       .then((res) => {
-        if (alive.current) setDevices(res.items);
+        // The demo caption room's placeholder source device is never activated
+        // and can never send audio, so create-room refuses it (409). Drop it
+        // from the picker rather than offer a choice that always fails.
+        if (alive.current) {
+          setDevices(res.items.filter((d) => d.uid !== DEMO_SOURCE_DEVICE_UID));
+        }
       })
       .catch((err: unknown) => {
         if (!alive.current) return;

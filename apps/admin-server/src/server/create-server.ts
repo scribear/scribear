@@ -20,6 +20,7 @@ import { healthRouter } from './features/health/health.router.js';
 import { probesRouter } from './features/probes/probes.router.js';
 import { roomsRouter } from './features/rooms/rooms.router.js';
 import { schedulingRouter } from './features/scheduling/scheduling.router.js';
+import { testAudioRouter } from './features/test-audio/test-audio.router.js';
 import adminErrorHandler from './plugins/error-handler.plugin.js';
 import { registerRateLimit } from './plugins/rate-limit.plugin.js';
 
@@ -62,6 +63,7 @@ async function createServer(config: AppConfig) {
   fastify.register(demoRoomRouter);
   fastify.register(auditRouter);
   fastify.register(fleetRouter);
+  fastify.register(testAudioRouter);
 
   const dbClient =
     dependencyContainer.resolve<AppDependencies['dbClient']>('dbClient');

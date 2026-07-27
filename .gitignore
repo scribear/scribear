@@ -648,3 +648,8 @@ compose.override.yml
 compose.override.yaml
 docker-compose.override.yml
 docker-compose.override.yaml
+
+# transcription-service's HF_HOME bind mount (MODEL_DOWNLOAD_PATH in
+# compose.yml) - faster-whisper/silero-vad weights fetched at runtime, gigabytes
+# per model, never something to commit.
+deployment/models/

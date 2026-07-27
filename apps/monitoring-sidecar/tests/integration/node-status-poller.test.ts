@@ -32,7 +32,17 @@ describe('node-server status poller (B1.1 PR 4)', () => {
     await node.close();
   });
 
-  function createPoller(apiKey = API_KEY) {
+  /**
+   * Builds a poller and takes it past its priming poll.
+   *
+   * The first successful poll of a poller's life only records baselines — the
+   * endpoint reports totals since node-server booted, and a sidecar started
+   * beside a long-running node would otherwise fold that whole history into one
+   * increment stamped `now`, firing every windowed rule on events that predate
+   * it. Priming against an all-zero body seeds those baselines at zero, so each
+   * test's own first poll differences from zero exactly as it reads.
+   */
+  async function createPoller(apiKey = API_KEY) {
     const metrics = new MetricsRegistry();
     const poller = new NodeStatusPollerService(
       {
@@ -46,6 +56,13 @@ describe('node-server status poller (B1.1 PR 4)', () => {
       metrics,
       logger,
     );
+    // Only a poll that can succeed primes anything: a wrong key produces a
+    // failed poll, and priming with one would leave an error already counted
+    // before the test acts.
+    if (apiKey === API_KEY) {
+      node.setBody(statusBody());
+      await poller.pollOnce();
+    }
     return { metrics, poller };
   }
 
@@ -53,7 +70,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
     it('adds only the difference between successive polls', async () => {
       // Arrange - the endpoint reports totals since node-server booted, so
       // setting them verbatim would restate the same events on every poll.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       node.setBody(statusBody({ summary: { decodeDropsTotal: 5 } }));
 
       // Act
@@ -70,7 +87,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
 
     it('keeps the rolling window meaningful for the alert rules', async () => {
       // Arrange
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
 
       // Act
       node.setBody(statusBody({ summary: { upstreamChurnTotal: 4 } }));
@@ -84,7 +101,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
 
     it('expands labelled arrays into one series per label set', async () => {
       // Arrange
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       node.setBody(
         statusBody({
           wsCloses: [
@@ -152,7 +169,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
     it('rebases instead of differencing when processUid changes', async () => {
       // Arrange - a restarted node-server reports every counter back at zero.
       // Differencing against the dead process would produce a large negative.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       node.setBody(statusBody({ summary: { authTimeoutsTotal: 100 } }));
       await poller.pollOnce();
 
@@ -177,7 +194,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
     it('treats a counter that went backwards as a missed restart', async () => {
       // Arrange - a restart between two polls that we happened not to observe
       // as a uid change would otherwise decrement.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       node.setBody(statusBody({ summary: { latencySamplesTotal: 50 } }));
       await poller.pollOnce();
 
@@ -193,7 +210,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
 
     it('does not report a restart on the very first poll', async () => {
       // Arrange
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
 
       // Act
       const result = await poller.pollOnce();
@@ -208,7 +225,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
   describe('session gauges', (it) => {
     it('reports per-session sources, subscribers and upstream state', async () => {
       // Arrange
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       node.setBody(
         statusBody({
           summary: { activeSessionCount: 2 },
@@ -273,7 +290,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
     it('forgets a session once it ends', async () => {
       // Arrange - a gauge left behind would claim a room is still connected
       // long after everyone went home.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       node.setBody(
         statusBody({
           summary: { activeSessionCount: 1 },
@@ -309,7 +326,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
       // Arrange - absence from a truncated list means "not told about", not
       // "ended". Deleting on truncation would blank the dashboard exactly when
       // the deployment is busiest.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       node.setBody(
         statusBody({
           summary: { activeSessionCount: 1 },
@@ -360,7 +377,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
     it('mirrors each measure and kind onto its own gauge series', async () => {
       // Arrange - node-server reports pre-computed percentiles, so these become
       // quantile-labelled gauges rather than local histogram observations.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       node.setBody(
         statusBody({
           latency: [
@@ -414,7 +431,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
     it('ignores a series with nothing retained', async () => {
       // Arrange - an empty ring carries meaningless zeroes, and a p95 of 0 on a
       // latency panel reads as "instant" rather than "no data".
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       node.setBody(
         statusBody({
           latency: [latencySeries({ sampleCount: 0, p95: 0, p50: 0, p99: 0 })],
@@ -437,7 +454,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
     it('forgets a series that stopped being reported', async () => {
       // Arrange - a stale p95 left behind would keep a latency alert firing
       // long after the traffic that caused it stopped.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       node.setBody(statusBody({ latency: [latencySeries({ p95: 300 })] }));
       await poller.pollOnce();
 
@@ -460,7 +477,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
     it('reports unauthorized separately from unreachable', async () => {
       // Arrange - a wrong service key is a config error, not an outage, and the
       // operator's next action is different.
-      const { metrics, poller } = createPoller('wrong-key');
+      const { metrics, poller } = await createPoller('wrong-key');
 
       // Act
       const result = await poller.pollOnce();
@@ -480,7 +497,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
     it('rejects a body that does not match the status schema', async () => {
       // Arrange - a node-server on a different contract must fail loudly
       // rather than half-populate metrics.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       node.setMalformed(true);
 
       // Act
@@ -493,7 +510,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
 
     it('reports a server error without losing prior counter values', async () => {
       // Arrange
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       node.setBody(statusBody({ summary: { decodeDropsTotal: 7 } }));
       await poller.pollOnce();
 
@@ -511,7 +528,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
 
     it('recovers and marks the poll up again', async () => {
       // Arrange
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       node.setFailure(500);
       await poller.pollOnce();
 
@@ -526,7 +543,7 @@ describe('node-server status poller (B1.1 PR 4)', () => {
 
     it('presents the service API key as a bearer credential', async () => {
       // Arrange
-      const { poller } = createPoller();
+      const { poller } = await createPoller();
 
       // Act
       await poller.pollOnce();
@@ -537,10 +554,11 @@ describe('node-server status poller (B1.1 PR 4)', () => {
   });
 
   describe('disabled', (it) => {
-    it('never polls when no service API key is configured', () => {
+    it('never polls when no service API key is configured', async () => {
       // Arrange - failing closed keeps a default deployment from 401-ing
-      // node-server on every interval forever.
-      const { poller } = createPoller('');
+      // node-server on every interval forever. A disabled poller is not primed
+      // either; there is nothing to prime against.
+      const { poller } = await createPoller('');
 
       // Act
       poller.start();

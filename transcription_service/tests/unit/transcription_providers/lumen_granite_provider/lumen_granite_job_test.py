@@ -305,18 +305,29 @@ def test_counters_report_audio_ingested_and_reset_on_drain(log, mocker):
     assert not job.drain_counters()
 
 
-def test_audio_too_fast_is_counted_before_the_raise(log, mocker):
-    """Overrunning the buffer counts the event, not just raises."""
+def test_overrunning_the_window_drops_audio_without_ending_the_job(log, mocker):
+    """A batch the window has no room for loses its tail, not the session.
+
+    Window is sized off max_buffer_len_sec, so a single oversized chunk
+    overruns it in one call. Raising here would deregister the job, and an
+    oversized batch means the service did not reach this job in time at least
+    as much as it means anything about the client - so the drop is counted and
+    survived. Only what was kept counts as decoded: the dropped tail is never
+    sent upstream.
+    """
     mocker.patch(
         POST_TARGET, return_value=fake_response(json_body={"text": "hi"})
     )
-    # Buffer is sized off max_buffer_len_sec, so a single oversized chunk
-    # overruns it in one call.
     job = LumenGraniteProviderJob(make_config(max_buffer_len_sec=1))
 
-    with pytest.raises(TranscriptionClientError):
-        job.process_batch(log, (), [chunk(30.0, "a")])
+    # 30s offered into a window that holds 2s.
+    job.process_batch(log, (), [chunk(30.0, "a")])
 
-    # The counter is the whole point of draining on the failure path: this is
-    # the only place audio-too-fast is ever observable.
-    assert job.drain_counters()[TranscriptionJobCounter.AUDIO_TOO_FAST] == 1
+    counters = job.drain_counters()
+    assert counters[TranscriptionJobCounter.AUDIO_DROPPED_BUFFER_FULL] == 1
+    assert counters[
+        TranscriptionJobCounter.AUDIO_DROPPED_BUFFER_FULL_SECONDS
+    ] == pytest.approx(28.0)
+    assert counters[
+        TranscriptionJobCounter.AUDIO_SECONDS_DECODED
+    ] == pytest.approx(2.0)

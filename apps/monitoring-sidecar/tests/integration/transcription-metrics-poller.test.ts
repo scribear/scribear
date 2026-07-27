@@ -56,7 +56,17 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
     await service.close();
   });
 
-  function createPoller(
+  /**
+   * Builds a poller and takes it past its priming poll.
+   *
+   * The first successful poll of a poller's life only records baselines — the
+   * endpoint reports totals since the service booted, and a sidecar started
+   * beside a long-running one would otherwise fold that whole history into a
+   * single increment stamped `now`, firing every windowed rule on events that
+   * predate it. Priming against an all-zero body seeds those baselines at zero,
+   * so each test's own first poll differences from zero exactly as it reads.
+   */
+  async function createPoller(
     apiKey = API_KEY,
     jobPeriodMsByProvider: ReadonlyMap<string, number> = JOB_PERIODS,
     jobPeriodSpecErrors: readonly string[] = [],
@@ -77,6 +87,13 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
       metrics,
       logger,
     );
+    // Only a poll that can succeed primes anything: a wrong key produces a
+    // failed poll, and priming with one would leave an error already counted
+    // before the test acts.
+    if (apiKey === API_KEY) {
+      service.setBody(metricsBody());
+      await poller.pollOnce();
+    }
     return { metrics, poller, warnings, errors };
   }
 
@@ -86,7 +103,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
     it('adds only the difference between successive polls', async () => {
       // Arrange — the endpoint reports totals since its process booted, so
       // inc()-ing what is read would count every prior event again each poll.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
           counters: { bufferOverflowTotal: [{ labels: WHISPER, value: 4 }] },
@@ -106,12 +123,62 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
       expect(metrics.asrBufferOverflowTotal.get(providerLabels)).toBe(7);
     });
 
+    it('records baselines on its first poll rather than folding a lifetime', async () => {
+      // Arrange — a sidecar restarted beside a transcription-service that has
+      // been up for days. Without priming, `previous` defaults to 0 and that
+      // service's whole history lands as one increment stamped `now`: every raw
+      // windowed rule fires immediately (`decodeDropRule` at 10,
+      // `bufferOverflowRule` at 5) on events that predate the sidecar, then
+      // clears itself one window later. This is the poller constructed directly
+      // rather than through the helper, because the helper's whole job is to
+      // hide the poll under test.
+      const metrics = new MetricsRegistry();
+      const { logger } = createLogger();
+      const poller = new TranscriptionMetricsPollerService(
+        {
+          enabled: true,
+          intervalMs: 60_000,
+          timeoutMs: 2_000,
+          service: SERVICE,
+          statusUrl: service.statusUrl,
+          apiKey: API_KEY,
+          jobPeriodMsByProvider: JOB_PERIODS,
+          jobPeriodSpecErrors: [],
+        },
+        metrics,
+        logger,
+      );
+      service.setBody(
+        metricsBody({
+          counters: {
+            bufferOverflowTotal: [{ labels: WHISPER, value: 9_000 }],
+          },
+        }),
+      );
+
+      // Act
+      await poller.pollOnce();
+
+      // Assert — nothing counted, but the baseline is set, so the next real
+      // event is measured against 9000 rather than against zero.
+      expect(metrics.asrBufferOverflowTotal.get(providerLabels)).toBe(0);
+      service.setBody(
+        metricsBody({
+          counters: {
+            bufferOverflowTotal: [{ labels: WHISPER, value: 9_003 }],
+          },
+        }),
+      );
+      await poller.pollOnce();
+      expect(metrics.asrBufferOverflowTotal.get(providerLabels)).toBe(3);
+    });
+
     it('differences the RTF histogram’s lifetime sum and count', async () => {
       // Arrange — the two fields the T1 early-warning rule averages. They are
       // lifetime totals like any counter, so only the delta may be folded;
       // taking them absolutely would recount every job on every poll and pin the
       // windowed mean to the process’s whole history.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
           histograms: {
@@ -141,7 +208,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
       // counter here that describes the scheduler rather than the work, and the
       // support gauge is what lets the tail alert tell a reported zero from a
       // service too old to count at all.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
           counters: {
@@ -173,7 +240,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
       // an older transcription-service must still produce a healthy poll. A
       // healthy *new* service sends an empty array, which creates no series here
       // either, so the gauge is the only thing that separates the two.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(metricsBody());
 
       // Act
@@ -190,7 +257,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
     it('maps the two no-speech counters onto one kind-labelled series', async () => {
       // Arrange — the retired log parser produced this exact shape, so no
       // downstream rule had to change when the source did.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
           counters: {
@@ -218,7 +285,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
     it('folds decode drops onto the transcription side of the shared series', async () => {
       // Arrange — same metric as node-server's, separated only by `side`. This
       // is the series the retired Python parser used to write.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
           counters: { decodeDropsTotal: [{ labels: WHISPER, value: 2 }] },
@@ -242,7 +309,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
 
     it('keeps the failure reason label, which is an exception class', async () => {
       // Arrange
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
           counters: {
@@ -271,10 +338,12 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
     it('labels a series carrying no provider as unknown rather than dropping it', async () => {
       // Arrange — the Python side substitutes "unknown" itself, but an absent
       // label must not silently discard the count either.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
-          counters: { audioTooFastTotal: [{ labels: {}, value: 1 }] },
+          counters: {
+            audioDroppedBufferFullTotal: [{ labels: {}, value: 1 }],
+          },
         }),
       );
 
@@ -283,11 +352,66 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
 
       // Assert
       expect(
-        metrics.asrAudioTooFastTotal.get({
+        metrics.asrAudioDroppedBufferFullTotal.get({
           service: SERVICE,
           providerKey: 'unknown',
         }),
       ).toBe(1);
+    });
+
+    it('folds dropped audio and the seconds it cost as separate series', async () => {
+      // Arrange — the count says a batch overran, the seconds say how much
+      // audio never reached the ASR. Only the second one describes the damage.
+      const { metrics, poller } = await createPoller();
+      service.setBody(
+        metricsBody({
+          counters: {
+            audioDroppedBufferFullTotal: [{ labels: WHISPER, value: 2 }],
+            audioDroppedBufferFullSecondsTotal: [
+              { labels: WHISPER, value: 31.5 },
+            ],
+          },
+        }),
+      );
+
+      // Act
+      await poller.pollOnce();
+
+      // Assert
+      expect(metrics.asrAudioDroppedBufferFullTotal.get(providerLabels)).toBe(
+        2,
+      );
+      expect(
+        metrics.asrAudioDroppedBufferFullSecondsTotal.get(providerLabels),
+      ).toBe(31.5);
+    });
+
+    it('polls a service too old to report dropped audio without failing', async () => {
+      // Arrange — the counter was renamed from `audioTooFastTotal`, so during a
+      // rolling upgrade the sidecar polls a service that sends neither new
+      // field. Both are optional precisely so that stays a poll with no drops
+      // rather than a `malformed` response taking every transcription metric
+      // down with it.
+      const { metrics, poller, errors } = await createPoller();
+      const body = metricsBody({
+        counters: { bufferOverflowTotal: [{ labels: WHISPER, value: 4 }] },
+      });
+      const counters = body.counters as Record<string, unknown>;
+      delete counters['audioDroppedBufferFullTotal'];
+      delete counters['audioDroppedBufferFullSecondsTotal'];
+      counters['audioTooFastTotal'] = [{ labels: WHISPER, value: 9 }];
+      service.setBody(body);
+
+      // Act
+      await poller.pollOnce();
+
+      // Assert — the poll succeeded and its other counters landed, and the
+      // retired name was ignored rather than folded into the new metric.
+      expect(errors).toEqual([]);
+      expect(metrics.asrBufferOverflowTotal.get(providerLabels)).toBe(4);
+      expect(metrics.asrAudioDroppedBufferFullTotal.get(providerLabels)).toBe(
+        0,
+      );
     });
   });
 
@@ -295,7 +419,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
     it('republishes reported percentiles as a quantile-labelled gauge', async () => {
       // Arrange — the endpoint sends pre-computed percentiles, not samples, so
       // there is nothing to rebuild a histogram from.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
           histograms: {
@@ -321,7 +445,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
 
     it('derives period utilization from execution time and the job period', async () => {
       // Arrange — a job taking 1.5x its 500 ms period is over the saturation line.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
           histograms: { asrExecutionMs: [histogramSeries(750)] },
@@ -346,7 +470,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
       // shipped CUDA template), and both providers here spend exactly 1500 ms per
       // pass: whisper is 3x over its budget, lumen_granite is at half of its. A
       // single denominator has to be wrong for one of them, silently.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
           providerKeys: ['whisper', 'lumen_granite'],
@@ -382,7 +506,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
       // Arrange — the period is the one input the sidecar cannot verify, so it is
       // exported beside the ratio: an operator comparing it against
       // provider_config.json can see a mismatch that would otherwise be invisible.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
           histograms: { asrExecutionMs: [histogramSeries(750)] },
@@ -406,7 +530,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
       // honest answer; a ratio scaled by a default would look like a measurement
       // and read as healthy or saturated purely by luck. `debug` is the real
       // case: it has no job_period_ms in provider_config.json at all.
-      const { metrics, poller, warnings } = createPoller();
+      const { metrics, poller, warnings } = await createPoller();
       service.setBody(
         metricsBody({
           providerKeys: ['debug'],
@@ -443,7 +567,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
     it('says a missing period once rather than on every poll', async () => {
       // Arrange — a 10 s cadence would otherwise write thousands of identical
       // lines, the same reason the base class logs poll failures on transition.
-      const { poller, warnings } = createPoller(API_KEY, new Map());
+      const { poller, warnings } = await createPoller(API_KEY, new Map());
       service.setBody(
         metricsBody({ histograms: { asrExecutionMs: [histogramSeries(750)] } }),
       );
@@ -464,7 +588,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
       // on the wire yet; when it arrives, the reported value wins because it is
       // what the service is actually scheduling with, while the configured one is
       // a number hand-copied out of a file that may since have changed.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
           providerJobPeriodMs: { whisper: 1_500 },
@@ -495,7 +619,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
       // Arrange — a reported period that goes away must not leave the last ratio
       // frozen in place, which would keep asserting a utilization the sidecar can
       // no longer compute.
-      const { metrics, poller } = createPoller(API_KEY, new Map());
+      const { metrics, poller } = await createPoller(API_KEY, new Map());
       const executionSeries = { asrExecutionMs: [histogramSeries(750)] };
       service.setBody(
         metricsBody({
@@ -531,7 +655,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
       // Arrange — the pre-per-provider format. The series is lost, which is the
       // safe direction, so the log line is the only thing standing between the
       // operator and a silently empty panel.
-      const { poller, errors } = createPoller(API_KEY, new Map(), [
+      const { poller, errors } = await createPoller(API_KEY, new Map(), [
         'TRANSCRIPTION_JOB_PERIOD_MS="1000" is a single global period',
       ]);
 
@@ -547,7 +671,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
       // Arrange — a provider with no retained samples reports structural zeroes,
       // and a p95 of 0 would read as a healthy measurement rather than as no
       // measurement at all.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
           histograms: { asrRtf: [histogramSeries(0, { sampleCount: 0 })] },
@@ -566,7 +690,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
     it('forgets a provider whose series stopped being reported', async () => {
       // Arrange — a stale p95 left behind would keep the T1 saturation alert
       // firing long after the load stopped.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
           histograms: {
@@ -608,7 +732,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
     it('reports the configured worker count and per-worker state', async () => {
       // Arrange — numWorkers answers one of the two inputs the master plan has
       // carried open since the first session.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
           numWorkers: 2,
@@ -641,7 +765,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
     it('reports a worker that exited as not alive', async () => {
       // Arrange — the quietest failure in the stack: nothing in the pool
       // notices, so this gauge is the only signal.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
           numWorkers: 1,
@@ -669,7 +793,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
 
     it('drops gauges for a worker that disappeared', async () => {
       // Arrange
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       const worker = {
         workerId: 0,
         utilization: 0.5,
@@ -695,7 +819,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
   describe('restart handling', (it) => {
     it('attributes a restarted process totals in full rather than negatively', async () => {
       // Arrange
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
           counters: { jobsCompletedTotal: [{ labels: WHISPER, value: 100 }] },
@@ -722,7 +846,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
 
     it('does not call the first poll a restart', async () => {
       // Arrange
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
 
       // Act
       const result = await poller.pollOnce();
@@ -740,7 +864,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
       // own METRICS_API_KEY is empty, which is a configuration answer rather
       // than an outage. Conflating it with http-error would send an operator
       // looking at the network.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setFailure(404);
 
       // Act
@@ -760,7 +884,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
 
     it('distinguishes a rejected key from an unreachable service', async () => {
       // Arrange
-      const { metrics, poller } = createPoller('wrong-key');
+      const { metrics, poller } = await createPoller('wrong-key');
 
       // Act
       const result = await poller.pollOnce();
@@ -778,7 +902,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
     it('rejects a body that does not match the schema', async () => {
       // Arrange — a service on a different contract must fail loudly rather
       // than half-populate metrics.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setMalformed(true);
 
       // Act
@@ -791,7 +915,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
 
     it('preserves collected counters across a failed poll', async () => {
       // Arrange
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
           counters: { jobsCompletedTotal: [{ labels: WHISPER, value: 9 }] },
@@ -809,7 +933,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
 
     it('recovers once the endpoint answers again', async () => {
       // Arrange
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setFailure(500);
       await poller.pollOnce();
 
@@ -824,20 +948,24 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
 
     it('sends the key as a bearer token', async () => {
       // Arrange
-      const { poller } = createPoller();
+      const { poller } = await createPoller();
 
       // Act
       await poller.pollOnce();
 
-      // Assert
-      expect(service.authHeaders).toEqual([`Bearer ${API_KEY}`]);
+      // Assert — every request, including the priming poll, carries it.
+      expect(service.authHeaders.length).toBeGreaterThan(0);
+      expect(
+        service.authHeaders.every((header) => header === `Bearer ${API_KEY}`),
+      ).toBe(true);
     });
   });
 
   describe('disabled', (it) => {
-    it('does not poll at all without a key', () => {
-      // Arrange — fail closed rather than 401 on every interval forever.
-      const { poller } = createPoller('');
+    it('does not poll at all without a key', async () => {
+      // Arrange — fail closed rather than 401 on every interval forever. A
+      // disabled poller is not primed either; there is nothing to prime against.
+      const { poller } = await createPoller('');
 
       // Act
       poller.start();

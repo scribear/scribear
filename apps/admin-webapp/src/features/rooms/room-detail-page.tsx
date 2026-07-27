@@ -31,6 +31,7 @@ import Typography from '@mui/material/Typography';
 
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { DEMO_ROOM_UID } from '@scribear/session-manager-schema';
 import type { Device, Room } from '@scribear/session-manager-schema';
 
 import { ConfirmDialog } from '#src/components/confirm-dialog';
@@ -400,6 +401,15 @@ export const RoomDetailPage = () => {
 
   const { room, devices } = detail;
 
+  // The demo caption room emits a fixture caption stream and has no audio path,
+  // so the Session Manager refuses to attach a device to it or to change its
+  // source device. Disabling the controls here means an operator reads *why*
+  // instead of discovering it by hitting a 409 — the rule is a permanent
+  // property of this room, not a transient failure. "Remove" stays enabled: the
+  // server still allows detaching a non-source device, which is the only way to
+  // clean up a device attached before the refusal existed.
+  const isDemoRoom = room.uid === DEMO_ROOM_UID;
+
   return (
     <Box>
       {misconfigured && (
@@ -506,6 +516,7 @@ export const RoomDetailPage = () => {
         </Typography>
         <Button
           variant="contained"
+          disabled={isDemoRoom}
           onClick={() => {
             setAddDeviceOpen(true);
           }}
@@ -513,6 +524,13 @@ export const RoomDetailPage = () => {
           Add device
         </Button>
       </Box>
+      {isDemoRoom && (
+        <Alert severity="info" sx={{ mb: 1 }}>
+          This is the demo caption room. Its captions come from a fixture, not
+          from a microphone — there is no audio path — so devices cannot be
+          added to it and its source device cannot be changed.
+        </Alert>
+      )}
       <TableContainer component={Paper}>
         <Table>
           <TableHead>
@@ -579,7 +597,7 @@ export const RoomDetailPage = () => {
                       {device.isSource !== true && (
                         <Button
                           size="small"
-                          disabled={rowActionUid === device.uid}
+                          disabled={rowActionUid === device.uid || isDemoRoom}
                           onClick={() => {
                             handleSetSource(device.uid);
                           }}
