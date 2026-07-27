@@ -6,11 +6,24 @@
 # cache, so it cannot affect any other branch or any deployment. Delete it (and
 # this branch) once the question is answered.
 #
-# Triggered by hand only. Every job carries its own timeout so the deliberately
-# slow QEMU job cannot sit on a runner indefinitely.
+# Every job carries its own timeout so the deliberately slow QEMU job cannot sit
+# on a runner indefinitely.
+#
+# The `push` trigger is not laziness. `workflow_dispatch` is only dispatchable
+# for a workflow file that exists on the repository's DEFAULT branch (staging
+# here) - `gh workflow run --ref explore/apple-silicon` against a file that
+# lives only on this branch returns HTTP 404, which is exactly what happened.
+# A `push` event, by contrast, runs the workflow definition from the branch
+# that was pushed, so this is the only way to run an exploration workflow
+# without first landing it on staging. The branch filter keeps it from firing
+# anywhere else. workflow_dispatch is kept below for the day this does reach
+# the default branch.
 name: ARM64 Probe (exploration)
 
 on:
+  push:
+    branches:
+      - explore/apple-silicon
   workflow_dispatch:
     inputs:
       run_qemu:
@@ -120,7 +133,7 @@ jobs:
   # `uv sync` + bytecode compilation of torch is a great deal of that.
   python-cpu-qemu:
     name: 5. transcription CPU image, arm64 under QEMU on amd64
-    if: inputs.run_qemu
+    if: github.event_name != 'workflow_dispatch' || inputs.run_qemu
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -141,7 +154,7 @@ jobs:
   # *use* it are different questions; this settles the first one only.
   python-cuda-arm64:
     name: 6. transcription CUDA image, native arm64
-    if: inputs.run_cuda
+    if: github.event_name != 'workflow_dispatch' || inputs.run_cuda
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     steps:
