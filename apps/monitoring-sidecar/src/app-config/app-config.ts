@@ -94,7 +94,7 @@ const CONFIG_SCHEMA = Type.Object({
    * early warning fires. Must stay below `ALERT_RTF_P95` to be worth anything —
    * the point is to fire while captions are still on time.
    */
-  ALERT_ASR_DUTY_RATIO: Type.Number({ minimum: 0, default: 0.8 }),
+  ALERT_ASR_DUTY_RATIO: Type.Number({ minimum: 0, default: 0.45 }),
   ALERT_ASR_DUTY_RATIO_MIN_JOBS: Type.Integer({ minimum: 1, default: 20 }),
   ALERT_PROBE_FAILURE_THRESHOLD: Type.Integer({ minimum: 1, default: 2 }),
   ALERT_AUTH_FAILURE_RATIO: Type.Number({

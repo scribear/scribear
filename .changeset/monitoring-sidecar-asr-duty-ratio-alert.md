@@ -42,3 +42,21 @@ it has its own T2 rule, and VAD gating usually keeps the buffer short of the cap
 so requiring it would blind the rule to the common case. It is reported in the
 alert message when non-zero, because it tells the operator whether audio is
 already being discarded.
+
+The threshold default is **0.45**, measured rather than guessed. 42 minutes of
+`npm run asr:load` against a live RTX 5070 Ti stack (whisper `turbo`, 500ms period,
+30s buffer, `num_workers: 1`) put healthy single-session operation at 0.28 on a
+speech-sparse fixture and 0.33 on a speech-dense one, with the worst of 388 rolling
+120s windows at 0.355 — so 0.45 clears measured-healthy by 27% and fired zero false
+alarms. The first draft used 0.8, which the same capture showed is not an early
+warning at all: it needs a 2.9x per-pass regression to trip, by which point the
+provider is at 80% of realtime and this is the outage rather than the hour before it.
+
+**Known limitation, documented on the rule.** This cannot see the shared worker
+saturating under concurrency. RTF's denominator is the audio ingested by that pass,
+and overrun periods are dropped whole, so duty ratio *falls* as sessions pile onto
+one worker: measured 0.277 / 0.256 / 0.229 / 0.194 / 0.139 at 1/2/3/5/8 sessions
+while the worker went 26% to 94.5% busy and transcripts per 1000 chunks collapsed
+190 to 48. A quiet duty ratio is therefore not evidence transcription is keeping up.
+The metric with the right slope is the worker busy fraction, already on the wire;
+nothing watches it yet.

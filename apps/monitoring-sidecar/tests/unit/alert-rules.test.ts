@@ -309,9 +309,27 @@ describe('alert rules', () => {
     });
 
     it('stays silent below the threshold', () => {
-      // Arrange
+      // Arrange - 0.3 is measured healthy operation, not an arbitrary low
+      // number: 42 minutes of live load on an RTX 5070 Ti put a single session
+      // at 0.28 (speech-sparse fixture) to 0.33 (speech-dense).
       const metrics = new MetricsRegistry();
-      observeDutyRatio(metrics, { meanRtf: 0.5 });
+      observeDutyRatio(metrics, { meanRtf: 0.3 });
+
+      // Act
+      const alerts = transcriptionFallingBehindRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('stays silent at the worst duty ratio ever measured healthy', () => {
+      // Arrange - 0.355 was the worst of 388 rolling 120s windows across that
+      // whole capture, including session-onset ramps. It is the empirical
+      // false-alarm floor, so it pins the headroom the 0.45 default was chosen
+      // to leave: tighten the threshold past this and the alert starts firing on
+      // a healthy stack.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: 0.355 });
 
       // Act
       const alerts = transcriptionFallingBehindRule(context(metrics));

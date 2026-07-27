@@ -109,11 +109,27 @@ export const DEFAULT_THRESHOLDS: AlertThresholds = {
   decodeDropCount: 10,
   bufferOverflowCount: 5,
   rtfP95: 1.0,
-  // 80% of the period budget. Measured basis: on an RTX 5070 Ti with whisper
-  // `turbo`, a full 30 s buffer costs ~680 ms against the CUDA config's 500 ms
-  // job period (1.36x), and the scheduler answers that by silently dropping
-  // periods. 0.8 leaves roughly one period of headroom to notice in.
-  asrDutyRatio: 0.8,
+  // 45% of the period budget, set from a measured healthy baseline rather than
+  // guessed. 42 minutes of `npm run asr:load` against a live RTX 5070 Ti stack
+  // (whisper `turbo`, cuda, 500 ms period, 30 s buffer, num_workers 1) put
+  // healthy single-session operation at **0.28** on the speech-sparse fixture
+  // and **0.33** on a speech-dense one, and the worst of 388 rolling 120 s
+  // windows anywhere in that capture at **0.355**. So 0.45 clears the measured
+  // worst by 27% with zero false alarms, and also clears the noisiest 30 s
+  // transient seen (0.440, a session-onset ramp) in case the window is ever
+  // shortened.
+  //
+  // The first value here was 0.8, which the same capture showed is not an early
+  // warning at all: at run A's 0.526 s of audio per job it needs mean execution
+  // to reach 421 ms against the measured 144 ms — a 2.9x per-pass regression, by
+  // which point the provider is at 80% of realtime and this is the outage rather
+  // than the hour before it. 0.45 catches ~1.6x. The windowed mean is a very
+  // low-noise statistic (sd <= 0.012 within every run), so tightening the
+  // threshold costs nothing in flapping and does not change detection latency,
+  // which is the 120 s window either way. 0.5 is the conservative pick for
+  // workloads denser than the fixtures; below 0.4 the margin over measured
+  // healthy operation is too thin.
+  asrDutyRatio: 0.45,
   // ~10 s of a single stream at a 500 ms period, and at least a couple of poll
   // cycles. Low enough that any real load clears it by two orders of magnitude
   // (a 120 s window is ~240 observations per stream), high enough that a
@@ -291,6 +307,27 @@ export const transcriptionSaturationRule: AlertRule = (ctx) => {
  * minimum-samples guard {@link authFailureRule} and {@link clockSkewRule} use:
  * under it the mean is a handful of jobs, and zero means the provider is idle
  * rather than healthy.
+ *
+ * **What this rule cannot see: concurrency saturation of the shared worker.**
+ * Do not read a quiet duty ratio as "transcription is fine". RTF's denominator
+ * is the audio ingested *by that job*, and an overrun period is dropped whole,
+ * so as sessions pile onto one worker the audio each pass swallows grows while
+ * per-pass cost grows sublinearly (fixed model overhead amortises over a longer
+ * buffer). Duty ratio therefore *falls* as the service saturates. Measured on a
+ * live stack at 1/2/3/5/8 concurrent sessions: mean RTF 0.277 -> 0.256 -> 0.229
+ * -> 0.194 -> 0.139 while the worker went 26% -> 94.5% busy and transcripts per
+ * 1000 chunks collapsed 190 -> 48. At 8 sessions captions were badly behind and
+ * this rule was not merely silent, it was moving *further* from firing. The
+ * algebra: worker busy ~= N x mean RTF, so a shared worker saturates at
+ * RTF = 1/N — 1.0 at one session, 0.125 at eight.
+ *
+ * So this rule covers the *per-pass cost regression* mechanism (a slower model, a
+ * CPU fallback, buffers that stop shortening), where one session's RTF rises
+ * directly and RTF is the right metric. The saturation mechanism needs a metric
+ * with the right slope: the worker busy fraction, `asrExecutionMs.sum` over
+ * elapsed time, which measured monotonically upward (26/50/66/88/94.5%) through
+ * exactly that sweep and is already on the wire per provider. No rule watches it
+ * yet.
  *
  * **`buffer_overflow_seconds` is corroboration in the message, not a
  * condition.** It has its own rule already ({@link bufferOverflowRule}, T2),
