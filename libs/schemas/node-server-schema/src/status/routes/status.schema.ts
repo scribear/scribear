@@ -51,10 +51,11 @@ const LABELLED_COUNT_DESCRIPTION =
  * One latency distribution, over the samples the reporting process still
  * retains (B1.4).
  *
- * `count` and `sum` are lifetime totals and behave like the counters above -
- * difference them for a rate. Everything else describes only the retained ring,
- * so it is a gauge of recent behaviour: once the ring wraps, `mean` and
- * `sum / count` legitimately disagree.
+ * `count` and `sum` are lifetime totals and behave like the monotonic
+ * `summary` counters in {@link STATUS_PROCESS_SCHEMA} - difference them for a
+ * rate. Everything else describes only the retained ring, so it is a gauge of
+ * recent behaviour: once the ring wraps, `mean` and `sum / count` legitimately
+ * disagree.
  *
  * These are `Type.Number()`, not `Type.Integer()` like every other figure in
  * this response: `pipelineMs` comes off `performance.now()` and is fractional,
@@ -181,12 +182,13 @@ export const STATUS_PROCESS_SCHEMA = Type.Object({
     decodeDropsTotal: Type.Integer({
       description: 'Malformed SAFP frames dropped rather than forwarded (U2).',
     }),
-    // Optional for the same reason as `audioFramesReceived` below, and it
-    // matters more here: this record is republished to Redis and read back by
-    // admin-server through a strict `Value.Check`, so a required field that an
-    // older publisher omits does not degrade to a missing counter - it fails
-    // the whole snapshot and the node disappears from the fleet view for the
-    // length of a rolling deploy.
+    // Optional for the same reason as `audioFramesReceived` on
+    // STATUS_SESSION_SCHEMA (named rather than pointed at: "above"/"below" rots
+    // the moment a field moves), and it matters more here: this record is
+    // republished to Redis and read back by admin-server through a strict
+    // `Value.Check`, so a required field that an older publisher omits does not
+    // degrade to a missing counter - it fails the whole snapshot and the node
+    // disappears from the fleet view for the length of a rolling deploy.
     binaryBeforeAuthDropsTotal: Type.Optional(
       Type.Integer({
         description:
@@ -273,10 +275,11 @@ const STATUS_SCHEMA = {
   // Optional at the schema layer on purpose: request validation runs *before*
   // the preHandler that checks the key, so a required header would answer a
   // missing credential with 400 VALIDATION_ERROR. Leaving presence to the hook
-  // means every credential problem - absent, wrong - answers 401, which is both
-  // the correct HTTP semantic and a single thing for a consumer to alert on.
-  // A present-but-malformed header (not `Bearer <key>`) still fails validation
-  // with 400.
+  // means every credential problem - absent, malformed, wrong - answers 401,
+  // which is both the correct HTTP semantic and a single thing for a consumer to
+  // alert on. The header schema carries no `pattern` for the same reason, so a
+  // present-but-malformed header reaches the hook too; see
+  // SERVICE_API_KEY_AUTH_HEADER_SCHEMA.
   headers: Type.Object({
     authorization: Type.Optional(SERVICE_API_KEY_AUTH_HEADER_SCHEMA),
   }),

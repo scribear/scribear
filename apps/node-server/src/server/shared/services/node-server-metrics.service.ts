@@ -78,6 +78,24 @@ function labelKey(...parts: (string | number)[]): string {
  * string on a peer-initiated close, and that text is arbitrary, remote-supplied
  * and unbounded - recording it verbatim would let any client grow the label map
  * without limit. Unrecognised reasons collapse to `other`.
+ *
+ * This is an allowlist of what stays *legible*, not an inventory of what is
+ * currently reachable, and the two entries below are deliberately kept despite
+ * being unreachable as shipped. Removing an entry is not a no-op: the reason
+ * would then be normalised to `other` if it ever occurred, so the one close
+ * that most needs naming would arrive anonymous, in the same bucket as remote
+ * junk text. An entry costs one string in a `Set` and creates no label
+ * combination until something actually closes with it.
+ *
+ * - `binary-before-auth`: no longer closes anything. Pre-auth binary is dropped
+ *   and counted (`recordBinaryBeforeAuthDrop`) precisely to stop the 1008
+ *   reconnect loop it used to cause. Kept because a peer, or a reintroduced
+ *   close path, would otherwise report as `other`.
+ * - `no-more-sources`: emitted only on the *upstream* terminate
+ *   (`transcription-orchestrator.service.ts`), and `recordWsClose` is called
+ *   only for downstream client/source sockets, so it cannot be recorded today.
+ *   Kept for when upstream closes are counted too - and because a downstream
+ *   peer echoing that text is worth seeing under its own name.
  */
 const KNOWN_CLOSE_REASONS: ReadonlySet<string> = new Set([
   'auth-timeout',
@@ -87,10 +105,12 @@ const KNOWN_CLOSE_REASONS: ReadonlySet<string> = new Set([
   'missing-scope',
   'orchestrator-unavailable',
   'binary-not-allowed-for-role',
+  // Unreachable as shipped; retained on purpose - see the doc comment above.
   'binary-before-auth',
   'invalid-json',
   'invalid-message',
   'session-ended',
+  // Unreachable as shipped; retained on purpose - see the doc comment above.
   'no-more-sources',
   '',
 ]);

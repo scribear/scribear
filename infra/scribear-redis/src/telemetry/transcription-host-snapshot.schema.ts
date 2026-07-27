@@ -164,16 +164,28 @@ export type TranscriptionHostSnapshot = Static<
  *
  * This is the one of the four snapshot schemas with no compiler behind it.
  * `redis_telemetry_publisher.py` hand-builds the record as a Python dict and
- * `json.dumps` it, so this schema is a mirror across a language boundary that
- * nothing has ever checked - the same arrangement that produced two real
- * cross-surface divergences in the audio meter before a shared expectation
- * table caught them.
+ * `json.dumps` it, so this schema is a mirror across a language boundary - the
+ * same arrangement that produced two real cross-surface divergences in the
+ * audio meter before a shared expectation table caught them, and that hid a
+ * `contextIds` element-type bug here from the day this schema was written.
  *
- * The reader therefore validates with this in log-only mode: a mismatch is
- * reported but the payload is still served, because a hard drop on an
- * unverified mirror would blank the transcription-host half of the fleet view
- * on exactly the drift this is meant to reveal. Promote it once the log stays
- * quiet against a real deployment, or once a gate pins the Python side.
+ * The reader **drops** a value this rejects, and logs a throttled warn
+ * (admin-server's `FleetTelemetryService._readIndexed`). It validated in a
+ * log-only mode for a release instead, deliberately: a hard drop on an
+ * unverified mirror blanks both the hosts section and the providers section of
+ * the fleet view, because `mergeProviders` derives from `transcriptionHosts` -
+ * a dashboard-wide outage caused by the check meant to protect the dashboard.
+ *
+ * What made the promotion safe was not a quiet log - that proves only that
+ * nothing is being dropped right now - but pinning the Python side against this
+ * schema, in two legs, because neither alone reaches the whole shape:
+ * `tools/telemetry-snapshot-crosscheck/` (manifest emitted by
+ * `RedisTelemetryPublisher.publish_once`, carrying the loaded-worker shapes a
+ * debug-only host leaves empty) and node-server's
+ * `publisher-schema-crosscheck.test.ts` (real publisher, real Redis, real
+ * transport, but empty nested arrays that satisfy any element type). Apply the
+ * same rule to the next mirror: the oracle has to be the other implementation,
+ * never a fixture written from this schema.
  */
 export function parseTranscriptionHostSnapshot(
   raw: string,
