@@ -170,7 +170,7 @@ services:
       # Not `:?`-guarded, like DEPLOYMENT_ENV below and unlike the secrets: it
       # changes what is *reported*, never what runs, and must not be able to
       # stop a stack from starting.
-      COMPOSE_FILE_VERSION: "2"
+      COMPOSE_FILE_VERSION: "3"
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
@@ -376,8 +376,16 @@ services:
       # hostname, which compose sets to the container name, so scaling this
       # service gives each replica a distinct identity with no configuration.
       REDIS_URL: ${TRANSCRIPTION_REDIS_URL:-}
+      # Model download cache. faster-whisper pulls weights via huggingface_hub
+      # and silero-vad via torch.hub; both honour HF_HOME (torch.hub falls back
+      # to it when TORCH_HOME is unset), so one variable redirects both. The
+      # path is inside the bind mount below, so weights survive container
+      # recreation instead of re-downloading on every `up -d`. The directory is
+      # created on first download; the host dir only needs to exist.
+      HF_HOME: /models/hf
     volumes:
       - ${PROVIDER_CONFIG_PATH:-./provider_config.json}:/app/provider_config.json:ro
+      - ${MODEL_DOWNLOAD_PATH:-./models}:/models
     networks:
       - backend
     restart: unless-stopped

@@ -34,7 +34,7 @@ const COMPOSE_FILE = 'deployment/compose.yml';
  * which of the two remedies applies.
  */
 const COMPOSE_FILE_SHA256 =
-  'b69d5a508b709c1454d9c93191769f726e2366f83fbaa5a4e798773b1bec4229';
+  'bc603d06b3f20b2de8f5a7e2d371a90e065442e8a1605ae5d52f0e647aef763f';
 
 /** Walks up from the working directory, which differs by how vitest was run. */
 function repoFile(relative: string): string {
