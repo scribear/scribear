@@ -53,12 +53,14 @@ The reason the repo believes otherwise is a comment in
 # Disable arm builds due to extremely slow github actions.
 ```
 
-That was true of the approach it describes — QEMU emulation on an amd64 runner,
-now measured at **9.9× native** for the Python image — and is not true of the
-approach that is now available. `ubuntu-24.04-arm` runners are GA and free for
-public repositories, and `scribear/scribear` is public (verified: `gh repo view`
-reports `"visibility":"PUBLIC"`). Every arm64 job in the probe run picked up a
-runner within seconds:
+That was a fair judgement about the approach it describes — QEMU emulation on an
+amd64 runner, now measured at **9.9× native** for the Python image — and it is not
+a reason to stay amd64-only, because the approach it was choosing between no
+longer exhausts the options. `ubuntu-24.04-arm` runners are now GA and free for
+public repositories *(documentation, for the billing part)*, and
+`scribear/scribear` is public (measured: `gh repo view` reports
+`"visibility":"PUBLIC"`). Every arm64 job in the probe run picked up a runner
+within seconds:
 
 ```
 Runner Image: ubuntu-24.04-arm   Version: 20260719.67.1
@@ -130,29 +132,38 @@ commented out beside it. Confirmed against the registry: every published tag is 
 single-platform index.
 
 ```
-ghcr.io/scribear/node-server:staging                  -> ['linux/amd64']
-ghcr.io/scribear/session-manager:staging              -> ['linux/amd64']
-ghcr.io/scribear/client-webapp:staging                -> ['linux/amd64']
-ghcr.io/scribear/transcription-service-cpu:staging    -> ['linux/amd64']
-ghcr.io/scribear/transcription-service-cuda:staging    -> ['linux/amd64']
-ghcr.io/scribear/scribear-nginx:staging               -> ['linux/amd64']
+ghcr.io/scribear/node-server:staging                -> ['linux/amd64']
+ghcr.io/scribear/session-manager:staging            -> ['linux/amd64']
+ghcr.io/scribear/client-webapp:staging              -> ['linux/amd64']
+ghcr.io/scribear/transcription-service-cpu:staging  -> ['linux/amd64']
+ghcr.io/scribear/transcription-service-cuda:staging -> ['linux/amd64']
+ghcr.io/scribear/scribear-nginx:staging             -> ['linux/amd64']
 ```
 
-So `docker compose up` on a Mac works, slowly, under Rosetta emulation — which is
-the worst of the available outcomes, because it looks like it succeeded. A Mac
-operator's transcription container would run x86 CTranslate2 under emulation.
+(`:latest` does not exist yet for any of them — only `staging` is published, since
+nothing has been released to `main`.)
+
+The consequence is worse than a hard failure, because it is quiet. Once blocker 1
+is out of the way, every container in the stack comes up on a Mac by emulating x86
+— Rosetta or QEMU depending on the Docker Desktop setting — and *looks* healthy.
+A Mac operator's transcription container would be running x86 CTranslate2 under
+emulation, which is precisely the component where that matters most.
 
 It is also worth recording that **the arm64 path in this repo appears never to
 have run successfully**. The per-arch buildcache convention survives in the tag
-names (`buildcache-staging-linux-amd64`), but:
+names (`buildcache-staging-linux-amd64`), but no arm64 counterpart exists:
 
 ```
-ghcr.io/scribear/node-server:buildcache-staging-linux-arm64            => absent
-ghcr.io/scribear/node-server:buildcache-main-linux-arm64               => absent
-ghcr.io/scribear/transcription-service-cpu:buildcache-staging-linux-arm64 => absent
-ghcr.io/scribear/node-server:buildcache-staging-linux-amd64            => EXISTS
-ghcr.io/scribear/transcription-service-cpu:buildcache-staging-linux-amd64 => EXISTS
+ghcr.io/scribear/node-server:buildcache-staging-linux-arm64                => absent
+ghcr.io/scribear/node-server:buildcache-main-linux-arm64                   => absent
+ghcr.io/scribear/transcription-service-cpu:buildcache-staging-linux-arm64  => absent
+ghcr.io/scribear/node-server:buildcache-staging-linux-amd64                => EXISTS
+ghcr.io/scribear/transcription-service-cpu:buildcache-staging-linux-amd64  => EXISTS
 ```
+
+"Appears" is doing work in that sentence: an arm64 cache tag could have been
+published once and later pruned. But the amd64 tags from the same convention are
+still there, which is the comparison that makes the inference reasonable.
 
 **To clear it:** see "Releasing multi-arch images" below. Roughly a day of work.
 
@@ -366,16 +377,16 @@ are worth reading closely:
 - **`soundfile 0.13.1 1.2.2`** — the bundled `libsndfile` loaded. No system
   package needed on aarch64, exactly as on amd64.
 - **`ct2 compute {'int8_float32', 'int8', 'float32'}`** — the CTranslate2 compute
-  types available on arm64 CPU. Every shipped provider template uses
-  `"compute_type": "float32"` (verified in
-  `transcription_service/provider_config.template.json`,
+  types available on arm64 CPU. The only place any template pins one is the
+  CrisperWhisper context, which asks for `"compute_type": "float32"` (in all three
+  of `transcription_service/provider_config.template.json`,
   `deployment/provider_config.template.json` and
-  `deployment/provider_config.cuda.template.json`), so **nothing in the repo asks
-  for a type arm64 lacks today**. But `float16`, `int8_float16` and `bfloat16` are
-  not in that set, so a future config change to a half-precision CPU compute type
-  would break a Mac developer while passing on the GPU boxes. Worth knowing before
-  someone makes that change. *(The equivalent set on amd64 CPU was not measured —
-  see the final section.)*
+  `deployment/provider_config.cuda.template.json`); the plain `whisper` context
+  omits `compute_type` entirely and lets CTranslate2 choose. So **nothing in the
+  repo asks for a type arm64 lacks today**. But `float16`, `int8_float16` and
+  `bfloat16` are not in that set, so a future config change to a half-precision CPU
+  compute type would break a Mac developer while passing on the GPU boxes. Worth
+  knowing before someone makes that change.
 - **`torch mps False`** — as expected inside a Linux container, and a reminder
   that MPS is not part of this story even on a real Mac (see §3).
 
@@ -383,10 +394,11 @@ are worth reading closely:
 
 ## 3. Native (non-container) development on macOS arm64
 
-**Yes, `cd transcription_service && make install_dev_cpu` would work on a Mac** —
-on macOS 14 or newer. Verified by lockfile resolution for `aarch64-apple-darwin`
-(see above) and by actually running the same Make target on native `aarch64` Linux
-in CI:
+**Yes, `cd transcription_service && make install_dev_cpu` should work on a Mac** —
+on macOS 14 or newer. Two pieces of evidence, and neither is a Mac, so this is the
+strongest available claim rather than a verified one: lockfile resolution for
+`aarch64-apple-darwin` succeeds (§2), and running the same Make target on native
+`aarch64` **Linux** in CI succeeds end to end, tests included:
 
 ```
 install_dev_cpu (the Mac developer's command) ... success   (6s)
@@ -417,8 +429,11 @@ easiest thing in this whole investigation to get wrong:
   "additionally broken today and fails quietly". So VAD on a Mac is CPU, by the
   same reasoning that makes it CPU on a GPU box.
 
-Net: a Mac developer gets Apple Silicon's (very good) CPU performance for Whisper,
-and no accelerator. **Do not describe this as "MPS-accelerated".** It is not.
+Net: a Mac developer gets Apple Silicon's CPU performance for Whisper and no
+accelerator whatsoever. **Do not describe this as "MPS-accelerated".** It is not.
+Whether that CPU performance is good *enough* for comfortable development is a
+separate question, and one nothing in this investigation measured — no model was
+ever loaded.
 
 ### Node workspaces on macOS arm64 — verified, not assumed
 
@@ -544,7 +559,7 @@ Found:
 | `.github/actions/build-container/action.yml` | `platforms: "linux/amd64"`, arm64 + QEMU commented out (blocker 2) |
 | `.github/actions/build-container/action.yml`, `.github/actions/prepare-test-container/action.yml` | `buildcache-*-linux-amd64` tag names — cosmetic today, must become per-arch |
 | `.github/actions/setup-node/action.yml` | cache key keyed on `runner.os`, not `runner.arch` (blocker 5) |
-| all 23 `runs-on:` in `.github/workflows/` | `ubuntu-latest` — zero arm64 coverage, so an arm64 regression cannot be caught |
+| all 23 `runs-on:` in the four pipeline workflows (`node-ci`, `node-cd`, `python-ci`, `python-cd`) | `ubuntu-latest` — zero arm64 coverage, so an arm64 regression cannot be caught |
 | `deployment/compose.yml` | the NVIDIA reservation (blocker 1) |
 | `tools/e2e-audio/`, `tools/a11y/` | Linux-only Chrome paths (blocker 4) |
 
@@ -555,9 +570,9 @@ Found:
 ### Recommendation: native `ubuntu-24.04-arm` runners. Not QEMU.
 
 The repo already tried the QEMU shape and abandoned it with the comment "Disable
-arm builds due to extremely slow github actions". That judgement was correct for
-QEMU and is now obsolete as a reason not to ship arm64, because the constraint it
-was working around no longer applies:
+arm builds due to extremely slow github actions". That was a defensible call about
+QEMU (with one qualification, below), and it is no longer a reason to stay
+amd64-only, because the option it was choosing against is not the only one:
 
 - `scribear/scribear` is **public**, so `ubuntu-24.04-arm` is GA and **free**
   (0× minutes multiplier for public repos) *(documentation — the free-tier
@@ -578,12 +593,14 @@ the repo's existing comment:
   If the whole decision were about the CPU transcription image alone, QEMU would be
   a defensible shortcut. So the original comment somewhat overstates the case for
   that particular image.
-- **But it does not scale.** Applied to the CUDA image, which took 289s *natively*
-  on arm64, a 10× multiplier implies roughly 45–50 minutes — and the CD matrix
-  builds two CUDA variants. Multiply across 14 images on a single amd64 leg and the
-  emulated arm64 half dominates the pipeline. Native runners make the arm64 leg a
-  *sibling* of the amd64 leg rather than a multiplier on it, so wall clock barely
-  moves. That is the argument, and it holds regardless of how the 277s reads.
+- **But it does not scale.** The CUDA image took 289s *natively* on arm64; carrying
+  the same 9.9× across would put it near 45–50 minutes *(extrapolation, not
+  measured — the QEMU probe covered only the CPU image, and the CUDA image's mix of
+  `apt-get` and wheel downloads may not emulate at the same ratio)*, and the CD
+  matrix builds two CUDA variants. Across 14 images on a single amd64 leg, the
+  emulated arm64 half would dominate the pipeline. Native runners make the arm64
+  leg a *sibling* of the amd64 leg rather than a multiplier on it, so wall clock
+  barely moves. That argument holds regardless of how the 277s reads.
 
 The shape to build:
 
@@ -671,13 +688,15 @@ pipeline, which uses `setup-buildx-action` in `build-container`.
 
 ## What development on a Mac would actually look like
 
-**Day to day, almost normal.** `npm ci`, `npm run build`, `npm run test:unit`,
-`npm run test:integration` — all fine, natively, with no emulation. The
-testcontainers suites build their own arm64 images and run. `cd
-transcription_service && make install_dev_cpu && make test_unit &&
-make test_integration` — fine. Whisper transcription runs on CPU, which on an
-M-series chip is respectable. `./build-containers.sh dev` with
-`CUDA_VARIANTS=none` produces a full native arm64 stack.
+**Day to day, almost normal.** `npm ci`, `npm run build`, `npm run test:unit` and
+`cd transcription_service && make install_dev_cpu && make test_unit &&
+make test_integration` all pass natively with no emulation — measured on aarch64
+Linux, and the closest thing to a Mac this investigation could reach. The
+testcontainers suites should build their own arm64 images and run *(inference —
+not executed on a Mac)*. `./build-containers.sh dev` with `CUDA_VARIANTS=none`
+should produce a full native arm64 stack, since it passes no `--platform`.
+Whisper transcription runs on CPU, which on an M-series chip ought to be
+respectable — but nothing here measured that.
 
 The friction, in the order a new Mac developer would hit it:
 
@@ -689,8 +708,8 @@ The friction, in the order a new Mac developer would hit it:
 4. `SCRIBEAR_*_IMAGE` must be left unset, or you get emulated amd64 containers.
 5. macOS must be 14+.
 
-None of 2–5 is hard; all four are undocumented, which is what makes them cost a
-day instead of an hour.
+None of 2–5 is hard, and none is written down anywhere in the repo — which is what
+would make a new Mac developer's first day cost a day instead of an hour.
 
 ### What a Mac developer could not do
 
