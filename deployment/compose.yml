@@ -170,7 +170,7 @@ services:
       # Not `:?`-guarded, like DEPLOYMENT_ENV below and unlike the secrets: it
       # changes what is *reported*, never what runs, and must not be able to
       # stop a stack from starting.
-      COMPOSE_FILE_VERSION: "2"
+      COMPOSE_FILE_VERSION: "3"
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
@@ -452,6 +452,18 @@ services:
       ALERT_ASR_DUTY_RATIO: ${MONITORING_ASR_DUTY_RATIO:-}
       ALERT_ASR_DROPPED_PERIOD_RATIO: ${MONITORING_ASR_DROPPED_PERIOD_RATIO:-}
       ALERT_ASR_TAIL_MIN_JOBS: ${MONITORING_ASR_TAIL_MIN_JOBS:-}
+      # p95 RTF at or above which the T1 CRITICAL fires. Also hardware-
+      # dependent, for the same reason as the trio above, and now plumbed for
+      # the same reason: tuning it used to mean forking this file. Empty means
+      # "use the sidecar default" (2.0 — see DEFAULT_THRESHOLDS.rtfP95).
+      ALERT_RTF_P95: ${MONITORING_RTF_P95:-}
+      # Passes needed in the window before ALERT_ASR_DUTY_RATIO is believed.
+      # Empty means "use the sidecar default" (20).
+      ALERT_ASR_DUTY_RATIO_MIN_JOBS: ${MONITORING_ASR_DUTY_RATIO_MIN_JOBS:-}
+      # Fallback tail bar for a transcription-service too old to report dropped
+      # periods (see ALERT_ASR_DROPPED_PERIOD_RATIO above). Empty means "use
+      # the sidecar default" (3.0).
+      ALERT_ASR_TAIL_P99_RTF: ${MONITORING_ASR_TAIL_P99_RTF:-}
       # Synthetic canary (A2). Empty disables it entirely, which is the
       # default: the canary needs a registered device, and until one exists
       # there is nothing to authenticate as. The one-time device registration

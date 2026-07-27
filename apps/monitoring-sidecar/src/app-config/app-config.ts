@@ -113,14 +113,21 @@ const CONFIG_SCHEMA = Type.Object({
   ALERT_UPSTREAM_CHURN_COUNT: Type.Integer({ minimum: 1, default: 3 }),
   ALERT_DECODE_DROP_COUNT: Type.Integer({ minimum: 1, default: 10 }),
   ALERT_BUFFER_OVERFLOW_COUNT: Type.Integer({ minimum: 1, default: 5 }),
-  ALERT_RTF_P95: Type.Number({ minimum: 0, default: 1.0 }),
+  /**
+   * p95 real-time factor at or above which T1 fires. Uses the same
+   * empty-string-means-default form as its siblings below rather than a
+   * schema-level default, so `compose.yml` can plumb it through as
+   * `MONITORING_RTF_P95` without a number baked into two places that then
+   * drift — the sole default lives in `DEFAULT_THRESHOLDS.rtfP95`.
+   */
+  ALERT_RTF_P95: OPTIONAL_NUMBER,
   /**
    * Mean RTF (duty ratio) over `ALERT_RATE_WINDOW_SEC` at or above which the T1
    * early warning fires. Must stay below `ALERT_RTF_P95` to be worth anything —
    * the point is to fire while captions are still on time.
    */
   ALERT_ASR_DUTY_RATIO: OPTIONAL_NUMBER,
-  ALERT_ASR_DUTY_RATIO_MIN_JOBS: Type.Integer({ minimum: 1, default: 20 }),
+  ALERT_ASR_DUTY_RATIO_MIN_JOBS: OPTIONAL_NUMBER,
   /**
    * Share of a provider's job periods that may be dropped — no pass ran in them
    * at all, because the previous pass overran — over `ALERT_RATE_WINDOW_SEC`
@@ -146,7 +153,7 @@ const CONFIG_SCHEMA = Type.Object({
    * realtime line, which measured as routine: a healthy single session reported
    * p99 2.17 while captioning correctly.
    */
-  ALERT_ASR_TAIL_P99_RTF: Type.Number({ minimum: 0, default: 3.0 }),
+  ALERT_ASR_TAIL_P99_RTF: OPTIONAL_NUMBER,
   ALERT_PROBE_FAILURE_THRESHOLD: Type.Integer({ minimum: 1, default: 2 }),
   ALERT_AUTH_FAILURE_RATIO: Type.Number({
     minimum: 0,
@@ -322,12 +329,15 @@ export class AppConfig {
       upstreamChurnCount: this._env.ALERT_UPSTREAM_CHURN_COUNT,
       decodeDropCount: this._env.ALERT_DECODE_DROP_COUNT,
       bufferOverflowCount: this._env.ALERT_BUFFER_OVERFLOW_COUNT,
-      rtfP95: this._env.ALERT_RTF_P95,
+      rtfP95: threshold(this._env.ALERT_RTF_P95, DEFAULT_THRESHOLDS.rtfP95),
       asrDutyRatio: threshold(
         this._env.ALERT_ASR_DUTY_RATIO,
         DEFAULT_THRESHOLDS.asrDutyRatio,
       ),
-      asrDutyRatioMinJobs: this._env.ALERT_ASR_DUTY_RATIO_MIN_JOBS,
+      asrDutyRatioMinJobs: threshold(
+        this._env.ALERT_ASR_DUTY_RATIO_MIN_JOBS,
+        DEFAULT_THRESHOLDS.asrDutyRatioMinJobs,
+      ),
       asrDroppedPeriodRatio: threshold(
         this._env.ALERT_ASR_DROPPED_PERIOD_RATIO,
         DEFAULT_THRESHOLDS.asrDroppedPeriodRatio,
@@ -336,7 +346,10 @@ export class AppConfig {
         this._env.ALERT_ASR_TAIL_MIN_JOBS,
         DEFAULT_THRESHOLDS.asrTailMinJobs,
       ),
-      asrTailP99Rtf: this._env.ALERT_ASR_TAIL_P99_RTF,
+      asrTailP99Rtf: threshold(
+        this._env.ALERT_ASR_TAIL_P99_RTF,
+        DEFAULT_THRESHOLDS.asrTailP99Rtf,
+      ),
       probeFailureThreshold: this._env.ALERT_PROBE_FAILURE_THRESHOLD,
       authFailureRatio: this._env.ALERT_AUTH_FAILURE_RATIO,
       authFailureMinSamples: this._env.ALERT_AUTH_FAILURE_MIN_SAMPLES,
