@@ -380,8 +380,9 @@ services:
       # and silero-vad via torch.hub; both honour HF_HOME (torch.hub falls back
       # to it when TORCH_HOME is unset), so one variable redirects both. The
       # path is inside the bind mount below, so weights survive container
-      # recreation instead of re-downloading on every `up -d`. The directory is
-      # created on first download; the host dir only needs to exist.
+      # recreation instead of re-downloading on every `up -d`. The container
+      # runs as root, so Docker auto-creating the host dir on first `up -d` is
+      # fine - no manual mkdir needed.
       HF_HOME: /models/hf
     volumes:
       - ${PROVIDER_CONFIG_PATH:-./provider_config.json}:/app/provider_config.json:ro

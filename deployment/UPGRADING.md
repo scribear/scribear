@@ -28,15 +28,9 @@ directory there, so weights are fetched once and reused. Both `huggingface_hub`
 and `torch.hub` (silero-vad) honour `HF_HOME`, so the one variable covers both.
 
 The host path is `MODEL_DOWNLOAD_PATH`, defaulting to `./models` relative to
-`compose.yml`. **Create it before the next `up -d`** so Docker does not create
-it as root-owned:
-
-```bash
-mkdir -p models
-```
-
-A deployment that already has weights downloaded can point `MODEL_DOWNLOAD_PATH`
-at that directory to skip the initial download.
+`compose.yml`; it is created automatically on first download. A deployment that
+already has weights downloaded can point `MODEL_DOWNLOAD_PATH` at that directory
+to skip the initial download.
 
 ### `COMPOSE_FILE_VERSION` bumped to 3
 
