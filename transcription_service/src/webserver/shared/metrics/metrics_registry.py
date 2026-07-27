@@ -139,9 +139,14 @@ class MetricsRegistry:
             "buffer_overflow_seconds_total",
             "Seconds of audio discarded by those force-finalizations",
         )
-        self.audio_too_fast_total = Counter(
-            "audio_too_fast_total",
-            "Times a client pushed audio faster than realtime",
+        self.audio_dropped_buffer_full_total = Counter(
+            "audio_dropped_buffer_full_total",
+            "Times a decode batch overran the audio buffer and its tail was "
+            "dropped",
+        )
+        self.audio_dropped_buffer_full_seconds_total = Counter(
+            "audio_dropped_buffer_full_seconds_total",
+            "Seconds of audio dropped because the buffer was full",
         )
         self.vad_no_speech_total = Counter(
             "vad_no_speech_total",
@@ -200,7 +205,12 @@ class MetricsRegistry:
             TranscriptionJobCounter.BUFFER_OVERFLOW_SECONDS: (
                 self.buffer_overflow_seconds_total
             ),
-            TranscriptionJobCounter.AUDIO_TOO_FAST: self.audio_too_fast_total,
+            TranscriptionJobCounter.AUDIO_DROPPED_BUFFER_FULL: (
+                self.audio_dropped_buffer_full_total
+            ),
+            TranscriptionJobCounter.AUDIO_DROPPED_BUFFER_FULL_SECONDS: (
+                self.audio_dropped_buffer_full_seconds_total
+            ),
             TranscriptionJobCounter.VAD_NO_SPEECH: self.vad_no_speech_total,
             TranscriptionJobCounter.NO_WORDS: self.no_words_total,
             TranscriptionJobCounter.AUDIO_SECONDS_DECODED: (

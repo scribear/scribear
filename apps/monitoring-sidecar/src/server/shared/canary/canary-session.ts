@@ -272,10 +272,12 @@ export class CanarySession {
    * Streams the fixture, paced at realtime and looping until the run window
    * closes.
    *
-   * Realtime pacing is mandatory, not cosmetic: the transcription service
-   * rejects a session that sends audio faster than realtime (the §3 T2
-   * `Client sent audio too quickly` path), so a canary that streamed at full
-   * speed would reliably disconnect itself and report a fault it caused.
+   * Realtime pacing is mandatory, not cosmetic. It no longer disconnects the
+   * session — the transcription service used to raise "Client sent audio too
+   * quickly" when a decode batch overran its buffer, and now drops the tail and
+   * continues — but a canary streaming at full speed would still overrun that
+   * buffer, lose most of its fixture to `audio_dropped_buffer_full`, and then
+   * report the missing captions as a transcription fault it caused itself.
    */
   private async _streamAudio(
     source: StreamSocket,

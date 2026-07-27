@@ -420,8 +420,10 @@ export class MetricsRegistry {
    * deployment — each job period ingests roughly one period of live audio, so
    * execution seconds per second of ingested audio is the fraction of the
    * period budget the job spent. The two readings only diverge for a client
-   * pushing audio faster than realtime, which is rejected outright (see
-   * {@link asrAudioTooFastTotal}).
+   * that is genuinely pushing audio faster than realtime — which nothing
+   * rejects, and no counter detects on its own: {@link
+   * asrAudioDroppedBufferFullTotal} fires on batch size, which a service stall
+   * inflates just as readily as a fast client.
    */
   readonly asrDutyRatioSumTotal = new Counter(
     'scribear_asr_duty_ratio_sum_total',
@@ -501,10 +503,39 @@ export class MetricsRegistry {
     'Seconds of audio discarded when a transcription buffer overflowed.',
   );
 
-  /** Clients pushing audio faster than realtime (§3 T2, hard error). */
-  readonly asrAudioTooFastTotal = new Counter(
-    'scribear_asr_audio_too_fast_total',
-    'Sessions rejected for sending audio faster than realtime.',
+  /**
+   * **Decode batches whose tail the audio buffer had no room for** (§3 T2).
+   *
+   * Was `scribear_asr_audio_too_fast_total`, "sessions rejected for sending
+   * audio faster than realtime" — a cause the underlying check never measured.
+   * There is no clock in it: it fires when one decode batch exceeds the
+   * buffer's free space, and a batch is everything that arrived since the
+   * worker last reached that job, so its size is `client_rate ×
+   * scheduling_gap`. The gap belongs to the service. Measured on CPU, a
+   * correctly paced client survived a 2.4 s gap at one session and died at the
+   * 45.9 s gap six sessions produced — the client's rate identical in both.
+   * Tripping it on rate alone needs roughly 6x realtime on CPU and 60x on GPU.
+   *
+   * It is no longer fatal either: the job drops the tail and continues, where
+   * it used to raise, and *any* job exception deregisters the job. So this
+   * counts audio the pipeline lost under load, not sessions it rejected — a
+   * continuous saturation signal, of the same family as
+   * {@link asrDroppedPeriodsTotal} and {@link asrBufferOverflowTotal}.
+   */
+  readonly asrAudioDroppedBufferFullTotal = new Counter(
+    'scribear_asr_audio_dropped_buffer_full_total',
+    'Decode batches whose tail was dropped because the audio buffer was full.',
+  );
+
+  /**
+   * Seconds of audio those buffer-full drops threw away — *how much* never
+   * reached the ASR, which the drop count alone does not say. Same relation to
+   * {@link asrAudioDroppedBufferFullTotal} as
+   * {@link asrBufferOverflowSecondsTotal} has to its count.
+   */
+  readonly asrAudioDroppedBufferFullSecondsTotal = new Counter(
+    'scribear_asr_audio_dropped_buffer_full_seconds_total',
+    'Seconds of audio dropped because the audio buffer was full.',
   );
 
   /**
@@ -658,7 +689,8 @@ export class MetricsRegistry {
       this.asrDroppedPeriodsTotal,
       this.asrBufferOverflowTotal,
       this.asrBufferOverflowSecondsTotal,
-      this.asrAudioTooFastTotal,
+      this.asrAudioDroppedBufferFullTotal,
+      this.asrAudioDroppedBufferFullSecondsTotal,
       this.asrNoSpeechTotal,
       this.probeTransitionsTotal,
       this.canaryRunsTotal,

@@ -103,14 +103,27 @@ class LumenGraniteProviderJob(
             os.environ.get(config.api_key_env) if config.api_key_env else None
         )
 
-    def _decode_into_buffer(self, batch: list[AudioChunkPayload]) -> None:
+    def _decode_into_buffer(
+        self, batch: list[AudioChunkPayload], log: Logger
+    ) -> None:
         """
         Decode each audio chunk and append it to the window buffer, tracking the
         originating chunk ids.
 
+        Audio the window has no room for is dropped and counted, not rejected -
+        same reasoning as the whisper provider's `_decode_audio`, which this
+        mirrors deliberately. A batch is everything that arrived since the
+        worker last reached this job, so overrunning the window says the
+        service stalled at least as much as it says anything about the client,
+        and any exception raised here would deregister the job and end the
+        session.
+
+        Args:
+            batch   - Batch of audio chunks to decode and append
+            log     - Logger for this execution
+
         Raises:
-            TranscriptionClientError if a chunk fails to decode or the client
-                sends audio faster than the window can hold.
+            TranscriptionClientError if a chunk fails to decode.
         """
         for chunk in batch:
             try:
@@ -120,17 +133,37 @@ class LumenGraniteProviderJob(
 
             extra = self._buffer.append(samples)
             self._meter.append(samples)
+
+            num_dropped = len(extra)
+            num_retained = len(samples) - num_dropped
+
+            if num_dropped > 0:
+                dropped_sec = num_dropped / self._config.sample_rate
+                log.warning(
+                    f"Audio window had no room for {dropped_sec:.2f}s of "
+                    f"chunk {chunk.chunk_id}; dropped it. A batch that large "
+                    "means this job was not scheduled for longer than the "
+                    "window holds."
+                )
+                self._counters.inc(
+                    TranscriptionJobCounter.AUDIO_DROPPED_BUFFER_FULL
+                )
+                self._counters.inc(
+                    TranscriptionJobCounter.AUDIO_DROPPED_BUFFER_FULL_SECONDS,
+                    dropped_sec,
+                )
+
+            # Retained samples only - the dropped tail never reaches the
+            # upstream ASR, so counting it would overstate both the RTF
+            # denominator and the asr_input stage reading the dashboard
+            # compares against ingress.
+            retained_sec = num_retained / self._config.sample_rate
             self._counters.inc(
-                TranscriptionJobCounter.AUDIO_SECONDS_DECODED,
-                len(samples) / self._config.sample_rate,
+                TranscriptionJobCounter.AUDIO_SECONDS_DECODED, retained_sec
             )
-            self._decoded_audio_seconds += (
-                len(samples) / self._config.sample_rate
-            )
-            if len(extra) > 0:
-                self._counters.inc(TranscriptionJobCounter.AUDIO_TOO_FAST)
-                raise TranscriptionClientError("Client sent audio too quickly.")
-            self._window_chunk_ids.append(chunk.chunk_id)
+            self._decoded_audio_seconds += retained_sec
+            if num_retained > 0:
+                self._window_chunk_ids.append(chunk.chunk_id)
 
     def _transcribe(self, log: Logger, audio: np.ndarray) -> str:
         """
@@ -214,7 +247,7 @@ class LumenGraniteProviderJob(
     def process_batch(
         self, log: Logger, contexts: tuple, batch: list[AudioChunkPayload]
     ) -> TranscriptionResult:
-        self._decode_into_buffer(batch)
+        self._decode_into_buffer(batch, log)
         audio_stages = self._audio_stages()
 
         audio = np.asarray(self._buffer.get())

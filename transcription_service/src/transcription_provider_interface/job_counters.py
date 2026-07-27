@@ -37,8 +37,18 @@ class TranscriptionJobCounter(StrEnum):
     #: alone does not say *how much* audio was lost.
     BUFFER_OVERFLOW_SECONDS = "buffer_overflow_seconds"
 
-    #: Times a client pushed audio faster than realtime and overran the buffer.
-    AUDIO_TOO_FAST = "audio_too_fast"
+    #: Times one decode batch carried more audio than the buffer had room for,
+    #: so its tail was dropped. Despite the name this is not a client-rate
+    #: signal: a batch is everything that arrived since the worker last got
+    #: round to this job, so its size is `client_rate x scheduling_gap` and the
+    #: gap is the service's own. A realtime client trips this whenever the
+    #: service stalls for longer than the buffer holds, which is why the drop
+    #: is survivable and counted rather than fatal.
+    AUDIO_DROPPED_BUFFER_FULL = "audio_dropped_buffer_full"
+
+    #: Seconds of audio dropped by those buffer-full drops. The count alone
+    #: does not say *how much* audio never reached the ASR.
+    AUDIO_DROPPED_BUFFER_FULL_SECONDS = "audio_dropped_buffer_full_seconds"
 
     #: Executions where VAD found no speech at all in the buffer.
     VAD_NO_SPEECH = "vad_no_speech"
@@ -88,8 +98,9 @@ class JobCounterCollector:
     Accumulates counters within a single job execution
 
     Drained by the worker after every `process_batch`, successful or not, so
-    the counters leading up to a raised exception are not lost - which matters
-    most for audio-too-fast, whose only signal *is* the exception.
+    the counters leading up to a raised exception are not lost - a decode
+    failure kills the job, and the counters describing the batch that killed
+    it are the only account of what it was doing.
     """
 
     def __init__(self):
