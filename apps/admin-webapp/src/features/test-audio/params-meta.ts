@@ -113,7 +113,7 @@ export const FAULT_KNOBS: FaultKnob[] = [
     step: 1,
     unit: '%',
     caption:
-      "Measured: nothing moves. At 50% (404 duplicated frames in 120 s) every counter stayed flat — decode drops, pending-chunk evictions, unmatched chunks, repeated_segment_detected_total — and the transcript count matched the clean baseline exactly. Duplicate chunk ids are silently overwritten in node-server, and the canary-repetition WARNING scores the monitoring canary's own run in its own room, so this device cannot reach it. The only effect you can see is the captions garbling. Use it to reproduce a garbled transcript, not to trip an alert.",
+      "Measured: nothing moves, even at 100%. At 50% (404 duplicated frames in 120 s) and again with every chunk duplicated, decode drops, pending-chunk evictions and unmatched chunks all stayed flat and the transcript count matched the clean baseline; repeated_segment_detected_total moved by 1 in two minutes at 100%, because local-agree resolves the repeated audio before it reaches the text. Duplicate chunk ids are silently overwritten in node-server, and the canary-repetition WARNING scores the monitoring canary's own run in its own room, so this device cannot reach it. The only effect you can see is the captions garbling. Use it to reproduce a garbled transcript, not to trip an alert.",
   },
   {
     key: 'dropPct',
@@ -173,7 +173,7 @@ export const FAULT_KNOBS: FaultKnob[] = [
     step: 1,
     unit: '%',
     caption:
-      'Measured: the most destructive of the nine, and not a "decode rejection" — no decode counter moves anywhere. A wrong-rate WAV raises Sample rate mismatch inside the whisper job, which closes the upstream socket 1007; node-server reconnects and the next bad frame kills it again. At 50% that was 8 reconnects in 120 s, the upstream-churn CRITICAL, and zero captions for the entire run (asr_audio_seconds_total moved 1.4 s). Turn this one on knowing it takes the session out, not just a frame.',
+      'Measured: the most destructive of the nine, with no survivable setting, and not a "decode rejection" — no decode counter moves anywhere. A wrong-rate WAV raises Sample rate mismatch inside the whisper job, which closes the upstream socket 1007; node-server reconnects and the next bad frame kills it again. At 50% that was 8 reconnects in 120 s and zero captions for the whole run; at 5% it was 13 reconnects and 24 captions against a baseline of 205 — a lighter dose churns harder, because the socket survives longer between kills. Both fire the upstream-churn CRITICAL. Turn this one on knowing it takes the session out, not just a frame.',
   },
   {
     key: 'clockSkewMs',
