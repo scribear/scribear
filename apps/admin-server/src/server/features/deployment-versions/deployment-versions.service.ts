@@ -50,7 +50,7 @@ export interface ContainerVersion {
  * version.test.ts` fails if the two ever disagree, or if that file changes
  * without someone having made that call.
  */
-export const EXPECTED_COMPOSE_FILE_VERSION = 2;
+export const EXPECTED_COMPOSE_FILE_VERSION = 3;
 
 /**
  * How the running `compose.yml` compares to the one this image was built for.

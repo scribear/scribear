@@ -12,6 +12,34 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — transcription-service model downloads are now cached on a bind mount (`compose.yml` v3)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. Deployment
+Check will report `old file` until you do. Nothing breaks if you delay: the
+service still runs, it just re-downloads model weights on every container
+recreation as before.
+
+### What changed
+
+`transcription-service` downloads faster-whisper and silero-vad weights at
+runtime into `/root/.cache` inside the container, which a `docker compose up -d`
+discards. The service now sets `HF_HOME: /models/hf` and bind-mounts a host
+directory there, so weights are fetched once and reused. Both `huggingface_hub`
+and `torch.hub` (silero-vad) honour `HF_HOME`, so the one variable covers both.
+
+The host path is `MODEL_DOWNLOAD_PATH`, defaulting to `./models` relative to
+`compose.yml`; it is created automatically on first download. A deployment that
+already has weights downloaded can point `MODEL_DOWNLOAD_PATH` at that directory
+to skip the initial download.
+
+### `COMPOSE_FILE_VERSION` bumped to 3
+
+This change adds a volume and an environment variable, so the file version
+moves from 2 to 3. `EXPECTED_COMPOSE_FILE_VERSION` in admin-server moves with
+it; Deployment Check reports `old file` until the new `compose.yml` is copied.
+
+---
+
 ## Unreleased — **breaking:** a CUDA deployment now needs `-f compose.gpu.yml`
 
 **If you run `TRANSCRIPTION_DEVICE=cuda` or `cuda128`, your start command changes:**
