@@ -488,11 +488,12 @@ class WorkerProcessManager:
         self._next_job_id = 0
         self._context_defs = context_defs
         self._registered_job_handles: dict[int, JobHandle[Any, Any, Any]] = {}
-        self._job_labels: dict[int, str] = {}
         # Caller-supplied session/room identifiers per job, reported on
-        # /providers/health via ActiveJob. Kept only while the job lives -
-        # same lifetime rule as _job_labels - so it cannot grow with the
-        # number of sessions the process has ever served.
+        # /providers/health via ActiveJob. Kept only while the job lives, so
+        # it cannot grow with the number of sessions the process has ever
+        # served. Unlike the provider label (see RegisterJobTask.label), this
+        # is read only by the health snapshot, never by the result-recording
+        # path, so it is safe for it to disappear at deregistration.
         self._job_correlation: dict[int, tuple[str | None, str | None]] = {}
 
         # Signals the result-poller thread to stop. Set during wait_shutdown.
@@ -647,7 +648,14 @@ class WorkerProcessManager:
                 JobExecutionObservation(
                     worker_id=self._worker_id,
                     job_id=result.job_id,
-                    label=self._job_labels.get(result.job_id, ""),
+                    # Read off the result itself, stamped there at job
+                    # creation (see RegisterJobTask.label / _JobEntry.label),
+                    # rather than looked up here by job_id: this observer call
+                    # runs before the registration check specifically because
+                    # a result can arrive after its job was deregistered, and
+                    # a job's own registration bookkeeping (_registered_job_handles)
+                    # is gone by then.
+                    label=result.label,
                     stats=job_result.stats,
                     exception=(
                         job_result.value if job_result.has_exception else None
@@ -698,7 +706,7 @@ class WorkerProcessManager:
         self._next_job_id += 1
 
         self._task_queue.put(
-            RegisterJobTask(job_id, context_ids, period_ms, job)
+            RegisterJobTask(job_id, context_ids, period_ms, job, label)
         )
 
         def _queue_data(data: list[D]):
@@ -710,16 +718,17 @@ class WorkerProcessManager:
         def _deregister():
             self._task_queue.put(DeregisterJobTask(job_id))
             del self._registered_job_handles[job_id]
-            # Kept only while the job lives, so the label map cannot grow with
-            # the number of sessions the process has ever served.
-            self._job_labels.pop(job_id, None)
+            # Kept only while the job lives, so the correlation map cannot
+            # grow with the number of sessions the process has ever served.
+            # The provider label has no equivalent here to pop: it travels on
+            # the job's own JobExecutionResult (see RegisterJobTask.label),
+            # not through bookkeeping this method owns.
             self._job_correlation.pop(job_id, None)
 
         job_handle = JobHandle[D, R, Conf](
             self._worker_id, job_id, _queue_data, _update_config, _deregister
         )
         self._registered_job_handles[job_id] = job_handle
-        self._job_labels[job_id] = label
         self._job_correlation[job_id] = (session_uid, room_uid)
         return job_handle
 

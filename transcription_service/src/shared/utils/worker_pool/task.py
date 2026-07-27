@@ -40,6 +40,12 @@ class RegisterJobTask:
     context_ids: tuple[int, ...]
     period_ms: int
     job: JobInterface[Any, Any, Any, Any]
+    # Opaque grouping label, stamped here at job creation and carried on every
+    # JobExecutionResult the worker emits for this job_id (see _JobEntry.label
+    # and WorkerProcess._execute_job). Read directly off the result rather than
+    # looked up from WorkerProcessManager's own registration bookkeeping, which
+    # a caller may already have torn down by the time a result arrives.
+    label: str = ""
     type: Literal[TaskType.REGISTER_JOB] = TaskType.REGISTER_JOB
 
 
