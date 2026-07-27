@@ -2,6 +2,8 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, vi } from 'vitest';
 
+import { DEMO_ROOM_UID } from '@scribear/session-manager-schema';
+
 import { KioskWizardPage } from '#src/features/kiosk-setup/kiosk-wizard-page';
 import { adminApi } from '#src/lib/admin-api';
 
@@ -200,6 +202,44 @@ describe('KioskWizardPage', () => {
     });
   });
 
+  describe('demo caption room', (it) => {
+    it('does not offer the demo caption room as an existing room to join', async () => {
+      // Arrange - the demo room's captions come from a fixture and it has no
+      // audio path, so the Session Manager refuses `add-device-to-room` for it;
+      // offering it here would walk the operator into a 409 at the end of the
+      // wizard. The ordinary room in the same response must still be offered —
+      // filtering by anything looser would empty this picker.
+      const user = userEvent.setup();
+      vi.mocked(adminApi.listRooms).mockResolvedValue({
+        items: [
+          buildRoom({ uid: DEMO_ROOM_UID, name: 'Demo — Alice in Wonderland' }),
+          buildRoom({ uid: 'room-2', name: 'Room 202' }),
+        ],
+        nextCursor: null,
+      });
+      renderWithProviders(<KioskWizardPage />);
+      await registerDevice(user);
+      await clickNext(user);
+
+      // Act
+      await user.click(
+        screen.getByRole('radio', { name: /add to an existing room/i }),
+      );
+      await waitFor(() => {
+        expect(adminApi.listRooms).toHaveBeenCalled();
+      });
+      await user.click(screen.getByRole('combobox', { name: 'Room' }));
+
+      // Assert
+      expect(
+        screen.getByRole('option', { name: 'Room 202' }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('option', { name: 'Demo — Alice in Wonderland' }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   describe('Verify step polling', (it) => {
     it('polls getDevice on an interval and stops polling after unmount', async () => {
       // Arrange: real timers throughout — mixing vitest fake timers with
@@ -240,6 +280,26 @@ describe('KioskWizardPage', () => {
         callsAtUnmount,
       );
     }, 10_000);
+  });
+
+  describe('kiosk URL', (it) => {
+    it('shows the full URL built from this page origin, not a bare /kiosk', async () => {
+      // Arrange — the wizard is where most operators first meet this
+      // instruction, and it read "open /kiosk" with no host, which is not
+      // something you can type into the kiosk's browser. The kiosk is served
+      // from the same origin as this console, so the page's own location is
+      // the answer and needs no configuration to stay right.
+      const user = userEvent.setup();
+      renderWithProviders(<KioskWizardPage />);
+
+      // Act
+      await registerDevice(user);
+
+      // Assert
+      const link = screen.getByRole('link', { name: /\/kiosk/ });
+      expect(link).toHaveAttribute('href', `${window.location.origin}/kiosk`);
+      expect(screen.queryByText(/open \/kiosk and enter/i)).toBeNull();
+    });
   });
 
   describe('re-register', (it) => {

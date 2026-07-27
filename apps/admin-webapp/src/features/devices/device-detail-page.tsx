@@ -8,7 +8,6 @@ import CircularProgress from '@mui/material/CircularProgress';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
-import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
 import Divider from '@mui/material/Divider';
 import Link from '@mui/material/Link';
@@ -30,6 +29,8 @@ import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
+
+import { KioskUrlInstructions } from '#src/components/kiosk-url-instructions';
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback;
@@ -131,9 +132,7 @@ const ReregisterResultDialog = ({
             code={result.activationCode}
             expiry={result.expiry}
           />
-          <DialogContentText sx={{ mt: 2 }}>
-            On the kiosk browser, open /kiosk and enter this code.
-          </DialogContentText>
+          <KioskUrlInstructions />
         </Box>
       )}
     </DialogContent>

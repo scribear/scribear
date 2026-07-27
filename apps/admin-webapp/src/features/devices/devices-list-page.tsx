@@ -9,7 +9,6 @@ import CircularProgress from '@mui/material/CircularProgress';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
-import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
@@ -40,6 +39,8 @@ import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncList } from '#src/lib/use-async-list';
 import { useRoomNameLookup } from '#src/lib/use-room-name-lookup';
+
+import { KioskUrlInstructions } from '#src/components/kiosk-url-instructions';
 
 const PAGE_LIMIT = 25;
 
@@ -115,9 +116,7 @@ const RegisterDeviceDialog = ({
               code={result.activationCode}
               expiry={result.expiry}
             />
-            <DialogContentText sx={{ mt: 2 }}>
-              On the kiosk browser, open /kiosk and enter this code.
-            </DialogContentText>
+            <KioskUrlInstructions />
           </Box>
         ) : (
           <TextField

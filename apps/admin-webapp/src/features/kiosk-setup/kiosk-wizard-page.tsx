@@ -23,9 +23,11 @@ import Typography from '@mui/material/Typography';
 
 import { Link as RouterLink } from 'react-router-dom';
 
+import { DEMO_ROOM_UID } from '@scribear/session-manager-schema';
 import type { Room } from '@scribear/session-manager-schema';
 
 import { ActivationCodeDisplay } from '#src/components/activation-code-display';
+import { KioskUrlInstructions } from '#src/components/kiosk-url-instructions';
 import { ScheduleStep } from '#src/features/kiosk-setup/schedule-step';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
@@ -115,14 +117,7 @@ const DeviceStep = ({
             code={activationCode}
             expiry={activationExpiry}
           />
-          <Typography
-            variant="body2"
-            sx={{
-              color: 'text.secondary',
-            }}
-          >
-            On the kiosk browser, open /kiosk and enter this code.
-          </Typography>
+          <KioskUrlInstructions />
           <Button onClick={onReregister} disabled={reregistering} size="small">
             {reregistering ? 'Re-registering…' : 'Code expired? Re-register'}
           </Button>
@@ -382,7 +377,12 @@ export const KioskWizardPage = () => {
         : Promise.resolve([]),
     [roomChoice],
   );
-  const existingRooms = existingRoomsData ?? [];
+  // The demo caption room is a synthetic emitter with no audio path — the
+  // Session Manager refuses to attach a device to it — so it must never be
+  // offered as a destination for the kiosk being set up.
+  const existingRooms = (existingRoomsData ?? []).filter(
+    (r) => r.uid !== DEMO_ROOM_UID,
+  );
   const roomStepMisconfigured =
     roomMisconfigured ||
     isApiErrorCode(existingRoomsError, 'BACKEND_MISCONFIGURATION');

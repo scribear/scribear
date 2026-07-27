@@ -1,8 +1,9 @@
 import type { ReactElement } from 'react';
 
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { axe } from 'jest-axe';
 import { Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, vi } from 'vitest';
 
 import { DeviceDetailPage } from '#src/features/devices/device-detail-page';
 import { adminApi } from '#src/lib/admin-api';
@@ -15,6 +16,7 @@ vi.mock('#src/lib/admin-api', () => ({
   adminApi: {
     getDevice: vi.fn(),
     getRoom: vi.fn(),
+    reregisterDevice: vi.fn(),
   },
 }));
 
@@ -150,6 +152,120 @@ describe('DeviceDetailPage', () => {
       // Assert
       expect(screen.getByText(DEVICE_UID)).toBeInTheDocument();
       expect(screen.getByText('room-1')).toBeInTheDocument();
+    });
+  });
+
+  describe('Re-register device dialog — kiosk URL', (it) => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      // Undo the clipboard stub some of these tests install; jsdom has no
+      // Clipboard API by default, matching a browser that reaches this
+      // console over an insecure (plain HTTP) connection.
+      Reflect.deleteProperty(navigator, 'clipboard');
+    });
+
+    // Plain `fireEvent`, deliberately not `userEvent`: see the same-named
+    // helper in devices-list-page.test.tsx for why (`userEvent.setup()`
+    // unconditionally installs its own Clipboard stub).
+    async function openReregisterResult() {
+      vi.mocked(adminApi.getDevice).mockResolvedValue(
+        buildDevice({ uid: DEVICE_UID, name: 'Kiosk 1', roomUid: null }),
+      );
+      vi.mocked(adminApi.reregisterDevice).mockResolvedValue({
+        activationCode: 'XYZ789',
+        expiry: new Date(Date.now() + 5 * 60_000).toISOString(),
+      });
+
+      const rendered = renderPage();
+      await waitForLoad();
+      // First click opens the confirm dialog; the trigger button behind it is
+      // then `aria-hidden`, so the second "Re-register" query resolves to the
+      // confirm dialog's own button, not a second match on the first.
+      fireEvent.click(screen.getByRole('button', { name: 'Re-register' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Re-register' }));
+      await screen.findByText('XYZ789');
+
+      return rendered;
+    }
+
+    it('builds the kiosk link from the page origin rather than a hardcoded value', async () => {
+      // Arrange: a distinctive origin — one the component never sees written
+      // anywhere in source — is the only way to prove the URL comes from
+      // `window.location`, not a baked-in scheme/host/port.
+      vi.stubGlobal('location', {
+        origin: 'https://scribear.example.edu:8443',
+      });
+
+      // Act
+      await openReregisterResult();
+
+      // Assert
+      const link = screen.getByRole('link', { name: /\/kiosk/ });
+      expect(link).toHaveAttribute(
+        'href',
+        'https://scribear.example.edu:8443/kiosk',
+      );
+    });
+
+    it('labels the copy button by what it copies and puts the URL — not the code — on the clipboard', async () => {
+      // Arrange: the activation code already has its own "Copy activation
+      // code" button (ActivationCodeDisplay); this one must be unmistakably
+      // about the URL instead.
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true,
+      });
+
+      // Act
+      await openReregisterResult();
+      expect(
+        screen.getByRole('button', { name: 'Copy activation code' }),
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Copy kiosk URL' }));
+
+      // Assert
+      expect(writeText).toHaveBeenCalledWith('http://localhost:3000/kiosk');
+      expect(await screen.findByText('Kiosk URL copied.')).toBeInTheDocument();
+    });
+
+    it('tells the operator to copy the link manually when the Clipboard API is unavailable', async () => {
+      // Arrange: no navigator.clipboard stub — jsdom's own default, standing
+      // in for a non-secure-context deployment where the API never exists.
+      await openReregisterResult();
+
+      // Act
+      fireEvent.click(screen.getByRole('button', { name: 'Copy kiosk URL' }));
+
+      // Assert: the failure is announced (via the toast) and the link text
+      // remains on screen, selectable by hand.
+      expect(
+        await screen.findByText(/clipboard access isn.t available/i),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /\/kiosk/ })).toBeInTheDocument();
+    });
+
+    it('has no a11y violations with the dialog open', async () => {
+      // MUI's Dialog portals its content to document.body rather than the
+      // rendered container, so the copy button / link markup this test cares
+      // about only shows up when axe scans the body. The scaffolding rules
+      // disabled below fire because this is a bare component under test, not
+      // the full app shell with its landmarks/heading/lang/title — pre-existing
+      // per the mock-server a11y tooling notes, not introduced here.
+      await openReregisterResult();
+
+      const results = await axe(document.body, {
+        rules: {
+          region: { enabled: false },
+          'landmark-one-main': { enabled: false },
+          'page-has-heading-one': { enabled: false },
+          'html-has-lang': { enabled: false },
+          'document-title': { enabled: false },
+          bypass: { enabled: false },
+        },
+      });
+
+      expect(results.violations).toHaveLength(0);
     });
   });
 });
