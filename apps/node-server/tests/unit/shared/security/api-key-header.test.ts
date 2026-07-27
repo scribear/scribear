@@ -30,7 +30,7 @@ function routeSchemasWithAuthHeader(): [string, HeadersJsonSchema][] {
     const headers = (value as { headers?: unknown }).headers;
     if (typeof headers !== 'object' || headers === null) continue;
     const candidate = headers as HeadersJsonSchema;
-    if (!candidate.properties?.authorization) continue;
+    if (!candidate.properties?.['authorization']) continue;
     found.push([name, candidate]);
   }
   return found;
@@ -62,7 +62,7 @@ describe('Service API key Authorization header schema', () => {
         // that to any key from `openssl rand -base64 32`, which emits `+`, `/`
         // and `=`. Rationale and rejected alternatives:
         // libs/schemas/node-server-schema/src/shared/security/service-api-key.ts.
-        expect(headers.properties?.authorization?.pattern).toBeUndefined();
+        expect(headers.properties?.['authorization']?.pattern).toBeUndefined();
       });
     });
   });
