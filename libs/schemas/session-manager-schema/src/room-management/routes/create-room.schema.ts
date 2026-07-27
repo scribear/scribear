@@ -22,7 +22,7 @@ const CREATE_ROOM_SCHEMA = {
   tags: [ROOM_MANAGEMENT_TAG],
   security: ADMIN_API_KEY_SECURITY,
   headers: Type.Object({
-    authorization: ADMIN_API_KEY_AUTH_HEADER_SCHEMA,
+    authorization: Type.Optional(ADMIN_API_KEY_AUTH_HEADER_SCHEMA),
   }),
   body: Type.Object({
     name: Type.String({ minLength: 1, maxLength: 256 }),

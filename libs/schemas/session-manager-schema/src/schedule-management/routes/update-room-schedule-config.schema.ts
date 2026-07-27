@@ -21,7 +21,7 @@ const UPDATE_ROOM_SCHEDULE_CONFIG_SCHEMA = {
   tags: [SCHEDULE_MANAGEMENT_TAG],
   security: ADMIN_API_KEY_SECURITY,
   headers: Type.Object({
-    authorization: ADMIN_API_KEY_AUTH_HEADER_SCHEMA,
+    authorization: Type.Optional(ADMIN_API_KEY_AUTH_HEADER_SCHEMA),
   }),
   body: Type.Object({
     roomUid: Type.String({ format: 'uuid' }),

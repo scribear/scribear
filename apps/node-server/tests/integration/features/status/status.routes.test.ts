@@ -190,13 +190,29 @@ describe('Status Routes', () => {
       expect(res.json<{ code: string }>().code).toBe('INVALID_SERVICE_KEY');
     });
 
-    it('returns 400 when the header is not a Bearer credential at all', async () => {
-      // Act
+    it('returns 401 when the header is not a Bearer credential at all', async () => {
+      // Act - the raw key with no `Bearer ` prefix.
       const res = await fetchStatus(TEST_SERVICE_API_KEY);
 
-      // Assert - shape is a request-validation failure, not an auth decision
-      expect(res.statusCode).toBe(400);
-      expect(res.json<{ code: string }>().code).toBe('VALIDATION_ERROR');
+      // Assert - this used to be 400 VALIDATION_ERROR, because the header
+      // schema carried a `^Bearer ...$` pattern and validation runs before the
+      // preHandler. `ServiceAuthService.isValid` rejects a missing prefix on its
+      // own, so the pattern bought nothing and cost the caller a status code
+      // that says "malformed request" about a credential problem.
+      expect(res.statusCode).toBe(401);
+      expect(res.json<{ code: string }>().code).toBe('INVALID_SERVICE_KEY');
+    });
+
+    it('returns 401, not 400, for a base64-shaped key', async () => {
+      // Act - `openssl rand -base64 32` emits `+`, `/` and `=`, none of which
+      // the old pattern allowed. A deployment whose service key came from that
+      // command got 400 VALIDATION_ERROR for *every* call, correct key or not,
+      // so the failure was indistinguishable from a malformed request.
+      const res = await fetchStatus('Bearer abc+def/ghi=');
+
+      // Assert
+      expect(res.statusCode).toBe(401);
+      expect(res.json<{ code: string }>().code).toBe('INVALID_SERVICE_KEY');
     });
 
     it('returns 200 with the correct key', async () => {

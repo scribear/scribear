@@ -21,7 +21,7 @@ const GET_DEVICE_SCHEMA = {
   tags: [DEVICE_MANAGEMENT_TAG],
   security: ADMIN_API_KEY_SECURITY,
   headers: Type.Object({
-    authorization: ADMIN_API_KEY_AUTH_HEADER_SCHEMA,
+    authorization: Type.Optional(ADMIN_API_KEY_AUTH_HEADER_SCHEMA),
   }),
   params: Type.Object({
     deviceUid: Type.String({ format: 'uuid' }),

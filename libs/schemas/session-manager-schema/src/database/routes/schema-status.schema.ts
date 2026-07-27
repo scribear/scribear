@@ -71,7 +71,7 @@ export const SCHEMA_STATUS_SCHEMA = {
   tags: [DATABASE_TAG],
   security: ADMIN_API_KEY_SECURITY,
   headers: Type.Object({
-    authorization: ADMIN_API_KEY_AUTH_HEADER_SCHEMA,
+    authorization: Type.Optional(ADMIN_API_KEY_AUTH_HEADER_SCHEMA),
   }),
   response: {
     200: SCHEMA_STATUS_RESPONSE_SCHEMA,
