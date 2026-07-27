@@ -2,7 +2,6 @@ import {
   BYTES_PER_SAMPLE,
   FULL_SCALE,
   INT16_MAX,
-  INT16_MIN,
   dbToLinear,
   fromFloat,
   sampleCount,
@@ -46,9 +45,17 @@ export function applyGainDb(pcm: Buffer, gainDb: number): Buffer {
 /**
  * Adds a constant DC bias, as a fraction of full scale.
  *
- * Applied *after* any clipping so the bias survives: clipping a biased
- * waveform would push the offset back toward zero on whichever rail it ran
- * into, and the knob would silently do less than it says at high levels.
+ * Applied *after* any clipping, and the two knobs genuinely fight: a biased
+ * waveform cannot sit symmetrically on both rails, so no ordering delivers both
+ * the requested bias and the requested clipped share. Measured on a half-scale
+ * tone at `clipPct: 50`, a requested bias of 0.25 comes out at 0.18 in this
+ * order and at 0.36 in the other — {@link hardClipToRail} is a *gain* rather
+ * than a ceiling, so a bias applied first is amplified along with the signal
+ * and overshoots. Undershooting was chosen over overshooting because the DC
+ * knob is the one with no telemetry behind it (see below), while `clipPct`
+ * promises a number the ingress meter reports back; an operator stacking the
+ * two should still expect the clipped share to read low, because lifting the
+ * negative rail by the bias takes those samples off it.
  *
  * Known gap, and it is not this function's: **nothing in the stack measures
  * DC.** The ingress meter reports RMS, peak, clipping, silence and noise floor,
@@ -132,7 +139,19 @@ export function hardClipToRail(pcm: Buffer, clipPct: number): Buffer {
   return out;
 }
 
-/** Share of samples sitting on either rail. The meter's `clippingPct`, roughly. */
+/**
+ * Share of samples sitting on either rail. The meter's `clippingPct`, roughly.
+ *
+ * Magnitude rather than a signed pair of comparisons, because the two rails are
+ * not symmetric and the naive test misses half the clipping: int16 runs from
+ * -32768 to +32767, but {@link hardClipToRail} scales by `INT16_MAX / pivot`,
+ * so a saturated *negative* peak lands on -32767 and only overshoots to -32768
+ * once it is a further 1/32767 past the pivot. Comparing against `INT16_MIN`
+ * therefore skips almost every negative clip — for a square wave, where every
+ * sample saturates, it reports half. The meter this mirrors counts
+ * `|sample| >= 0.99` (`audio_meter.py`), under which -32767 is emphatically
+ * clipped.
+ */
 export function clippedFraction(pcm: Buffer): number {
   const count = sampleCount(pcm);
   if (count === 0) return 0;
@@ -140,7 +159,7 @@ export function clippedFraction(pcm: Buffer): number {
   let clipped = 0;
   for (let i = 0; i < count; i++) {
     const sample = pcm.readInt16LE(i * BYTES_PER_SAMPLE);
-    if (sample >= INT16_MAX || sample <= INT16_MIN) clipped++;
+    if (Math.abs(sample) >= INT16_MAX) clipped++;
   }
   return clipped / count;
 }

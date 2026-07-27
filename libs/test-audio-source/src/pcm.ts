@@ -62,7 +62,10 @@ export function toFloat(pcm: Buffer): Float64Array {
 export function fromFloat(samples: Float64Array): Buffer {
   const out = Buffer.alloc(samples.length * BYTES_PER_SAMPLE);
   for (let i = 0; i < samples.length; i++) {
-    out.writeInt16LE(saturate((samples[i] ?? 0) * FULL_SCALE), i * BYTES_PER_SAMPLE);
+    out.writeInt16LE(
+      saturate((samples[i] ?? 0) * FULL_SCALE),
+      i * BYTES_PER_SAMPLE,
+    );
   }
   return out;
 }
@@ -104,7 +107,8 @@ export function peakOf(pcm: Buffer): number {
   const count = sampleCount(pcm);
   let peak = 0;
   for (let i = 0; i < count; i++) {
-    const magnitude = Math.abs(pcm.readInt16LE(i * BYTES_PER_SAMPLE)) / FULL_SCALE;
+    const magnitude =
+      Math.abs(pcm.readInt16LE(i * BYTES_PER_SAMPLE)) / FULL_SCALE;
     if (magnitude > peak) peak = magnitude;
   }
   return peak;

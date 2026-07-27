@@ -1,6 +1,6 @@
+import { applyDcOffset, digitalSilence, hardClipToRail } from './effects.js';
 import type { FaultParams } from './params.js';
 import type { Rng } from './rng.js';
-import { applyDcOffset, digitalSilence, hardClipToRail } from './effects.js';
 import { type AudioChunk, decodeWav, encodeWav } from './wav.js';
 
 /**
@@ -110,8 +110,10 @@ export class FaultEngine implements ChunkPlanner {
    *
    * Order of the audio faults is fixed and load-bearing: silence replaces
    * everything (there is nothing left to clip), clipping runs before the DC
-   * bias so the bias is not itself clipped away, and the header rewrite happens
-   * last because it is a container change rather than a waveform one.
+   * bias so the bias is not amplified by the clipper's gain (see
+   * {@link applyDcOffset} for why the two knobs cannot both be exact), and the
+   * header rewrite happens last because it is a container change rather than a
+   * waveform one.
    */
   plan(chunk: AudioChunk): ChunkPlan {
     const params = this._params;

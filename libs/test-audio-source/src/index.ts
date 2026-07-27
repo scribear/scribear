@@ -5,7 +5,12 @@ export {
 } from './device-auth.js';
 export type { DeviceAuthConfig, SessionCredentials } from './device-auth.js';
 
-export { WavFormatError, decodeWav, encodeWav, sliceIntoChunks } from './wav.js';
+export {
+  WavFormatError,
+  decodeWav,
+  encodeWav,
+  sliceIntoChunks,
+} from './wav.js';
 export type { AudioChunk, DecodedWav } from './wav.js';
 
 export {
@@ -59,7 +64,11 @@ export type {
   NoiseType,
 } from './params.js';
 
-export { BAD_HEADER_SAMPLE_RATE, FaultEngine, sendIntervalMs } from './faults.js';
+export {
+  BAD_HEADER_SAMPLE_RATE,
+  FaultEngine,
+  sendIntervalMs,
+} from './faults.js';
 export type { ChunkPlan, ChunkPlanner, PlannedFrame } from './faults.js';
 
 export { GoodEngine } from './good-engine.js';

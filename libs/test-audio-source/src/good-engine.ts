@@ -1,5 +1,5 @@
-import { applyGainDb, NoiseGenerator } from './effects.js';
-import type { ChunkPlanner, ChunkPlan } from './faults.js';
+import { NoiseGenerator, applyGainDb } from './effects.js';
+import type { ChunkPlan, ChunkPlanner } from './faults.js';
 import type { GoodParams } from './params.js';
 import type { Rng } from './rng.js';
 import { type AudioChunk, decodeWav, encodeWav } from './wav.js';
@@ -61,7 +61,9 @@ export class GoodEngine implements ChunkPlanner {
     }
 
     return {
-      frames: [plainFrame(encodeWav(pcm, decoded.sampleRate, decoded.channels))],
+      frames: [
+        plainFrame(encodeWav(pcm, decoded.sampleRate, decoded.channels)),
+      ],
       waitMs: chunk.durationMs,
       faulted: false,
     };

@@ -120,7 +120,12 @@ export class TestAudioStream {
     try {
       this._sessionUid = await this._auth.findActiveSession();
       const credentials = await this._auth.mintSessionToken(this._sessionUid);
-      await this._stream(this._sessionUid, credentials.sessionToken, chunks, deadlineMs);
+      await this._stream(
+        this._sessionUid,
+        credentials.sessionToken,
+        chunks,
+        deadlineMs,
+      );
       return { error: null };
     } catch (err) {
       return { error: err instanceof Error ? err.message : String(err) };
