@@ -46,6 +46,30 @@ export const TRANSCRIPTION_METRICS_BODY_SCHEMA = Type.Object({
   processStartedAt: Type.String(),
   numWorkers: Type.Number(),
   providerKeys: Type.Array(Type.String()),
+  /**
+   * `job_period_ms` per provider key — **the only optional field here, and the
+   * only one transcription-service does not send today.**
+   *
+   * Every other field is required precisely so that drift fails loudly (see
+   * above), and this one breaks that rule knowingly. It is the denominator of
+   * the derived `scribear_asr_period_utilization` series, which the sidecar
+   * currently has to be *told* through `TRANSCRIPTION_JOB_PERIOD_MS` because the
+   * value lives in transcription-service's `provider_config.json` and is
+   * reported on no surface the sidecar can poll — not here, not on
+   * `GET /providers/health`, not on the Redis fleet plane. Two unrelated files
+   * therefore state the same number, and when they disagree the series is
+   * silently misscaled.
+   *
+   * Declaring it optional now means the fix is consumer-ready: the moment
+   * `metrics_controller.py` adds `"providerJobPeriodMs": {"whisper": 500, ...}`
+   * (sourced from each provider's own config, so per-provider variation is
+   * preserved), this poller prefers it over anything configured locally and the
+   * env var can be deleted with no further sidecar change. Optional rather than
+   * required so that landing the two sides in either order never turns a healthy
+   * poll into a `malformed` one — the strictness argument above applies to
+   * fields the service already sends, not to one it is about to gain.
+   */
+  providerJobPeriodMs: Type.Optional(Type.Record(Type.String(), Type.Number())),
   workers: Type.Array(
     Type.Object({
       workerId: Type.Number(),

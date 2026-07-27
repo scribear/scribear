@@ -12,6 +12,7 @@ import type {
   ProbePollerConfig,
   ProbeTarget,
 } from '#src/server/shared/probes/probe-poller.service.js';
+import { parseJobPeriods } from '#src/server/shared/transcription-metrics/job-period-config.js';
 import type { TranscriptionMetricsPollerConfig } from '#src/server/shared/transcription-metrics/transcription-metrics-poller.service.js';
 
 const SECOND_MS = 1_000;
@@ -22,12 +23,23 @@ const CONFIG_SCHEMA = Type.Object({
   HOST: Type.String(),
 
   /**
-   * Must match `job_period_ms` in the deployed provider_config.json. It is the
-   * denominator of the derived period-utilization series and is not reported by
-   * the metrics endpoint, so a wrong value silently rescales that metric. It
-   * does not affect `asrRtf`, which transcription-service measures itself.
+   * Per-provider job periods, `whisper=500,lumen_granite=3000`, matching
+   * `job_period_ms` **per provider** in the deployed provider_config.json.
+   *
+   * A map and not a single integer, and with no default, because that is what
+   * this field is on the other side: the CUDA template ships whisper at 500 ms
+   * and lumen_granite at 3000 ms in the same file, so one global number is wrong
+   * for at least one of them. It used to default to 1000, which matched neither,
+   * and the only symptom was a `scribear_asr_period_utilization` series scaled by
+   * 2x and 0.33x respectively — no error, no warning.
+   *
+   * Empty (the default) means no period is stated and no period-utilization
+   * series is published; a provider absent from the map is likewise skipped
+   * rather than guessed at. Nothing else is affected: `asrRtf` and the T1
+   * duty-ratio alert are measured by transcription-service itself. See
+   * {@link parseJobPeriods} for the format and for why a bare number is rejected.
    */
-  TRANSCRIPTION_JOB_PERIOD_MS: Type.Integer({ minimum: 1, default: 1_000 }),
+  TRANSCRIPTION_JOB_PERIOD_MS: Type.String({ default: '' }),
 
   // Probe polling (A3)
   PROBE_INTERVAL_SEC: Type.Integer({ minimum: 1, default: 10 }),
@@ -230,6 +242,13 @@ export class AppConfig {
   }
 
   get transcriptionMetricsPollerConfig(): TranscriptionMetricsPollerConfig {
+    // Parsed here, reported to the poller, logged there: this class has no
+    // logger and stays free of side effects, but a rejected entry must still be
+    // said out loud rather than silently becoming "no periods configured".
+    const { periods, errors } = parseJobPeriods(
+      this._env.TRANSCRIPTION_JOB_PERIOD_MS,
+    );
+
     return {
       // Fail closed, as for node-server: polling without a key would 401 or
       // 404 on every interval forever.
@@ -241,7 +260,8 @@ export class AppConfig {
       // its probes make.
       statusUrl: `${this._env.TRANSCRIPTION_SERVICE_BASE_URL}/metrics/status`,
       apiKey: this._env.TRANSCRIPTION_SERVICE_METRICS_KEY,
-      jobPeriodMs: this._env.TRANSCRIPTION_JOB_PERIOD_MS,
+      jobPeriodMsByProvider: periods,
+      jobPeriodSpecErrors: errors,
     };
   }
 

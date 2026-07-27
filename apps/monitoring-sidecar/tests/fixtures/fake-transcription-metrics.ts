@@ -26,6 +26,12 @@ export interface FakeMetricsBody {
   processStartedAt: string;
   numWorkers: number;
   providerKeys: string[];
+  /**
+   * Per-provider `job_period_ms`. Optional and absent from the default body,
+   * because transcription-service does not send it yet — the sidecar reads it in
+   * preference to its own config the moment it appears.
+   */
+  providerJobPeriodMs?: Record<string, number>;
   workers: {
     workerId: number;
     utilization: number;
@@ -40,6 +46,12 @@ export interface FakeMetricsBody {
 
 export const FAKE_PROCESS_UID = 'tx-process-1';
 export const WHISPER = { provider_key: 'whisper' };
+/**
+ * A second provider with a different configured period. The CUDA template
+ * really does run this alongside whisper at 3000 ms against whisper's 500 ms, so
+ * per-provider tests use the pair rather than two invented keys.
+ */
+export const LUMEN_GRANITE = { provider_key: 'lumen_granite' };
 
 /** A histogram series with every stat set to the same value, for terse tests. */
 export function histogramSeries(

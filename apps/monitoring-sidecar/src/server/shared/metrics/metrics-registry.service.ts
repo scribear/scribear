@@ -294,17 +294,42 @@ export class MetricsRegistry {
   );
 
   /**
-   * Job execution time divided by the configured job period, derived in the
-   * sidecar from {@link asrExecutionMs} and `TRANSCRIPTION_JOB_PERIOD_MS`.
+   * Job execution time divided by that provider's job period, derived in the
+   * sidecar from {@link asrExecutionMs} and the period in {@link asrJobPeriodMs}.
    *
    * Kept as a secondary series now that {@link asrRtf} exists. It saturates at
    * the same 1.0 line but answers a different question — "is a job finishing
    * within the cadence that schedules it?" — and no longer depends on a log
    * line, so it survived the parser retirement.
+   *
+   * **A provider whose period is unknown gets no series here at all**, rather
+   * than one scaled by a default. The ratio is only as good as its denominator,
+   * and a plausible-looking utilization derived from the wrong period is a
+   * number an operator will act on.
    */
   readonly asrPeriodUtilization = new Gauge(
     'scribear_asr_period_utilization',
     'Transcription job execution time divided by the job period (1.0 = saturated), by quantile.',
+  );
+
+  /**
+   * The denominator {@link asrPeriodUtilization} is actually being divided by,
+   * per provider, with `source` naming where that number came from —
+   * `reported` (transcription-service sent it) or `configured`
+   * (`TRANSCRIPTION_JOB_PERIOD_MS` said so).
+   *
+   * Exported because the period is the one input to the dashboard that the
+   * sidecar cannot verify: it lives in transcription-service's
+   * `provider_config.json`, and while `source=configured` the two are stated in
+   * different files by different people. Publishing the denominator beside the
+   * ratio is what turns "this number is silently wrong" into "this number is
+   * visibly derived from 1000 ms, which is not what the provider config says" —
+   * and its *absence* for a provider is the honest signal that no period is
+   * known, matching the missing utilization series exactly.
+   */
+  readonly asrJobPeriodMs = new Gauge(
+    'scribear_asr_job_period_ms',
+    'Job period the period-utilization series is scaled by, per provider, labelled with where that number came from.',
   );
 
   /** Worker processes the deployment is configured to run. */
@@ -610,6 +635,7 @@ export class MetricsRegistry {
       this.asrTotalMs,
       this.asrRtf,
       this.asrPeriodUtilization,
+      this.asrJobPeriodMs,
       this.asrWorkers,
       this.asrWorkerUtilization,
       this.asrWorkerAlive,
