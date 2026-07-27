@@ -170,7 +170,7 @@ services:
       # Not `:?`-guarded, like DEPLOYMENT_ENV below and unlike the secrets: it
       # changes what is *reported*, never what runs, and must not be able to
       # stop a stack from starting.
-      COMPOSE_FILE_VERSION: "1"
+      COMPOSE_FILE_VERSION: "2"
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
@@ -386,10 +386,32 @@ services:
       - "80"
     environment:
       LOG_LEVEL: ${MONITORING_LOG_LEVEL:-info}
-      # Must match job_period_ms in provider_config.json; it is the denominator
-      # of the derived period-utilization series. It does not affect RTF, which
-      # transcription-service measures for itself.
-      TRANSCRIPTION_JOB_PERIOD_MS: ${MONITORING_JOB_PERIOD_MS:-1000}
+      # Per-provider `job_period_ms` from provider_config.json, as
+      # `provider=ms,provider=ms`. It is the denominator of the derived
+      # period-utilization series and nothing else — it does not affect RTF,
+      # which transcription-service measures for itself, nor the duty-ratio
+      # alert, which is deliberately period-independent.
+      #
+      # Per provider because one number cannot be right: the CUDA templates run
+      # whisper and crisper_whisper at 500ms alongside lumen_granite at 3000ms.
+      # The single global value this replaces silently misscaled every provider
+      # but `debug` — 2x for whisper, 0.33x for lumen_granite, no warning.
+      #
+      # **Empty by default, on purpose.** Any default would be wrong for
+      # somebody: the CUDA templates use 500ms and the CPU templates 5000ms, and
+      # shipping either would silently misscale the other — reintroducing the bug
+      # in a new place. Unset means the sidecar publishes no utilization series
+      # for that provider rather than a confidently wrong one, and the
+      # scribear_asr_job_period_ms gauge shows which denominator is in use.
+      # Set it in .env to turn the series on:
+      #   CUDA templates: whisper=500,crisper_whisper=500,lumen_granite=3000
+      #   CPU templates:  whisper=5000,crisper_whisper=5000,lumen_granite=3000
+      #
+      # A bare integer (this variable's old format) is rejected with an error
+      # naming the replacement rather than applied to every provider — a stale
+      # .env should be loud, not silently averaged over providers it does not
+      # fit. Not `:?`-guarded: a missing denominator must never stop a stack.
+      TRANSCRIPTION_JOB_PERIOD_MS: ${MONITORING_JOB_PERIOD_MS:-}
       NODE_SERVER_BASE_URL: http://node-server:80
       SESSION_MANAGER_BASE_URL: http://session-manager:80
       ADMIN_SERVER_BASE_URL: http://admin-server:80

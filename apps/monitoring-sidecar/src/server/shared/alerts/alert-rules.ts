@@ -276,10 +276,12 @@ export const transcriptionSaturationRule: AlertRule = (ctx) => {
  * finalizations and is re-transcribed in full each period, so in healthy
  * operation the worst few percent of jobs sit several times above the typical
  * one: a p95 pinned at 0.8 would fire on a provider whose real duty cycle is
- * 0.3. And the reported p95 is computed over transcription-service's own
- * 4096-sample ring, which never expires by time, so after a heavy session ends
- * it keeps reporting the same figure and a gauge-only rule can never clear. The
- * windowed mean has neither problem, and it makes "sustained" structural rather
+ * 0.3. (A second reason applied when this rule was written: the reported p95 came
+ * from a ring with no time-based expiry, so a gauge-only rule could never clear
+ * after a heavy session ended. That ring now expires by age, so the staleness
+ * argument no longer holds — the burstiness one above is the reason this rule
+ * uses a mean.) The windowed mean has neither problem, and it makes
+ * "sustained" structural rather
  * than bolted on — it is an average over `rateWindowMs` (120 s ≈ 240 job
  * periods), which no single spiky period can move. There is no cross-poll
  * hysteresis mechanism in this subsystem to reuse, and this rule does not need

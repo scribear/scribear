@@ -25,8 +25,15 @@ const COUNTER_SERIES = Type.Object({
 
 /**
  * `count` and `sum` are lifetime totals and behave like counters, so they are
- * differenced. The remaining fields describe only the retained sample ring
- * (4096 deep) and are therefore gauges of recent behaviour, not of all time.
+ * differenced. The remaining fields describe only the retained sample ring —
+ * bounded by **age** (120 s by default) as well as depth (4096) — and are
+ * therefore gauges of recent behaviour, not of all time.
+ *
+ * A consequence worth stating, because it looks like a bug: `sampleCount` can
+ * legitimately be **0 while `count` and `sum` are large**. That is an idle
+ * provider whose window has emptied, not a broken series, and it is what lets a
+ * gauge-derived alert clear on its own — before the ring expired by age, one
+ * heavy session left `asrRtf{quantile=p95}` reporting the same figure forever.
  */
 const HISTOGRAM_SERIES = Type.Object({
   labels: Type.Record(Type.String(), Type.String()),

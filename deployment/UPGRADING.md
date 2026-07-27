@@ -12,6 +12,49 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — the ASR job period is now per provider (`compose.yml` v2)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. Deployment
+Check will report `old file` until you do. Nothing breaks if you delay: you lose one
+derived series, described below.
+
+### Why it changed
+
+`TRANSCRIPTION_JOB_PERIOD_MS` was a single number (default `1000`) used as the
+denominator of the derived **period-utilization** series. It cannot be a single
+number. The CUDA templates run `whisper` and `crisper_whisper` at 500ms *alongside*
+`lumen_granite` at 3000ms, so one value was wrong for at least two providers at all
+times — 2× for whisper, 0.33× for lumen_granite — with no error and no warning. The
+only provider it was ever right for was `debug`.
+
+The format is now `provider=ms,provider=ms`:
+
+```
+MONITORING_JOB_PERIOD_MS=whisper=500,crisper_whisper=500,lumen_granite=3000   # CUDA templates
+MONITORING_JOB_PERIOD_MS=whisper=5000,crisper_whisper=5000,lumen_granite=3000 # CPU templates
+```
+
+**It is empty by default, deliberately.** Any shipped default would be wrong for
+somebody — CUDA is 500ms, CPU is 5000ms — and quietly misscaling the other group
+would be the same bug in a new place. Unset means the sidecar publishes **no**
+utilization series for that provider rather than a confidently wrong one. Set it
+above to turn the series on; the new `scribear_asr_job_period_ms` gauge (labelled
+`source=reported|configured`) shows which denominator is actually in use.
+
+**A bare integer is now rejected** with an error naming the replacement, rather than
+applied to every provider. If you had `MONITORING_JOB_PERIOD_MS=1000` in `.env`,
+the sidecar will log that error and publish no utilization series until you convert
+it to the map form. That is intended: a stale value should be loud rather than
+silently averaged across providers it does not fit.
+
+### What is unaffected
+
+RTF and the transcription alerts. `asr_rtf` is measured by transcription-service
+itself, and the duty-ratio warning added below is deliberately period-independent —
+neither consults this variable. Only the derived period-utilization series does.
+
+---
+
 ## Unreleased — transcription-service stops burning CPU it never used
 
 Nothing to change in `.env` or `compose.yml`. Pull the new
