@@ -2,7 +2,10 @@
 Defines MetricsRegistry, the in-memory store of transcription-service telemetry
 """
 
-from src.shared.utils.worker_pool import JobExecutionObservation
+from src.shared.utils.worker_pool import (
+    DROPPED_PERIODS_COUNTER,
+    JobExecutionObservation,
+)
 from src.transcription_provider_interface import TranscriptionJobCounter
 from src.webserver.shared.process_identity import (
     ProcessIdentity,
@@ -174,6 +177,20 @@ class MetricsRegistry:
             "previously finalized segment",
         )
 
+        # The one counter here that describes the *scheduler* rather than the
+        # work: periods in which a job never ran, because the pass before it
+        # overran and the pool drops missed periods instead of queueing them.
+        # Worth reporting even for a single session - a lone stream whose
+        # unfinalized buffer grows past what one period can transcribe drops
+        # periods while every other number, RTF included, still looks healthy.
+        # It arrives on the same per-execution counters dict as everything
+        # above, written there by the pool, so it needs no separate transport.
+        self.asr_dropped_periods_total = Counter(
+            "asr_dropped_periods_total",
+            "Job periods skipped because the previous pass overran, "
+            "by provider",
+        )
+
         self._worker_counters = {
             TranscriptionJobCounter.BUFFER_OVERFLOW: self.buffer_overflow_total,
             TranscriptionJobCounter.BUFFER_OVERFLOW_SECONDS: (
@@ -200,6 +217,10 @@ class MetricsRegistry:
             TranscriptionJobCounter.REPEATED_SEGMENT_DETECTED: (
                 self.repeated_segment_detected_total
             ),
+            # Keyed by the pool's own constant, not a TranscriptionJobCounter:
+            # the worker pool knows nothing about transcription and the
+            # scheduler, not a job, is what reports this.
+            DROPPED_PERIODS_COUNTER: self.asr_dropped_periods_total,
         }
 
     def record_decode_drop(self, provider_key: str) -> None:

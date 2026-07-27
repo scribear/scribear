@@ -16,6 +16,7 @@ import {
   statusPollUnavailableRule,
   transcriptionFallingBehindRule,
   transcriptionSaturationRule,
+  transcriptionTailOverrunRule,
   upstreamChurnRule,
   workerDeadRule,
 } from '#src/server/shared/alerts/alert-rules.js';
@@ -121,6 +122,36 @@ function observeDutyRatio(
     metrics.asrDutyRatioSumTotal.inc(labels, meanRtf * jobs, atMs);
     metrics.asrDutyRatioJobsTotal.inc(labels, jobs, atMs);
   }
+}
+
+/**
+ * The measured shape the tail rule exists for: a comfortable median with a wide
+ * spread. 0.24 is the p50 of a real single-session capture (p95 0.653, max
+ * 0.840), so it is below `asrDutyRatio` and below `rtfP95` — neither sibling rule
+ * fires on it, which is what makes the tail rule's band non-empty.
+ *
+ * 120 passes (40 x 3 polls) clears `asrTailMinJobs`, so a test that wants to
+ * exercise the floor must override `jobs`/`polls` itself.
+ */
+const HEALTHY_MEAN_RTF = 0.24;
+const TAIL_PASSES = 120;
+
+/** Declares that the polled service reports the dropped-period counter. */
+function reportsDroppedPeriods(metrics: MetricsRegistry, reports = true): void {
+  metrics.asrDroppedPeriodsSupported.set(
+    { service: 'transcription-service' },
+    reports ? 1 : 0,
+  );
+}
+
+/** Sets one reported RTF quantile gauge, as the poller does. */
+function setRtfQuantile(
+  metrics: MetricsRegistry,
+  quantile: string,
+  value: number,
+  providerKey = 'whisper',
+): void {
+  metrics.asrRtf.set({ ...providerLabels(providerKey), quantile }, value);
 }
 
 describe('alert rules', () => {
@@ -413,6 +444,211 @@ describe('alert rules', () => {
       expect(alerts[0]?.summary).toContain(
         '12.5s of audio already force-finalized',
       );
+    });
+  });
+
+  describe('transcription overrunning its period on the tail (T1, tail)', (it) => {
+    it('fires on the exact dropped-period counter', () => {
+      // Arrange — the median pass is comfortable (0.24, a measured p50) so
+      // neither sibling rule fires, but three periods in the window ran no pass
+      // at all. Nothing else in the stack records that: the pool advances past a
+      // period it overran without erroring or queueing.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: HEALTHY_MEAN_RTF });
+      reportsDroppedPeriods(metrics);
+      metrics.asrDroppedPeriodsTotal.inc(providerLabels(), 3, NOW);
+
+      // Act
+      const alerts = transcriptionTailOverrunRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]?.id).toBe('asr-tail-overrun:whisper');
+      expect(alerts[0]?.severity).toBe(AlertSeverity.WARNING);
+      expect(alerts[0]?.stage).toBe(PipelineStage.TRANSCRIPTION);
+      expect(alerts[0]?.failureModes).toContain('T1');
+      expect(alerts[0]?.summary).toContain(
+        `3 of ${String(TAIL_PASSES + 3)} job periods ran no pass at all`,
+      );
+      expect(alerts[0]?.value).toBeCloseTo(3 / (TAIL_PASSES + 3));
+      // The levers are the buffer and the period, not capacity: one stream's
+      // passes run one at a time, so a second worker shortens nothing.
+      expect(alerts[0]?.likelyCause).toContain('max_buffer_len_sec');
+      expect(alerts[0]?.likelyCause).toContain('job_period_ms');
+      expect(alerts[0]?.likelyCause).toContain('More workers or CPU will not');
+    });
+
+    it('trusts a reported zero over a high p99', () => {
+      // Arrange — the discriminator that makes the fallback safe. This service
+      // reports the counter and reports no drops, so the p99 gauge (which is on
+      // a fixed 1% grid over the far end's own ring) must not be consulted: the
+      // exact count says no period was lost.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: HEALTHY_MEAN_RTF });
+      reportsDroppedPeriods(metrics);
+      setRtfQuantile(metrics, 'p99', 1.4);
+
+      // Act
+      const alerts = transcriptionTailOverrunRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('stays silent on a single dropped period', () => {
+      // Arrange — one lost period in 121 is 0.83%, under the 1% threshold. The
+      // floor and the threshold are chosen together for exactly this: a rule that
+      // pages on one skipped period would fire on a session-onset hiccup.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: HEALTHY_MEAN_RTF });
+      reportsDroppedPeriods(metrics);
+      metrics.asrDroppedPeriodsTotal.inc(providerLabels(), 1, NOW);
+
+      // Act
+      const alerts = transcriptionTailOverrunRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('falls back to the reported p99 when the service does not count drops', () => {
+      // Arrange — a transcription-service predating the counter, which is what
+      // this sidecar polls during a rolling upgrade. p99 >= 1.0 means the worst
+      // 1% of passes took longer than the audio they consumed, i.e. longer than
+      // the period that scheduled them.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: HEALTHY_MEAN_RTF });
+      reportsDroppedPeriods(metrics, false);
+      setRtfQuantile(metrics, 'p99', 1.2);
+
+      // Act
+      const alerts = transcriptionTailOverrunRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]?.summary).toContain('p99 RTF 1.20');
+      // The alert has to admit which signal it fired on: the operator cannot
+      // ask how many periods were lost.
+      expect(alerts[0]?.summary).toContain('does not report dropped periods');
+      expect(alerts[0]?.value).toBeCloseTo(1.2);
+      expect(alerts[0]?.threshold).toBe(1.0);
+    });
+
+    it('stays silent on a healthy p99 when it has no counter to read', () => {
+      // Arrange — the same old service, keeping up. 0.653 is the measured p95 of
+      // a healthy single session, well clear of the realtime line.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: HEALTHY_MEAN_RTF });
+      reportsDroppedPeriods(metrics, false);
+      setRtfQuantile(metrics, 'p99', 0.653);
+
+      // Act
+      const alerts = transcriptionTailOverrunRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('ignores a provider with too few passes to judge a tail', () => {
+      // Arrange — 60 passes dropping 10 periods is a 14% share, but a p99 over 60
+      // samples is barely more than the worst one and the exact share rests on
+      // too little traffic to call sustained. Both signals share the floor.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: HEALTHY_MEAN_RTF, jobs: 20 });
+      reportsDroppedPeriods(metrics);
+      metrics.asrDroppedPeriodsTotal.inc(providerLabels(), 10, NOW);
+      setRtfQuantile(metrics, 'p99', 2.0);
+
+      // Act
+      const alerts = transcriptionTailOverrunRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('does not double-report the event the CRITICAL already owns', () => {
+      // Arrange — p95 RTF at 1.2 is `transcriptionSaturationRule`'s outage. It
+      // implies p99 >= 1.0 and it comes with dropped periods by construction, so
+      // without suppression this event would produce two cards.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: HEALTHY_MEAN_RTF });
+      reportsDroppedPeriods(metrics);
+      metrics.asrDroppedPeriodsTotal.inc(providerLabels(), 30, NOW);
+      setRtfQuantile(metrics, 'p95', 1.2);
+      setRtfQuantile(metrics, 'p99', 1.6);
+
+      // Act
+      const tail = transcriptionTailOverrunRule(context(metrics));
+      const critical = transcriptionSaturationRule(context(metrics));
+
+      // Assert — reported exactly once, by the more urgent rule.
+      expect(tail).toHaveLength(0);
+      expect(critical).toHaveLength(1);
+      expect(critical[0]?.severity).toBe(AlertSeverity.CRITICAL);
+    });
+
+    it('does not double-report the mean-based warning either', () => {
+      // Arrange — a mean of 0.9 is `transcriptionFallingBehindRule`'s band. Same
+      // severity, same provider, same stage and the same three levers, so a
+      // second warning would add prose and no decision. This rule owns only the
+      // band below it: mean healthy, tail overrunning.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: 0.9 });
+      reportsDroppedPeriods(metrics);
+      metrics.asrDroppedPeriodsTotal.inc(providerLabels(), 30, NOW);
+
+      // Act
+      const tail = transcriptionTailOverrunRule(context(metrics));
+      const mean = transcriptionFallingBehindRule(context(metrics));
+
+      // Assert
+      expect(tail).toHaveLength(0);
+      expect(mean).toHaveLength(1);
+    });
+
+    it('names the provider that is dropping periods and leaves the other alone', () => {
+      // Arrange — providers do not share a period budget, and a model that fits
+      // its period must not be implicated by one that does not.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, {
+        meanRtf: HEALTHY_MEAN_RTF,
+        providerKey: 'whisper-turbo',
+      });
+      observeDutyRatio(metrics, {
+        meanRtf: HEALTHY_MEAN_RTF,
+        providerKey: 'whisper-tiny',
+      });
+      reportsDroppedPeriods(metrics);
+      metrics.asrDroppedPeriodsTotal.inc(
+        providerLabels('whisper-turbo'),
+        6,
+        NOW,
+      );
+
+      // Act
+      const alerts = transcriptionTailOverrunRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]?.id).toBe('asr-tail-overrun:whisper-turbo');
+    });
+
+    it('stops firing once the dropped periods have aged out of the window', () => {
+      // Arrange — a share over a rolling window, not a lifetime total: an
+      // incident that has passed must clear on its own.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, {
+        meanRtf: HEALTHY_MEAN_RTF,
+        atMs: NOW - 240_000,
+      });
+      reportsDroppedPeriods(metrics);
+      metrics.asrDroppedPeriodsTotal.inc(providerLabels(), 30, NOW - 240_000);
+
+      // Act
+      const alerts = transcriptionTailOverrunRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
     });
   });
 

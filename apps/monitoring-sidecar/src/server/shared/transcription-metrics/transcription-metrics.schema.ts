@@ -54,27 +54,32 @@ export const TRANSCRIPTION_METRICS_BODY_SCHEMA = Type.Object({
   numWorkers: Type.Number(),
   providerKeys: Type.Array(Type.String()),
   /**
-   * `job_period_ms` per provider key — **the only optional field here, and the
-   * only one transcription-service does not send today.**
+   * `job_period_ms` per provider key. Optional, like
+   * `counters.asrDroppedPeriodsTotal` below and unlike everything else here.
    *
    * Every other field is required precisely so that drift fails loudly (see
    * above), and this one breaks that rule knowingly. It is the denominator of
-   * the derived `scribear_asr_period_utilization` series, which the sidecar
-   * currently has to be *told* through `TRANSCRIPTION_JOB_PERIOD_MS` because the
-   * value lives in transcription-service's `provider_config.json` and is
-   * reported on no surface the sidecar can poll — not here, not on
-   * `GET /providers/health`, not on the Redis fleet plane. Two unrelated files
-   * therefore state the same number, and when they disagree the series is
-   * silently misscaled.
+   * the derived `scribear_asr_period_utilization` series, which the sidecar used
+   * to have to be *told* through `TRANSCRIPTION_JOB_PERIOD_MS` because the value
+   * lives in transcription-service's `provider_config.json` and was reported on
+   * no surface the sidecar can poll — not here, not on `GET /providers/health`,
+   * not on the Redis fleet plane. Two unrelated files therefore stated the same
+   * number, and when they disagreed the series was silently misscaled.
    *
-   * Declaring it optional now means the fix is consumer-ready: the moment
-   * `metrics_controller.py` adds `"providerJobPeriodMs": {"whisper": 500, ...}`
-   * (sourced from each provider's own config, so per-provider variation is
-   * preserved), this poller prefers it over anything configured locally and the
-   * env var can be deleted with no further sidecar change. Optional rather than
-   * required so that landing the two sides in either order never turns a healthy
-   * poll into a `malformed` one — the strictness argument above applies to
-   * fields the service already sends, not to one it is about to gain.
+   * **transcription-service now sends it**, sourced from each provider itself
+   * (`TranscriptionProviderInterface.job_period_ms`) rather than from a `getattr`
+   * on its config, because the field is not universal: `debug`'s period is a
+   * literal in `debug_provider.py`. A provider that cannot state one is omitted
+   * from the map rather than given a placeholder, so the poller's "no period
+   * known, publish nothing" path still means what it says. This poller prefers a
+   * reported period over anything configured locally, so
+   * `TRANSCRIPTION_JOB_PERIOD_MS` is now only a fallback for a service too old to
+   * send this.
+   *
+   * Still optional, not required: it is precisely during the rolling upgrade
+   * where one side is older that the field is missing, and turning that into a
+   * `malformed` poll would take every transcription metric down to enforce a
+   * field the sidecar has a fallback for.
    */
   providerJobPeriodMs: Type.Optional(Type.Record(Type.String(), Type.Number())),
   workers: Type.Array(
@@ -97,6 +102,25 @@ export const TRANSCRIPTION_METRICS_BODY_SCHEMA = Type.Object({
     vadNoSpeechTotal: Type.Array(COUNTER_SERIES),
     noWordsTotal: Type.Array(COUNTER_SERIES),
     decodeDropsTotal: Type.Array(COUNTER_SERIES),
+    /**
+     * Job periods in which a job never ran, because the pass before it overran.
+     *
+     * The exact count of the failure the T1 rules are all circling: the worker
+     * pool neither queues nor errors when a pass exceeds `job_period_ms`, it
+     * advances the job's `period_start_ns` by whole periods until it passes now
+     * (`worker_process.py`), so the missed periods are dropped and the effective
+     * period silently becomes a multiple of the configured one.
+     *
+     * Optional for the same reason as `providerJobPeriodMs`: a
+     * transcription-service predating it does not send it, and during a rolling
+     * upgrade the sidecar polls exactly that service. `transcriptionTailOverrunRule`
+     * falls back to the reported p99 RTF when it is absent — see
+     * {@link MetricsRegistry.asrDroppedPeriodsSupported}, which is how the rule
+     * tells "not reported" from "reported as zero". Making this required instead
+     * would turn a mixed-version deployment's every transcription metric into a
+     * `malformed` poll to enforce a field with a working fallback.
+     */
+    asrDroppedPeriodsTotal: Type.Optional(Type.Array(COUNTER_SERIES)),
   }),
   histograms: Type.Object({
     asrSchedulingDelayMs: Type.Array(HISTOGRAM_SERIES),

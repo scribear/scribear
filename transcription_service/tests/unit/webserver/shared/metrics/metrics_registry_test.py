@@ -2,7 +2,11 @@
 Unit tests for MetricsRegistry
 """
 
-from src.shared.utils.worker_pool import JobExecutionObservation, JobStatistics
+from src.shared.utils.worker_pool import (
+    DROPPED_PERIODS_COUNTER,
+    JobExecutionObservation,
+    JobStatistics,
+)
 from src.transcription_provider_interface import TranscriptionJobCounter
 from src.webserver.shared.metrics import MetricsRegistry
 
@@ -326,6 +330,39 @@ def test_failed_execution_still_reports_its_counters():
 
     # Assert
     assert registry.audio_too_fast_total.get({"provider_key": "whisper"}) == 1
+
+
+def test_dropped_periods_are_accumulated_per_provider():
+    """
+    Test the scheduler's dropped-period count reaches the per-provider total
+
+    It rides the same counters dict as the job's own counters but is written by
+    the worker pool, so this checks the registry does not need to know the
+    difference - and that a provider that dropped nothing stays at zero rather
+    than borrowing another provider's count.
+    """
+    # Arrange
+    registry = MetricsRegistry()
+
+    # Act
+    registry.record_job_execution(
+        make_observation(counters={DROPPED_PERIODS_COUNTER: 2})
+    )
+    registry.record_job_execution(
+        make_observation(counters={DROPPED_PERIODS_COUNTER: 3})
+    )
+    registry.record_job_execution(make_observation(label="lumen_granite"))
+
+    # Assert
+    assert (
+        registry.asr_dropped_periods_total.get({"provider_key": "whisper"}) == 5
+    )
+    assert (
+        registry.asr_dropped_periods_total.get(
+            {"provider_key": "lumen_granite"}
+        )
+        == 0
+    )
 
 
 def test_decode_drops_are_counted_per_provider():

@@ -134,6 +134,13 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
         self.worker_pool = worker_pool
         self.provider_key = provider_key
 
+    @property
+    def job_period_ms(self) -> int | None:
+        # The same field the session passes to register_job, read from the same
+        # config object, so the reported period cannot drift from the scheduled
+        # one.
+        return self.config.job_period_ms
+
     def create_session(
         self,
         session_config: object,

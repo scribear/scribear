@@ -5,6 +5,7 @@ Public exports for WorkerPool
 from .job_context_interface import JobContextInterface
 from .job_interface import JobInterface
 from .job_result import (
+    DROPPED_PERIODS_COUNTER,
     JobException,
     JobExecutionObservation,
     JobObserver,

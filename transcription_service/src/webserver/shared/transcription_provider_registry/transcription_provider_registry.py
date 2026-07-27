@@ -238,6 +238,25 @@ class TranscriptionProviderRegistry:
         """
         return list(self._providers.keys())
 
+    @property
+    def provider_job_period_ms(self) -> dict[str, int]:
+        """
+        Gets the job period each provider schedules with, keyed by provider key
+
+        A provider that cannot state one is **absent from the map** rather than
+        present with a placeholder: the consumer (the monitoring sidecar) uses
+        the presence of a period to decide whether to publish a ratio derived
+        from it, and "no reading" is not the same claim as a guessed one.
+
+        Side effect free, so it is safe to call from a request handler.
+        """
+        periods: dict[str, int] = {}
+        for key, provider in self._providers.items():
+            period_ms = provider.job_period_ms
+            if period_ms is not None:
+                periods[key] = period_ms
+        return periods
+
     def worker_snapshots(self) -> list[WorkerSnapshot]:
         """
         Gets a point-in-time view of every worker's load

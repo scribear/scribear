@@ -96,6 +96,25 @@ const CONFIG_SCHEMA = Type.Object({
    */
   ALERT_ASR_DUTY_RATIO: Type.Number({ minimum: 0, default: 0.45 }),
   ALERT_ASR_DUTY_RATIO_MIN_JOBS: Type.Integer({ minimum: 1, default: 20 }),
+  /**
+   * Share of a provider's job periods that may be dropped — no pass ran in them
+   * at all, because the previous pass overran — over `ALERT_RATE_WINDOW_SEC`
+   * before the T1 tail warning fires.
+   *
+   * **Reasoned, not measured**, unlike `ALERT_ASR_DUTY_RATIO` beside it: it is
+   * set to the 1% the p99 RTF fallback path implies, so the alert means the same
+   * thing whichever signal produced it.
+   */
+  ALERT_ASR_DROPPED_PERIOD_RATIO: Type.Number({ minimum: 0, default: 0.01 }),
+  /**
+   * Minimum passes observed in the window before that share — or the reported
+   * p99 RTF standing in for it — is believed. Higher than
+   * `ALERT_ASR_DUTY_RATIO_MIN_JOBS` because a p99 over 24 samples is just the
+   * single worst pass, and because it is what stops a 1% share firing on one
+   * dropped period. Raising `ALERT_RATE_WINDOW_SEC` is the way to bring a
+   * long-period provider above it.
+   */
+  ALERT_ASR_TAIL_MIN_JOBS: Type.Integer({ minimum: 1, default: 100 }),
   ALERT_PROBE_FAILURE_THRESHOLD: Type.Integer({ minimum: 1, default: 2 }),
   ALERT_AUTH_FAILURE_RATIO: Type.Number({
     minimum: 0,
@@ -274,6 +293,8 @@ export class AppConfig {
       rtfP95: this._env.ALERT_RTF_P95,
       asrDutyRatio: this._env.ALERT_ASR_DUTY_RATIO,
       asrDutyRatioMinJobs: this._env.ALERT_ASR_DUTY_RATIO_MIN_JOBS,
+      asrDroppedPeriodRatio: this._env.ALERT_ASR_DROPPED_PERIOD_RATIO,
+      asrTailMinJobs: this._env.ALERT_ASR_TAIL_MIN_JOBS,
       probeFailureThreshold: this._env.ALERT_PROBE_FAILURE_THRESHOLD,
       authFailureRatio: this._env.ALERT_AUTH_FAILURE_RATIO,
       authFailureMinSamples: this._env.ALERT_AUTH_FAILURE_MIN_SAMPLES,

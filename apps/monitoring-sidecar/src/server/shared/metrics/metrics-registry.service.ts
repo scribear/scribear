@@ -443,6 +443,49 @@ export class MetricsRegistry {
     'Transcription jobs that contributed a real-time-factor observation, by provider.',
   );
 
+  /**
+   * **Job periods in which no pass ran**, per provider, because the pass before
+   * them overran. Exact, and reported by transcription-service rather than
+   * inferred here.
+   *
+   * This is the failure every other T1 signal only implies. When a pass exceeds
+   * `job_period_ms` the worker pool neither queues nor errors: it advances the
+   * job's `period_start_ns` by whole periods until it passes now, so the missed
+   * periods are simply gone and the effective period becomes a multiple of the
+   * configured one. Captions get staler; nothing else moves.
+   *
+   * Note what it is *not* derived from. An RTF threshold cannot stand in for
+   * this, which is the trap it was nearly built as: RTF's denominator is the
+   * audio one pass ingested, and a dropped period leaves more audio for the
+   * next pass, so RTF *falls* as periods are lost. Measured at 1/2/3/5/8
+   * concurrent sessions on one worker, mean RTF went 0.277 -> 0.256 -> 0.229 ->
+   * 0.194 -> 0.139 while the worker went 26% -> 94.5% busy and transcripts per
+   * 1000 chunks collapsed 190 -> 48. Counting the scheduler's own skipped
+   * iterations has no such blind spot.
+   */
+  readonly asrDroppedPeriodsTotal = new Counter(
+    'scribear_asr_dropped_periods_total',
+    'Job periods in which no transcription pass ran because the previous one overran, by provider.',
+  );
+
+  /**
+   * 1 when the polled transcription-service reports
+   * {@link asrDroppedPeriodsTotal}, 0 when it is too old to.
+   *
+   * Needed because "no series" is ambiguous in the other direction: a healthy
+   * service reports an empty array, and a counter that never increments creates
+   * no series here either, so the absence of a dropped-period series means
+   * *either* nothing was dropped or nothing is being counted. Those demand
+   * opposite responses from `transcriptionTailOverrunRule` — trust the zero, or
+   * fall back to the p99 RTF gauge — so the distinction is published explicitly
+   * rather than guessed. Also the honest answer to "why did this alert change
+   * shape mid-upgrade" on a mixed-version fleet.
+   */
+  readonly asrDroppedPeriodsSupported = new Gauge(
+    'scribear_asr_dropped_periods_supported',
+    'Whether the polled transcription-service reports the dropped-period counter (1) or the sidecar must fall back to the reported p99 RTF (0).',
+  );
+
   /** Jobs whose buffer filled and were force-finalized (§3 T2). */
   readonly asrBufferOverflowTotal = new Counter(
     'scribear_asr_buffer_overflow_total',
@@ -612,6 +655,7 @@ export class MetricsRegistry {
       this.asrAudioSecondsTotal,
       this.asrDutyRatioSumTotal,
       this.asrDutyRatioJobsTotal,
+      this.asrDroppedPeriodsTotal,
       this.asrBufferOverflowTotal,
       this.asrBufferOverflowSecondsTotal,
       this.asrAudioTooFastTotal,
@@ -636,6 +680,7 @@ export class MetricsRegistry {
       this.asrRtf,
       this.asrPeriodUtilization,
       this.asrJobPeriodMs,
+      this.asrDroppedPeriodsSupported,
       this.asrWorkers,
       this.asrWorkerUtilization,
       this.asrWorkerAlive,

@@ -87,12 +87,18 @@ const PROVIDER_LABEL = 'provider_key';
  * is now computed from the reported execution quantiles rather than from a log
  * line, so it survives the parser removal.
  *
- * **The one number this poller cannot measure** is that cadence. `job_period_ms`
- * is per-provider config inside transcription-service and is reported on no
- * surface the sidecar polls, so the denominator is resolved per provider from a
- * reported value if the service ever sends one and otherwise from
- * `TRANSCRIPTION_JOB_PERIOD_MS` — and where neither exists, the series is not
- * published at all. See {@link _applyPeriodUtilization}.
+ * **The cadence is now reported, not configured.** `job_period_ms` is
+ * per-provider config inside transcription-service, and for a long time it was on
+ * no surface the sidecar could poll, so it had to be restated in
+ * `TRANSCRIPTION_JOB_PERIOD_MS` and the two agreed only by luck. The service
+ * sends `providerJobPeriodMs` now; the denominator is resolved per provider from
+ * that in preference to local config, falls back to the env var for a service too
+ * old to send it, and where neither exists the series is not published at all.
+ * See {@link _applyPeriodUtilization}.
+ *
+ * The same reported-then-configured shape applies to the dropped-period counter,
+ * for which the fallback is not another config value but a different metric
+ * entirely — see `transcriptionTailOverrunRule`.
  */
 export class TranscriptionMetricsPollerService extends AbsoluteStatusPoller<TranscriptionMetricsBody> {
   private readonly _configuredPeriods: ReadonlyMap<string, number>;
@@ -194,6 +200,24 @@ export class TranscriptionMetricsPollerService extends AbsoluteStatusPoller<Tran
       this._metrics.asrBufferOverflowSecondsTotal,
     );
     this._foldProvider(c.audioTooFastTotal, this._metrics.asrAudioTooFastTotal);
+
+    // Dropped periods, and whether they are being reported at all.
+    //
+    // The support gauge is not redundant with the counter. A healthy service
+    // sends an empty array, and `_advance` writes nothing for a zero delta, so
+    // "no dropped-period series" means either "nothing was dropped" or "nothing
+    // is counting" — and `transcriptionTailOverrunRule` must do opposite things
+    // in those two cases (trust the zero, or fall back to the p99 RTF gauge).
+    // Same "prefer reported, fall back, and publish which" pattern as
+    // `asrJobPeriodMs` above.
+    const droppedPeriods = c.asrDroppedPeriodsTotal;
+    this._metrics.asrDroppedPeriodsSupported.set(
+      { service },
+      droppedPeriods === undefined ? 0 : 1,
+    );
+    if (droppedPeriods !== undefined) {
+      this._foldProvider(droppedPeriods, this._metrics.asrDroppedPeriodsTotal);
+    }
 
     // `reason` is the exception class name, a closed set by construction.
     for (const series of c.jobsFailedTotal) {

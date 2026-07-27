@@ -95,3 +95,23 @@ def test_create_session_forwards_session_and_room_uid_to_register_job(
     _, kwargs = mock_worker_pool.register_job.call_args
     assert kwargs["session_uid"] == "session-1"
     assert kwargs["room_uid"] == "room-1"
+
+
+def test_reported_job_period_is_the_one_register_job_receives(
+    provider: LumenGraniteProvider,
+    mock_logger: MagicMock,
+    mock_worker_pool: MagicMock,
+):
+    """
+    The period reported on /metrics/status is the period actually scheduled
+
+    This provider's default (3000ms) differs from whisper's, which is the whole
+    reason the reported value is per provider rather than one number.
+    """
+    # Act
+    provider.create_session("unused_config", None, None, mock_logger)
+
+    # Assert
+    args, _ = mock_worker_pool.register_job.call_args
+    assert provider.job_period_ms == 3000
+    assert args[1] == provider.job_period_ms

@@ -136,6 +136,57 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
       expect(metrics.asrDutyRatioSumTotal.get(providerLabels)).toBe(68);
     });
 
+    it('folds dropped periods and records that they are being reported', async () => {
+      // Arrange — the exact count of periods in which no pass ran. It is the one
+      // counter here that describes the scheduler rather than the work, and the
+      // support gauge is what lets the tail alert tell a reported zero from a
+      // service too old to count at all.
+      const { metrics, poller } = createPoller();
+      service.setBody(
+        metricsBody({
+          counters: {
+            asrDroppedPeriodsTotal: [{ labels: WHISPER, value: 12 }],
+          },
+        }),
+      );
+      await poller.pollOnce();
+
+      // Act
+      service.setBody(
+        metricsBody({
+          counters: {
+            asrDroppedPeriodsTotal: [{ labels: WHISPER, value: 19 }],
+          },
+        }),
+      );
+      await poller.pollOnce();
+
+      // Assert
+      expect(metrics.asrDroppedPeriodsTotal.get(providerLabels)).toBe(19);
+      expect(metrics.asrDroppedPeriodsSupported.get({ service: SERVICE })).toBe(
+        1,
+      );
+    });
+
+    it('reports no dropped-period support for a service too old to send it', async () => {
+      // Arrange — the rolling-upgrade case, and the reason the field is optional:
+      // an older transcription-service must still produce a healthy poll. A
+      // healthy *new* service sends an empty array, which creates no series here
+      // either, so the gauge is the only thing that separates the two.
+      const { metrics, poller } = createPoller();
+      service.setBody(metricsBody());
+
+      // Act
+      const result = await poller.pollOnce();
+
+      // Assert
+      expect(result.ok).toBe(true);
+      expect(metrics.asrDroppedPeriodsSupported.get({ service: SERVICE })).toBe(
+        0,
+      );
+      expect(metrics.asrDroppedPeriodsTotal.entries()).toHaveLength(0);
+    });
+
     it('maps the two no-speech counters onto one kind-labelled series', async () => {
       // Arrange — the retired log parser produced this exact shape, so no
       // downstream rule had to change when the source did.
