@@ -35,6 +35,16 @@ def _histogram_series(histogram: Histogram) -> list[dict[str, Any]]:
     detail of how exact percentiles are computed, and a response carrying
     thousands of them per series would be unusable.
 
+    A series that has been observed but whose retention window has since
+    emptied is still emitted, carrying `sampleCount` 0, zeroed percentiles and
+    its lifetime `count`/`sum`. That is the shape the sidecar's poller expects:
+    zero sample count is how it learns the quantile gauges are stale and must be
+    removed, while the lifetime totals it differences keep flowing. Omitting the
+    series instead would also work for the gauges, but would silently cost the
+    poller the totals for that interval. `None` is therefore only returned for a
+    series that has never been observed at all, which `series_labels()` cannot
+    produce - the guard below is kept as a contract check, not as a live path.
+
     Args:
         histogram   - Histogram to serialize
 
@@ -102,6 +112,18 @@ class MetricsController:
             # process - so it is worth reporting even when it is boring.
             "numWorkers": self._providers.num_workers,
             "providerKeys": self._providers.provider_keys,
+            # The cadence each provider schedules its job at. Reported because
+            # it was the one input the monitoring sidecar could not obtain from
+            # anywhere and therefore had to be told, by hand, in a second file:
+            # `job_period_ms` lives in this service's provider_config.json, so
+            # the two statements agreed only by coincidence and a mismatch
+            # silently misscaled the sidecar's period-utilization series. Each
+            # value comes from the provider itself rather than from a
+            # `getattr` on its config, because the config field is not
+            # universal - `debug`'s period is a literal in debug_provider.py -
+            # and a provider that cannot state one honestly is omitted rather
+            # than guessed at.
+            "providerJobPeriodMs": self._providers.provider_job_period_ms,
             "workers": [
                 serialize_worker(snapshot)
                 for snapshot in self._providers.worker_snapshots()
@@ -129,6 +151,15 @@ class MetricsController:
                     self._metrics.vad_no_speech_total
                 ),
                 "noWordsTotal": _counter_series(self._metrics.no_words_total),
+                # Periods the worker pool skipped because the previous pass
+                # overran. The only counter here that reports a *scheduling*
+                # loss rather than something a job measured, and the only
+                # direct evidence of the failure that keeps every other number
+                # green: RTF falls as periods are dropped, because each
+                # surviving pass ingests more audio.
+                "asrDroppedPeriodsTotal": _counter_series(
+                    self._metrics.asr_dropped_periods_total
+                ),
                 # The one counter here that is incremented in the FastAPI
                 # process rather than a worker: a frame that fails to decode
                 # never reaches a job.

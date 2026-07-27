@@ -93,6 +93,31 @@ class TranscriptionProviderInterface(ABC):
     _active_sessions: int = 0
 
     @property
+    def job_period_ms(self) -> int | None:
+        """
+        Gets the period this provider registers its jobs with, if it can state
+        one
+
+        Reported on `/metrics/status` so the monitoring sidecar stops having to
+        be told the same number in its own environment - the value lives in
+        this service's provider_config.json, and while it was stated in two
+        files by two people the sidecar's period-utilization series was
+        silently misscaled whenever they disagreed.
+
+        Concrete and defaulting to None rather than abstract, for the same
+        reason as `describe_health` above: a provider added later must not fail
+        to construct because it did not answer a telemetry question. None means
+        "no period to state", which the sidecar treats as no reading at all
+        rather than substituting a default - a plausible-looking utilization
+        derived from the wrong period is a number an operator will act on.
+
+        An override must return the value it actually passes to `register_job`,
+        not a re-derivation of it. There is no way to enforce that here, so
+        implementations state the period once and read it in both places.
+        """
+        return None
+
+    @property
     def active_sessions(self) -> int:
         """
         Gets the number of sessions currently open against this provider

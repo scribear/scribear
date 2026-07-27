@@ -17,6 +17,13 @@ from .debug_session_config import (
     debug_session_config_adapter,
 )
 
+# Job period for this provider. Unlike every other provider this is not
+# configurable - there is no debug provider config - so it is stated here once
+# and read both by register_job below and by `job_period_ms`, which reports it
+# to the monitoring sidecar. Two literals would let the reported period drift
+# from the scheduled one, which is exactly the bug reporting it is meant to end.
+DEBUG_JOB_PERIOD_MS = 1000
+
 
 class DebugProvider(TranscriptionProviderInterface):
     """
@@ -46,7 +53,7 @@ class DebugProvider(TranscriptionProviderInterface):
 
             self._job = provider.worker_pool.register_job(
                 (),
-                1000,
+                DEBUG_JOB_PERIOD_MS,
                 DebugProviderJob(self._config),
                 provider.provider_key,
                 session_uid=self.session_uid,
@@ -122,6 +129,10 @@ class DebugProvider(TranscriptionProviderInterface):
         self._log = logger
         self.worker_pool = worker_pool
         self.provider_key = provider_key
+
+    @property
+    def job_period_ms(self) -> int | None:
+        return DEBUG_JOB_PERIOD_MS
 
     def create_session(
         self,

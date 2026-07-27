@@ -2,6 +2,7 @@ import {
   CanaryOutcome,
   type CanaryRunResult,
 } from '#src/server/shared/canary/canary-types.js';
+import type { Labels } from '#src/server/shared/metrics/metric-types.js';
 import type { MetricsRegistry } from '#src/server/shared/metrics/metrics-registry.service.js';
 import type { ProbeStatus } from '#src/server/shared/probes/probe-poller.service.js';
 
@@ -74,6 +75,34 @@ export interface AlertThresholds {
   bufferOverflowCount: number;
   /** p95 real-time factor at or above which T1 fires (1.0 = realtime). */
   rtfP95: number;
+  /**
+   * Mean real-time factor over `rateWindowMs` — the duty ratio — at or above
+   * which the T1 early warning fires. Below {@link rtfP95} on purpose: it warns
+   * while the provider is still keeping up, where the p95 critical is the outage.
+   */
+  asrDutyRatio: number;
+  /** Minimum RTF observations in the window before that mean is trusted. */
+  asrDutyRatioMinJobs: number;
+  /**
+   * Share of a provider's scheduled job periods that may be dropped over
+   * `rateWindowMs` before the T1 tail warning fires. A dropped period is one in
+   * which no pass ran at all because the previous pass overran it.
+   */
+  asrDroppedPeriodRatio: number;
+  /**
+   * Reported p99 RTF at or above which the tail warning fires **when the
+   * provider does not report dropped periods**. Its own threshold rather than
+   * the 1.0 realtime line, because passes exceeding realtime are routine: see
+   * {@link asrDroppedPeriodRatio} for the measurements.
+   */
+  asrTailP99Rtf: number;
+  /**
+   * Minimum RTF observations in the window before that share — or the reported
+   * p99 RTF standing in for it — is trusted. Higher than
+   * {@link asrDutyRatioMinJobs} because a p99 is only a p99 given enough
+   * samples; see {@link transcriptionTailOverrunRule}.
+   */
+  asrTailMinJobs: number;
   /** Consecutive failed polls before a probe is called down. */
   probeFailureThreshold: number;
   /** Fraction of WS closes that are auth rejections before S2 fires. */
@@ -99,7 +128,115 @@ export const DEFAULT_THRESHOLDS: AlertThresholds = {
   rateWindowMs: 120_000,
   decodeDropCount: 10,
   bufferOverflowCount: 5,
-  rtfP95: 1.0,
+  // 2.0, raised from the 1.0 realtime line after live verification showed 1.0
+  // firing this CRITICAL on a **healthy** single session. Measured on an RTX
+  // 5070 Ti (whisper `turbo`, 500 ms period, 30 s buffer): healthy p95 RTF
+  // 0.96-1.28 across runs, p99 2.17, while captions arrived normally and the
+  // service dropped ~11% of its periods absorbing the long-buffer tail.
+  //
+  // 1.0 looked principled - a pass at RTF 1.0 took longer than the period that
+  // scheduled it - and that is exactly why it misled: passes exceeding realtime
+  // are routine here, because cost tracks the unfinalized buffer and a full 30 s
+  // buffer costs ~680 ms against a 500 ms period. "The worst 5% of passes
+  // overran" is this design working, not an outage.
+  //
+  // 2.0 clears the worst healthy observation by 1.56x. It is a stopgap: the exact
+  // signal is now `asr_dropped_periods_total`, and re-keying this CRITICAL onto a
+  // high drop share (measured: 11% healthy, 26% at 3 sessions, 66% at 6) would
+  // beat any p95 bar. That is a bigger change than a threshold and is recorded in
+  // NEXTSTEPS-CPU-Whisper.md instead.
+  rtfP95: 2.0,
+  // 45% of the period budget, set from a measured healthy baseline rather than
+  // guessed. 42 minutes of `npm run asr:load` against a live RTX 5070 Ti stack
+  // (whisper `turbo`, cuda, 500 ms period, 30 s buffer, num_workers 1) put
+  // healthy single-session operation at **0.28** on the speech-sparse fixture
+  // and **0.33** on a speech-dense one, and the worst of 388 rolling 120 s
+  // windows anywhere in that capture at **0.355**. So 0.45 clears the measured
+  // worst by 27% with zero false alarms, and also clears the noisiest 30 s
+  // transient seen (0.440, a session-onset ramp) in case the window is ever
+  // shortened.
+  //
+  // The first value here was 0.8, which the same capture showed is not an early
+  // warning at all: at run A's 0.526 s of audio per job it needs mean execution
+  // to reach 421 ms against the measured 144 ms — a 2.9x per-pass regression, by
+  // which point the provider is at 80% of realtime and this is the outage rather
+  // than the hour before it. 0.45 catches ~1.6x. The windowed mean is a very
+  // low-noise statistic (sd <= 0.012 within every run), so tightening the
+  // threshold costs nothing in flapping and does not change detection latency,
+  // which is the 120 s window either way. 0.5 is the conservative pick for
+  // workloads denser than the fixtures; below 0.4 the margin over measured
+  // healthy operation is too thin.
+  //
+  // **This default is GPU-calibrated and a CPU deployment must raise it.**
+  // Measured healthy, keeping-up CPU configurations: `base`/4 threads 0.173,
+  // `small`/8 0.319, and **`small`/4 - what the CPU template ships - 0.471**,
+  // with speech-dense audio pushing `base` to 0.540 and `small`/8 to 0.745. So
+  // the shipped CPU template trips this rule in normal working operation. The
+  // rule is not wrong; one threshold cannot serve hardware an order of magnitude
+  // apart. The wiki's "Transcription on CPU-Only Hardware" page carries the
+  // re-baselining override.
+  asrDutyRatio: 0.45,
+  // ~10 s of a single stream at a 500 ms period, and at least a couple of poll
+  // cycles. Low enough that any real load clears it by two orders of magnitude
+  // (a 120 s window is ~240 observations per stream), high enough that a
+  // provider which has served a handful of jobs cannot produce an alert.
+  asrDutyRatioMinJobs: 20,
+  // 25% of scheduled periods dropped, **measured**. This started at 1% on the
+  // reasoning that a dropped period is a lost caption update rather than a
+  // tolerance, so a healthy stack should drop none. Live verification demolished
+  // that premise: dropping periods is how this provider self-throttles, not a
+  // fault.
+  //
+  // Measured on an RTX 5070 Ti (whisper `turbo`, cuda, 500 ms period, 30 s
+  // buffer, num_workers 1), share of scheduled periods that ran no pass:
+  //
+  //   1 session   11.3%   (212 passes, 27 dropped) — captions perfectly fine
+  //   3 sessions  26.4%   (395 passes, 142 dropped)
+  //   6 sessions  66.3%   (353 passes, 695 dropped)
+  //
+  // The reason a *healthy* session drops periods at all: cost tracks the
+  // unfinalized buffer, and a full 30 s buffer costs ~680 ms against the 500 ms
+  // period, so the long-buffer tail overruns by design and the pool absorbs it
+  // by skipping. 1% would have fired continuously on a stack with nothing wrong.
+  //
+  // 25% is 2.2x the measured healthy single-session share and sits at the
+  // 3-session point, where transcripts per 1000 chunks had already fallen ~19%.
+  // A denser workload raises the healthy floor (a speech-dense fixture measured
+  // 18% higher per-pass cost), so a deployment whose single-session share exceeds
+  // ~15% should raise this rather than tolerate the noise. **This is the metric
+  // to trust for saturation** — unlike mean RTF, it rose monotonically through
+  // the same sweep where the mean fell.
+  asrDroppedPeriodRatio: 0.25,
+  // 3.0, from the same capture: a healthy single session measured p99 RTF 2.17
+  // while dropping 11% of periods and captioning correctly. The fallback was 1.0
+  // — the realtime line — which is the *definition* of an overrunning pass and
+  // therefore looked principled, but a p99 at 1.0 only says the worst 1% of
+  // passes overran, which is routine here. 3.0 clears the one healthy
+  // observation by 1.4x.
+  //
+  // **Thinner evidence than the ratio above**: one healthy p99, and no p99 from a
+  // degraded provider, because the counter path made that measurement
+  // unnecessary for the primary signal. This is the fallback for a
+  // transcription-service too old to report drops, so it governs a shrinking set
+  // of deployments; prefer upgrading the service to tuning this.
+  asrTailP99Rtf: 3.0,
+  // 100 observations, five times `asrDutyRatioMinJobs`, for two reasons that
+  // land on the same number.
+  //
+  // A reported p99 is only a percentile given samples: at 100 it is the
+  // second-worst pass, at 24 (a 120 s window at lumen_granite's 3000 ms period)
+  // it *is* the single worst pass, and a rule on that flaps on one slow
+  // inference. And on the counter path 100 is what stops a 1% threshold firing
+  // on a single dropped period: at 100 passes one drop is 0.99% and does not
+  // fire, two do.
+  //
+  // The cost is explicit: a provider whose period is long enough that
+  // `rateWindowMs` holds fewer than this many passes gets no tail alert at all.
+  // At the default 120 s window that is any period above ~1.2 s, which includes
+  // lumen_granite. Widen ALERT_RATE_WINDOW_SEC for such a deployment rather than
+  // lowering this — a floor below ~100 makes the p99 path meaningless, and the
+  // two paths must stay comparable.
+  asrTailMinJobs: 100,
   probeFailureThreshold: 2,
   authFailureRatio: 0.5,
   authFailureMinSamples: 5,
@@ -235,6 +372,363 @@ export const transcriptionSaturationRule: AlertRule = (ctx) => {
   }
   return alerts;
 };
+
+/**
+ * §3 T1, early — the provider is spending most of its period budget on every
+ * pass, which is how falling behind starts and is entirely silent.
+ *
+ * {@link transcriptionSaturationRule} above is the outage: p95 RTF at or past
+ * the 1.0 realtime line. This is the hour before it, and it exists because
+ * nothing else in the stack notices. When a job overruns `job_period_ms` the
+ * worker pool does not queue or error — `worker_process.py` advances the job's
+ * `period_start_ns` by whole periods in a loop until it passes now, so missed
+ * periods are simply *dropped*. The effective period becomes a multiple of the
+ * configured one; captions get staler while transcript counts, health checks
+ * and every error counter stay clean. Measured on an RTX 5070 Ti with whisper
+ * `turbo`, a full 30 s buffer costs ~680 ms against a 500 ms period — 1.36x
+ * budget, invisible everywhere.
+ *
+ * **A mean over the alert window, not the reported p95.** The p95 was the
+ * obvious candidate and is wrong twice over for a sub-1.0 tripwire. Per-job cost
+ * tracks the length of the *unfinalized* buffer, which grows between
+ * finalizations and is re-transcribed in full each period, so in healthy
+ * operation the worst few percent of jobs sit several times above the typical
+ * one: a p95 pinned at 0.8 would fire on a provider whose real duty cycle is
+ * 0.3. (A second reason applied when this rule was written: the reported p95 came
+ * from a ring with no time-based expiry, so a gauge-only rule could never clear
+ * after a heavy session ended. That ring now expires by age, so the staleness
+ * argument no longer holds — the burstiness one above is the reason this rule
+ * uses a mean.) The windowed mean has neither problem, and it makes
+ * "sustained" structural rather
+ * than bolted on — it is an average over `rateWindowMs` (120 s ≈ 240 job
+ * periods), which no single spiky period can move. There is no cross-poll
+ * hysteresis mechanism in this subsystem to reuse, and this rule does not need
+ * one.
+ *
+ * `asrDutyRatioJobsTotal` in the window doubles as the floor, the same
+ * minimum-samples guard {@link authFailureRule} and {@link clockSkewRule} use:
+ * under it the mean is a handful of jobs, and zero means the provider is idle
+ * rather than healthy.
+ *
+ * **What this rule cannot see: concurrency saturation of the shared worker.**
+ * Do not read a quiet duty ratio as "transcription is fine". RTF's denominator
+ * is the audio ingested *by that job*, and an overrun period is dropped whole,
+ * so as sessions pile onto one worker the audio each pass swallows grows while
+ * per-pass cost grows sublinearly (fixed model overhead amortises over a longer
+ * buffer). Duty ratio therefore *falls* as the service saturates. Measured on a
+ * live stack at 1/2/3/5/8 concurrent sessions: mean RTF 0.277 -> 0.256 -> 0.229
+ * -> 0.194 -> 0.139 while the worker went 26% -> 94.5% busy and transcripts per
+ * 1000 chunks collapsed 190 -> 48. At 8 sessions captions were badly behind and
+ * this rule was not merely silent, it was moving *further* from firing. The
+ * algebra: worker busy ~= N x mean RTF, so a shared worker saturates at
+ * RTF = 1/N — 1.0 at one session, 0.125 at eight.
+ *
+ * So this rule covers the *per-pass cost regression* mechanism (a slower model, a
+ * CPU fallback, buffers that stop shortening), where one session's RTF rises
+ * directly and RTF is the right metric. The saturation mechanism needs a metric
+ * with the right slope, and {@link transcriptionTailOverrunRule} below now
+ * supplies one: dropped periods are counted, not inferred from RTF, so they rise
+ * with concurrency instead of falling with it. Note the handoff runs in this
+ * direction — a provider whose duty ratio *falls* out of this rule's band while
+ * dropping periods lands there rather than in silence. Still unwatched by any
+ * rule: the worker busy fraction itself, `asrExecutionMs.sum` over elapsed time,
+ * which measured monotonically upward (26/50/66/88/94.5%) through exactly that
+ * sweep and is the one signal that attributes saturation to the pool rather than
+ * to a provider.
+ *
+ * **`buffer_overflow_seconds` is corroboration in the message, not a
+ * condition.** It has its own rule already ({@link bufferOverflowRule}, T2),
+ * and it is a *consequence* — audio force-finalized because the buffer hit
+ * `max_buffer_len_sec`. Requiring it would blind this rule to the common case:
+ * VAD gating and finalization usually keep the buffer well short of the cap, so
+ * a provider can burn its entire period budget and overflow nothing. Reporting
+ * it when it is non-zero is still worth it, because the two travel together and
+ * it tells the operator whether audio is already being lost.
+ */
+export const transcriptionFallingBehindRule: AlertRule = (ctx) => {
+  const window = ctx.thresholds.rateWindowMs;
+  const windowSec = String(Math.round(window / 1000));
+  const alerts: Alert[] = [];
+
+  // Series are enumerated from the counter rather than from a fixed label name,
+  // as `upstreamChurnRule` does: `{service, providerKey}` is what the poller
+  // writes, and matching on whatever a series carries keeps the rule correct if
+  // a second transcription service is ever polled.
+  for (const { labels } of ctx.metrics.asrDutyRatioJobsTotal.entries()) {
+    const jobs = ctx.metrics.asrDutyRatioJobsTotal.windowCount(
+      labels,
+      window,
+      ctx.nowMs,
+    );
+    if (jobs < ctx.thresholds.asrDutyRatioMinJobs) continue;
+
+    const ratio =
+      ctx.metrics.asrDutyRatioSumTotal.windowCount(labels, window, ctx.nowMs) /
+      jobs;
+    if (ratio < ctx.thresholds.asrDutyRatio) continue;
+
+    // Same `{service, providerKey}` label set, so this matches the overflow
+    // series for exactly this provider.
+    const overflowSeconds =
+      ctx.metrics.asrBufferOverflowSecondsTotal.windowCount(
+        labels,
+        window,
+        ctx.nowMs,
+      );
+    const overflowNote =
+      overflowSeconds > 0
+        ? `; ${overflowSeconds.toFixed(1)}s of audio already force-finalized`
+        : '';
+
+    const providerKey = labels['providerKey'] ?? 'unknown';
+    alerts.push({
+      id: `asr-falling-behind:${providerKey}`,
+      failureModes: ['T1'],
+      // A warning, not critical: captions are still arriving. Escalating at 1.0
+      // would double-report the event `transcriptionSaturationRule` already
+      // owns at that line.
+      severity: AlertSeverity.WARNING,
+      stage: PipelineStage.TRANSCRIPTION,
+      summary: `Transcription for ${providerKey} is using ${String(Math.round(ratio * 100))}% of its realtime budget (mean RTF ${ratio.toFixed(2)} over ${windowSec}s, threshold ${ctx.thresholds.asrDutyRatio.toFixed(2)}, ${String(Math.round(jobs))} jobs)${overflowNote}.`,
+      likelyCause: `${providerKey} cannot comfortably keep up: each pass costs ${ratio.toFixed(2)}s of compute per second of audio it ingests, and a period the job overruns is dropped rather than queued — so the only symptom is captions falling further behind while every counter and probe stays green. The levers are provider config, not capacity: raise job_period_ms (fewer, larger passes), lower max_buffer_len_sec (each pass re-transcribes the whole unfinalized buffer, so cost tracks its length), or run a smaller model. Adding workers or CPU will not help — one stream is one job, and its passes run one at a time.`,
+      value: ratio,
+      threshold: ctx.thresholds.asrDutyRatio,
+    });
+  }
+  return alerts;
+};
+
+/**
+ * §3 T1, the tail — a provider whose *typical* pass is comfortable but whose
+ * expensive passes overrun their period, so periods are being dropped while
+ * every windowed average still looks fine.
+ *
+ * This is the band between the two rules above, and it is a real place to be
+ * rather than a theoretical gap. Per-pass cost tracks the length of the
+ * unfinalized buffer, which grows between finalizations and is re-transcribed in
+ * full every period, so a healthy provider's distribution is wide by
+ * construction: measured sub-job spread on a single session was p50 0.235 / p95
+ * 0.653 / max 0.840, and a full 30 s buffer costs ~680 ms against the CUDA
+ * config's 500 ms period. A provider can therefore sit at a 0.24 median — nowhere
+ * near {@link transcriptionFallingBehindRule}'s 0.45 mean, let alone
+ * {@link transcriptionSaturationRule}'s p95 1.0 — and still drop a period every
+ * time its buffer gets long.
+ *
+ * **Two signals, preferred in order, because one of them is exact.**
+ *
+ * 1. `asrDroppedPeriodsTotal` — the count of periods in which no pass ran,
+ *    reported by transcription-service, which is the only thing that can see it
+ *    (the worker pool advances `period_start_ns` past the periods it missed; no
+ *    error, no queue, no log). Expressed as a share of scheduled periods —
+ *    `drops / (drops + passes)` — rather than a raw rate, so the threshold does
+ *    not have to be restated per `job_period_ms`, and so the first poll after a
+ *    sidecar restart (which folds a service's whole lifetime total as one delta)
+ *    reads as a lifetime average rather than as a window's worth of drops.
+ * 2. `asrRtf{quantile=p99} >= 1.0` — the fallback, and not a hypothetical one:
+ *    during a rolling upgrade this sidecar polls a transcription-service that
+ *    predates the counter, and the p99 gauge has been on the wire since B1.2.
+ *    Same prefer-reported-then-fall-back shape the per-provider job-period work
+ *    in this file established, except that the fallback here is a different
+ *    metric rather than a configured value. It is strictly worse — a percentile
+ *    pinned to a fixed 1% grid,
+ *    computed over the far end's own ring, telling you nothing about how far past
+ *    the line those passes went — which is why it is second and why
+ *    `asrDroppedPeriodsSupported` exists to tell "not reported" from "reported
+ *    zero". Without that gauge a healthy new service (empty counter array, no
+ *    series) would be indistinguishable from an old one and would silently fall
+ *    back.
+ *
+ * **Why not an RTF *threshold* counter, which was the obvious build.** Counting
+ * observations where `asr_rtf >= 1.0` inherits the exact blind spot this exists
+ * to close. RTF's denominator is the audio a pass ingested, and a dropped period
+ * leaves that audio for the next pass, so RTF falls as drops accumulate: measured
+ * at 1/2/3/5/8 concurrent sessions on one worker, mean RTF went 0.277 -> 0.256 ->
+ * 0.229 -> 0.194 -> 0.139 while the worker went 26% -> 94.5% busy and transcripts
+ * per 1000 chunks collapsed 190 -> 48. At eight sessions periods were certainly
+ * being dropped and RTF read 0.139. The scheduler's own skipped iterations have no
+ * such slope, which is why the counter counts those.
+ *
+ * **Suppression, so this cannot be the third alert for one event.**
+ *
+ * - Silent when `asrRtf{p95} >= rtfP95`, which is
+ *   {@link transcriptionSaturationRule}'s CRITICAL. Percentiles are monotone, so
+ *   p95 >= 1.0 implies p99 >= 1.0 and the fallback path would *always* co-fire;
+ *   and on the counter path a p95 at realtime means at least 5% of passes overrun,
+ *   which is the outage the critical already owns and names.
+ * - Silent when {@link transcriptionFallingBehindRule}'s mean is over its
+ *   threshold. This is a judgement, not a mechanical implication: both are
+ *   WARNING, both are `stage: transcription`, both name the same provider, and
+ *   both prescribe the same three levers, so a second card adds a line of prose
+ *   and no decision. This rule owns exactly the band the mean rule does not —
+ *   mean healthy, tail overrunning — which is what it was built for. The
+ *   dropped-period count stays visible as a metric either way, and the mean
+ *   rule's own text already explains that overrun periods are dropped. Note the
+ *   two hand off in the right direction: severe dropping *lowers* mean RTF (see
+ *   above), so a provider that falls out of the mean rule's band lands in this
+ *   one rather than in silence.
+ *
+ * **Floored on sample count**, like {@link authFailureRule} and
+ * {@link clockSkewRule}, and higher than the mean rule's floor: see
+ * {@link AlertThresholds.asrTailMinJobs} for why 100 and what it costs a
+ * long-period provider.
+ *
+ * The levers are deliberately not the critical's. One stream is one job and its
+ * passes run one at a time, so neither workers nor CPU shortens a pass that is
+ * already alone on the GPU. What moves this number is `max_buffer_len_sec` (cost
+ * tracks buffer length, and this rule fires on the long-buffer tail specifically),
+ * `job_period_ms` (a longer period is a bigger budget), and model size.
+ */
+export const transcriptionTailOverrunRule: AlertRule = (ctx) => {
+  const window = ctx.thresholds.rateWindowMs;
+  const windowSec = String(Math.round(window / 1000));
+  const alerts: Alert[] = [];
+
+  // Enumerated from the RTF-observation counter rather than a fixed label name,
+  // as the sibling rules do: it is the one series present on both signal paths,
+  // and it is this rule's sample floor either way.
+  for (const { labels } of ctx.metrics.asrDutyRatioJobsTotal.entries()) {
+    const passes = ctx.metrics.asrDutyRatioJobsTotal.windowCount(
+      labels,
+      window,
+      ctx.nowMs,
+    );
+    if (passes < ctx.thresholds.asrTailMinJobs) continue;
+
+    const providerKey = labels['providerKey'] ?? 'unknown';
+    if (suppressedByColderRule(ctx, labels, providerKey, passes)) continue;
+
+    const reported =
+      (ctx.metrics.asrDroppedPeriodsSupported.get({
+        service: labels['service'] ?? '',
+      }) ?? 0) === 1;
+
+    const evidence = reported
+      ? droppedPeriodEvidence(ctx, labels, passes, windowSec)
+      : tailRtfEvidence(ctx, labels, providerKey, windowSec);
+    if (evidence === null) continue;
+
+    alerts.push({
+      id: `asr-tail-overrun:${providerKey}`,
+      failureModes: ['T1'],
+      // A warning: the median pass is still comfortable and captions are still
+      // arriving, just with periods missing from them. The 1.0 line and its
+      // CRITICAL belong to `transcriptionSaturationRule`, which this defers to.
+      severity: AlertSeverity.WARNING,
+      stage: PipelineStage.TRANSCRIPTION,
+      summary: `Transcription for ${providerKey} is overrunning its period on its slowest passes: ${evidence.summary}`,
+      likelyCause: `${providerKey}'s expensive passes cost more than one job period, and a period a pass overruns is dropped rather than queued — so captions lose updates while the mean stays healthy and no counter or probe goes red. Cost tracks the length of the unfinalized buffer, which is re-transcribed in full every period, so the tail is the long-buffer case: lower max_buffer_len_sec to cap it, raise job_period_ms to widen the budget, or run a smaller model. More workers or CPU will not help — one stream is one job and its passes run one at a time.`,
+      value: evidence.value,
+      threshold: evidence.threshold,
+    });
+  }
+  return alerts;
+};
+
+/** What fired the tail rule, as the alert needs to report it. */
+interface TailEvidence {
+  summary: string;
+  value: number;
+  threshold: number;
+}
+
+/**
+ * True when a rule that already owns this provider's saturation is firing, so
+ * the tail warning would be a duplicate card for one event.
+ *
+ * Both conditions are restated here rather than shared with the rules that own
+ * them, because a rule taking another rule's output as input would make
+ * evaluation order significant — {@link DEFAULT_RULES} is deliberately an
+ * unordered list of independent predicates.
+ */
+function suppressedByColderRule(
+  ctx: AlertContext,
+  labels: Labels,
+  providerKey: string,
+  passes: number,
+): boolean {
+  // p95 >= 1.0 is the CRITICAL. It implies p99 >= 1.0, so without this the
+  // fallback path would double-report every saturation event.
+  const p95 = ctx.metrics.asrRtf.get({
+    service: labels['service'] ?? '',
+    providerKey,
+    quantile: 'p95',
+  });
+  if (p95 !== undefined && p95 >= ctx.thresholds.rtfP95) return true;
+
+  // The mean-based WARNING. `passes` already cleared this rule's floor, which is
+  // the higher of the two, so the mean rule's own floor is necessarily met and
+  // this comparison alone decides whether it is firing.
+  const meanRtf =
+    ctx.metrics.asrDutyRatioSumTotal.windowCount(
+      labels,
+      ctx.thresholds.rateWindowMs,
+      ctx.nowMs,
+    ) / passes;
+  return meanRtf >= ctx.thresholds.asrDutyRatio;
+}
+
+/**
+ * The preferred signal: the share of scheduled periods in which no pass ran.
+ *
+ * `drops + passes` is the denominator because a period either ran or was
+ * dropped, which makes the figure a share rather than a rate and keeps one
+ * threshold valid across every `job_period_ms`. Returns null when the share is
+ * under the threshold, including the common case of no drops at all.
+ */
+function droppedPeriodEvidence(
+  ctx: AlertContext,
+  labels: Labels,
+  passes: number,
+  windowSec: string,
+): TailEvidence | null {
+  const drops = ctx.metrics.asrDroppedPeriodsTotal.windowCount(
+    labels,
+    ctx.thresholds.rateWindowMs,
+    ctx.nowMs,
+  );
+  const share = drops / (drops + passes);
+  if (share < ctx.thresholds.asrDroppedPeriodRatio) return null;
+
+  return {
+    summary: `${String(Math.round(drops))} of ${String(Math.round(drops + passes))} job periods ran no pass at all in ${windowSec}s (${(share * 100).toFixed(1)}%, threshold ${(ctx.thresholds.asrDroppedPeriodRatio * 100).toFixed(1)}%).`,
+    value: share,
+    threshold: ctx.thresholds.asrDroppedPeriodRatio,
+  };
+}
+
+/**
+ * The fallback for a transcription-service too old to count dropped periods:
+ * the reported p99 RTF at or past the realtime line, meaning the worst 1% of
+ * passes took longer than the audio they consumed — and therefore longer than
+ * the period that scheduled them.
+ *
+ * Weaker than the counter in three ways worth keeping in mind while reading an
+ * alert that fired on it: the 1% grid is fixed, so it cannot distinguish 1% of
+ * passes overrunning from 4%; it says nothing about how far past the line those
+ * passes went; and it is computed over transcription-service's own retained ring
+ * rather than over `rateWindowMs`. The sample floor is applied to the windowed
+ * pass count instead, which is a fair proxy only because that ring expires by age
+ * on the same 120 s scale.
+ */
+function tailRtfEvidence(
+  ctx: AlertContext,
+  labels: Labels,
+  providerKey: string,
+  windowSec: string,
+): TailEvidence | null {
+  const p99 = ctx.metrics.asrRtf.get({
+    service: labels['service'] ?? '',
+    providerKey,
+    quantile: 'p99',
+  });
+  if (p99 === undefined || p99 < ctx.thresholds.asrTailP99Rtf) return null;
+
+  return {
+    summary: `p99 RTF ${p99.toFixed(2)} over the last ${windowSec}s of passes (1.0 = the pass took as long as the audio it consumed). This service does not report dropped periods, so the exact count is unavailable.`,
+    value: p99,
+    threshold: ctx.thresholds.asrTailP99Rtf,
+  };
+}
 
 /**
  * §3 T9 — a transcription worker process has died.
@@ -736,6 +1230,8 @@ export const canaryQualityRule: AlertRule = (ctx) => {
 export const DEFAULT_RULES: readonly AlertRule[] = [
   upstreamChurnRule,
   transcriptionSaturationRule,
+  transcriptionFallingBehindRule,
+  transcriptionTailOverrunRule,
   workerDeadRule,
   bufferOverflowRule,
   decodeDropRule,

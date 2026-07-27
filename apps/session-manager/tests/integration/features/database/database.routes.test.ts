@@ -37,12 +37,29 @@ describe('Database schema route', () => {
       expect(res.statusCode).toBe(401);
     });
 
-    // The route declares `authorization` as a required header, so an omitted one
-    // is rejected by schema validation before the hook ever runs.
-    it('rejects a caller with no authorization header at all', async () => {
+    // `authorization` is Type.Optional in the schema, so adminApiKeyHook - not
+    // schema validation - answers this. It used to be a 400 VALIDATION_ERROR,
+    // which gave "no credential" and "wrong credential" different status codes
+    // for the same class of problem.
+    it('returns 401 for a caller with no authorization header at all', async () => {
       const res = await server.fastify.inject({ method: 'GET', url: URL });
 
-      expect(res.statusCode).toBe(400);
+      expect(res.statusCode).toBe(401);
+      expect(res.json<{ code: string }>().code).toBe('INVALID_ADMIN_KEY');
+    });
+
+    // A key shaped like `openssl rand -base64 32` output. The old
+    // `^Bearer [A-Za-z0-9_-]+$` header pattern rejected `+`, `/` and `=` during
+    // validation, so such a key answered 400 even when it was correct.
+    it('returns 401, not 400, for a base64-shaped key', async () => {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: URL,
+        headers: { authorization: 'Bearer abc+def/ghi=' },
+      });
+
+      expect(res.statusCode).toBe(401);
+      expect(res.json<{ code: string }>().code).toBe('INVALID_ADMIN_KEY');
     });
   });
 

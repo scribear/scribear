@@ -294,17 +294,42 @@ export class MetricsRegistry {
   );
 
   /**
-   * Job execution time divided by the configured job period, derived in the
-   * sidecar from {@link asrExecutionMs} and `TRANSCRIPTION_JOB_PERIOD_MS`.
+   * Job execution time divided by that provider's job period, derived in the
+   * sidecar from {@link asrExecutionMs} and the period in {@link asrJobPeriodMs}.
    *
    * Kept as a secondary series now that {@link asrRtf} exists. It saturates at
    * the same 1.0 line but answers a different question — "is a job finishing
    * within the cadence that schedules it?" — and no longer depends on a log
    * line, so it survived the parser retirement.
+   *
+   * **A provider whose period is unknown gets no series here at all**, rather
+   * than one scaled by a default. The ratio is only as good as its denominator,
+   * and a plausible-looking utilization derived from the wrong period is a
+   * number an operator will act on.
    */
   readonly asrPeriodUtilization = new Gauge(
     'scribear_asr_period_utilization',
     'Transcription job execution time divided by the job period (1.0 = saturated), by quantile.',
+  );
+
+  /**
+   * The denominator {@link asrPeriodUtilization} is actually being divided by,
+   * per provider, with `source` naming where that number came from —
+   * `reported` (transcription-service sent it) or `configured`
+   * (`TRANSCRIPTION_JOB_PERIOD_MS` said so).
+   *
+   * Exported because the period is the one input to the dashboard that the
+   * sidecar cannot verify: it lives in transcription-service's
+   * `provider_config.json`, and while `source=configured` the two are stated in
+   * different files by different people. Publishing the denominator beside the
+   * ratio is what turns "this number is silently wrong" into "this number is
+   * visibly derived from 1000 ms, which is not what the provider config says" —
+   * and its *absence* for a provider is the honest signal that no period is
+   * known, matching the missing utilization series exactly.
+   */
+  readonly asrJobPeriodMs = new Gauge(
+    'scribear_asr_job_period_ms',
+    'Job period the period-utilization series is scaled by, per provider, labelled with where that number came from.',
   );
 
   /** Worker processes the deployment is configured to run. */
@@ -370,6 +395,95 @@ export class MetricsRegistry {
   readonly asrAudioSecondsTotal = new Counter(
     'scribear_asr_audio_seconds_total',
     'Seconds of audio ingested by transcription jobs, by provider.',
+  );
+
+  /**
+   * The two halves of a *windowed mean* RTF, per provider: the sum of the
+   * per-job ratios transcription-service observed, and the number of jobs that
+   * contributed one.
+   *
+   * {@link asrRtf} cannot answer "has this been true for a while?", which is
+   * the whole question behind §3 T1. It republishes percentiles the far end
+   * pre-computed over its own 4096-sample ring, and a percentile cannot be
+   * re-averaged, re-windowed or aggregated. Worse, that ring never expires by
+   * time — it only evicts when new samples arrive — so a p95 left behind by a
+   * finished session reads exactly like a live one. These are lifetime totals
+   * instead (`sum` and `count` on the same histogram series, which the endpoint
+   * has always reported and nothing consumed), so differencing them across
+   * polls yields a mean over an arbitrary window, and yields *nothing at all*
+   * while the provider is idle.
+   *
+   * Named `duty_ratio` rather than `asr_rtf_sum` / `asr_rtf_count` on purpose:
+   * those two suffixes belong to the Prometheus summary convention, i.e. to the
+   * `scribear_asr_rtf` family, and these are separate counter families over a
+   * different window. "Duty ratio" is also what the number means in this
+   * deployment — each job period ingests roughly one period of live audio, so
+   * execution seconds per second of ingested audio is the fraction of the
+   * period budget the job spent. The two readings only diverge for a client
+   * pushing audio faster than realtime, which is rejected outright (see
+   * {@link asrAudioTooFastTotal}).
+   */
+  readonly asrDutyRatioSumTotal = new Counter(
+    'scribear_asr_duty_ratio_sum_total',
+    'Sum of per-job real-time factors observed by transcription-service, by provider.',
+  );
+
+  /**
+   * Jobs that contributed a real-time-factor observation;
+   * {@link asrDutyRatioSumTotal}'s denominator.
+   *
+   * Not the same population as {@link asrJobsCompletedTotal}: RTF is recorded
+   * for failed executions too (a job that raised still consumed worker time)
+   * and skipped for a job that ingested no audio (the ratio would divide by
+   * zero). Using the jobs counter as a stand-in denominator would therefore
+   * quietly bias the mean, which is why this exists at all.
+   */
+  readonly asrDutyRatioJobsTotal = new Counter(
+    'scribear_asr_duty_ratio_jobs_total',
+    'Transcription jobs that contributed a real-time-factor observation, by provider.',
+  );
+
+  /**
+   * **Job periods in which no pass ran**, per provider, because the pass before
+   * them overran. Exact, and reported by transcription-service rather than
+   * inferred here.
+   *
+   * This is the failure every other T1 signal only implies. When a pass exceeds
+   * `job_period_ms` the worker pool neither queues nor errors: it advances the
+   * job's `period_start_ns` by whole periods until it passes now, so the missed
+   * periods are simply gone and the effective period becomes a multiple of the
+   * configured one. Captions get staler; nothing else moves.
+   *
+   * Note what it is *not* derived from. An RTF threshold cannot stand in for
+   * this, which is the trap it was nearly built as: RTF's denominator is the
+   * audio one pass ingested, and a dropped period leaves more audio for the
+   * next pass, so RTF *falls* as periods are lost. Measured at 1/2/3/5/8
+   * concurrent sessions on one worker, mean RTF went 0.277 -> 0.256 -> 0.229 ->
+   * 0.194 -> 0.139 while the worker went 26% -> 94.5% busy and transcripts per
+   * 1000 chunks collapsed 190 -> 48. Counting the scheduler's own skipped
+   * iterations has no such blind spot.
+   */
+  readonly asrDroppedPeriodsTotal = new Counter(
+    'scribear_asr_dropped_periods_total',
+    'Job periods in which no transcription pass ran because the previous one overran, by provider.',
+  );
+
+  /**
+   * 1 when the polled transcription-service reports
+   * {@link asrDroppedPeriodsTotal}, 0 when it is too old to.
+   *
+   * Needed because "no series" is ambiguous in the other direction: a healthy
+   * service reports an empty array, and a counter that never increments creates
+   * no series here either, so the absence of a dropped-period series means
+   * *either* nothing was dropped or nothing is being counted. Those demand
+   * opposite responses from `transcriptionTailOverrunRule` — trust the zero, or
+   * fall back to the p99 RTF gauge — so the distinction is published explicitly
+   * rather than guessed. Also the honest answer to "why did this alert change
+   * shape mid-upgrade" on a mixed-version fleet.
+   */
+  readonly asrDroppedPeriodsSupported = new Gauge(
+    'scribear_asr_dropped_periods_supported',
+    'Whether the polled transcription-service reports the dropped-period counter (1) or the sidecar must fall back to the reported p99 RTF (0).',
   );
 
   /** Jobs whose buffer filled and were force-finalized (§3 T2). */
@@ -539,6 +653,9 @@ export class MetricsRegistry {
       this.asrJobsCompletedTotal,
       this.asrJobsFailedTotal,
       this.asrAudioSecondsTotal,
+      this.asrDutyRatioSumTotal,
+      this.asrDutyRatioJobsTotal,
+      this.asrDroppedPeriodsTotal,
       this.asrBufferOverflowTotal,
       this.asrBufferOverflowSecondsTotal,
       this.asrAudioTooFastTotal,
@@ -562,6 +679,8 @@ export class MetricsRegistry {
       this.asrTotalMs,
       this.asrRtf,
       this.asrPeriodUtilization,
+      this.asrJobPeriodMs,
+      this.asrDroppedPeriodsSupported,
       this.asrWorkers,
       this.asrWorkerUtilization,
       this.asrWorkerAlive,

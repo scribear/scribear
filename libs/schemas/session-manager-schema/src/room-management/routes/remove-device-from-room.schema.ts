@@ -20,7 +20,7 @@ const REMOVE_DEVICE_FROM_ROOM_SCHEMA = {
   tags: [ROOM_MANAGEMENT_TAG],
   security: ADMIN_API_KEY_SECURITY,
   headers: Type.Object({
-    authorization: ADMIN_API_KEY_AUTH_HEADER_SCHEMA,
+    authorization: Type.Optional(ADMIN_API_KEY_AUTH_HEADER_SCHEMA),
   }),
   body: Type.Object({
     deviceUid: Type.String({ format: 'uuid' }),

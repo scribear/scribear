@@ -14,7 +14,12 @@ from src.shared.logger import Logger
 
 from .job_context_interface import JobContextInterface
 from .job_interface import JobInterface
-from .job_result import JobException, JobStatistics, JobSuccess
+from .job_result import (
+    DROPPED_PERIODS_COUNTER,
+    JobException,
+    JobStatistics,
+    JobSuccess,
+)
 from .result import (
     InitializeWorkerResult,
     JobExecutionResult,
@@ -48,6 +53,38 @@ def _drain_counters(job: JobInterface[Any, Any, Any, Any], log: Logger):
     except Exception as error:
         log.error(f"Job counter drain failed: {error}")
         return {}
+
+
+def _advance_period(entry: "_JobEntry"):
+    """
+    Moves a job's period start to the next period that has not begun yet, and
+    records any period the job never ran in
+
+    Args:
+        entry   - Job that has just finished executing
+
+    The first iteration of the loop is the ordinary advance to the following
+    period. Every additional iteration is a period this job will never run in:
+    the execution was still going when that period began, and the pool defers to
+    the next whole period rather than queueing the missed one. So the iteration
+    count minus one is exactly the number of dropped periods.
+
+    Counted here because nothing else in the system can see it. No exception is
+    raised, no work is queued, the job's own counters know nothing about it, and
+    per-pass RTF actually *improves* as periods are lost, because each surviving
+    pass ingests more audio - so a threshold on RTF has the same blind spot.
+    """
+    curr_time = time.perf_counter_ns()
+
+    periods_advanced = 0
+    while entry.period_start_ns < curr_time:
+        entry.period_start_ns += entry.period_ms * NS_PER_MS
+        periods_advanced += 1
+
+    # max() rather than a bare subtraction: the loop always runs at least once
+    # for a job the scheduler marked ready, but a zero-iteration advance must
+    # not be recorded as a negative drop.
+    entry.dropped_periods += max(0, periods_advanced - 1)
 
 
 class _JobState(IntEnum):
@@ -99,6 +136,12 @@ class _JobEntry:
     job: JobInterface[Any, Any, Any, Any]
     # Cached child logger to avoid rebuilding every batch
     log: Logger
+    # Periods this job never ran, awaiting a result to ride out on. Owned by
+    # the scheduler and deliberately *not* held in the job's own counter
+    # collector: the job is never told a period was skipped, cannot observe it,
+    # and must not be able to fabricate or suppress the count by overriding
+    # drain_counters. Drained in _execute_job.
+    dropped_periods: int = 0
 
 
 class WorkerProcess:
@@ -295,6 +338,42 @@ class WorkerProcess:
         segments = entry.buffer if entry.buffer else [_BufferSegment(data=[])]
         entry.buffer = []
 
+        # Periods lost to the *previous* execution of this job, reported on the
+        # first result this one emits.
+        #
+        # The seam is the `counters` dict that JobSuccess/JobException already
+        # carry, rather than a new result type: the parent already labels a
+        # JobExecutionResult with the job's provider and folds its counters into
+        # per-provider totals, so a dedicated scheduler-counter message would
+        # need its own label lookup and its own observer to say the same thing.
+        # It is populated here by the worker, not by the job's collector, so
+        # ownership stays where the event happens.
+        #
+        # One execution of lag is the cost, and it is bounded and deliberate.
+        # The count is only known *after* the segment loop (it depends on when
+        # this execution finished), and results are queued per segment as soon
+        # as each batch completes so transcripts reach the client immediately -
+        # buffering them until the end of the execution to attach an exact
+        # count would delay live captions to improve a metric. The parent keeps
+        # monotonic totals, so a one-period shift is invisible in any rate over
+        # a window of seconds. The residue is lost if the job is deregistered
+        # before it next runs, which cannot hide a sustained overrun: that drops
+        # a period on every pass.
+        dropped_periods = entry.dropped_periods
+        entry.dropped_periods = 0
+
+        def _counters() -> dict[str, float]:
+            """
+            Counters for the next result: the job's own, plus any dropped
+            periods still owed. Pool-owned names win, and are reported once.
+            """
+            nonlocal dropped_periods
+            counters = _drain_counters(entry.job, log)
+            if dropped_periods > 0:
+                counters[DROPPED_PERIODS_COUNTER] = dropped_periods
+                dropped_periods = 0
+            return counters
+
         for seg in segments:
             start_execute_time_ns = time.perf_counter_ns()
             try:
@@ -312,10 +391,7 @@ class WorkerProcess:
                 # that - would otherwise never leave the worker.
                 self._result_queue.put(
                     JobExecutionResult(
-                        job_id,
-                        JobException(
-                            error, stats, _drain_counters(entry.job, log)
-                        ),
+                        job_id, JobException(error, stats, _counters())
                     )
                 )
                 entry.state = _JobState.ERRORED
@@ -329,8 +405,7 @@ class WorkerProcess:
             )
             self._result_queue.put(
                 JobExecutionResult(
-                    job_id,
-                    JobSuccess(result, stats, _drain_counters(entry.job, log)),
+                    job_id, JobSuccess(result, stats, _counters())
                 )
             )
 
@@ -357,10 +432,7 @@ class WorkerProcess:
 
         # Update job state
         entry.state = _JobState.SLEEPING
-        curr_time = time.perf_counter_ns()
-
-        while entry.period_start_ns < curr_time:
-            entry.period_start_ns += entry.period_ms * NS_PER_MS
+        _advance_period(entry)
 
     def _scheduler_edf(self):
         """

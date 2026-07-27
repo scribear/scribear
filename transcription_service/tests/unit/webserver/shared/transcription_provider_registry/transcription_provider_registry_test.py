@@ -322,6 +322,25 @@ def test_exposes_worker_load_without_private_access(
     assert provider_registry.provider_keys == ["debug_0", "debug_1"]
 
 
+def test_reports_job_periods_only_for_providers_that_state_one(
+    mock_provider_instances: list[MagicMock],
+    provider_registry: TranscriptionProviderRegistry,
+):
+    """
+    Test a provider with no period to state is omitted rather than defaulted
+
+    The sidecar keys "publish a period-utilization ratio at all" off the
+    presence of a period, so a placeholder here would become a ratio scaled by
+    a guess - which is the bug reporting the period exists to end.
+    """
+    # Arrange
+    mock_provider_instances[0].job_period_ms = 500
+    mock_provider_instances[1].job_period_ms = None
+
+    # Act / Assert
+    assert provider_registry.provider_job_period_ms == {"debug_0": 500}
+
+
 @pytest.mark.parametrize(
     "provider_key, mock_provider_idx", [("debug_0", 0), ("debug_1", 1)]
 )

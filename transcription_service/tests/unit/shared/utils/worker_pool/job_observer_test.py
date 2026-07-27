@@ -10,20 +10,33 @@ import pytest_asyncio
 
 from src.shared.logger import ContextLogger
 from src.shared.utils.worker_pool import (
+    DROPPED_PERIODS_COUNTER,
     ActiveJob,
     JobExecutionObservation,
     WorkerProcessManager,
 )
 
 from .conftest import TEST_ROLLING_UTILIZATION_WINDOW_NS, TEST_WORKER_ID
-from .jobs import CountingJob, ErrorJob, SumJob
+from .jobs import CountingJob, ErrorJob, SlowJob, SumJob
 
 # Spawning a real worker process is slower than the global 1s timeout allows
-pytestmark = pytest.mark.timeout(2)
+pytestmark = pytest.mark.timeout(3)
 
 JOB_PERIOD_MS = 200
 # One period plus slack for the spawn/queue round trip
 SETTLE_SEC = 0.3
+
+NS_PER_MS = 10**6
+
+# A short period with a pass that cannot fit in it, which is the whole failure
+# mode: the pool neither queues nor errors, it advances period_start_ns past the
+# periods it missed. 250ms against 100ms drops two periods per pass on an
+# unloaded host and at least one on any host, which is what the assertions use -
+# the exact count scales with however long the overrun really took.
+OVERRUN_PERIOD_MS = 100
+OVERRUN_WORK_NS = 250 * NS_PER_MS
+# Long enough for three passes at 250ms each, plus spawn slack
+OVERRUN_SETTLE_SEC = 0.9
 
 
 @pytest_asyncio.fixture
@@ -269,3 +282,62 @@ async def test_jobs_reporting_no_counters_are_unaffected(
 
     # Assert
     assert observations[0].counters == {}
+
+
+@pytest.mark.asyncio
+async def test_overrunning_job_reports_the_periods_it_dropped(
+    observed_wpm: tuple[WorkerProcessManager, list[JobExecutionObservation]],
+):
+    """
+    Test a pass that outlasts its period reports the periods that were skipped
+
+    This is the only signal for the failure: the pool advances the job's
+    period_start_ns by whole periods until it passes now, so no error is
+    raised, no work is queued, and RTF *falls* as periods are lost because
+    each surviving pass ingests more audio. SlowJob reports no counters of its
+    own, so anything here came from the scheduler.
+    """
+    # Arrange
+    wpm, observations = observed_wpm
+    wpm.register_job((), OVERRUN_PERIOD_MS, SlowJob(OVERRUN_WORK_NS), "whisper")
+
+    # Act
+    await asyncio.sleep(OVERRUN_SETTLE_SEC)
+
+    # Assert - the first pass cannot have dropped anything: nothing overran
+    # before it.
+    assert len(observations) >= 2
+    assert observations[0].counters == {}
+
+    # Assert - every pass after it reports at least the one period it spent
+    # overrunning, attributed to the provider the job was labelled with.
+    later = observations[1:]
+    assert all(
+        observation.counters.get(DROPPED_PERIODS_COUNTER, 0) >= 1
+        for observation in later
+    )
+    assert all(observation.label == "whisper" for observation in later)
+
+
+@pytest.mark.asyncio
+async def test_job_that_fits_its_period_reports_no_dropped_periods(
+    observed_wpm: tuple[WorkerProcessManager, list[JobExecutionObservation]],
+):
+    """
+    Test the counter stays absent while passes finish inside their period
+
+    The ordinary advance to the next period is one iteration of the same loop
+    the drops are counted from, so an off-by-one here would report a dropped
+    period on every healthy pass and make the whole signal worthless.
+    """
+    # Arrange
+    wpm, observations = observed_wpm
+    wpm.register_job((), JOB_PERIOD_MS, SumJob(), "whisper")
+
+    # Act - several periods, so this covers the steady state and not just the
+    # first pass
+    await asyncio.sleep(JOB_PERIOD_MS * 3 / 1000 + SETTLE_SEC)
+
+    # Assert
+    assert len(observations) >= 3
+    assert all(observation.counters == {} for observation in observations)

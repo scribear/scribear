@@ -100,3 +100,24 @@ def test_create_session_forwards_session_and_room_uid_to_register_job(
     _, kwargs = mock_worker_pool.register_job.call_args
     assert kwargs["session_uid"] == "session-1"
     assert kwargs["room_uid"] == "room-1"
+
+
+def test_reported_job_period_is_the_one_register_job_receives(
+    provider: WhisperStreamingProvider,
+    mock_logger: MagicMock,
+    mock_worker_pool: MagicMock,
+):
+    """
+    The period reported on /metrics/status is the period actually scheduled
+
+    Reporting it exists to stop the sidecar being told the same number in a
+    second file; a re-derivation that could drift from the value passed to
+    register_job would reintroduce exactly that failure one layer down.
+    """
+    # Act
+    provider.create_session("unused_config", None, None, mock_logger)
+
+    # Assert
+    args, _ = mock_worker_pool.register_job.call_args
+    assert provider.job_period_ms == PROVIDER_CONFIG["job_period_ms"]
+    assert args[1] == provider.job_period_ms

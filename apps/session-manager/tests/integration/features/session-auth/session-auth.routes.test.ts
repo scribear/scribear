@@ -1,7 +1,13 @@
 import { describe, expect } from 'vitest';
 
+import createServer from '#src/server/create-server.js';
 import { useDb } from '#tests/utils/use-db.js';
-import { ADMIN_HEADER, useServer } from '#tests/utils/use-server.js';
+import {
+  ADMIN_HEADER,
+  TEST_ADMIN_KEY,
+  buildTestAppConfig,
+  useServer,
+} from '#tests/utils/use-server.js';
 
 const DEVICE_BASE = '/api/session-manager/v1/device-management';
 const ROOM_BASE = '/api/session-manager/v1/room-management';
@@ -258,11 +264,11 @@ describe('Session Auth Routes', () => {
   });
 
   describe('POST /admin-fetch-join-code', (it) => {
-    it('returns 400 when the admin key header is missing entirely', async () => {
-      // Arrange - the header itself is required by the schema, so an absent
-      // header fails validation before adminApiKeyHook ever runs (matches the
-      // convention in schedule-management.routes.test.ts, which only asserts
-      // 401 for a *wrong* key, not a missing one).
+    it('returns 401 when the admin key header is missing entirely', async () => {
+      // Arrange - the header is Type.Optional in the schema precisely so that
+      // adminApiKeyHook, not request validation, decides this. It used to answer
+      // 400 VALIDATION_ERROR, which made "you sent no credential" and "you sent
+      // the wrong credential" two different alerts for one problem.
       const { sessionUid } = await setupActiveSession();
 
       // Act
@@ -273,7 +279,79 @@ describe('Session Auth Routes', () => {
       });
 
       // Assert
-      expect(res.statusCode).toBe(400);
+      expect(res.statusCode).toBe(401);
+      expect(res.json<{ code: string }>().code).toBe('INVALID_ADMIN_KEY');
+    });
+
+    it('returns 401, not 400, for a base64-shaped admin key', async () => {
+      // Arrange - `openssl rand -base64 32` emits `+`, `/` and `=`. The old
+      // `^Bearer [A-Za-z0-9_-]+$` pattern rejected those during validation, so a
+      // deployment whose ADMIN_API_KEY was generated that way got 400
+      // VALIDATION_ERROR even when the key was correct.
+      const { sessionUid } = await setupActiveSession();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/admin-fetch-join-code`,
+        headers: { authorization: 'Bearer abc+def/ghi=' },
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(401);
+      expect(res.json<{ code: string }>().code).toBe('INVALID_ADMIN_KEY');
+    });
+
+    it('returns 401 when the header is not a Bearer credential at all', async () => {
+      // Arrange - no `Bearer ` prefix. AdminAuthService.isValid rejects this on
+      // its own, so dropping the schema pattern did not create a gap; it only
+      // moved the answer from 400 to 401.
+      const { sessionUid } = await setupActiveSession();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/admin-fetch-join-code`,
+        headers: { authorization: TEST_ADMIN_KEY },
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(401);
+      expect(res.json<{ code: string }>().code).toBe('INVALID_ADMIN_KEY');
+    });
+
+    it('returns 200 for a correct admin key containing base64 characters', async () => {
+      // Arrange - the invariant the pattern removal exists for: a *correct* key
+      // authenticates whatever its encoding. Boots a second server whose
+      // ADMIN_API_KEY is base64-shaped, since the shared one is not.
+      const base64Key = Buffer.from(
+        'admin-key-with-base64-shape-0123',
+        'utf8',
+      ).toString('base64');
+      expect(base64Key).toMatch(/[+/=]/);
+      const { fastify } = await createServer(
+        buildTestAppConfig({ adminAuthConfig: { adminApiKey: base64Key } }),
+      );
+      await fastify.ready();
+
+      try {
+        const { sessionUid } = await setupActiveSession();
+
+        // Act
+        const res = await fastify.inject({
+          method: 'POST',
+          url: `${SESSION_AUTH_BASE}/admin-fetch-join-code`,
+          headers: { authorization: `Bearer ${base64Key}` },
+          body: { sessionUid },
+        });
+
+        // Assert
+        expect(res.statusCode).toBe(200);
+      } finally {
+        await fastify.close();
+      }
     });
 
     it('returns 401 when the admin key is wrong', async () => {

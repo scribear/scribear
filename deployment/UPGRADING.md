@@ -12,6 +12,153 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — **breaking:** a CUDA deployment now needs `-f compose.gpu.yml`
+
+**If you run `TRANSCRIPTION_DEVICE=cuda` or `cuda128`, your start command changes:**
+
+```bash
+docker compose -f compose.yml -f compose.gpu.yml up -d
+```
+
+Without the overlay the transcription service starts on the CPU, whatever
+`TRANSCRIPTION_DEVICE` says — the image will be the CUDA one and it will quietly
+run without a device. Nothing crashes; captions just get very slow.
+
+### Why
+
+`compose.yml` reserved `driver: nvidia` unconditionally, with no reference to
+`TRANSCRIPTION_DEVICE` — whose default is `cpu`. So the **documented default
+configuration demanded a GPU**, and on a host without the NVIDIA runtime the
+container was created and then refused to start with `could not select device
+driver "nvidia"`, taking `node-server` down with it. A CPU-only server, or an
+Apple Silicon Mac, could not start the default stack at all.
+
+Compose cannot make a reservation conditional on a variable — there is no way to
+omit a key — so the only question is which way the default points. It now points
+at the configuration that needs no special hardware, because that is where someone
+evaluating the project starts, and because a GPU deployment is already choosing
+`TRANSCRIPTION_DEVICE` and reading this file.
+
+The overlay contains exactly the device reservation and nothing else. It is not a
+"production" overlay.
+
+---
+
+## Unreleased — the ASR job period is now per provider (`compose.yml` v2)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. Deployment
+Check will report `old file` until you do. Nothing breaks if you delay: you lose one
+derived series, described below.
+
+### Why it changed
+
+`TRANSCRIPTION_JOB_PERIOD_MS` was a single number (default `1000`) used as the
+denominator of the derived **period-utilization** series. It cannot be a single
+number. The CUDA templates run `whisper` and `crisper_whisper` at 500ms *alongside*
+`lumen_granite` at 3000ms, so one value was wrong for at least two providers at all
+times — 2× for whisper, 0.33× for lumen_granite — with no error and no warning. The
+only provider it was ever right for was `debug`.
+
+The format is now `provider=ms,provider=ms`:
+
+```
+MONITORING_JOB_PERIOD_MS=whisper=500,crisper_whisper=500,lumen_granite=3000   # CUDA templates
+MONITORING_JOB_PERIOD_MS=whisper=5000,crisper_whisper=5000,lumen_granite=3000 # CPU templates
+```
+
+**It is empty by default, deliberately.** Any shipped default would be wrong for
+somebody — CUDA is 500ms, CPU is 5000ms — and quietly misscaling the other group
+would be the same bug in a new place. Unset means the sidecar publishes **no**
+utilization series for that provider rather than a confidently wrong one. Set it
+above to turn the series on; the new `scribear_asr_job_period_ms` gauge (labelled
+`source=reported|configured`) shows which denominator is actually in use.
+
+**A bare integer is now rejected** with an error naming the replacement, rather than
+applied to every provider. If you had `MONITORING_JOB_PERIOD_MS=1000` in `.env`,
+the sidecar will log that error and publish no utilization series until you convert
+it to the map form. That is intended: a stale value should be loud rather than
+silently averaged across providers it does not fit.
+
+### What is unaffected
+
+RTF and the transcription alerts. `asr_rtf` is measured by transcription-service
+itself, and the duty-ratio warning added below is deliberately period-independent —
+neither consults this variable. Only the derived period-utilization series does.
+
+---
+
+## Unreleased — transcription-service stops burning CPU it never used
+
+Nothing to change in `.env` or `compose.yml`. Pull the new
+`transcription-service-*` image and the CPU drop comes with it.
+
+### What it was doing
+
+A single streaming session on a GPU cost **2.4 cores** of CPU, peaking over
+five, on a host whose actual inference was running on the GPU. Almost none of
+that was work. Importing `numpy` loads OpenBLAS, which starts one thread per
+core (19 on a 20-core host) and *spin-waits* between calls instead of sleeping.
+The streaming provider re-transcribes its whole buffer every `job_period_ms`, so
+that pool never idled long enough to back off, and 19 threads spun for the life
+of every session.
+
+End to end, one session for 90s via `npm run asr:load`, 895 chunks each side:
+
+| | transcripts/1000 chunks | CPU mean | CPU max | cores/session |
+| --- | --- | --- | --- | --- |
+| before | 174.3 | 238.8% | 513% | 2.39 |
+| after | 176.5 | 33.5% | 101% | 0.34 |
+
+Same transcripts, **7× less CPU**. Isolated to one 30s-buffer `transcribe` call
+on an RTX 5070 Ti, whisper `turbo`, the waste is starker still — 4.59 cores
+against 0.99, with latency slightly *better* (0.75s → 0.68s), the pool having
+only added contention. Three concurrent sessions now fit inside a single core.
+
+### If you set `OMP_NUM_THREADS` yourself
+
+The images now set `OMP_NUM_THREADS=1` and `OPENBLAS_NUM_THREADS=1`. An
+`environment:` entry in your own `compose.yml` still overrides them, and on the
+CPU image raising them is a pessimisation, not a tuning knob: it restores the
+spinning pool alongside the inference threads, competing for the same cores.
+
+### CPU inference parallelism moved to `provider_config.json`
+
+The cap above would otherwise have serialised CPU-device inference, which reads
+the same variable — 61.8s against 17.97s for a 30s buffer. CTranslate2's thread
+count is now set explicitly instead of inherited, and is configurable per
+context:
+
+```json
+{
+  "context_uid": "faster-whisper",
+  "context_config": { "model": "turbo", "device": "cpu", "cpu_threads": 8 }
+}
+```
+
+Unset means 4 on `cpu` (CTranslate2's own default, and parity with the previous
+image: 19.33s against 17.97s, minus the 19 spinning threads) and 1 on `cuda`,
+where the encoder and decoder are on the GPU and no CPU pool is wanted. Raise it
+on a CPU deployment with cores to spare — but count workers first, since
+`num_workers` copies of it each claim that many threads.
+
+### Context tags in the templates lost their device suffix
+
+**Nothing to do.** A context `tags` entry is only a match string, resolved
+inside the one `provider_config.json` that declares it, so your existing file
+keeps working untouched and nothing in the images or the API knows these names.
+Called out only because a diff against the templates now shows it.
+
+The CUDA template had been tagging a `"device": "cuda"` context
+`whisper_cpu_context`, which reads as a misconfiguration to anyone debugging one
+— it cost real time during the CPU investigation above. The device belongs in
+`context_config`, which already states it, so the tags no longer repeat it:
+`whisper_cpu_context` → `whisper_context`, and
+`crisper_whisper_cpu_context` / `crisper_whisper_cuda_context` →
+`crisper_whisper_context`. The CPU and CUDA templates now use one tag
+vocabulary and differ only where they should, in `context_config`.
+
+---
+
 ## Unreleased — the Deployment Check notices an out-of-date `compose.yml`
 
 ### A new `compose.yml` row on the Deployment Check page

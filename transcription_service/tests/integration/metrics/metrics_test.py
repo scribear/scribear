@@ -16,6 +16,9 @@ from src.shared.config import (
     TranscriptionProviderUID,
 )
 from src.shared.logger import ContextLogger, Logger
+from src.transcription_providers.debug_provider.debug_provider import (
+    DEBUG_JOB_PERIOD_MS,
+)
 from src.webserver.create_webserver import create_webserver
 
 API_KEY = "TEST_KEY"
@@ -172,6 +175,12 @@ def test_reports_workers_and_capacity(test_client: TestClient):
 
     assert body["numWorkers"] == NUM_WORKERS
     assert body["providerKeys"] == ["debug"]
+    # The period the debug provider really registers its jobs with. Reported so
+    # the monitoring sidecar stops being told the same number in its own
+    # environment: this one is a literal in debug_provider.py rather than a
+    # provider_config field, which is why the value is asked of the provider
+    # instead of read off its config.
+    assert body["providerJobPeriodMs"] == {"debug": DEBUG_JOB_PERIOD_MS}
     assert len(body["workers"]) == NUM_WORKERS
     assert [worker["workerId"] for worker in body["workers"]] == [0, 1]
     for worker in body["workers"]:
@@ -220,6 +229,7 @@ def test_reports_identity_and_empty_series_before_any_job(
     assert body["counters"]["noSpeechProbGuardFiredTotal"] == []
     assert body["counters"]["temperatureFallbackTotal"] == []
     assert body["counters"]["repeatedSegmentDetectedTotal"] == []
+    assert body["counters"]["asrDroppedPeriodsTotal"] == []
 
 
 @pytest.mark.asyncio

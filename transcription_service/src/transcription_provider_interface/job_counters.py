@@ -17,6 +17,11 @@ class TranscriptionJobCounter(StrEnum):
 
     Values are per-execution deltas, never running totals: the parent owns the
     monotonic totals, so a worker restart cannot double count.
+
+    One name in this namespace is **not** a job's to report:
+    `worker_pool.DROPPED_PERIODS_COUNTER` ("dropped_periods") is written into
+    the same dict by the scheduler, which is the only thing that can see a
+    period being skipped. Do not add it here.
     """
 
     #: Seconds of audio decoded and ingested. The RTF denominator, and the

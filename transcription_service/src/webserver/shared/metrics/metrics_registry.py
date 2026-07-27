@@ -2,14 +2,22 @@
 Defines MetricsRegistry, the in-memory store of transcription-service telemetry
 """
 
-from src.shared.utils.worker_pool import JobExecutionObservation
+from src.shared.utils.worker_pool import (
+    DROPPED_PERIODS_COUNTER,
+    JobExecutionObservation,
+)
 from src.transcription_provider_interface import TranscriptionJobCounter
 from src.webserver.shared.process_identity import (
     ProcessIdentity,
     create_process_identity,
 )
 
-from .metric_types import DEFAULT_MAX_SAMPLES, Counter, Histogram
+from .metric_types import (
+    DEFAULT_MAX_SAMPLES,
+    DEFAULT_RETENTION_SEC,
+    Counter,
+    Histogram,
+)
 
 NS_PER_MS = 1_000_000
 NS_PER_SEC = 1_000_000_000
@@ -56,6 +64,7 @@ class MetricsRegistry:
         self,
         max_histogram_samples: int = DEFAULT_MAX_SAMPLES,
         process_identity: ProcessIdentity | None = None,
+        histogram_retention_sec: float = DEFAULT_RETENTION_SEC,
     ):
         """
         Args:
@@ -65,6 +74,12 @@ class MetricsRegistry:
                                       every telemetry endpoint reports the same
                                       uid, which is what lets a consumer
                                       correlate counters across them.
+            histogram_retention_sec - Age at which a retained observation stops
+                                      counting toward the reported percentiles.
+                                      Raise it for a deployment whose
+                                      `job_period_ms` is large enough that the
+                                      default window holds only a few dozen
+                                      samples; see DEFAULT_RETENTION_SEC.
         """
         identity = process_identity or create_process_identity()
         self._process_uid = identity.process_uid
@@ -79,25 +94,33 @@ class MetricsRegistry:
             "Job executions that raised, by provider and exception class",
         )
 
+        # Every histogram shares one retention window. The reported percentiles
+        # are read side by side on one dashboard panel, so a per-metric window
+        # would mean a p95 execution time and a p95 RTF that summarise different
+        # spans of time and cannot be reconciled by eye.
         self.asr_scheduling_delay_ms = Histogram(
             "asr_scheduling_delay_ms",
             "Time a job waited between becoming ready and being scheduled",
             max_histogram_samples,
+            histogram_retention_sec,
         )
         self.asr_execution_ms = Histogram(
             "asr_execution_ms",
             "Time a job spent executing",
             max_histogram_samples,
+            histogram_retention_sec,
         )
         self.asr_total_ms = Histogram(
             "asr_total_ms",
             "Total time a job spent in the worker pool",
             max_histogram_samples,
+            histogram_retention_sec,
         )
         self.asr_rtf = Histogram(
             "asr_rtf",
             "Wall-clock seconds spent per second of ingested audio",
             max_histogram_samples,
+            histogram_retention_sec,
         )
 
         self.asr_audio_seconds_total = Counter(
@@ -154,6 +177,20 @@ class MetricsRegistry:
             "previously finalized segment",
         )
 
+        # The one counter here that describes the *scheduler* rather than the
+        # work: periods in which a job never ran, because the pass before it
+        # overran and the pool drops missed periods instead of queueing them.
+        # Worth reporting even for a single session - a lone stream whose
+        # unfinalized buffer grows past what one period can transcribe drops
+        # periods while every other number, RTF included, still looks healthy.
+        # It arrives on the same per-execution counters dict as everything
+        # above, written there by the pool, so it needs no separate transport.
+        self.asr_dropped_periods_total = Counter(
+            "asr_dropped_periods_total",
+            "Job periods skipped because the previous pass overran, "
+            "by provider",
+        )
+
         self._worker_counters = {
             TranscriptionJobCounter.BUFFER_OVERFLOW: self.buffer_overflow_total,
             TranscriptionJobCounter.BUFFER_OVERFLOW_SECONDS: (
@@ -180,6 +217,10 @@ class MetricsRegistry:
             TranscriptionJobCounter.REPEATED_SEGMENT_DETECTED: (
                 self.repeated_segment_detected_total
             ),
+            # Keyed by the pool's own constant, not a TranscriptionJobCounter:
+            # the worker pool knows nothing about transcription and the
+            # scheduler, not a job, is what reports this.
+            DROPPED_PERIODS_COUNTER: self.asr_dropped_periods_total,
         }
 
     def record_decode_drop(self, provider_key: str) -> None:

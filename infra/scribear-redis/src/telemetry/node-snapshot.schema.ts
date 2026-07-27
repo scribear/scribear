@@ -67,12 +67,24 @@ export type NodeSnapshot = Static<typeof NODE_SNAPSHOT_SCHEMA>;
  * Lives beside the schema for the same reason `parseSessionAudioSnapshot` does:
  * enforcement belongs with the definition, not re-implemented per consumer.
  *
- * Unlike the session-audio schema, this one has never been checked against its
- * publisher, so the reader currently validates with it in log-only mode. It is
- * the lower-risk of the two states, though: `node-server`'s publisher declares
- * `const record: SessionSnapshot` against this very type, so the compiler
- * already holds the shape and a mismatch here means a stale deployed version
- * rather than a mirror that drifted.
+ * The reader **drops** a value this rejects - admin-server's
+ * `FleetTelemetryService._readIndexed`, which logs one throttled warn per index
+ * and serves the rest. There is no log-only mode any more: this schema spent a
+ * release validating in one because it had never been checked against its
+ * publisher, and that is no longer the case. `node-server`'s publisher declares
+ * `const record: SessionSnapshot` against this very type, so the compiler holds
+ * the shape, and its integration suite now drives the real publisher into a
+ * real Redis and parses the bytes back
+ * (`publisher-schema-crosscheck.test.ts`).
+ *
+ * Dropping means the session vanishes from the fleet view entirely, which is
+ * why any field added to this shape after a publisher has shipped must be
+ * `Type.Optional` - see `audioFramesReceived` in `STATUS_SESSION_SCHEMA` and
+ * `binaryBeforeAuthDropsTotal` in `STATUS_PROCESS_SCHEMA`. A mismatch here is
+ * far more likely to be a stale deployed version mid-rolling-deploy than a
+ * mirror that drifted, and a required new field would blank a perfectly
+ * healthy older instance for the length of that deploy. The compiler pins the
+ * shape within one build; it says nothing about two versions running at once.
  */
 export function parseSessionSnapshot(
   raw: string,
@@ -83,7 +95,9 @@ export function parseSessionSnapshot(
 /**
  * Validating parser for a node-instance key's value. Same standing as
  * {@link parseSessionSnapshot}: compiler-backed at the publisher
- * (`const instance: NodeSnapshot`), not yet checked end to end.
+ * (`const instance: NodeSnapshot`), pinned end to end by node-server's
+ * `publisher-schema-crosscheck.test.ts`, and dropped by the reader on a
+ * mismatch rather than served unvalidated.
  */
 export function parseNodeSnapshot(
   raw: string,

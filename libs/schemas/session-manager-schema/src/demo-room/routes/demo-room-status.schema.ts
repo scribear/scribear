@@ -60,7 +60,7 @@ export const DEMO_ROOM_STATUS_SCHEMA = {
   tags: [DEMO_ROOM_TAG],
   security: ADMIN_API_KEY_SECURITY,
   headers: Type.Object({
-    authorization: ADMIN_API_KEY_AUTH_HEADER_SCHEMA,
+    authorization: Type.Optional(ADMIN_API_KEY_AUTH_HEADER_SCHEMA),
   }),
   response: {
     200: DEMO_ROOM_STATUS_RESPONSE_SCHEMA,

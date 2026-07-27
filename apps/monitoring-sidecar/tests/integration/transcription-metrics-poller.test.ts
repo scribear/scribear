@@ -5,6 +5,7 @@ import { TranscriptionMetricsPollerService } from '#src/server/shared/transcript
 import {
   FAKE_PROCESS_UID,
   type FakeTranscriptionMetrics,
+  LUMEN_GRANITE,
   WHISPER,
   histogramSeries,
   metricsBody,
@@ -13,13 +14,36 @@ import {
 
 const API_KEY = 'test-metrics-key';
 const SERVICE = 'transcription-service';
-const JOB_PERIOD_MS = 1_000;
 
-const logger = {
-  warn: () => undefined,
-  info: () => undefined,
-  error: () => undefined,
-} as never;
+/**
+ * The CUDA template's real periods, per provider. Two providers at different
+ * cadences in one deployment is the normal case, not an edge case, which is why
+ * the default fixture carries both.
+ */
+const JOB_PERIODS: ReadonlyMap<string, number> = new Map([
+  ['whisper', 500],
+  ['lumen_granite', 3_000],
+]);
+
+/** Captures log lines, so "said so out loud" can be asserted rather than assumed. */
+function createLogger() {
+  const warnings: string[] = [];
+  const errors: string[] = [];
+  const record = (sink: string[]) => {
+    return (...args: unknown[]) => {
+      sink.push(args.map((arg) => String(arg)).join(' '));
+    };
+  };
+  return {
+    warnings,
+    errors,
+    logger: {
+      warn: record(warnings),
+      info: () => undefined,
+      error: record(errors),
+    } as never,
+  };
+}
 
 describe('transcription-service metrics poller (B1.2 PR 5)', () => {
   let service: FakeTranscriptionMetrics;
@@ -32,8 +56,13 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
     await service.close();
   });
 
-  function createPoller(apiKey = API_KEY, jobPeriodMs = JOB_PERIOD_MS) {
+  function createPoller(
+    apiKey = API_KEY,
+    jobPeriodMsByProvider: ReadonlyMap<string, number> = JOB_PERIODS,
+    jobPeriodSpecErrors: readonly string[] = [],
+  ) {
     const metrics = new MetricsRegistry();
+    const { logger, warnings, errors } = createLogger();
     const poller = new TranscriptionMetricsPollerService(
       {
         enabled: apiKey.length > 0,
@@ -42,12 +71,13 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
         service: SERVICE,
         statusUrl: service.statusUrl,
         apiKey,
-        jobPeriodMs,
+        jobPeriodMsByProvider,
+        jobPeriodSpecErrors,
       },
       metrics,
       logger,
     );
-    return { metrics, poller };
+    return { metrics, poller, warnings, errors };
   }
 
   const providerLabels = { service: SERVICE, providerKey: 'whisper' };
@@ -74,6 +104,87 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
 
       // Assert
       expect(metrics.asrBufferOverflowTotal.get(providerLabels)).toBe(7);
+    });
+
+    it('differences the RTF histogram’s lifetime sum and count', async () => {
+      // Arrange — the two fields the T1 early-warning rule averages. They are
+      // lifetime totals like any counter, so only the delta may be folded;
+      // taking them absolutely would recount every job on every poll and pin the
+      // windowed mean to the process’s whole history.
+      const { metrics, poller } = createPoller();
+      service.setBody(
+        metricsBody({
+          histograms: {
+            asrRtf: [histogramSeries(0.5, { count: 100, sum: 50 })],
+          },
+        }),
+      );
+      await poller.pollOnce();
+
+      // Act — 20 further jobs averaging 0.9.
+      service.setBody(
+        metricsBody({
+          histograms: {
+            asrRtf: [histogramSeries(0.9, { count: 120, sum: 68 })],
+          },
+        }),
+      );
+      await poller.pollOnce();
+
+      // Assert
+      expect(metrics.asrDutyRatioJobsTotal.get(providerLabels)).toBe(120);
+      expect(metrics.asrDutyRatioSumTotal.get(providerLabels)).toBe(68);
+    });
+
+    it('folds dropped periods and records that they are being reported', async () => {
+      // Arrange — the exact count of periods in which no pass ran. It is the one
+      // counter here that describes the scheduler rather than the work, and the
+      // support gauge is what lets the tail alert tell a reported zero from a
+      // service too old to count at all.
+      const { metrics, poller } = createPoller();
+      service.setBody(
+        metricsBody({
+          counters: {
+            asrDroppedPeriodsTotal: [{ labels: WHISPER, value: 12 }],
+          },
+        }),
+      );
+      await poller.pollOnce();
+
+      // Act
+      service.setBody(
+        metricsBody({
+          counters: {
+            asrDroppedPeriodsTotal: [{ labels: WHISPER, value: 19 }],
+          },
+        }),
+      );
+      await poller.pollOnce();
+
+      // Assert
+      expect(metrics.asrDroppedPeriodsTotal.get(providerLabels)).toBe(19);
+      expect(metrics.asrDroppedPeriodsSupported.get({ service: SERVICE })).toBe(
+        1,
+      );
+    });
+
+    it('reports no dropped-period support for a service too old to send it', async () => {
+      // Arrange — the rolling-upgrade case, and the reason the field is optional:
+      // an older transcription-service must still produce a healthy poll. A
+      // healthy *new* service sends an empty array, which creates no series here
+      // either, so the gauge is the only thing that separates the two.
+      const { metrics, poller } = createPoller();
+      service.setBody(metricsBody());
+
+      // Act
+      const result = await poller.pollOnce();
+
+      // Assert
+      expect(result.ok).toBe(true);
+      expect(metrics.asrDroppedPeriodsSupported.get({ service: SERVICE })).toBe(
+        0,
+      );
+      expect(metrics.asrDroppedPeriodsTotal.entries()).toHaveLength(0);
     });
 
     it('maps the two no-speech counters onto one kind-labelled series', async () => {
@@ -209,11 +320,11 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
     });
 
     it('derives period utilization from execution time and the job period', async () => {
-      // Arrange — a job taking 1.5x its period is over the saturation line.
+      // Arrange — a job taking 1.5x its 500 ms period is over the saturation line.
       const { metrics, poller } = createPoller();
       service.setBody(
         metricsBody({
-          histograms: { asrExecutionMs: [histogramSeries(1_500)] },
+          histograms: { asrExecutionMs: [histogramSeries(750)] },
         }),
       );
 
@@ -227,6 +338,209 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
           quantile: 'p95',
         }),
       ).toBeCloseTo(1.5);
+    });
+
+    it('scales each provider by its own period, not by one global number', async () => {
+      // Arrange — the bug this test exists for. A deployment serves whisper at
+      // 500 ms and lumen_granite at 3000 ms simultaneously (both are in the
+      // shipped CUDA template), and both providers here spend exactly 1500 ms per
+      // pass: whisper is 3x over its budget, lumen_granite is at half of its. A
+      // single denominator has to be wrong for one of them, silently.
+      const { metrics, poller } = createPoller();
+      service.setBody(
+        metricsBody({
+          providerKeys: ['whisper', 'lumen_granite'],
+          histograms: {
+            asrExecutionMs: [
+              histogramSeries(1_500),
+              histogramSeries(1_500, { labels: LUMEN_GRANITE }),
+            ],
+          },
+        }),
+      );
+
+      // Act
+      await poller.pollOnce();
+
+      // Assert
+      expect(
+        metrics.asrPeriodUtilization.get({
+          ...providerLabels,
+          quantile: 'p95',
+        }),
+      ).toBeCloseTo(3.0);
+      expect(
+        metrics.asrPeriodUtilization.get({
+          service: SERVICE,
+          providerKey: 'lumen_granite',
+          quantile: 'p95',
+        }),
+      ).toBeCloseTo(0.5);
+    });
+
+    it('publishes the denominator it used, and where the number came from', async () => {
+      // Arrange — the period is the one input the sidecar cannot verify, so it is
+      // exported beside the ratio: an operator comparing it against
+      // provider_config.json can see a mismatch that would otherwise be invisible.
+      const { metrics, poller } = createPoller();
+      service.setBody(
+        metricsBody({
+          histograms: { asrExecutionMs: [histogramSeries(750)] },
+        }),
+      );
+
+      // Act
+      await poller.pollOnce();
+
+      // Assert
+      expect(
+        metrics.asrJobPeriodMs.get({
+          ...providerLabels,
+          source: 'configured',
+        }),
+      ).toBe(500);
+    });
+
+    it('publishes no utilization for a provider whose period is unknown', async () => {
+      // Arrange — a provider the operator never listed. A missing series is the
+      // honest answer; a ratio scaled by a default would look like a measurement
+      // and read as healthy or saturated purely by luck. `debug` is the real
+      // case: it has no job_period_ms in provider_config.json at all.
+      const { metrics, poller, warnings } = createPoller();
+      service.setBody(
+        metricsBody({
+          providerKeys: ['debug'],
+          histograms: {
+            asrExecutionMs: [
+              histogramSeries(750, { labels: { provider_key: 'debug' } }),
+            ],
+            asrRtf: [
+              histogramSeries(0.4, { labels: { provider_key: 'debug' } }),
+            ],
+          },
+        }),
+      );
+
+      // Act
+      await poller.pollOnce();
+
+      // Assert — no ratio, no denominator, but everything the service measured
+      // itself is still published, and the omission is stated once.
+      const debug = { service: SERVICE, providerKey: 'debug' };
+      expect(
+        metrics.asrPeriodUtilization.get({ ...debug, quantile: 'p95' }),
+      ).toBeUndefined();
+      expect(
+        metrics.asrJobPeriodMs.get({ ...debug, source: 'configured' }),
+      ).toBeUndefined();
+      expect(metrics.asrRtf.get({ ...debug, quantile: 'p95' })).toBe(0.4);
+      expect(metrics.asrExecutionMs.get({ ...debug, quantile: 'p95' })).toBe(
+        750,
+      );
+      expect(warnings.filter((line) => line.includes('debug'))).toHaveLength(1);
+    });
+
+    it('says a missing period once rather than on every poll', async () => {
+      // Arrange — a 10 s cadence would otherwise write thousands of identical
+      // lines, the same reason the base class logs poll failures on transition.
+      const { poller, warnings } = createPoller(API_KEY, new Map());
+      service.setBody(
+        metricsBody({ histograms: { asrExecutionMs: [histogramSeries(750)] } }),
+      );
+
+      // Act
+      await poller.pollOnce();
+      await poller.pollOnce();
+      await poller.pollOnce();
+
+      // Assert
+      expect(warnings.filter((line) => line.includes('whisper'))).toHaveLength(
+        1,
+      );
+    });
+
+    it('prefers a period transcription-service reports over the configured one', async () => {
+      // Arrange — the fix for the duplication itself. `providerJobPeriodMs` is not
+      // on the wire yet; when it arrives, the reported value wins because it is
+      // what the service is actually scheduling with, while the configured one is
+      // a number hand-copied out of a file that may since have changed.
+      const { metrics, poller } = createPoller();
+      service.setBody(
+        metricsBody({
+          providerJobPeriodMs: { whisper: 1_500 },
+          histograms: { asrExecutionMs: [histogramSeries(750)] },
+        }),
+      );
+
+      // Act
+      await poller.pollOnce();
+
+      // Assert
+      expect(
+        metrics.asrPeriodUtilization.get({
+          ...providerLabels,
+          quantile: 'p95',
+        }),
+      ).toBeCloseTo(0.5);
+      expect(
+        metrics.asrJobPeriodMs.get({ ...providerLabels, source: 'reported' }),
+      ).toBe(1_500);
+      // Not two series for one provider: the stale provenance is removed.
+      expect(
+        metrics.asrJobPeriodMs.get({ ...providerLabels, source: 'configured' }),
+      ).toBeUndefined();
+    });
+
+    it('drops a utilization series whose period stopped being known', async () => {
+      // Arrange — a reported period that goes away must not leave the last ratio
+      // frozen in place, which would keep asserting a utilization the sidecar can
+      // no longer compute.
+      const { metrics, poller } = createPoller(API_KEY, new Map());
+      const executionSeries = { asrExecutionMs: [histogramSeries(750)] };
+      service.setBody(
+        metricsBody({
+          providerJobPeriodMs: { whisper: 500 },
+          histograms: executionSeries,
+        }),
+      );
+      await poller.pollOnce();
+      expect(
+        metrics.asrPeriodUtilization.get({
+          ...providerLabels,
+          quantile: 'p95',
+        }),
+      ).toBeCloseTo(1.5);
+
+      // Act — the service stops reporting the period, and nothing is configured.
+      service.setBody(metricsBody({ histograms: executionSeries }));
+      await poller.pollOnce();
+
+      // Assert
+      expect(
+        metrics.asrPeriodUtilization.get({
+          ...providerLabels,
+          quantile: 'p95',
+        }),
+      ).toBeUndefined();
+      expect(
+        metrics.asrJobPeriodMs.get({ ...providerLabels, source: 'reported' }),
+      ).toBeUndefined();
+    });
+
+    it('logs a rejected TRANSCRIPTION_JOB_PERIOD_MS instead of failing quietly', async () => {
+      // Arrange — the pre-per-provider format. The series is lost, which is the
+      // safe direction, so the log line is the only thing standing between the
+      // operator and a silently empty panel.
+      const { poller, errors } = createPoller(API_KEY, new Map(), [
+        'TRANSCRIPTION_JOB_PERIOD_MS="1000" is a single global period',
+      ]);
+
+      // Act
+      await poller.pollOnce();
+
+      // Assert
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toContain('scribear_asr_period_utilization');
     });
 
     it('skips a series whose sample ring is empty', async () => {
@@ -254,20 +568,38 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
       // firing long after the load stopped.
       const { metrics, poller } = createPoller();
       service.setBody(
-        metricsBody({ histograms: { asrRtf: [histogramSeries(2.0)] } }),
+        metricsBody({
+          histograms: {
+            asrRtf: [histogramSeries(2.0)],
+            asrExecutionMs: [histogramSeries(750)],
+          },
+        }),
       );
       await poller.pollOnce();
       expect(metrics.asrRtf.get({ ...providerLabels, quantile: 'p95' })).toBe(
         2.0,
       );
+      expect(
+        metrics.asrJobPeriodMs.get({ ...providerLabels, source: 'configured' }),
+      ).toBe(500);
 
       // Act
       service.setBody(metricsBody());
       await poller.pollOnce();
 
-      // Assert
+      // Assert — the published denominator goes with it: a period for a provider
+      // that no longer exists is as stale as the ratio derived from it.
       expect(
         metrics.asrRtf.get({ ...providerLabels, quantile: 'p95' }),
+      ).toBeUndefined();
+      expect(
+        metrics.asrPeriodUtilization.get({
+          ...providerLabels,
+          quantile: 'p95',
+        }),
+      ).toBeUndefined();
+      expect(
+        metrics.asrJobPeriodMs.get({ ...providerLabels, source: 'configured' }),
       ).toBeUndefined();
     });
   });

@@ -24,6 +24,9 @@ from src.transcription_providers.debug_provider import (
     DebugProvider,
     DebugSessionConfig,
 )
+from src.transcription_providers.debug_provider.debug_provider import (
+    DEBUG_JOB_PERIOD_MS,
+)
 from src.transcription_providers.debug_provider.debug_provider_job import (
     DebugProviderJob,
 )
@@ -259,3 +262,26 @@ async def test_debug_provider_throws_exception_on_bad_chunk(
     # Assert
     assert len(results) == 1
     assert isinstance(results[0], TranscriptionClientError)
+
+
+def test_debug_provider_reports_the_period_it_schedules():
+    """
+    Test the reported job period is the one register_job receives
+
+    This provider has no config to read a period from - it is a literal - so
+    the reported value and the scheduled one could easily drift apart. They
+    come from one constant precisely so they cannot.
+    """
+    # Arrange
+    mock_worker_pool = MagicMock(spec=WorkerPool)
+    provider = DebugProvider(
+        None, MagicMock(spec=Logger), mock_worker_pool, "debug"
+    )
+
+    # Act
+    provider.create_session(SESSION_CONFIG, None, None, MagicMock(spec=Logger))
+
+    # Assert
+    args, _ = mock_worker_pool.register_job.call_args
+    assert provider.job_period_ms == DEBUG_JOB_PERIOD_MS
+    assert args[1] == provider.job_period_ms
