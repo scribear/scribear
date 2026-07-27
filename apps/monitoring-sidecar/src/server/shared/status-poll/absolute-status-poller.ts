@@ -97,6 +97,11 @@ export abstract class AbsoluteStatusPoller<
   /** Previous absolute value per counter series, keyed `metric|seriesKey`. */
   private _lastAbsolute = new Map<string, number>();
   private _processUid: string | null = null;
+  /**
+   * True while the first successful poll is being folded, so {@link _advance}
+   * records baselines without emitting increments. See its doc for why.
+   */
+  private _priming = true;
 
   constructor(
     config: AbsoluteStatusPollerConfig,
@@ -173,6 +178,10 @@ export abstract class AbsoluteStatusPoller<
     this._processUid = body.processUid;
 
     this._apply(body);
+    // Only the first fold primes. Gauges set by `_apply` are unaffected — they
+    // carry no history — so a primed poll still publishes a full picture of the
+    // service's current state; it is only the counter *deltas* that are skipped.
+    this._priming = false;
 
     this._metrics.serviceStatusUp.set({ service: this._config.service }, 1);
     this._lastResult = {
@@ -241,12 +250,31 @@ export abstract class AbsoluteStatusPoller<
    * A value below the previous one means the service restarted between polls
    * without us catching the `processUid` change; the reading is then treated as
    * a fresh process's total rather than producing a negative increment.
+   *
+   * **The very first poll of this poller's life only records baselines.** The
+   * polled service's counters are lifetime totals, so without this a sidecar
+   * started beside a long-running service folds that service's entire history
+   * into one increment stamped `now` — and every raw windowed rule
+   * (`decodeDropRule` at 10, `bufferOverflowRule` at 5, `upstreamChurnRule` at 3)
+   * fires immediately on counts that predate the sidecar by days, then clears
+   * itself one window later. Those counts belong to before anyone was watching.
+   *
+   * A *service* restart is the opposite case and is handled by
+   * {@link pollOnce} clearing the baselines: the service's own counters really
+   * are near zero then, so differencing against zero attributes only what it has
+   * accrued since, which is genuinely inside the window.
+   *
+   * The cost is that up to one poll interval of counts is lost at startup. That
+   * is the correct trade for a rate rule, and the ratio rules
+   * ({@link authFailureRule}, and the dropped-period shares) were already immune
+   * because a lifetime fold lands in both numerator and denominator.
    */
   protected _advance(counter: Counter, labels: Labels, absolute: number): void {
     const key = `${counter.name}|${seriesKey(labels)}`;
     const previous = this._lastAbsolute.get(key) ?? 0;
     const delta = absolute >= previous ? absolute - previous : absolute;
     this._lastAbsolute.set(key, absolute);
+    if (this._priming) return;
     if (delta > 0) counter.inc(labels, delta);
   }
 }

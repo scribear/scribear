@@ -170,7 +170,7 @@ services:
       # Not `:?`-guarded, like DEPLOYMENT_ENV below and unlike the secrets: it
       # changes what is *reported*, never what runs, and must not be able to
       # stop a stack from starting.
-      COMPOSE_FILE_VERSION: "2"
+      COMPOSE_FILE_VERSION: "3"
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
@@ -450,7 +450,21 @@ services:
       # The wiki's "Transcription on CPU-Only Hardware" page carries measured
       # values per model and thread count.
       ALERT_ASR_DUTY_RATIO: ${MONITORING_ASR_DUTY_RATIO:-}
+      # The T1 warning and the T1 CRITICAL, both the share of scheduled job
+      # periods in which no pass ran. The CRITICAL is keyed here rather than on
+      # p95 RTF because RTF *falls* as the shared worker saturates - measured
+      # 0.277 -> 0.139 across 1->8 GPU sessions while transcripts per 1000
+      # chunks collapsed 190 -> 48 - so no p95 bar separates healthy from
+      # saturated. Drops rose monotonically through the same sweep, and a CPU
+      # stack measured 2.9% healthy against 56.3% at 3 sessions.
       ALERT_ASR_DROPPED_PERIOD_RATIO: ${MONITORING_ASR_DROPPED_PERIOD_RATIO:-}
+      ALERT_ASR_DROPPED_PERIOD_CRITICAL_RATIO: ${MONITORING_ASR_DROPPED_PERIOD_CRITICAL_RATIO:-}
+      # Scheduled periods (`drops + passes`) needed before either share is
+      # believed. Matters most on CPU: at the CPU templates' 5000ms period a
+      # 120s window holds only ~24 of them, measured, so the default of 20 is
+      # met with little to spare. Raise ALERT_RATE_WINDOW_SEC rather than
+      # lowering this - but note the counters retain only 300s regardless.
+      ALERT_ASR_SCHEDULED_PERIOD_MIN_COUNT: ${MONITORING_ASR_SCHEDULED_PERIOD_MIN_COUNT:-}
       ALERT_ASR_TAIL_MIN_JOBS: ${MONITORING_ASR_TAIL_MIN_JOBS:-}
       # Synthetic canary (A2). Empty disables it entirely, which is the
       # default: the canary needs a registered device, and until one exists

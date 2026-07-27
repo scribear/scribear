@@ -12,6 +12,81 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — the transcription CRITICAL now reads dropped periods (`compose.yml` v3)
+
+**No action required.** Two new optional variables; leaving them unset gives the
+measured defaults baked into the image. Copy the new `compose.yml` to get the
+override knobs.
+
+### What changed
+
+The T1 `asr-saturation` CRITICAL was keyed on `asrRtf{quantile=p95}`. It is now
+keyed on the **share of scheduled job periods in which no pass ran at all**, at
+50%. `ALERT_RTF_P95` survives only as the fallback for a transcription-service
+too old to report that counter.
+
+RTF was the wrong signal in kind, not merely mis-thresholded. A period whose pass
+overruns is dropped, and the audio in it is left for the next pass, so per-pass
+cost amortises over a longer buffer and **RTF falls as the service saturates**.
+Measured on a GPU stack at 1/2/3/5/8 concurrent sessions: mean RTF 0.277 → 0.139
+while the worker went 26% → 94.5% busy and transcripts per 1000 chunks collapsed
+190 → 48. An alert on it was moving *further* from firing as captions failed.
+Dropped periods rose monotonically through the same sweep.
+
+### If you tuned `ALERT_RTF_P95`
+
+Your value now applies only during a rolling upgrade, against a service that
+predates the dropped-period counter. Tune `ALERT_ASR_DROPPED_PERIOD_CRITICAL_RATIO`
+instead. Note also that `ALERT_RTF_P95` used to default to **1.0** when unset
+even though the documented default was 2.0 — a schema default that outranked the
+compiled one. If you never set it, your stack has been using 1.0, which fires on
+a healthy deployment. It now falls back to 2.0 like the documentation says.
+
+### The tail warning was silently inactive on CPU
+
+`asr-tail-overrun` was floored at 100 *passes* in the 120s alert window. Two
+problems: a CPU template at `job_period_ms: 5000` only gets ~24 scheduled periods
+in that window (measured), so the floor was unreachable; and dropping a period
+removes a pass, so the floor rose out of reach exactly as the fault got worse.
+The counter path now floors on scheduled periods
+(`ALERT_ASR_SCHEDULED_PERIOD_MIN_COUNT`, 20), a total dropping does not move. The
+p99 fallback keeps the 100-pass floor, where the percentile-resolution argument
+genuinely applies.
+
+### The first poll no longer folds a service's lifetime
+
+`AbsoluteStatusPoller` differenced each absolute total against the previous
+reading, defaulting to zero. On the sidecar's *first* poll that meant a
+long-running service's entire history landed as one increment stamped `now`, so
+`asr-decode-drops`, `asr-buffer-overflow` and `upstream-churn` could all fire
+immediately after a sidecar restart and clear themselves one window later. The
+first poll now records baselines only. Expect to lose up to one poll interval of
+counts when the sidecar starts; those events happened before it was watching.
+
+### New variables
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `MONITORING_ASR_DROPPED_PERIOD_CRITICAL_RATIO` | `0.5` | drop share at which the T1 CRITICAL fires |
+| `MONITORING_ASR_SCHEDULED_PERIOD_MIN_COUNT` | `20` | scheduled periods needed before either drop share is believed |
+
+### CPU deployments
+
+A full stack was run on `TRANSCRIPTION_DEVICE=cpu` for the first time. On an
+RTX-class host's CPU (`small`, `cpu_threads` 4, 5000 ms period) a healthy single
+session measured **mean RTF 0.45–0.479 and a 2.9% drop share**, and at 3 sessions
+**56.3%** — so the drop-share thresholds need no CPU override, but
+`MONITORING_ASR_DUTY_RATIO` does: the GPU-calibrated 0.45 sits exactly on the
+healthy CPU value. Set it to **0.7** on CPU. With that one line a healthy CPU
+stack reports `{"alerts":[]}`.
+
+Above ~3 concurrent sessions this CPU configuration stops working altogether: at
+6 sessions every one was closed `1007 Client sent audio too quickly` and no
+transcript was produced, with the load driver pacing correctly at realtime. That
+is a capacity limit to plan around, not a setting to tune.
+
+---
+
 ## Unreleased — **breaking:** a CUDA deployment now needs `-f compose.gpu.yml`
 
 **If you run `TRANSCRIPTION_DEVICE=cuda` or `cuda128`, your start command changes:**

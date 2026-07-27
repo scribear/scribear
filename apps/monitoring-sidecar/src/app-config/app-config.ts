@@ -113,7 +113,19 @@ const CONFIG_SCHEMA = Type.Object({
   ALERT_UPSTREAM_CHURN_COUNT: Type.Integer({ minimum: 1, default: 3 }),
   ALERT_DECODE_DROP_COUNT: Type.Integer({ minimum: 1, default: 10 }),
   ALERT_BUFFER_OVERFLOW_COUNT: Type.Integer({ minimum: 1, default: 5 }),
-  ALERT_RTF_P95: Type.Number({ minimum: 0, default: 1.0 }),
+  /**
+   * p95 RTF at or above which the T1 CRITICAL fires **for a
+   * transcription-service too old to count dropped periods**. Legacy fallback
+   * only: the CRITICAL is keyed on `ALERT_ASR_DROPPED_PERIOD_CRITICAL_RATIO`
+   * wherever the counter is reported.
+   *
+   * Was `Type.Number({default: 1.0})` while `DEFAULT_THRESHOLDS.rtfP95` said
+   * 2.0, so a deployment that left the variable unset got exactly the 1.0 that
+   * live verification had shown fires on a healthy stack — the schema default
+   * won because this field, unlike its neighbours, did not use `OPTIONAL_NUMBER`.
+   * It does now, so empty means the compiled default and there is one number.
+   */
+  ALERT_RTF_P95: OPTIONAL_NUMBER,
   /**
    * Mean RTF (duty ratio) over `ALERT_RATE_WINDOW_SEC` at or above which the T1
    * early warning fires. Must stay below `ALERT_RTF_P95` to be worth anything —
@@ -126,17 +138,32 @@ const CONFIG_SCHEMA = Type.Object({
    * at all, because the previous pass overran — over `ALERT_RATE_WINDOW_SEC`
    * before the T1 tail warning fires.
    *
-   * **Reasoned, not measured**, unlike `ALERT_ASR_DUTY_RATIO` beside it: it is
-   * set to the 1% the p99 RTF fallback path implies, so the alert means the same
-   * thing whichever signal produced it.
+   * **Measured**, and much higher than it looks like it should be: dropping
+   * periods is how this provider self-throttles under a long buffer, not a
+   * fault. A healthy single GPU session dropped 11.3%. This shipped at 1% on the
+   * reasoning that a dropped period is a lost caption update, and fired
+   * continuously on a stack with nothing wrong.
    */
   ALERT_ASR_DROPPED_PERIOD_RATIO: OPTIONAL_NUMBER,
   /**
-   * Minimum passes observed in the window before that share — or the reported
-   * p99 RTF standing in for it — is believed. Higher than
+   * Dropped-period share at or above which the T1 **CRITICAL** fires — the
+   * primary saturation signal, and the one metric measured whose slope rises as
+   * the shared worker saturates. Must stay above
+   * `ALERT_ASR_DROPPED_PERIOD_RATIO`, which is the warning below it.
+   */
+  ALERT_ASR_DROPPED_PERIOD_CRITICAL_RATIO: OPTIONAL_NUMBER,
+  /**
+   * Minimum *scheduled* periods (`drops + passes`) in the window before either
+   * dropped-period threshold is believed. Not a floor on passes: dropping a
+   * period removes a pass, so a pass floor rises out of reach exactly as the
+   * fault it guards gets worse.
+   */
+  ALERT_ASR_SCHEDULED_PERIOD_MIN_COUNT: OPTIONAL_NUMBER,
+  /**
+   * Minimum passes observed in the window before the reported p99 RTF standing
+   * in for the drop share is believed — **the fallback path only**. Higher than
    * `ALERT_ASR_DUTY_RATIO_MIN_JOBS` because a p99 over 24 samples is just the
-   * single worst pass, and because it is what stops a 1% share firing on one
-   * dropped period. Raising `ALERT_RATE_WINDOW_SEC` is the way to bring a
+   * single worst pass. Raising `ALERT_RATE_WINDOW_SEC` is the way to bring a
    * long-period provider above it.
    */
   ALERT_ASR_TAIL_MIN_JOBS: OPTIONAL_NUMBER,
@@ -322,7 +349,7 @@ export class AppConfig {
       upstreamChurnCount: this._env.ALERT_UPSTREAM_CHURN_COUNT,
       decodeDropCount: this._env.ALERT_DECODE_DROP_COUNT,
       bufferOverflowCount: this._env.ALERT_BUFFER_OVERFLOW_COUNT,
-      rtfP95: this._env.ALERT_RTF_P95,
+      rtfP95: threshold(this._env.ALERT_RTF_P95, DEFAULT_THRESHOLDS.rtfP95),
       asrDutyRatio: threshold(
         this._env.ALERT_ASR_DUTY_RATIO,
         DEFAULT_THRESHOLDS.asrDutyRatio,
@@ -331,6 +358,14 @@ export class AppConfig {
       asrDroppedPeriodRatio: threshold(
         this._env.ALERT_ASR_DROPPED_PERIOD_RATIO,
         DEFAULT_THRESHOLDS.asrDroppedPeriodRatio,
+      ),
+      asrDroppedPeriodCriticalRatio: threshold(
+        this._env.ALERT_ASR_DROPPED_PERIOD_CRITICAL_RATIO,
+        DEFAULT_THRESHOLDS.asrDroppedPeriodCriticalRatio,
+      ),
+      asrScheduledPeriodMinCount: threshold(
+        this._env.ALERT_ASR_SCHEDULED_PERIOD_MIN_COUNT,
+        DEFAULT_THRESHOLDS.asrScheduledPeriodMinCount,
       ),
       asrTailMinJobs: threshold(
         this._env.ALERT_ASR_TAIL_MIN_JOBS,
