@@ -1,5 +1,5 @@
 name: "Build Containers"
-description: "Builds linux/amd64 docker images and publishes them to GHCR. Reads (and on branch builds writes) a registry build cache to keep build times down."
+description: "Builds docker images for one platform and publishes them to GHCR. Reads (and on branch builds writes) a per-platform registry build cache to keep build times down."
 inputs:
   image_name:
     description: "Container image name (e.g., scribear/app)."
@@ -10,6 +10,28 @@ inputs:
   dockerfile:
     description: "Path to the Dockerfile."
     required: true
+  platforms:
+    description: >
+      Single platform to build for (e.g. "linux/amd64" or "linux/arm64"). Must
+      be a platform the runner is native for - this action never sets up QEMU,
+      on the measured grounds in APPLE-SILICON-FINDINGS.md that emulating the
+      CPU transcription image cost 9.9x its native arm64 build time. A
+      multi-platform image is assembled afterwards from each platform's digest
+      (see push_by_digest and the docker-merge job in node-cd.yml), not built
+      in one cross-arch step here.
+    required: false
+    default: "linux/amd64"
+  push_by_digest:
+    description: >
+      Push by digest instead of by tag ("true"/"false"). Set this when a later
+      job will combine this platform's digest with others into one multi-arch
+      manifest via `docker buildx imagetools create`. The digest is exposed as
+      this action's `digest` output and, when eligible to push, also uploaded
+      as an artifact named `digests-<image_slug>-<platform_tag>` so a
+      matrix-per-image merge job can collect every platform's digest for that
+      image (matrix jobs cannot share step outputs with each other).
+    required: false
+    default: "false"
   cache_variant:
     description: >
       Branch whose build cache this run should write ('staging', 'main').
@@ -23,7 +45,10 @@ inputs:
     description: >
       Newline-delimited tags to publish, from resolve-container-tags. Empty
       means build without publishing: the image is still compiled, which is all
-      a PR needs, but nothing is pushed.
+      a PR needs, but nothing is pushed. Ignored when push_by_digest is "true"
+      (there is nothing to tag yet - the merge job applies these tags to the
+      combined manifest instead), except that an empty list still means
+      "build only, do not push a digest either".
     required: false
     default: ""
   build_args:
@@ -33,6 +58,10 @@ inputs:
   github_token:
     description: "GITHUB_TOKEN used to authenticate to ghcr.io."
     required: true
+outputs:
+  digest:
+    description: "The pushed image's digest (sha256:...), when push_by_digest is 'true' and the push happened. Empty otherwise."
+    value: ${{ steps.build-digest.outputs.digest }}
 runs:
   using: "composite"
   steps:
@@ -62,17 +91,35 @@ runs:
           echo "No tags resolved - building without publishing."
         fi
 
-    # Generate tags and labels for the Docker image.
+    # The platform this job builds, as the "linux-amd64" / "linux-arm64" suffix
+    # the buildcache tag convention already uses, and image_name with '/'
+    # replaced by '-' (artifact names cannot contain a slash). Computed once
+    # here so the cache-from/cache-to refs and the digest artifact name agree
+    # with each other and with the manual tags used before per-arch builds
+    # existed.
+    - name: Resolve platform tag
+      id: platform
+      shell: bash
+      env:
+        PLATFORMS: ${{ inputs.platforms }}
+        IMAGE_NAME: ${{ inputs.image_name }}
+      run: |
+        echo "tag=${PLATFORMS//\//-}" >> "$GITHUB_OUTPUT"
+        echo "image_slug=${IMAGE_NAME//\//-}" >> "$GITHUB_OUTPUT"
+
+    # Generate tags and labels for the Docker image. Skipped in the
+    # push_by_digest path: there is no tag yet to compute metadata for, and
+    # docker/metadata-action requires at least one non-empty tag input.
     # GHCR only: DockerHub is retired as a publish target.
     - name: Generate Container Metadata
       id: meta
+      if: inputs.push_by_digest != 'true'
       uses: docker/metadata-action@v5
       with:
         images: ghcr.io/${{ inputs.image_name }}
         tags: ${{ steps.resolved-tags.outputs.tags }}
 
-    # - name: Set up QEMU
-    #   uses: docker/setup-qemu-action@v3
+    # No QEMU setup here, deliberately - see the `platforms` input above.
 
     # The mirror below only covers images BuildKit pulls; the buildkit image
     # itself is pulled by the host daemon straight from docker.io when the
@@ -140,39 +187,76 @@ runs:
         username: ${{ github.actor }}
         password: ${{ inputs.github_token }}
 
-    # One build step, not two. The old build-then-push split existed so each
-    # architecture could own its buildcache tag instead of clobbering the other's;
-    # with the arm64 build disabled (see below) there is only one architecture, so
-    # the second invocation just replayed the first from local cache - ~17s and six
-    # more registry manifest reads per image, for nothing.
-    #
-    # Cache lives on GHCR only (GITHUB_TOKEN auth, no pull limits). The DockerHub
-    # cache reads that used to sit alongside these were 54 DockerHub requests per
-    # node-ci run before a single base image was pulled, which is a large part of
-    # what exhausted the account's pull allowance.
+    # Cache lives on GHCR only (GITHUB_TOKEN auth, no pull limits), one tag per
+    # platform (buildcache-<branch>-<platform_tag>) so an amd64 and an arm64
+    # build of the same image never clobber each other's cache. The DockerHub
+    # cache reads that used to sit alongside these were 54 DockerHub requests
+    # per node-ci run before a single base image was pulled, which is a large
+    # part of what exhausted the account's pull allowance.
     #
     # `mode` is deliberately absent from cache-from: it is a cache-to option and
     # was silently ignored on every one of these refs.
-    - name: Build and Push
+    #
+    # Tag-based push: the default path, used whenever this action is not asked
+    # to push by digest (PR builds, and any single-platform caller).
+    - name: Build and Push (by tag)
+      if: inputs.push_by_digest != 'true'
       uses: docker/build-push-action@v6
       with:
         # Publish only when there is something to publish and we are allowed to.
         push: ${{ steps.eligibility.outputs.can_push == 'true' && steps.resolved-tags.outputs.has_tags == 'true' }}
         context: ${{ inputs.build_context }}
         file: ${{ inputs.dockerfile }}
-        platforms: "linux/amd64"
-        # platforms: "linux/amd64,linux/arm64"
+        platforms: ${{ inputs.platforms }}
         build-args: ${{ inputs.build_args }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: |
-          type=registry,ref=ghcr.io/${{ inputs.image_name }}:buildcache-staging-linux-amd64
-          type=registry,ref=ghcr.io/${{ inputs.image_name }}:buildcache-main-linux-amd64
+          type=registry,ref=ghcr.io/${{ inputs.image_name }}:buildcache-staging-${{ steps.platform.outputs.tag }}
+          type=registry,ref=ghcr.io/${{ inputs.image_name }}:buildcache-main-${{ steps.platform.outputs.tag }}
         # Written only on a branch build (cache_variant set) and never on fork PRs,
         # whose read-only token cannot push to GHCR.
-        cache-to: ${{ (inputs.cache_variant != '' && steps.eligibility.outputs.can_push == 'true') && format('type=registry,mode=max,ref=ghcr.io/{0}:buildcache-{1}-linux-amd64', inputs.image_name, inputs.cache_variant) || '' }}
+        cache-to: ${{ (inputs.cache_variant != '' && steps.eligibility.outputs.can_push == 'true') && format('type=registry,mode=max,ref=ghcr.io/{0}:buildcache-{1}-{2}', inputs.image_name, inputs.cache_variant, steps.platform.outputs.tag) || '' }}
 
-    # Disable arm builds due to extremely slow github actions.
-    # Restoring arm64 means going back to per-architecture build steps with
-    # separate buildcache tags, then a final manifest-only push - see git history
-    # for the shape that had.
+    # Digest-based push: one platform's half of a multi-arch manifest. No tags
+    # here at all - `outputs: ...,push-by-digest=true,name-canonical=true` pushes
+    # the image to the repository untagged and reports its digest, which a
+    # separate merge job (docker buildx imagetools create) later combines with
+    # this image's other platform(s) under the real tags from custom_tags.
+    - name: Build and Push (by digest)
+      id: build-digest
+      if: inputs.push_by_digest == 'true'
+      uses: docker/build-push-action@v6
+      with:
+        context: ${{ inputs.build_context }}
+        file: ${{ inputs.dockerfile }}
+        platforms: ${{ inputs.platforms }}
+        build-args: ${{ inputs.build_args }}
+        outputs: type=image,name=ghcr.io/${{ inputs.image_name }},push-by-digest=true,name-canonical=true,push=${{ steps.eligibility.outputs.can_push == 'true' && steps.resolved-tags.outputs.has_tags == 'true' }}
+        cache-from: |
+          type=registry,ref=ghcr.io/${{ inputs.image_name }}:buildcache-staging-${{ steps.platform.outputs.tag }}
+          type=registry,ref=ghcr.io/${{ inputs.image_name }}:buildcache-main-${{ steps.platform.outputs.tag }}
+        cache-to: ${{ (inputs.cache_variant != '' && steps.eligibility.outputs.can_push == 'true') && format('type=registry,mode=max,ref=ghcr.io/{0}:buildcache-{1}-{2}', inputs.image_name, inputs.cache_variant, steps.platform.outputs.tag) || '' }}
+
+    # Hand this platform's digest to the merge job. Named by image and
+    # platform so a per-image merge job can download every platform's digest
+    # for just that image with one glob (digests-<image_slug>-*), even though
+    # every (image, platform) pair in the matrix uploads independently and out
+    # of order.
+    - name: Export digest
+      if: inputs.push_by_digest == 'true' && steps.eligibility.outputs.can_push == 'true' && steps.resolved-tags.outputs.has_tags == 'true'
+      shell: bash
+      env:
+        DIGEST: ${{ steps.build-digest.outputs.digest }}
+      run: |
+        mkdir -p /tmp/digests
+        touch "/tmp/digests/${DIGEST#sha256:}"
+
+    - name: Upload digest
+      if: inputs.push_by_digest == 'true' && steps.eligibility.outputs.can_push == 'true' && steps.resolved-tags.outputs.has_tags == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: digests-${{ steps.platform.outputs.image_slug }}-${{ steps.platform.outputs.tag }}
+        path: /tmp/digests/*
+        if-no-files-found: error
+        retention-days: 1
