@@ -362,7 +362,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
     it('folds dropped audio and the seconds it cost as separate series', async () => {
       // Arrange — the count says a batch overran, the seconds say how much
       // audio never reached the ASR. Only the second one describes the damage.
-      const { metrics, poller } = createPoller();
+      const { metrics, poller } = await createPoller();
       service.setBody(
         metricsBody({
           counters: {
@@ -392,7 +392,7 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
       // field. Both are optional precisely so that stays a poll with no drops
       // rather than a `malformed` response taking every transcription metric
       // down with it.
-      const { metrics, poller, errors } = createPoller();
+      const { metrics, poller, errors } = await createPoller();
       const body = metricsBody({
         counters: { bufferOverflowTotal: [{ labels: WHISPER, value: 4 }] },
       });
