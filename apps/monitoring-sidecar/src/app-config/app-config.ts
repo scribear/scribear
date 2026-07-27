@@ -4,7 +4,10 @@ import type { Static } from 'typebox';
 
 import { LogLevel } from '@scribear/base-fastify-server';
 
-import type { AlertThresholds } from '#src/server/shared/alerts/alert-rules.js';
+import {
+  type AlertThresholds,
+  DEFAULT_THRESHOLDS,
+} from '#src/server/shared/alerts/alert-rules.js';
 import type { CanaryAuthConfig } from '#src/server/shared/canary/canary-auth.js';
 import type { CanaryRunnerConfig } from '#src/server/shared/canary/canary-runner.service.js';
 import type { NodeStatusPollerConfig } from '#src/server/shared/node-status/node-status-poller.service.js';
@@ -16,6 +19,28 @@ import { parseJobPeriods } from '#src/server/shared/transcription-metrics/job-pe
 import type { TranscriptionMetricsPollerConfig } from '#src/server/shared/transcription-metrics/transcription-metrics-poller.service.js';
 
 const SECOND_MS = 1_000;
+
+/**
+ * A numeric threshold that `compose.yml` may pass through as an **empty string**.
+ *
+ * Compose has no way to omit a key conditionally, so a variable an operator has
+ * not set arrives as `""`. Left as `Type.Number` that is fatal - ajv rejects it
+ * and the sidecar refuses to boot - and the obvious fix, repeating the default in
+ * `compose.yml`, puts the number in two places that then drift. Empty therefore
+ * means "use the default", and the defaults stay solely in
+ * {@link DEFAULT_THRESHOLDS}, next to the measurements that justify them.
+ */
+const OPTIONAL_NUMBER = Type.Union(
+  [Type.Number({ minimum: 0 }), Type.Literal('')],
+  {
+    default: '',
+  },
+);
+
+/** Falls back to the compiled default when compose passed an empty string. */
+function threshold(value: number | '', fallback: number): number {
+  return value === '' ? fallback : value;
+}
 
 const CONFIG_SCHEMA = Type.Object({
   LOG_LEVEL: Type.Enum(LogLevel),
@@ -94,7 +119,7 @@ const CONFIG_SCHEMA = Type.Object({
    * early warning fires. Must stay below `ALERT_RTF_P95` to be worth anything —
    * the point is to fire while captions are still on time.
    */
-  ALERT_ASR_DUTY_RATIO: Type.Number({ minimum: 0, default: 0.45 }),
+  ALERT_ASR_DUTY_RATIO: OPTIONAL_NUMBER,
   ALERT_ASR_DUTY_RATIO_MIN_JOBS: Type.Integer({ minimum: 1, default: 20 }),
   /**
    * Share of a provider's job periods that may be dropped — no pass ran in them
@@ -105,7 +130,7 @@ const CONFIG_SCHEMA = Type.Object({
    * set to the 1% the p99 RTF fallback path implies, so the alert means the same
    * thing whichever signal produced it.
    */
-  ALERT_ASR_DROPPED_PERIOD_RATIO: Type.Number({ minimum: 0, default: 0.01 }),
+  ALERT_ASR_DROPPED_PERIOD_RATIO: OPTIONAL_NUMBER,
   /**
    * Minimum passes observed in the window before that share — or the reported
    * p99 RTF standing in for it — is believed. Higher than
@@ -114,7 +139,14 @@ const CONFIG_SCHEMA = Type.Object({
    * dropped period. Raising `ALERT_RATE_WINDOW_SEC` is the way to bring a
    * long-period provider above it.
    */
-  ALERT_ASR_TAIL_MIN_JOBS: Type.Integer({ minimum: 1, default: 100 }),
+  ALERT_ASR_TAIL_MIN_JOBS: OPTIONAL_NUMBER,
+  /**
+   * Reported p99 RTF at or above which the tail warning fires for a
+   * transcription-service too old to report dropped periods. Not the 1.0
+   * realtime line, which measured as routine: a healthy single session reported
+   * p99 2.17 while captioning correctly.
+   */
+  ALERT_ASR_TAIL_P99_RTF: Type.Number({ minimum: 0, default: 3.0 }),
   ALERT_PROBE_FAILURE_THRESHOLD: Type.Integer({ minimum: 1, default: 2 }),
   ALERT_AUTH_FAILURE_RATIO: Type.Number({
     minimum: 0,
@@ -291,10 +323,20 @@ export class AppConfig {
       decodeDropCount: this._env.ALERT_DECODE_DROP_COUNT,
       bufferOverflowCount: this._env.ALERT_BUFFER_OVERFLOW_COUNT,
       rtfP95: this._env.ALERT_RTF_P95,
-      asrDutyRatio: this._env.ALERT_ASR_DUTY_RATIO,
+      asrDutyRatio: threshold(
+        this._env.ALERT_ASR_DUTY_RATIO,
+        DEFAULT_THRESHOLDS.asrDutyRatio,
+      ),
       asrDutyRatioMinJobs: this._env.ALERT_ASR_DUTY_RATIO_MIN_JOBS,
-      asrDroppedPeriodRatio: this._env.ALERT_ASR_DROPPED_PERIOD_RATIO,
-      asrTailMinJobs: this._env.ALERT_ASR_TAIL_MIN_JOBS,
+      asrDroppedPeriodRatio: threshold(
+        this._env.ALERT_ASR_DROPPED_PERIOD_RATIO,
+        DEFAULT_THRESHOLDS.asrDroppedPeriodRatio,
+      ),
+      asrTailMinJobs: threshold(
+        this._env.ALERT_ASR_TAIL_MIN_JOBS,
+        DEFAULT_THRESHOLDS.asrTailMinJobs,
+      ),
+      asrTailP99Rtf: this._env.ALERT_ASR_TAIL_P99_RTF,
       probeFailureThreshold: this._env.ALERT_PROBE_FAILURE_THRESHOLD,
       authFailureRatio: this._env.ALERT_AUTH_FAILURE_RATIO,
       authFailureMinSamples: this._env.ALERT_AUTH_FAILURE_MIN_SAMPLES,

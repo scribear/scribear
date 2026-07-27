@@ -333,13 +333,24 @@ services:
 
   transcription-service:
     image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/transcription-service-${TRANSCRIPTION_DEVICE:-cpu}:${IMAGE_TAG:-latest}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    # No GPU reservation here, on purpose. It lives in `compose.gpu.yml`, which a
+    # CUDA deployment overlays:
+    #
+    #   docker compose -f compose.yml -f compose.gpu.yml up -d
+    #
+    # This file used to reserve `driver: nvidia` unconditionally, which had
+    # nothing to do with `TRANSCRIPTION_DEVICE` - so the *default* configuration
+    # (`cpu`) demanded a GPU, and on any host without the NVIDIA runtime the
+    # container was created and then refused to start with `could not select
+    # device driver "nvidia"`, taking node-server down with it. A CPU-only host,
+    # or an Apple Silicon Mac, could not start the documented default stack.
+    #
+    # Compose cannot make a reservation conditional on a variable - there is no
+    # way to omit a key - so the choice is which way round the default points. It
+    # points at the configuration that needs no special hardware, because that is
+    # the one someone evaluating this project starts from, and because a GPU
+    # deployment is already choosing `TRANSCRIPTION_DEVICE` and reading the
+    # deployment guide.
     expose:
       - "80"
     environment:
@@ -428,6 +439,19 @@ services:
       PROBE_INTERVAL_SEC: ${MONITORING_PROBE_INTERVAL_SEC:-10}
       ALERT_RATE_WINDOW_SEC: ${MONITORING_ALERT_WINDOW_SEC:-120}
       ALERT_UPSTREAM_CHURN_COUNT: ${MONITORING_ALERT_CHURN_COUNT:-3}
+      # The transcription T1 thresholds. Plumbed because their right values are
+      # hardware-dependent in a way the others are not, and the sidecar's own
+      # defaults are calibrated on a GPU: healthy CUDA operation measured mean RTF
+      # 0.28-0.33, while the shipped CPU template (small, cpu_threads 4) measured
+      # 0.471 keeping up perfectly. So a CPU deployment left on the defaults gets
+      # a permanent T1 warning, and without these variables the only remedy was to
+      # edit this file. Empty means "use the sidecar default".
+      #
+      # The wiki's "Transcription on CPU-Only Hardware" page carries measured
+      # values per model and thread count.
+      ALERT_ASR_DUTY_RATIO: ${MONITORING_ASR_DUTY_RATIO:-}
+      ALERT_ASR_DROPPED_PERIOD_RATIO: ${MONITORING_ASR_DROPPED_PERIOD_RATIO:-}
+      ALERT_ASR_TAIL_MIN_JOBS: ${MONITORING_ASR_TAIL_MIN_JOBS:-}
       # Synthetic canary (A2). Empty disables it entirely, which is the
       # default: the canary needs a registered device, and until one exists
       # there is nothing to authenticate as. The one-time device registration

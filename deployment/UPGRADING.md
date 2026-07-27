@@ -12,6 +12,38 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — **breaking:** a CUDA deployment now needs `-f compose.gpu.yml`
+
+**If you run `TRANSCRIPTION_DEVICE=cuda` or `cuda128`, your start command changes:**
+
+```bash
+docker compose -f compose.yml -f compose.gpu.yml up -d
+```
+
+Without the overlay the transcription service starts on the CPU, whatever
+`TRANSCRIPTION_DEVICE` says — the image will be the CUDA one and it will quietly
+run without a device. Nothing crashes; captions just get very slow.
+
+### Why
+
+`compose.yml` reserved `driver: nvidia` unconditionally, with no reference to
+`TRANSCRIPTION_DEVICE` — whose default is `cpu`. So the **documented default
+configuration demanded a GPU**, and on a host without the NVIDIA runtime the
+container was created and then refused to start with `could not select device
+driver "nvidia"`, taking `node-server` down with it. A CPU-only server, or an
+Apple Silicon Mac, could not start the default stack at all.
+
+Compose cannot make a reservation conditional on a variable — there is no way to
+omit a key — so the only question is which way the default points. It now points
+at the configuration that needs no special hardware, because that is where someone
+evaluating the project starts, and because a GPU deployment is already choosing
+`TRANSCRIPTION_DEVICE` and reading this file.
+
+The overlay contains exactly the device reservation and nothing else. It is not a
+"production" overlay.
+
+---
+
 ## Unreleased — the ASR job period is now per provider (`compose.yml` v2)
 
 **Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. Deployment

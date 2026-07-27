@@ -1,0 +1,25 @@
+# GPU overlay for the transcription service.
+#
+#   docker compose -f compose.yml -f compose.gpu.yml up -d
+#
+# `compose.yml` deliberately reserves no GPU: the reservation cannot be made
+# conditional on `TRANSCRIPTION_DEVICE`, and pointing the default at hardware not
+# everyone has meant a CPU-only host could not start the stack at all - the
+# container was created and then died with `could not select device driver
+# "nvidia"`, taking node-server with it.
+#
+# Use this file whenever `TRANSCRIPTION_DEVICE` is `cuda` or `cuda128`. It needs
+# the NVIDIA Container Toolkit configured for Docker
+# (`nvidia-ctk runtime configure --runtime=docker`, then restart Docker).
+#
+# Nothing else belongs in here. It is not "the production overlay" - it is the
+# one service that wants a device.
+services:
+  transcription-service:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

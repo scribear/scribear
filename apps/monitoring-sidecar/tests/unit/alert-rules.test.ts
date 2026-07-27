@@ -135,6 +135,13 @@ function observeDutyRatio(
  */
 const HEALTHY_MEAN_RTF = 0.24;
 const TAIL_PASSES = 120;
+/**
+ * Dropped periods that put `TAIL_PASSES` past the threshold: 43/163 = 26.4%, the
+ * share measured live at 3 concurrent sessions. Healthy single-session operation
+ * measured 11.3%, which is why the threshold is 25% and not the 1% it shipped as
+ * before anyone looked.
+ */
+const DEGRADED_DROPS = 43;
 
 /** Declares that the polled service reports the dropped-period counter. */
 function reportsDroppedPeriods(metrics: MetricsRegistry, reports = true): void {
@@ -228,8 +235,10 @@ describe('alert rules', () => {
   });
 
   describe('transcription saturation (T1)', (it) => {
-    it('fires when p95 RTF reaches the realtime line', () => {
-      // Arrange
+    it('fires when p95 RTF passes the measured-healthy ceiling', () => {
+      // Arrange - 2.4 is past the 2.0 threshold. Not 1.4: healthy p95 measured
+      // 0.96-1.28 on a GPU stack that was captioning normally, which is why the
+      // bar is no longer the 1.0 realtime line.
       const metrics = new MetricsRegistry();
       metrics.asrRtf.set(
         {
@@ -237,7 +246,7 @@ describe('alert rules', () => {
           providerKey: 'whisper',
           quantile: 'p95',
         },
-        1.4,
+        2.4,
       );
 
       // Act
@@ -246,7 +255,7 @@ describe('alert rules', () => {
       // Assert
       expect(alerts).toHaveLength(1);
       expect(alerts[0]?.stage).toBe('transcription');
-      expect(alerts[0]?.summary).toContain('p95 RTF 1.40');
+      expect(alerts[0]?.summary).toContain('p95 RTF 2.40');
     });
 
     it('stays silent for a comfortably-faster-than-realtime workload', () => {
@@ -450,13 +459,17 @@ describe('alert rules', () => {
   describe('transcription overrunning its period on the tail (T1, tail)', (it) => {
     it('fires on the exact dropped-period counter', () => {
       // Arrange — the median pass is comfortable (0.24, a measured p50) so
-      // neither sibling rule fires, but three periods in the window ran no pass
-      // at all. Nothing else in the stack records that: the pool advances past a
-      // period it overran without erroring or queueing.
+      // neither sibling rule fires, yet a quarter of the window's periods ran no
+      // pass at all. Nothing else in the stack records that: the pool advances
+      // past a period it overran without erroring or queueing.
+      //
+      // 43 of 163 is 26.4%, the share measured live at 3 concurrent sessions,
+      // where transcripts per 1000 chunks had already fallen ~19%. A healthy
+      // single session measured 11.3% and must stay silent - see the test below.
       const metrics = new MetricsRegistry();
       observeDutyRatio(metrics, { meanRtf: HEALTHY_MEAN_RTF });
       reportsDroppedPeriods(metrics);
-      metrics.asrDroppedPeriodsTotal.inc(providerLabels(), 3, NOW);
+      metrics.asrDroppedPeriodsTotal.inc(providerLabels(), DEGRADED_DROPS, NOW);
 
       // Act
       const alerts = transcriptionTailOverrunRule(context(metrics));
@@ -468,9 +481,11 @@ describe('alert rules', () => {
       expect(alerts[0]?.stage).toBe(PipelineStage.TRANSCRIPTION);
       expect(alerts[0]?.failureModes).toContain('T1');
       expect(alerts[0]?.summary).toContain(
-        `3 of ${String(TAIL_PASSES + 3)} job periods ran no pass at all`,
+        `${String(DEGRADED_DROPS)} of ${String(TAIL_PASSES + DEGRADED_DROPS)} job periods ran no pass at all`,
       );
-      expect(alerts[0]?.value).toBeCloseTo(3 / (TAIL_PASSES + 3));
+      expect(alerts[0]?.value).toBeCloseTo(
+        DEGRADED_DROPS / (TAIL_PASSES + DEGRADED_DROPS),
+      );
       // The levers are the buffer and the period, not capacity: one stream's
       // passes run one at a time, so a second worker shortens nothing.
       expect(alerts[0]?.likelyCause).toContain('max_buffer_len_sec');
@@ -511,27 +526,63 @@ describe('alert rules', () => {
       expect(alerts).toHaveLength(0);
     });
 
-    it('falls back to the reported p99 when the service does not count drops', () => {
-      // Arrange — a transcription-service predating the counter, which is what
-      // this sidecar polls during a rolling upgrade. p99 >= 1.0 means the worst
-      // 1% of passes took longer than the audio they consumed, i.e. longer than
-      // the period that scheduled them.
+    it('stays silent at the drop share a healthy stack measured', () => {
+      // Arrange - 15 of 135 is 11.1%, just under the 11.3% measured live on a
+      // healthy single session that was captioning perfectly well. Dropping
+      // periods is how this provider self-throttles when its buffer grows, not a
+      // fault, and the threshold shipped at 1% before anyone measured that.
+      // This is the regression guard on that mistake.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: HEALTHY_MEAN_RTF });
+      reportsDroppedPeriods(metrics);
+      metrics.asrDroppedPeriodsTotal.inc(providerLabels(), 15, NOW);
+
+      // Act
+      const alerts = transcriptionTailOverrunRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('stays silent at the p99 a healthy stack measured', () => {
+      // Arrange - 2.17 is the measured healthy single-session p99. A fallback at
+      // the 1.0 realtime line fired here, which is why it is 3.0.
       const metrics = new MetricsRegistry();
       observeDutyRatio(metrics, { meanRtf: HEALTHY_MEAN_RTF });
       reportsDroppedPeriods(metrics, false);
-      setRtfQuantile(metrics, 'p99', 1.2);
+      setRtfQuantile(metrics, 'p99', 2.17);
+
+      // Act
+      const alerts = transcriptionTailOverrunRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('falls back to the reported p99 when the service does not count drops', () => {
+      // Arrange — a transcription-service predating the counter, which is what
+      // this sidecar polls during a rolling upgrade.
+      //
+      // 3.5, not 1.2. The bar is NOT the 1.0 realtime line: a healthy single
+      // session measured p99 RTF 2.17 while dropping 11% of its periods and
+      // captioning correctly, so "the worst 1% of passes exceeded realtime" is
+      // routine here rather than a fault.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: HEALTHY_MEAN_RTF });
+      reportsDroppedPeriods(metrics, false);
+      setRtfQuantile(metrics, 'p99', 3.5);
 
       // Act
       const alerts = transcriptionTailOverrunRule(context(metrics));
 
       // Assert
       expect(alerts).toHaveLength(1);
-      expect(alerts[0]?.summary).toContain('p99 RTF 1.20');
+      expect(alerts[0]?.summary).toContain('p99 RTF 3.50');
       // The alert has to admit which signal it fired on: the operator cannot
       // ask how many periods were lost.
       expect(alerts[0]?.summary).toContain('does not report dropped periods');
-      expect(alerts[0]?.value).toBeCloseTo(1.2);
-      expect(alerts[0]?.threshold).toBe(1.0);
+      expect(alerts[0]?.value).toBeCloseTo(3.5);
+      expect(alerts[0]?.threshold).toBe(DEFAULT_THRESHOLDS.asrTailP99Rtf);
     });
 
     it('stays silent on a healthy p99 when it has no counter to read', () => {
@@ -567,15 +618,15 @@ describe('alert rules', () => {
     });
 
     it('does not double-report the event the CRITICAL already owns', () => {
-      // Arrange — p95 RTF at 1.2 is `transcriptionSaturationRule`'s outage. It
-      // implies p99 >= 1.0 and it comes with dropped periods by construction, so
-      // without suppression this event would produce two cards.
+      // Arrange — p95 RTF at 2.4 is `transcriptionSaturationRule`'s outage. It
+      // comes with dropped periods by construction, so without suppression this
+      // event would produce two cards.
       const metrics = new MetricsRegistry();
       observeDutyRatio(metrics, { meanRtf: HEALTHY_MEAN_RTF });
       reportsDroppedPeriods(metrics);
-      metrics.asrDroppedPeriodsTotal.inc(providerLabels(), 30, NOW);
-      setRtfQuantile(metrics, 'p95', 1.2);
-      setRtfQuantile(metrics, 'p99', 1.6);
+      metrics.asrDroppedPeriodsTotal.inc(providerLabels(), DEGRADED_DROPS, NOW);
+      setRtfQuantile(metrics, 'p95', 2.4);
+      setRtfQuantile(metrics, 'p99', 4.0);
 
       // Act
       const tail = transcriptionTailOverrunRule(context(metrics));
@@ -621,7 +672,7 @@ describe('alert rules', () => {
       reportsDroppedPeriods(metrics);
       metrics.asrDroppedPeriodsTotal.inc(
         providerLabels('whisper-turbo'),
-        6,
+        DEGRADED_DROPS,
         NOW,
       );
 

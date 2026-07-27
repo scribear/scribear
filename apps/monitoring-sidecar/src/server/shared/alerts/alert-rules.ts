@@ -77,9 +77,8 @@ export interface AlertThresholds {
   rtfP95: number;
   /**
    * Mean real-time factor over `rateWindowMs` — the duty ratio — at or above
-   * which the T1 early warning fires. Below {@link rtfP95}'s 1.0 line on
-   * purpose: at 0.8 the provider is still keeping up, but has only a fifth of a
-   * period of headroom left and no signal of its own that it is losing it.
+   * which the T1 early warning fires. Below {@link rtfP95} on purpose: it warns
+   * while the provider is still keeping up, where the p95 critical is the outage.
    */
   asrDutyRatio: number;
   /** Minimum RTF observations in the window before that mean is trusted. */
@@ -90,6 +89,13 @@ export interface AlertThresholds {
    * which no pass ran at all because the previous pass overran it.
    */
   asrDroppedPeriodRatio: number;
+  /**
+   * Reported p99 RTF at or above which the tail warning fires **when the
+   * provider does not report dropped periods**. Its own threshold rather than
+   * the 1.0 realtime line, because passes exceeding realtime are routine: see
+   * {@link asrDroppedPeriodRatio} for the measurements.
+   */
+  asrTailP99Rtf: number;
   /**
    * Minimum RTF observations in the window before that share — or the reported
    * p99 RTF standing in for it — is trusted. Higher than
@@ -122,7 +128,24 @@ export const DEFAULT_THRESHOLDS: AlertThresholds = {
   rateWindowMs: 120_000,
   decodeDropCount: 10,
   bufferOverflowCount: 5,
-  rtfP95: 1.0,
+  // 2.0, raised from the 1.0 realtime line after live verification showed 1.0
+  // firing this CRITICAL on a **healthy** single session. Measured on an RTX
+  // 5070 Ti (whisper `turbo`, 500 ms period, 30 s buffer): healthy p95 RTF
+  // 0.96-1.28 across runs, p99 2.17, while captions arrived normally and the
+  // service dropped ~11% of its periods absorbing the long-buffer tail.
+  //
+  // 1.0 looked principled - a pass at RTF 1.0 took longer than the period that
+  // scheduled it - and that is exactly why it misled: passes exceeding realtime
+  // are routine here, because cost tracks the unfinalized buffer and a full 30 s
+  // buffer costs ~680 ms against a 500 ms period. "The worst 5% of passes
+  // overran" is this design working, not an outage.
+  //
+  // 2.0 clears the worst healthy observation by 1.56x. It is a stopgap: the exact
+  // signal is now `asr_dropped_periods_total`, and re-keying this CRITICAL onto a
+  // high drop share (measured: 11% healthy, 26% at 3 sessions, 66% at 6) would
+  // beat any p95 bar. That is a bigger change than a threshold and is recorded in
+  // NEXTSTEPS-CPU-Whisper.md instead.
+  rtfP95: 2.0,
   // 45% of the period budget, set from a measured healthy baseline rather than
   // guessed. 42 minutes of `npm run asr:load` against a live RTX 5070 Ti stack
   // (whisper `turbo`, cuda, 500 ms period, 30 s buffer, num_workers 1) put
@@ -143,28 +166,60 @@ export const DEFAULT_THRESHOLDS: AlertThresholds = {
   // which is the 120 s window either way. 0.5 is the conservative pick for
   // workloads denser than the fixtures; below 0.4 the margin over measured
   // healthy operation is too thin.
+  //
+  // **This default is GPU-calibrated and a CPU deployment must raise it.**
+  // Measured healthy, keeping-up CPU configurations: `base`/4 threads 0.173,
+  // `small`/8 0.319, and **`small`/4 - what the CPU template ships - 0.471**,
+  // with speech-dense audio pushing `base` to 0.540 and `small`/8 to 0.745. So
+  // the shipped CPU template trips this rule in normal working operation. The
+  // rule is not wrong; one threshold cannot serve hardware an order of magnitude
+  // apart. The wiki's "Transcription on CPU-Only Hardware" page carries the
+  // re-baselining override.
   asrDutyRatio: 0.45,
   // ~10 s of a single stream at a 500 ms period, and at least a couple of poll
   // cycles. Low enough that any real load clears it by two orders of magnitude
   // (a 120 s window is ~240 observations per stream), high enough that a
   // provider which has served a handful of jobs cannot produce an alert.
   asrDutyRatioMinJobs: 20,
-  // 1% of scheduled periods dropped. **Reasoned, not measured** — unlike the
-  // 0.45 above, which came from a 42-minute live capture. No capture of a
-  // provider that is dropping periods exists yet, so this is chosen for
-  // consistency rather than calibrated: it is the same 1% the p99 fallback path
-  // implies (p99 RTF >= 1.0 means the worst 1% of passes are at or over
-  // realtime, and a pass over realtime is a pass that overruns its period), so
-  // the alert means roughly the same thing whichever signal it fired on. That
-  // matters during a rolling upgrade, when it can switch signals mid-incident.
+  // 25% of scheduled periods dropped, **measured**. This started at 1% on the
+  // reasoning that a dropped period is a lost caption update rather than a
+  // tolerance, so a healthy stack should drop none. Live verification demolished
+  // that premise: dropping periods is how this provider self-throttles, not a
+  // fault.
   //
-  // Re-measure before trusting it. The number to beat is the drop rate of a
-  // deployment that is keeping up: it should be flatly zero, because a dropped
-  // period is a lost caption update rather than a tolerance, which is the
-  // argument for a threshold this low. If a healthy stack turns out to drop
-  // periods routinely (session onset and model warm-up are the candidates),
-  // raise this rather than the sample floor.
-  asrDroppedPeriodRatio: 0.01,
+  // Measured on an RTX 5070 Ti (whisper `turbo`, cuda, 500 ms period, 30 s
+  // buffer, num_workers 1), share of scheduled periods that ran no pass:
+  //
+  //   1 session   11.3%   (212 passes, 27 dropped) — captions perfectly fine
+  //   3 sessions  26.4%   (395 passes, 142 dropped)
+  //   6 sessions  66.3%   (353 passes, 695 dropped)
+  //
+  // The reason a *healthy* session drops periods at all: cost tracks the
+  // unfinalized buffer, and a full 30 s buffer costs ~680 ms against the 500 ms
+  // period, so the long-buffer tail overruns by design and the pool absorbs it
+  // by skipping. 1% would have fired continuously on a stack with nothing wrong.
+  //
+  // 25% is 2.2x the measured healthy single-session share and sits at the
+  // 3-session point, where transcripts per 1000 chunks had already fallen ~19%.
+  // A denser workload raises the healthy floor (a speech-dense fixture measured
+  // 18% higher per-pass cost), so a deployment whose single-session share exceeds
+  // ~15% should raise this rather than tolerate the noise. **This is the metric
+  // to trust for saturation** — unlike mean RTF, it rose monotonically through
+  // the same sweep where the mean fell.
+  asrDroppedPeriodRatio: 0.25,
+  // 3.0, from the same capture: a healthy single session measured p99 RTF 2.17
+  // while dropping 11% of periods and captioning correctly. The fallback was 1.0
+  // — the realtime line — which is the *definition* of an overrunning pass and
+  // therefore looked principled, but a p99 at 1.0 only says the worst 1% of
+  // passes overran, which is routine here. 3.0 clears the one healthy
+  // observation by 1.4x.
+  //
+  // **Thinner evidence than the ratio above**: one healthy p99, and no p99 from a
+  // degraded provider, because the counter path made that measurement
+  // unnecessary for the primary signal. This is the fallback for a
+  // transcription-service too old to report drops, so it governs a shrinking set
+  // of deployments; prefer upgrading the service to tuning this.
+  asrTailP99Rtf: 3.0,
   // 100 observations, five times `asrDutyRatioMinJobs`, for two reasons that
   // land on the same number.
   //
@@ -444,16 +499,6 @@ export const transcriptionFallingBehindRule: AlertRule = (ctx) => {
 };
 
 /**
- * The realtime line itself: one second of compute per second of audio. Not a
- * tunable, unlike {@link AlertThresholds.rtfP95} — a pass whose RTF reaches 1.0
- * has, by definition, taken longer than the period that scheduled it (each
- * period ingests roughly one period of audio), and that is what the fallback
- * below detects. A deployment that raises `rtfP95` to quieten the critical
- * should not thereby move where an overrun starts.
- */
-const REALTIME_RTF = 1.0;
-
-/**
  * §3 T1, the tail — a provider whose *typical* pass is comfortable but whose
  * expensive passes overrun their period, so periods are being dropped while
  * every windowed average still looks fine.
@@ -676,12 +721,12 @@ function tailRtfEvidence(
     providerKey,
     quantile: 'p99',
   });
-  if (p99 === undefined || p99 < REALTIME_RTF) return null;
+  if (p99 === undefined || p99 < ctx.thresholds.asrTailP99Rtf) return null;
 
   return {
     summary: `p99 RTF ${p99.toFixed(2)} over the last ${windowSec}s of passes (1.0 = the pass took as long as the audio it consumed). This service does not report dropped periods, so the exact count is unavailable.`,
     value: p99,
-    threshold: REALTIME_RTF,
+    threshold: ctx.thresholds.asrTailP99Rtf,
   };
 }
 
