@@ -31,6 +31,7 @@ import { useNavigate } from 'react-router-dom';
 import type { Device } from '@scribear/session-manager-schema';
 
 import { ActivationCodeDisplay } from '#src/components/activation-code-display';
+import { KioskUrlInstructions } from '#src/components/kiosk-url-instructions';
 import { NameWithUid } from '#src/components/name-with-uid';
 import type { RegisterDeviceResult } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
@@ -39,8 +40,6 @@ import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncList } from '#src/lib/use-async-list';
 import { useRoomNameLookup } from '#src/lib/use-room-name-lookup';
-
-import { KioskUrlInstructions } from '#src/components/kiosk-url-instructions';
 
 const PAGE_LIMIT = 25;
 
