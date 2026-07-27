@@ -762,7 +762,33 @@ export const workerDeadRule: AlertRule = (ctx) => {
   ];
 };
 
-/** §3 T2 — per-job backlog overflow producing choppy captions. */
+/**
+ * §3 T2 — per-job backlog overflow producing choppy captions.
+ *
+ * Two shapes of the same pressure: audio cut *early* (force-finalized, so it is
+ * still transcribed, just badly) and audio cut *entirely* (dropped because the
+ * buffer had no room for the batch at all).
+ *
+ * The second one was `asr-audio-too-fast`, CRITICAL on the UPLINK stage,
+ * telling the operator to "check for a misbehaving or replaying client". All
+ * three of those were wrong. The check behind it has no clock: it fires when a
+ * single decode batch exceeds the buffer's free space, and a batch is whatever
+ * arrived since the worker last reached that job — `client_rate ×
+ * scheduling_gap`, with the gap owned by the service. So it belongs to
+ * TRANSCRIPTION, not UPLINK: it was firing on our own stalls, and pointing the
+ * operator at the one component that was behaving.
+ *
+ * It is also no longer CRITICAL, because it no longer disconnects anyone. The
+ * job used to raise, and any job exception deregisters the job, so a stall took
+ * every saturated session down at once and blamed each of them for it; the tail
+ * is now dropped and the session continues. What is left is degradation of the
+ * same kind as the force-finalize case beside it — WARNING, and the T1 rules
+ * still own the CRITICAL for the saturation that causes it.
+ *
+ * Threshold stays at zero rather than picking up a tolerance knob: dropped
+ * audio is caption loss with nothing transcribed in its place, so a healthy
+ * deployment reads zero and any non-zero window is worth a card.
+ */
 export const bufferOverflowRule: AlertRule = (ctx) => {
   const window = ctx.thresholds.rateWindowMs;
   const overflow = ctx.metrics.asrBufferOverflowTotal.windowCount(
@@ -770,11 +796,17 @@ export const bufferOverflowRule: AlertRule = (ctx) => {
     window,
     ctx.nowMs,
   );
-  const tooFast = ctx.metrics.asrAudioTooFastTotal.windowCount(
+  const droppedBatches = ctx.metrics.asrAudioDroppedBufferFullTotal.windowCount(
     {},
     window,
     ctx.nowMs,
   );
+  const droppedSeconds =
+    ctx.metrics.asrAudioDroppedBufferFullSecondsTotal.windowCount(
+      {},
+      window,
+      ctx.nowMs,
+    );
   const alerts: Alert[] = [];
 
   if (overflow >= ctx.thresholds.bufferOverflowCount) {
@@ -791,16 +823,16 @@ export const bufferOverflowRule: AlertRule = (ctx) => {
     });
   }
 
-  if (tooFast > 0) {
+  if (droppedBatches > 0) {
     alerts.push({
-      id: 'asr-audio-too-fast',
+      id: 'asr-audio-dropped-buffer-full',
       failureModes: ['T2'],
-      severity: AlertSeverity.CRITICAL,
-      stage: PipelineStage.UPLINK,
-      summary: `${String(tooFast)} sessions rejected for sending audio faster than realtime.`,
+      severity: AlertSeverity.WARNING,
+      stage: PipelineStage.TRANSCRIPTION,
+      summary: `${droppedSeconds.toFixed(1)}s of audio dropped across ${String(droppedBatches)} decode batch(es) the ASR buffer had no room for, in ${String(Math.round(window / 1000))}s.`,
       likelyCause:
-        'A source is pushing audio faster than realtime and was disconnected with close code 1007. Check for a misbehaving or replaying client.',
-      value: tooFast,
+        'The service did not get back to these jobs before more audio piled up than their buffers hold, so the excess was dropped — those seconds produce no captions at all. A batch is everything that arrived since the worker last reached the job, so its size is set by the scheduling gap as much as by the arrival rate; expect this downstream of T1 saturation and read it alongside dropped periods and RTF. A source genuinely sending faster than realtime would have to reach roughly 6x (CPU) or 60x (GPU) to cause this by itself.',
+      value: droppedBatches,
       threshold: 0,
     });
   }

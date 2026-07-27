@@ -7,6 +7,7 @@ import {
   DEFAULT_THRESHOLDS,
   PipelineStage,
   authFailureRule,
+  bufferOverflowRule,
   canaryFailureRule,
   canaryQualityRule,
   clockSkewRule,
@@ -735,6 +736,54 @@ describe('alert rules', () => {
 
       // Act
       const alerts = workerDeadRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+  });
+
+  describe('buffer overflow and dropped audio (T2)', (it) => {
+    it('reports dropped audio as service-side degradation, not client abuse', () => {
+      // Arrange — one decode batch the ASR buffer had no room for. This used
+      // to be a CRITICAL on UPLINK telling the operator to go looking for a
+      // misbehaving client, when the batch is only ever that large because the
+      // service itself did not get back to the job in time.
+      const metrics = new MetricsRegistry();
+      metrics.asrAudioDroppedBufferFullTotal.inc(
+        { service: 'transcription-service', providerKey: 'whisper' },
+        1,
+        NOW,
+      );
+      metrics.asrAudioDroppedBufferFullSecondsTotal.inc(
+        { service: 'transcription-service', providerKey: 'whisper' },
+        30.5,
+        NOW,
+      );
+
+      // Act
+      const alerts = bufferOverflowRule(context(metrics));
+
+      // Assert
+      expect(alerts).toHaveLength(1);
+      const alert = alerts[0];
+      expect(alert?.id).toBe('asr-audio-dropped-buffer-full');
+      expect(alert?.severity).toBe(AlertSeverity.WARNING);
+      expect(alert?.stage).toBe(PipelineStage.TRANSCRIPTION);
+      // The seconds are what the operator needs: the count says a batch
+      // overran, not how much audio produced no captions.
+      expect(alert?.summary).toContain('30.5s');
+      // The old text blamed the client. Nothing may put that back.
+      expect(alert?.likelyCause).not.toContain('misbehaving');
+      expect(alert?.likelyCause).not.toContain('replaying');
+    });
+
+    it('stays silent when no audio was dropped', () => {
+      // Arrange — force-finalization alone is a different, milder failure: that
+      // audio is still transcribed, just cut early.
+      const metrics = new MetricsRegistry();
+
+      // Act
+      const alerts = bufferOverflowRule(context(metrics));
 
       // Assert
       expect(alerts).toHaveLength(0);

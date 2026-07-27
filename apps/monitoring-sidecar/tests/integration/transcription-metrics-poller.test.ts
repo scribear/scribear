@@ -274,7 +274,9 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
       const { metrics, poller } = createPoller();
       service.setBody(
         metricsBody({
-          counters: { audioTooFastTotal: [{ labels: {}, value: 1 }] },
+          counters: {
+            audioDroppedBufferFullTotal: [{ labels: {}, value: 1 }],
+          },
         }),
       );
 
@@ -283,11 +285,66 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
 
       // Assert
       expect(
-        metrics.asrAudioTooFastTotal.get({
+        metrics.asrAudioDroppedBufferFullTotal.get({
           service: SERVICE,
           providerKey: 'unknown',
         }),
       ).toBe(1);
+    });
+
+    it('folds dropped audio and the seconds it cost as separate series', async () => {
+      // Arrange — the count says a batch overran, the seconds say how much
+      // audio never reached the ASR. Only the second one describes the damage.
+      const { metrics, poller } = createPoller();
+      service.setBody(
+        metricsBody({
+          counters: {
+            audioDroppedBufferFullTotal: [{ labels: WHISPER, value: 2 }],
+            audioDroppedBufferFullSecondsTotal: [
+              { labels: WHISPER, value: 31.5 },
+            ],
+          },
+        }),
+      );
+
+      // Act
+      await poller.pollOnce();
+
+      // Assert
+      expect(metrics.asrAudioDroppedBufferFullTotal.get(providerLabels)).toBe(
+        2,
+      );
+      expect(
+        metrics.asrAudioDroppedBufferFullSecondsTotal.get(providerLabels),
+      ).toBe(31.5);
+    });
+
+    it('polls a service too old to report dropped audio without failing', async () => {
+      // Arrange — the counter was renamed from `audioTooFastTotal`, so during a
+      // rolling upgrade the sidecar polls a service that sends neither new
+      // field. Both are optional precisely so that stays a poll with no drops
+      // rather than a `malformed` response taking every transcription metric
+      // down with it.
+      const { metrics, poller, errors } = createPoller();
+      const body = metricsBody({
+        counters: { bufferOverflowTotal: [{ labels: WHISPER, value: 4 }] },
+      });
+      const counters = body.counters as Record<string, unknown>;
+      delete counters['audioDroppedBufferFullTotal'];
+      delete counters['audioDroppedBufferFullSecondsTotal'];
+      counters['audioTooFastTotal'] = [{ labels: WHISPER, value: 9 }];
+      service.setBody(body);
+
+      // Act
+      await poller.pollOnce();
+
+      // Assert — the poll succeeded and its other counters landed, and the
+      // retired name was ignored rather than folded into the new metric.
+      expect(errors).toEqual([]);
+      expect(metrics.asrBufferOverflowTotal.get(providerLabels)).toBe(4);
+      expect(metrics.asrAudioDroppedBufferFullTotal.get(providerLabels)).toBe(
+        0,
+      );
     });
   });
 

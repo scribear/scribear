@@ -140,16 +140,36 @@ class WhisperStreamingProviderJob(
         # until the first _transcribe_audio call completes.
         self._vad_stats: VadStats | None = None
 
-    def _decode_audio(self, batch: list[AudioChunkPayload]):
+    def _decode_audio(self, batch: list[AudioChunkPayload], log: Logger):
         """
         Decodes audio chunks and appends to buffer, recording each chunk's
         sample span in the ledger for later latency correlation.
 
+        Audio the buffer has no room for is **dropped and counted**, never
+        rejected. `NPCircularBuffer.append` returns a non-empty tail only when
+        a single call carries more than the buffer's free space, and free
+        space at the start of a pass is always at least `max_buffer_len_sec`
+        (the buffer is sized at twice that and force-finalization purges back
+        down to it every pass). A batch is everything that arrived since the
+        worker last reached this job, so its size is `client_rate x
+        scheduling_gap` - and the gap is the service's own, not the client's.
+        A perfectly paced client therefore overruns this the moment the
+        service stalls for longer than the buffer holds, which is precisely
+        what happens to every live session at once when the pool saturates.
+
+        Raising here used to close all of them and blame them for it: any job
+        exception auto-deregisters the job in `worker_process_manager`, so
+        there was no "close it more accurately" - not raising is the only way
+        a session survives its own service stalling. Dropping the tail costs
+        the audio in that tail and nothing else; the stream resumes with the
+        next chunk.
+
         Args:
             batch   - Batch of audio chunks to decode and append
+            log     - Logger for this execution
 
         Raises:
-            TranscriptionClientError if chunks fail to decode or client sends audio too fast
+            TranscriptionClientError if a chunk fails to decode
         """
         for chunk in batch:
             try:
@@ -157,29 +177,55 @@ class WhisperStreamingProviderJob(
             except ValueError as e:
                 raise TranscriptionClientError(str(e)) from e
 
-            num_samples = len(samples)
-            self._chunk_ledger.append(
-                {
-                    "chunk_id": chunk.chunk_id,
-                    "start_sample": self._total_decoded_samples,
-                    "end_sample": self._total_decoded_samples + num_samples,
-                }
-            )
             extra = self._buffer.append(samples)
+            # Metered before the drop is subtracted: the meter answers "what
+            # does the audio arriving look like", which the buffer's capacity
+            # has no bearing on.
             self._meter.append(samples)
-            self._total_decoded_samples += num_samples
+
+            num_dropped = len(extra)
+            num_retained = len(samples) - num_dropped
+
+            if num_dropped > 0:
+                dropped_sec = num_dropped / SAMPLE_RATE
+                log.warning(
+                    f"Audio buffer had no room for {dropped_sec:.2f}s of "
+                    f"chunk {chunk.chunk_id}; dropped it. A batch that large "
+                    "means this job was not scheduled for longer than the "
+                    "buffer holds."
+                )
+                self._counters.inc(
+                    TranscriptionJobCounter.AUDIO_DROPPED_BUFFER_FULL
+                )
+                self._counters.inc(
+                    TranscriptionJobCounter.AUDIO_DROPPED_BUFFER_FULL_SECONDS,
+                    dropped_sec,
+                )
+
+            # Everything below counts *retained* samples only. These three
+            # numbers are all positions on, or lengths of, the same timeline
+            # the buffer holds: `_total_decoded_samples` is the absolute
+            # stream position word timestamps and ledger spans resolve
+            # against, and charging it for audio that never entered the buffer
+            # would shift every later timestamp by the dropped duration -
+            # permanently, and cumulatively across drops. `_decoded_audio_
+            # seconds` is the asr_input stage reading, whose whole purpose is
+            # to sit below ingress by exactly what the pipeline lost.
+            if num_retained > 0:
+                self._chunk_ledger.append(
+                    {
+                        "chunk_id": chunk.chunk_id,
+                        "start_sample": self._total_decoded_samples,
+                        "end_sample": self._total_decoded_samples
+                        + num_retained,
+                    }
+                )
+            self._total_decoded_samples += num_retained
             self._counters.inc(
                 TranscriptionJobCounter.AUDIO_SECONDS_DECODED,
-                num_samples / SAMPLE_RATE,
+                num_retained / SAMPLE_RATE,
             )
-            self._decoded_audio_seconds += num_samples / SAMPLE_RATE
-            # More than expected number of samples received, client sending audio to fast
-            if len(extra) > 0:
-                # Counted before the raise, not inferred from the exception
-                # class: decode failures raise the same type, so the class
-                # alone cannot tell the two apart.
-                self._counters.inc(TranscriptionJobCounter.AUDIO_TOO_FAST)
-                raise TranscriptionClientError("Client sent audio too quickly.")
+            self._decoded_audio_seconds += num_retained / SAMPLE_RATE
 
     def _detect_speech_ranges(
         self,
@@ -574,7 +620,7 @@ class WhisperStreamingProviderJob(
     ) -> TranscriptionResult:
         whisper_model, vad_context = contexts
 
-        self._decode_audio(batch)
+        self._decode_audio(batch, log)
 
         forced_final = None
         if len(self._buffer) > self._max_buffer_samples:

@@ -200,7 +200,10 @@ def test_worker_side_counters_are_accumulated():
                 counters={
                     TranscriptionJobCounter.BUFFER_OVERFLOW: 1,
                     TranscriptionJobCounter.BUFFER_OVERFLOW_SECONDS: 1.5,
-                    TranscriptionJobCounter.AUDIO_TOO_FAST: 1,
+                    TranscriptionJobCounter.AUDIO_DROPPED_BUFFER_FULL: 1,
+                    TranscriptionJobCounter.AUDIO_DROPPED_BUFFER_FULL_SECONDS: (
+                        2.5
+                    ),
                     TranscriptionJobCounter.VAD_NO_SPEECH: 1,
                     TranscriptionJobCounter.NO_WORDS: 1,
                     TranscriptionJobCounter.AUDIO_SECONDS_DECODED: 4,
@@ -211,7 +214,8 @@ def test_worker_side_counters_are_accumulated():
     # Assert
     assert registry.buffer_overflow_total.get(labels) == 2
     assert registry.buffer_overflow_seconds_total.get(labels) == 3
-    assert registry.audio_too_fast_total.get(labels) == 2
+    assert registry.audio_dropped_buffer_full_total.get(labels) == 2
+    assert registry.audio_dropped_buffer_full_seconds_total.get(labels) == 5
     assert registry.vad_no_speech_total.get(labels) == 2
     assert registry.no_words_total.get(labels) == 2
     assert registry.asr_audio_seconds_total.get(labels) == 8
@@ -313,9 +317,9 @@ def test_failed_execution_still_reports_its_counters():
     """
     Test counters incremented before a raise are not lost
 
-    Audio-too-fast is only ever observed on the failure path: the job counts
-    it and immediately raises, so a drain that skipped failures would report
-    zero forever.
+    A batch is decoded chunk by chunk, so a chunk that fails to decode raises
+    after earlier chunks in the same batch were already counted. A drain that
+    skipped failures would lose that work entirely.
     """
     # Arrange
     registry = MetricsRegistry()
@@ -323,13 +327,15 @@ def test_failed_execution_still_reports_its_counters():
     # Act
     registry.record_job_execution(
         make_observation(
-            exception=RuntimeError("Client sent audio too quickly."),
-            counters={TranscriptionJobCounter.AUDIO_TOO_FAST: 1},
+            exception=RuntimeError("Invalid audio data."),
+            counters={TranscriptionJobCounter.AUDIO_SECONDS_DECODED: 1.5},
         )
     )
 
     # Assert
-    assert registry.audio_too_fast_total.get({"provider_key": "whisper"}) == 1
+    assert (
+        registry.asr_audio_seconds_total.get({"provider_key": "whisper"}) == 1.5
+    )
 
 
 def test_dropped_periods_are_accumulated_per_provider():

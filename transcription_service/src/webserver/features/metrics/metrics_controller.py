@@ -144,8 +144,11 @@ class MetricsController:
                 "bufferOverflowSecondsTotal": _counter_series(
                     self._metrics.buffer_overflow_seconds_total
                 ),
-                "audioTooFastTotal": _counter_series(
-                    self._metrics.audio_too_fast_total
+                "audioDroppedBufferFullTotal": _counter_series(
+                    self._metrics.audio_dropped_buffer_full_total
+                ),
+                "audioDroppedBufferFullSecondsTotal": _counter_series(
+                    self._metrics.audio_dropped_buffer_full_seconds_total
                 ),
                 "vadNoSpeechTotal": _counter_series(
                     self._metrics.vad_no_speech_total

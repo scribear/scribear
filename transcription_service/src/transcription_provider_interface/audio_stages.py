@@ -23,8 +23,12 @@ STAGE_INGRESS = "ingress"
 
 #: Audio after the worker process has decoded it into the buffer the ASR reads
 #: from. The gap between this and `STAGE_INGRESS` is audio the pipeline itself
-#: lost - chunks dropped in the worker queue, decode failures, or the
-#: "client sent audio too quickly" overflow.
+#: lost - chunks dropped in the worker queue, decode failures, or a decode
+#: batch whose tail the buffer had no room for
+#: (`audio_dropped_buffer_full`). That last one only started showing up in
+#: this gap once the overrun stopped being fatal: while it raised, the session
+#: died on the spot and the job charged itself for the dropped samples anyway,
+#: so the gap it was documented as measuring stayed at zero.
 STAGE_ASR_INPUT = "asr_input"
 
 #: The speech-gated subset of `STAGE_ASR_INPUT` that voice-activity detection
