@@ -63,6 +63,25 @@ const CONFIG_SCHEMA = Type.Object({
   // Rotating it is a restart of both services: the stored hash is re-written
   // from the current value on every boot.
   TEST_AUDIO_DEVICE_SECRET: Type.String({ default: '' }),
+
+  // Monitoring canary room (A2). Same scheme as TEST_AUDIO_DEVICE_SECRET above:
+  // one shared secret, held by this service and by the monitoring sidecar and by
+  // nothing else. This service seeds one room and one source device at fixed
+  // uids and stores bcrypt(derive(secret, deviceUid)); the sidecar derives the
+  // same secret and authenticates with it. It replaces
+  // MONITORING_CANARY_DEVICE_TOKEN, which an operator provisioned by hand.
+  //
+  // A SEPARATE VARIABLE FROM TEST_AUDIO_DEVICE_SECRET, deliberately. Sharing one
+  // would tie two unrelated on/off decisions together - arming the operator test
+  // devices would also start an unattended canary probe every few minutes, and
+  // retiring them would silently stop monitoring - and would hand a third
+  // service the root key from which every synthetic device's credential is
+  // derived, which is the independence the per-device HMAC exists to give.
+  //
+  // Empty - the default - seeds NOTHING and leaves the canary switched off,
+  // which is where a deployment that never provisioned a canary device already
+  // was. Rotating it is a restart of both services.
+  CANARY_DEVICE_SECRET: Type.String({ default: '' }),
 });
 
 export interface BaseConfig {
@@ -86,6 +105,17 @@ export interface TestAudioRoomsConfig {
    * The deployment's `TEST_AUDIO_DEVICE_SECRET`. Each seeded device's stored
    * credential is `bcrypt(deriveTestAudioDeviceSecret(secret, deviceUid))`; the
    * generator derives the same value from the same two inputs.
+   */
+  deviceSecret: string;
+}
+
+export interface CanaryRoomConfig {
+  /** When false, the canary room seeder is never constructed or run. */
+  enabled: boolean;
+  /**
+   * The deployment's `CANARY_DEVICE_SECRET`. The seeded device's stored
+   * credential is `bcrypt(deriveTestAudioDeviceSecret(secret, deviceUid))`; the
+   * monitoring sidecar derives the same value from the same two inputs.
    */
   deviceSecret: string;
 }
@@ -156,6 +186,17 @@ export class AppConfig {
       // would only add a way to be half-configured.
       enabled: this._env.TEST_AUDIO_DEVICE_SECRET !== '',
       deviceSecret: this._env.TEST_AUDIO_DEVICE_SECRET,
+    };
+  }
+
+  get canaryRoomConfig(): CanaryRoomConfig {
+    return {
+      // Derived from the secret rather than being its own flag, for the same
+      // reason as testAudioRoomsConfig: there is nothing to seed without one,
+      // and a separate CANARY_ROOM_ENABLED would only add a way to be
+      // half-configured.
+      enabled: this._env.CANARY_DEVICE_SECRET !== '',
+      deviceSecret: this._env.CANARY_DEVICE_SECRET,
     };
   }
 

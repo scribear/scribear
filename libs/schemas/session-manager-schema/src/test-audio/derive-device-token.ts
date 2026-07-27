@@ -15,6 +15,14 @@ import { createHmac } from 'node:crypto';
  * a mismatch is invisible until a device fails to authenticate, and looks
  * exactly like a wrong secret.
  *
+ * THE MONITORING CANARY USES IT TOO, against `CANARY_DEVICE_SECRET` and
+ * `CANARY_DEVICE_UID` (`CanaryRoomSeeder` on one side, monitoring-sidecar on the
+ * other). This is *the* derivation for every seeded synthetic device, not a
+ * test-audio-only one; the `TestAudio` in the names and the module's place under
+ * `test-audio/` are where it was introduced. A second copy under a truer name
+ * would be exactly the duplication the paragraph above exists to prevent, and
+ * the names are not worth a rename across two shipped features.
+ *
  * NODE ONLY. Reached through the `@scribear/session-manager-schema/test-audio`
  * subpath rather than the package index deliberately: the index is imported by
  * the browser bundles (admin-webapp, kiosk-webapp), and `node:crypto` in that

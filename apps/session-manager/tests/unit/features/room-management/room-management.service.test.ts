@@ -1,6 +1,10 @@
 import { type Mock, beforeEach, describe, expect, vi } from 'vitest';
 
 import {
+  CANARY_DEVICE_UID,
+  CANARY_ROOM_UID,
+} from '#src/server/features/canary-room/canary-room.constants.js';
+import {
   DEMO_ROOM_UID,
   DEMO_SOURCE_DEVICE_UID,
 } from '#src/server/features/demo-room/demo-room.constants.js';
@@ -944,6 +948,143 @@ describe('RoomManagementService', () => {
         ORDINARY_DEVICE_UID,
         true,
       );
+    });
+  });
+
+  /**
+   * The seeded monitoring canary source, guarded for the same reasons as the
+   * test-audio sources above — with one difference that is why it is guarded at
+   * all rather than left to `WOULD_LEAVE_ROOM_WITHOUT_SOURCE`.
+   *
+   * The canary is the fleet's only synthetic source that runs UNATTENDED. The
+   * operator test devices stream while somebody watches a meter, so a mistake is
+   * caught in seconds; the canary starts itself every probe interval, forever,
+   * with nobody looking. And the gap is the same one: deleting the canary room
+   * is the documented way to retire it, and that leaves a roomless device with a
+   * still-valid derived credential one `add-device-to-room` from a lecture hall.
+   */
+  describe('monitoring canary room guards', (it) => {
+    const ORDINARY_ROOM_UID = 'b1f0c2d3-4e5a-4b6c-8d7e-9f0a1b2c3d4e';
+    const ORDINARY_DEVICE_UID = '7f3c1b2a-9d84-4c11-9f5e-2a6b8c0d4e71';
+
+    it("refuses to add the canary source to another room with 'CANARY_DEVICE_NOT_ASSIGNABLE'", async () => {
+      // Arrange - the dangerous direction: an ordinary room that could
+      // perfectly well take this device, and a fixture recording that would be
+      // transcribed into its captions on the next probe tick.
+      mockRoomRepo.findRoomExists.mockResolvedValue(true);
+      mockDeviceRepo.findById.mockResolvedValue({
+        ...mockDevice,
+        uid: CANARY_DEVICE_UID,
+        roomUid: null,
+      });
+
+      // Act
+      const result = await service.addDeviceToRoom({
+        roomUid: ORDINARY_ROOM_UID,
+        deviceUid: CANARY_DEVICE_UID,
+        asSource: true,
+      });
+
+      // Assert
+      expect(result).toBe('CANARY_DEVICE_NOT_ASSIGNABLE');
+      expect(mockRoomRepo.addDeviceToRoom).not.toHaveBeenCalled();
+    });
+
+    it("refuses to create a room sourced by the canary device with 'CANARY_DEVICE_NOT_ASSIGNABLE'", async () => {
+      // Arrange - the same escape by a different route. The device is
+      // unassigned, exactly as it would be after the canary room was deleted,
+      // so `DEVICE_ALREADY_IN_ROOM` would not catch it.
+      mockDeviceRepo.findById.mockResolvedValue({
+        ...mockDevice,
+        uid: CANARY_DEVICE_UID,
+        roomUid: null,
+      });
+      mockRoomRepo.create.mockResolvedValue(mockRoom);
+
+      // Act
+      const result = await service.createRoom({
+        name: 'Lecture Hall 1',
+        timezone: VALID_TIMEZONE,
+        sourceDeviceUids: [CANARY_DEVICE_UID],
+        autoSessionEnabled: true,
+      });
+
+      // Assert
+      expect(result).toBe('CANARY_DEVICE_NOT_ASSIGNABLE');
+      expect(mockRoomRepo.create).not.toHaveBeenCalled();
+    });
+
+    it("refuses to promote the canary source in another room with 'CANARY_DEVICE_NOT_ASSIGNABLE'", async () => {
+      // Arrange
+      mockRoomRepo.findRoomExists.mockResolvedValue(true);
+      mockRoomRepo.setSourceDevice.mockResolvedValue(true);
+
+      // Act
+      const result = await service.setSourceDevice(
+        ORDINARY_ROOM_UID,
+        CANARY_DEVICE_UID,
+      );
+
+      // Assert
+      expect(result).toBe('CANARY_DEVICE_NOT_ASSIGNABLE');
+      expect(mockRoomRepo.setSourceDevice).not.toHaveBeenCalled();
+    });
+
+    it("refuses to add a device to the canary room with 'CANARY_ROOM_NOT_ASSIGNABLE'", async () => {
+      // Arrange - the mirror image, and the first half of demoting the canary:
+      // it would still authenticate and still find the session, but be silently
+      // denied SEND_AUDIO, so every probe would report NO_TRANSCRIPTS and the
+      // monitoring would be reporting a break that was its own.
+      mockRoomRepo.findRoomExists.mockResolvedValue(true);
+      mockDeviceRepo.findById.mockResolvedValue(mockDevice);
+
+      // Act
+      const result = await service.addDeviceToRoom({
+        roomUid: CANARY_ROOM_UID,
+        deviceUid: ORDINARY_DEVICE_UID,
+        asSource: false,
+      });
+
+      // Assert
+      expect(result).toBe('CANARY_ROOM_NOT_ASSIGNABLE');
+      expect(mockRoomRepo.addDeviceToRoom).not.toHaveBeenCalled();
+    });
+
+    it("refuses to hand the canary room a different source with 'CANARY_ROOM_NOT_ASSIGNABLE'", async () => {
+      // Arrange
+      mockRoomRepo.findRoomExists.mockResolvedValue(true);
+      mockRoomRepo.setSourceDevice.mockResolvedValue(true);
+
+      // Act
+      const result = await service.setSourceDevice(
+        CANARY_ROOM_UID,
+        ORDINARY_DEVICE_UID,
+      );
+
+      // Assert
+      expect(result).toBe('CANARY_ROOM_NOT_ASSIGNABLE');
+      expect(mockRoomRepo.setSourceDevice).not.toHaveBeenCalled();
+    });
+
+    it('refuses before any lookup, so the answer does not depend on the seeder having run', async () => {
+      // Arrange - a deployment with CANARY_DEVICE_SECRET unset has no canary
+      // room and no canary device. The uids stay reserved regardless, and a
+      // request naming them must get the specific refusal rather than a 404
+      // that invites the operator to try again once it is seeded.
+      mockRoomRepo.findRoomExists.mockResolvedValue(false);
+      mockDeviceRepo.findById.mockResolvedValue(undefined);
+
+      // Act
+      const result = await service.addDeviceToRoom({
+        roomUid: CANARY_ROOM_UID,
+        deviceUid: CANARY_DEVICE_UID,
+        asSource: true,
+      });
+
+      // Assert
+      expect(result).toBe('CANARY_ROOM_NOT_ASSIGNABLE');
+      expect(mockRoomRepo.findRoomExists).not.toHaveBeenCalled();
+      expect(mockDeviceRepo.findById).not.toHaveBeenCalled();
     });
   });
 });

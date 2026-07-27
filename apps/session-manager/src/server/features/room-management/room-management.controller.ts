@@ -56,6 +56,28 @@ const TEST_AUDIO_DEVICE_NOT_ASSIGNABLE_MESSAGE =
   "fixture speech into that lecture's live captions. To retire it, unset " +
   'TEST_AUDIO_DEVICE_SECRET and delete the device.';
 
+/**
+ * Refusals for the seeded monitoring canary room. Identical in kind to the
+ * test-audio pair above, with one thing added to the device message that is the
+ * reason it is worth guarding separately: this source runs *unattended*. A
+ * test-audio device streams while somebody is watching a meter; the canary
+ * starts itself on a timer, so a misdirected one is not noticed until someone
+ * reads a transcript.
+ */
+const CANARY_ROOM_NOT_ASSIGNABLE_MESSAGE =
+  'The monitoring canary room is seeded with its synthetic source device ' +
+  'already attached, and that pairing is what confines the canary recording ' +
+  'to it. Devices cannot be added to it or made its source device.';
+
+const CANARY_DEVICE_NOT_ASSIGNABLE_MESSAGE =
+  'That is the seeded monitoring canary source. It streams a fixture ' +
+  'recording into whatever session is active in its room, on a timer and ' +
+  'unattended, so it is confined to its own dedicated canary room and cannot ' +
+  "be added to another room or made another room's source device. Putting it " +
+  "in a teaching room would transcribe fixture speech into that lecture's " +
+  'live captions every probe interval. To retire it, unset ' +
+  'CANARY_DEVICE_SECRET and delete the device.';
+
 export class RoomManagementController {
   private _roomManagementService: AppDependencies['roomManagementService'];
 
@@ -139,6 +161,13 @@ export class RoomManagementController {
       throw HttpError.conflict(
         'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE',
         TEST_AUDIO_DEVICE_NOT_ASSIGNABLE_MESSAGE,
+      );
+    }
+    // No `CANARY_ROOM_NOT_ASSIGNABLE` here either, for the same reason.
+    if (result === 'CANARY_DEVICE_NOT_ASSIGNABLE') {
+      throw HttpError.conflict(
+        'CANARY_DEVICE_NOT_ASSIGNABLE',
+        CANARY_DEVICE_NOT_ASSIGNABLE_MESSAGE,
       );
     }
     if (result === 'DEVICE_NOT_FOUND') {
@@ -226,6 +255,18 @@ export class RoomManagementController {
         TEST_AUDIO_DEVICE_NOT_ASSIGNABLE_MESSAGE,
       );
     }
+    if (result === 'CANARY_ROOM_NOT_ASSIGNABLE') {
+      throw HttpError.conflict(
+        'CANARY_ROOM_NOT_ASSIGNABLE',
+        CANARY_ROOM_NOT_ASSIGNABLE_MESSAGE,
+      );
+    }
+    if (result === 'CANARY_DEVICE_NOT_ASSIGNABLE') {
+      throw HttpError.conflict(
+        'CANARY_DEVICE_NOT_ASSIGNABLE',
+        CANARY_DEVICE_NOT_ASSIGNABLE_MESSAGE,
+      );
+    }
     if (result === 'ROOM_NOT_FOUND') {
       throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
     }
@@ -297,6 +338,18 @@ export class RoomManagementController {
       throw HttpError.conflict(
         'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE',
         TEST_AUDIO_DEVICE_NOT_ASSIGNABLE_MESSAGE,
+      );
+    }
+    if (result === 'CANARY_ROOM_NOT_ASSIGNABLE') {
+      throw HttpError.conflict(
+        'CANARY_ROOM_NOT_ASSIGNABLE',
+        CANARY_ROOM_NOT_ASSIGNABLE_MESSAGE,
+      );
+    }
+    if (result === 'CANARY_DEVICE_NOT_ASSIGNABLE') {
+      throw HttpError.conflict(
+        'CANARY_DEVICE_NOT_ASSIGNABLE',
+        CANARY_DEVICE_NOT_ASSIGNABLE_MESSAGE,
       );
     }
     if (result === 'ROOM_NOT_FOUND') {

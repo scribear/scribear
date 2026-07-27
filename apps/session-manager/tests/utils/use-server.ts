@@ -5,6 +5,7 @@ import { LogLevel } from '@scribear/base-fastify-server';
 import type {
   AppConfig,
   BaseConfig,
+  CanaryRoomConfig,
   DemoRoomConfig,
   TestAudioRoomsConfig,
 } from '#src/app-config/app-config.js';
@@ -41,6 +42,7 @@ export interface TestAppConfigOverrides {
   materializationWorkerConfig?: Partial<MaterializationWorkerConfig>;
   demoRoomConfig?: Partial<DemoRoomConfig>;
   testAudioRoomsConfig?: Partial<TestAudioRoomsConfig>;
+  canaryRoomConfig?: Partial<CanaryRoomConfig>;
 }
 
 /**
@@ -109,6 +111,14 @@ export function buildTestAppConfig(
       enabled: false,
       deviceSecret: '',
       ...overrides.testAudioRoomsConfig,
+    },
+    // Off by default for the same reason again: the canary seeder writes a
+    // room, a device, a membership and a session, and no ordinary suite should
+    // find them.
+    canaryRoomConfig: {
+      enabled: false,
+      deviceSecret: '',
+      ...overrides.canaryRoomConfig,
     },
   } as unknown as AppConfig;
 }

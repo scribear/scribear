@@ -3,6 +3,11 @@ import { Type } from 'typebox';
 import type { Static } from 'typebox';
 
 import { LogLevel } from '@scribear/base-fastify-server';
+import { CANARY_DEVICE_UID } from '@scribear/session-manager-schema';
+// The one derivation every seeded synthetic device shares; see its docblock for
+// why it keeps a test-audio name and why it lives behind a subpath export
+// (`node:crypto` must stay out of the two webapps' import graph).
+import { deriveTestAudioDeviceToken } from '@scribear/session-manager-schema/test-audio';
 import type { DeviceAuthConfig } from '@scribear/test-audio-source';
 
 import {
@@ -212,14 +217,25 @@ const CONFIG_SCHEMA = Type.Object({
 
   // Synthetic canary (A2)
   /**
-   * The canary device's `DEVICE_TOKEN` cookie value, in `{deviceUid}:{secret}`
-   * form. Empty disables the canary entirely — it is the only credential the
-   * canary holds, and without it there is nothing to authenticate as.
+   * The deployment's canary secret, shared with the Session Manager and held by
+   * nothing else. Empty disables the canary entirely — it is the only credential
+   * the canary holds, and without it there is nothing to authenticate as.
    *
-   * Obtain it by registering a device via the admin API and calling
-   * `activate-device`; the response sets the cookie. See `.env.example`.
+   * **There is nothing to provision.** This replaced
+   * `MONITORING_CANARY_DEVICE_TOKEN`, which an operator obtained by registering
+   * a device through the admin API, activating it, and scraping `DEVICE_TOKEN`
+   * out of a `Set-Cookie` header — then had to attach that device to a room they
+   * created by hand, which is the step that decided whether fixture speech could
+   * reach a lecture. Now the Session Manager seeds the room, the device and a
+   * standing session under reserved uids from this same secret, and this service
+   * derives the token it presents ({@link deriveTestAudioDeviceToken}). No token
+   * is ever transmitted between the two.
+   *
+   * A **separate secret from `TEST_AUDIO_DEVICE_SECRET`**, deliberately: sharing
+   * one would mean arming the operator test devices also started an unattended
+   * canary, and retiring them silently stopped monitoring.
    */
-  CANARY_DEVICE_TOKEN: Type.String({ default: '' }),
+  CANARY_DEVICE_SECRET: Type.String({ default: '' }),
   /** Seconds between the end of one probe and the start of the next. */
   CANARY_INTERVAL_SEC: Type.Integer({ minimum: 10, default: 300 }),
   /** How long each probe streams audio for. */
@@ -385,9 +401,17 @@ export class AppConfig {
   }
 
   get deviceAuthConfig(): DeviceAuthConfig {
+    const secret = this._env.CANARY_DEVICE_SECRET;
     return {
       sessionManagerBaseUrl: this._env.SESSION_MANAGER_BASE_URL,
-      deviceToken: this._env.CANARY_DEVICE_TOKEN,
+      // Derived, never configured. Empty stays empty rather than becoming a
+      // well-formed token for a device nobody seeded: with no secret the
+      // Session Manager seeded nothing, so a derived token could only ever
+      // fail to authenticate, and `canaryRunnerConfig.enabled` is false anyway.
+      deviceToken:
+        secret === ''
+          ? ''
+          : deriveTestAudioDeviceToken(secret, CANARY_DEVICE_UID),
       timeoutMs: this._env.PROBE_TIMEOUT_SEC * SECOND_MS,
     };
   }
@@ -399,9 +423,11 @@ export class AppConfig {
    */
   canaryRunnerConfig(expectedTranscript: string): CanaryRunnerConfig {
     return {
-      // No device token means no canary. Failing closed keeps a default
-      // deployment from emitting auth errors against session-manager forever.
-      enabled: this._env.CANARY_DEVICE_TOKEN.length > 0,
+      // No secret means no canary - and, on the other side, means the Session
+      // Manager seeded no room, device or session for one. Failing closed keeps
+      // a default deployment from emitting auth errors against session-manager
+      // forever.
+      enabled: this._env.CANARY_DEVICE_SECRET.length > 0,
       intervalMs: this._env.CANARY_INTERVAL_SEC * SECOND_MS,
       audioPath: this._env.CANARY_AUDIO_PATH,
       chunkMs: this._env.CANARY_CHUNK_MS,

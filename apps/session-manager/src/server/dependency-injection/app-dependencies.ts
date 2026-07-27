@@ -6,10 +6,12 @@ import type { BaseDependencies } from '@scribear/base-fastify-server';
 import type {
   AppConfig,
   BaseConfig,
+  CanaryRoomConfig,
   DemoRoomConfig,
   TestAudioRoomsConfig,
 } from '#src/app-config/app-config.js';
 import type { DBClient, DBClientConfig } from '#src/db/db-client.js';
+import type { CanaryRoomSeeder } from '#src/server/features/canary-room/canary-room-seeder.js';
 import type { DatabaseController } from '#src/server/features/database/database.controller.js';
 import type { DemoRoomSeeder } from '#src/server/features/demo-room/demo-room-seeder.js';
 import type { DemoRoomController } from '#src/server/features/demo-room/demo-room.controller.js';
@@ -64,6 +66,7 @@ interface AppDependencies extends BaseDependencies {
   materializationWorkerConfig: MaterializationWorkerConfig;
   demoRoomConfig: DemoRoomConfig;
   testAudioRoomsConfig: TestAudioRoomsConfig;
+  canaryRoomConfig: CanaryRoomConfig;
 
   // Database
   dbClient: DBClient;
@@ -112,6 +115,9 @@ interface AppDependencies extends BaseDependencies {
 
   // Operator test-audio rooms
   testAudioRoomsSeeder: TestAudioRoomsSeeder;
+
+  // Monitoring canary room
+  canaryRoomSeeder: CanaryRoomSeeder;
 
   // Database schema state
   databaseController: DatabaseController;

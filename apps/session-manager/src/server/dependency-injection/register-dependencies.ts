@@ -7,6 +7,7 @@ import {
 } from 'awilix';
 
 import { DBClient } from '#src/db/db-client.js';
+import { CanaryRoomSeeder } from '#src/server/features/canary-room/canary-room-seeder.js';
 import { DatabaseController } from '#src/server/features/database/database.controller.js';
 import { DemoRoomSeeder } from '#src/server/features/demo-room/demo-room-seeder.js';
 import { DemoRoomController } from '#src/server/features/demo-room/demo-room.controller.js';
@@ -57,6 +58,7 @@ function registerDependencies(
     materializationWorkerConfig: asValue(config.materializationWorkerConfig),
     demoRoomConfig: asValue(config.demoRoomConfig),
     testAudioRoomsConfig: asValue(config.testAudioRoomsConfig),
+    canaryRoomConfig: asValue(config.canaryRoomConfig),
 
     // Database
     dbClient: asClass(DBClient, { lifetime: Lifetime.SINGLETON }),
@@ -171,6 +173,13 @@ function registerDependencies(
     // constructed regardless, resolved and run by `create-server.ts` only when
     // `TEST_AUDIO_DEVICE_SECRET` is set. SCOPED for the same reason.
     testAudioRoomsSeeder: asClass(TestAudioRoomsSeeder, {
+      lifetime: Lifetime.SCOPED,
+    }),
+
+    // Monitoring canary room. Same shape again: constructed regardless,
+    // resolved and run by `create-server.ts` only when `CANARY_DEVICE_SECRET`
+    // is set. SCOPED for the same reason.
+    canaryRoomSeeder: asClass(CanaryRoomSeeder, {
       lifetime: Lifetime.SCOPED,
     }),
 

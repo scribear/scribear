@@ -1,6 +1,10 @@
 import { describe, expect } from 'vitest';
 
 import {
+  CANARY_DEVICE_UID,
+  CANARY_ROOM_UID,
+} from '#src/server/features/canary-room/canary-room.constants.js';
+import {
   DEMO_ROOM_UID,
   DEMO_SOURCE_DEVICE_UID,
 } from '#src/server/features/demo-room/demo-room.constants.js';
@@ -719,6 +723,78 @@ describe('Room Management Routes', () => {
       expect(res.statusCode).toBe(409);
       expect(res.json<{ code: string }>().code).toBe(
         'TEST_AUDIO_ROOM_NOT_ASSIGNABLE',
+      );
+    });
+
+    it('returns 409 CANARY_DEVICE_NOT_ASSIGNABLE for the seeded monitoring canary source', async () => {
+      // Arrange - the same refusal as the test-audio sources, for the source
+      // that matters most: the canary streams on a timer, unattended, so a
+      // mis-assignment here would not be noticed until someone read a
+      // transcript. The uid is a reserved literal, so the refusal does not
+      // depend on the seeder having run (this suite runs with it off).
+      const { deviceUid: sourceUid } = await setupActivatedDevice('Source');
+      const { uid: roomUid } = await createRoom(sourceUid, 'Lecture Hall 2');
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/add-device-to-room`,
+        headers: { authorization: ADMIN_HEADER },
+        body: {
+          roomUid,
+          deviceUid: CANARY_DEVICE_UID,
+          asSource: false,
+        },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      const body = res.json<{ code: string; message: string }>();
+      expect(body.code).toBe('CANARY_DEVICE_NOT_ASSIGNABLE');
+      expect(body.message).toContain('unattended');
+    });
+
+    it('returns 409 CANARY_ROOM_NOT_ASSIGNABLE when handing the canary room a different source', async () => {
+      // Arrange
+      const { deviceUid } = await setupActivatedDevice();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/set-source-device`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { roomUid: CANARY_ROOM_UID, deviceUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe(
+        'CANARY_ROOM_NOT_ASSIGNABLE',
+      );
+    });
+
+    it('returns 409 CANARY_DEVICE_NOT_ASSIGNABLE when creating a room sourced by the canary device', async () => {
+      // Arrange / Act - create-room cannot recreate the canary room (its uid is
+      // reserved and this route's uid is database-generated), so the device
+      // half is the only canary state it reaches. This is the gap the guard
+      // exists for: after the canary room is deleted the device is roomless,
+      // and this route would otherwise put it straight into a new one.
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/create-room`,
+        headers: { authorization: ADMIN_HEADER },
+        body: {
+          name: 'Sneaky Canary Room',
+          timezone: 'America/New_York',
+          autoSessionEnabled: true,
+          sourceDeviceUids: [CANARY_DEVICE_UID],
+        },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe(
+        'CANARY_DEVICE_NOT_ASSIGNABLE',
       );
     });
 

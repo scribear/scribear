@@ -12,6 +12,89 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — the monitoring canary is seeded, not provisioned (`compose.yml` v4)
+
+**Action required only if you run the synthetic canary.**
+`MONITORING_CANARY_DEVICE_TOKEN` is gone. If your `.env` sets it, **delete that
+line** and set `MONITORING_CANARY_DEVICE_SECRET` to any value you like instead:
+
+```dotenv
+# Delete this line:
+# MONITORING_CANARY_DEVICE_TOKEN=<uid>:<secret>
+
+# Add this one. Any value; it is never transmitted anywhere.
+MONITORING_CANARY_DEVICE_SECRET=<a long random string>
+```
+
+Then copy the new [`compose.yml`](compose.yml) and `docker compose up -d`. If
+you never ran the canary, there is nothing to do — it stays off, and nothing is
+seeded.
+
+### What changed
+
+The canary authenticated as a device an operator provisioned **by hand**:
+register a device through the admin API, activate it, scrape `DEVICE_TOKEN` out
+of a `Set-Cookie` header, paste it into `.env`, then create a room, attach the
+device, mark it the source and give the room a standing schedule. Seven steps,
+one of which — which room the device went into — decided whether fixture speech
+could reach a live lecture.
+
+Now the Session Manager seeds the room (`MONITORING-CANARY`), its source device
+and one standing open-ended session, all under reserved uids, on every boot; and
+the monitoring sidecar derives the token it presents from the same secret and the
+same uid. Nothing is copied, pasted or transmitted between the two. This is the
+same scheme `TEST_AUDIO_DEVICE_SECRET` already uses for the operator test-audio
+devices, applied to the last hand-provisioned credential in the fleet.
+
+### Why a second secret rather than reusing `TEST_AUDIO_DEVICE_SECRET`
+
+They gate different features and would otherwise be tied together: setting one
+value to arm the operator test devices would also start an unattended canary
+probe every few minutes, and unsetting it to retire them would silently stop
+monitoring. It would also hand a third service the root key every synthetic
+device's credential is derived from. One extra line in `.env` is the cheaper
+side of that trade.
+
+### The room assignment is enforced now, not just documented
+
+The canary streams a fixture recording into whatever session is active in its
+room, **unattended**, every `MONITORING_CANARY_INTERVAL_SEC`. It is the only
+synthetic source in the stack that runs with nobody watching, so a wrong room
+would not be noticed until somebody read a transcript.
+
+A device token reaches only its own device's room — the canary has no way to name
+another — so that assignment is the entire safety boundary. Making it **in code**
+is stronger than making it by hand: the room is seeded under a reserved uid no
+other room can hold, there is no `Set-Cookie` header to misread, a re-run repairs
+a drifted assignment rather than adding a second one, and room-management now
+**refuses** to move the device into another room (409
+`CANARY_DEVICE_NOT_ASSIGNABLE`) or to hand the canary room a different source
+device (409 `CANARY_ROOM_NOT_ASSIGNABLE`).
+
+### Retiring or rotating it
+
+- **Rotate:** change `MONITORING_CANARY_DEVICE_SECRET` and restart the stack. The
+  stored hash is re-written from the current value on every Session Manager boot.
+- **Retire:** unset it, restart, **then** delete the room and the device in the
+  admin console. Unsetting alone stops the seeder rewriting the hash but does not
+  erase it, and while a device exists with a hash its derived token remains
+  usable. That ordering matters, and it is the same one the test-audio devices
+  use.
+
+### Your old canary device is still there
+
+Deleting `MONITORING_CANARY_DEVICE_TOKEN` does not delete the device it named.
+That device and its hand-made room are now unused; delete both in the admin
+console once the seeded canary is reporting.
+
+### No separate `COMPOSE_FILE_VERSION` bump
+
+Removing a variable and adding one would ordinarily earn a bump. It does not get
+one here: `compose.yml` v4 is still unreleased, so no operator has ever held a v4
+file. The change rides along in v4.
+
+---
+
 ## Unreleased — transcription-service model downloads are now cached on a bind mount (`compose.yml` v4)
 
 **Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. Deployment
@@ -885,6 +968,11 @@ TRANSCRIPTION_METRICS_KEY=<new secret>
 ```
 
 `NODE_SERVER_SERVICE_KEY` above already covers the node-server status poll.
+
+> **Superseded.** `MONITORING_CANARY_DEVICE_TOKEN` and the one-time device
+> registration below no longer exist — see the unreleased "the monitoring canary
+> is seeded, not provisioned" section at the top of this file. The safety note
+> still stands, and is now enforced in code.
 
 The synthetic canary (`MONITORING_CANARY_DEVICE_TOKEN`) is off by default and
 needs a one-time device registration. **It streams synthetic speech into a real

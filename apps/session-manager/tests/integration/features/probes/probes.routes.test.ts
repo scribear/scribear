@@ -64,6 +64,7 @@ describe('Probes Routes', () => {
           sessionUid: 'deadbeef-0000-4000-8000-000000000001',
         },
         testAudioRoomsConfig: { enabled: false, deviceSecret: '' },
+        canaryRoomConfig: { enabled: false, deviceSecret: '' },
       } as unknown as AppConfig;
       const { fastify } = await createServer(brokenConfig);
       await fastify.ready();

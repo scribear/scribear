@@ -66,6 +66,14 @@ const ADD_DEVICE_TO_ROOM_SCHEMA = {
         code: Type.Literal('TEST_AUDIO_DEVICE_NOT_ASSIGNABLE'),
         message: Type.String(),
       }),
+      Type.Object({
+        code: Type.Literal('CANARY_ROOM_NOT_ASSIGNABLE'),
+        message: Type.String(),
+      }),
+      Type.Object({
+        code: Type.Literal('CANARY_DEVICE_NOT_ASSIGNABLE'),
+        message: Type.String(),
+      }),
     ]),
   },
 } satisfies BaseRouteSchema;

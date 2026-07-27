@@ -65,4 +65,6 @@ export * from './session-auth/routes/refresh-session-token.schema.js';
 export * from './demo-room/demo-room.constants.js';
 export * from './demo-room/routes/demo-room-status.schema.js';
 
+export * from './canary/canary.constants.js';
+
 export * from './database/routes/schema-status.schema.js';

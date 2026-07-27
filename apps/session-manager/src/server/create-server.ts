@@ -106,6 +106,31 @@ async function createServer(config: AppConfig) {
     });
   }
 
+  // Monitoring canary room. Resolved and run only when CANARY_DEVICE_SECRET is
+  // set; unset seeds nothing and leaves the sidecar's canary switched off,
+  // which is where a deployment that never provisioned a canary device already
+  // was.
+  //
+  // This is what replaced MONITORING_CANARY_DEVICE_TOKEN: the room, the device,
+  // its credential and its standing session are all seeded here, so there is
+  // nothing for an operator to register, activate, copy or paste - and no way
+  // to point the canary at a teaching room by mistake.
+  if (config.canaryRoomConfig.enabled) {
+    const canaryRoomSeeder =
+      dependencyContainer.resolve<AppDependencies['canaryRoomSeeder']>(
+        'canaryRoomSeeder',
+      );
+    fastify.addHook('onReady', async () => {
+      // As with the other two seeders: a transient seeding failure must not
+      // take down an otherwise-healthy instance over a monitoring fixture.
+      try {
+        await canaryRoomSeeder.seed();
+      } catch (err) {
+        logger.error({ err }, 'monitoring canary room: seeding failed');
+      }
+    });
+  }
+
   // Drain the pg pool on shutdown. Without this, in-flight idle clients
   // surface a fatal admin-shutdown error (Postgres 57P01) when the database
   // shuts down before us, and pg-pool re-emits that as an unhandled `error`

@@ -1,5 +1,9 @@
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
 import {
+  CANARY_DEVICE_UID,
+  CANARY_ROOM_UID,
+} from '#src/server/features/canary-room/canary-room.constants.js';
+import {
   DEMO_ROOM_UID,
   DEMO_SOURCE_DEVICE_UID,
 } from '#src/server/features/demo-room/demo-room.constants.js';
@@ -96,6 +100,45 @@ function isTestAudioRoom(roomUid: string): boolean {
   return TEST_AUDIO_ROOM_UID_SET.has(roomUid);
 }
 
+/**
+ * The seeded monitoring canary source device — the same rule as
+ * {@link isTestAudioSourceDevice}, applied to the sharpest case of it.
+ *
+ * The canary is guarded rather than left alone deliberately, and not by reflex.
+ * It has the identical failure mode: a real, activated, credentialled device
+ * whose room assignment is the only thing keeping fixture speech out of a live
+ * lecture, and `WOULD_LEAVE_ROOM_WITHOUT_SOURCE` covers it only for as long as
+ * the canary room exists — deleting that room is the documented way to retire
+ * the canary, and it strands the device roomless with a still-valid derived
+ * credential, one `add-device-to-room` from a teaching room.
+ *
+ * What makes it the *sharpest* case is that the canary is the fleet's only
+ * synthetic source that runs unattended. The operator test-audio devices stream
+ * when somebody presses go and watches a meter, so a mistake is seen in seconds;
+ * the canary starts itself every `CANARY_INTERVAL_SEC`, indefinitely, with
+ * nobody looking. A mis-assignment there is not noticed until someone reads a
+ * transcript.
+ *
+ * Checked before any lookup, like its neighbours, so the answer does not depend
+ * on whether the seeder has run.
+ */
+function isCanarySourceDevice(deviceUid: string): boolean {
+  return deviceUid === CANARY_DEVICE_UID;
+}
+
+/**
+ * The mirror image: the seeded monitoring canary room, refused for exactly the
+ * reasons {@link isTestAudioRoom} gives. Promoting another device to source
+ * silently demotes the canary, which then authenticates, finds the session, and
+ * is no longer granted SEND_AUDIO — so every probe reports `NO_TRANSCRIPTS` and
+ * the monitoring that exists to notice a broken pipeline reports a break that is
+ * its own. The next boot's re-seed then trips the "at most one source per room"
+ * trigger.
+ */
+function isCanaryRoom(roomUid: string): boolean {
+  return roomUid === CANARY_ROOM_UID;
+}
+
 export class RoomManagementService {
   private _log: AppDependencies['logger'];
   private _roomManagementRepository: AppDependencies['roomManagementRepository'];
@@ -140,7 +183,7 @@ export class RoomManagementService {
    * The source device must not already belong to another room.
    * @param data.timezone Must be a valid IANA timezone identifier.
    * @param data.autoSessionEnabled Master switch for auto sessions in the room.
-   * @param data.sourceDeviceUids Must contain exactly one UID; that device must not already be in a room, and must be neither the demo room's placeholder source device nor a seeded test-audio source.
+   * @param data.sourceDeviceUids Must contain exactly one UID; that device must not already be in a room, and must be none of the demo room's placeholder source device, a seeded test-audio source, or the seeded monitoring canary source.
    */
   async createRoom(data: {
     name: string;
@@ -169,6 +212,9 @@ export class RoomManagementService {
     }
     if (isTestAudioSourceDevice(sourceDeviceUid)) {
       return 'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE';
+    }
+    if (isCanarySourceDevice(sourceDeviceUid)) {
+      return 'CANARY_DEVICE_NOT_ASSIGNABLE';
     }
 
     const device =
@@ -223,7 +269,7 @@ export class RoomManagementService {
    * @param params.roomUid The room to add the device to.
    * @param params.deviceUid The device to add; must not already be in a room.
    * @param params.asSource Whether to designate this device as the room's source.
-   * @returns `undefined` on success, or an error code: `'DEMO_ROOM_NOT_ASSIGNABLE'`, `'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE'`, `'TEST_AUDIO_ROOM_NOT_ASSIGNABLE'`, `'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE'`, `'ROOM_NOT_FOUND'`, `'DEVICE_NOT_FOUND'`, or `'DEVICE_ALREADY_IN_ROOM'`.
+   * @returns `undefined` on success, or an error code: `'DEMO_ROOM_NOT_ASSIGNABLE'`, `'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE'`, `'TEST_AUDIO_ROOM_NOT_ASSIGNABLE'`, `'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE'`, `'CANARY_ROOM_NOT_ASSIGNABLE'`, `'CANARY_DEVICE_NOT_ASSIGNABLE'`, `'ROOM_NOT_FOUND'`, `'DEVICE_NOT_FOUND'`, or `'DEVICE_ALREADY_IN_ROOM'`.
    */
   async addDeviceToRoom(params: {
     roomUid: string;
@@ -238,6 +284,10 @@ export class RoomManagementService {
       return 'TEST_AUDIO_ROOM_NOT_ASSIGNABLE';
     if (isTestAudioSourceDevice(params.deviceUid)) {
       return 'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE';
+    }
+    if (isCanaryRoom(params.roomUid)) return 'CANARY_ROOM_NOT_ASSIGNABLE';
+    if (isCanarySourceDevice(params.deviceUid)) {
+      return 'CANARY_DEVICE_NOT_ASSIGNABLE';
     }
 
     const [roomExists, device] = await Promise.all([
@@ -282,7 +332,7 @@ export class RoomManagementService {
    * Promotes a device to source within a room. The device must already be a member.
    * @param roomUid The room to update.
    * @param deviceUid The device to promote; must already be a member of the room.
-   * @returns `DEVICE_NOT_IN_ROOM` if the device is not a current member, or a demo-room / test-audio refusal code.
+   * @returns `DEVICE_NOT_IN_ROOM` if the device is not a current member, or a demo-room / test-audio / canary refusal code.
    */
   async setSourceDevice(roomUid: string, deviceUid: string) {
     if (isDemoRoom(roomUid)) return 'DEMO_ROOM_NOT_ASSIGNABLE';
@@ -292,6 +342,10 @@ export class RoomManagementService {
     if (isTestAudioRoom(roomUid)) return 'TEST_AUDIO_ROOM_NOT_ASSIGNABLE';
     if (isTestAudioSourceDevice(deviceUid)) {
       return 'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE';
+    }
+    if (isCanaryRoom(roomUid)) return 'CANARY_ROOM_NOT_ASSIGNABLE';
+    if (isCanarySourceDevice(deviceUid)) {
+      return 'CANARY_DEVICE_NOT_ASSIGNABLE';
     }
 
     const roomExists =
