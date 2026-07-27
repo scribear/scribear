@@ -484,7 +484,7 @@ describe('Test audio routes, wired to a generator', () => {
   });
 
   describe('upstream failures', (it) => {
-    it("passes a generator 409 through at its own status and code, and audits the failure", async () => {
+    it('passes a generator 409 through at its own status and code, and audits the failure', async () => {
       // Arrange — starting a device that is already running.
       sm.respondWith({
         status: 409,

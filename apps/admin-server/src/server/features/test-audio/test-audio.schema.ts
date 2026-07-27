@@ -85,9 +85,7 @@ const FAULT_PARAMS_SCHEMA = Type.Object(
     dcOffset: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
     corruptPct: Type.Optional(Type.Number({ minimum: 0, maximum: 100 })),
     badHeaderPct: Type.Optional(Type.Number({ minimum: 0, maximum: 100 })),
-    clockSkewMs: Type.Optional(
-      Type.Integer({ minimum: -5000, maximum: 5000 }),
-    ),
+    clockSkewMs: Type.Optional(Type.Integer({ minimum: -5000, maximum: 5000 })),
   },
   { additionalProperties: false },
 );

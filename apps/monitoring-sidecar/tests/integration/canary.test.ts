@@ -1,7 +1,6 @@
 import { afterEach, describe, expect } from 'vitest';
 
 import type { BaseLogger } from '@scribear/base-fastify-server';
-
 import {
   type AudioChunk,
   DeviceAuthClient,

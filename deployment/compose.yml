@@ -170,7 +170,7 @@ services:
       # Not `:?`-guarded, like DEPLOYMENT_ENV below and unlike the secrets: it
       # changes what is *reported*, never what runs, and must not be able to
       # stop a stack from starting.
-      COMPOSE_FILE_VERSION: "3"
+      COMPOSE_FILE_VERSION: "4"
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
@@ -190,6 +190,18 @@ services:
       # (503 TELEMETRY_UNAVAILABLE) without affecting the /health rollup
       # above, which is a separate, always-on data path.
       REDIS_URL: ${ADMIN_REDIS_URL:-}
+      # Operator test-audio devices (PLAN-TestAudioDevices §3). Empty - the
+      # default - disables the feature: GET /api/admin/v1/test-audio answers
+      # {available: false, devices: []} at 200 and every mutation answers 503
+      # TEST_AUDIO_UNAVAILABLE, so a deployment that never provisioned the
+      # devices sees a disabled panel rather than an error to rule out.
+      #
+      # Set both, together with COMPOSE_PROFILES=testaudio, to switch it on:
+      #   TEST_AUDIO_BASE_URL=http://test-audio-generator:80
+      # The key must match the generator's own TEST_AUDIO_SERVICE_KEY. It is
+      # injected server-side by admin-server and never reaches the browser.
+      TEST_AUDIO_BASE_URL: ${TEST_AUDIO_BASE_URL:-}
+      TEST_AUDIO_SERVICE_KEY: ${TEST_AUDIO_SERVICE_KEY:-}
       ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET}
       ADMIN_LOCAL_CREDENTIALS: ${ADMIN_LOCAL_CREDENTIALS}
       # Defaulted to the bundled container. Point them at a managed Postgres
@@ -483,6 +495,85 @@ services:
       # whose WAV header disagrees rather than resampling it.
       CANARY_SAMPLE_RATE: ${MONITORING_CANARY_SAMPLE_RATE:-16000}
       CANARY_CHANNELS: ${MONITORING_CANARY_CHANNELS:-1}
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # Operator test-audio devices (PLAN-TestAudioDevices).
+  #
+  # Two synthetic source devices an operator can point at a test room from the
+  # admin console: `good`, which plays clean speech at an adjustable level and
+  # noise floor, and `fault`, which reproduces on demand every audio fault the
+  # stack claims to report. It is what lets someone see what an alert looks like
+  # before it matters.
+  #
+  # OFF BY DEFAULT, via the profile: `docker compose up -d` does not start it
+  # unless COMPOSE_PROFILES=testaudio is set. Most deployments never provision
+  # these devices, and the service refuses to start without a service key - so
+  # starting it unconditionally would give every existing deployment a
+  # crash-looping container in exchange for a feature it is not using.
+  # admin-server's half is separately gated on TEST_AUDIO_BASE_URL above.
+  #
+  # SAFETY: this service holds two long-lived device tokens and streams
+  # synthetic audio into whatever session is active in each device's room. A
+  # device token reaches ONLY ITS OWN DEVICE'S ROOM - neither device has any way
+  # to name another - so the device-to-room assignment made at provisioning time
+  # is the entire safety boundary. Each device MUST have its own dedicated test
+  # room. Pointing one at a teaching room would inject fixture speech into that
+  # lecture's live captions, silently. Use deployment/provision-test-audio.sh,
+  # which creates the two rooms and refuses to touch anything else.
+  test-audio-generator:
+    profiles:
+      - testaudio
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/test-audio-generator:${IMAGE_TAG:-latest}
+    expose:
+      - "80"
+    environment:
+      LOG_LEVEL: ${TEST_AUDIO_LOG_LEVEL:-info}
+      # Inbound. Must match admin-server's TEST_AUDIO_SERVICE_KEY above.
+      #
+      # NOT `:?`-guarded, unlike NODE_SERVER_SERVICE_API_KEY, and the reason is
+      # not that it matters less - it matters more, since an empty inbound key
+      # matches the empty credential an unauthenticated caller presents as
+      # `Authorization: Bearer `, on a service that can put audio into a live
+      # room. It is because **compose interpolates this entire file regardless
+      # of which profiles are active**: a `:?` here would refuse to start the
+      # whole stack for every deployment that has never heard of this service.
+      #
+      # The guard lives in the container instead, which refuses to start on an
+      # empty or CHANGEME value. So the failure mode for someone who turns the
+      # profile on without setting the key is this one container exiting with an
+      # explanatory message, which is the right blast radius.
+      TEST_AUDIO_SERVICE_KEY: ${TEST_AUDIO_SERVICE_KEY:-}
+      # The two devices' DEVICE_TOKEN cookie values, {deviceUid}:{secret}, from
+      # deployment/provision-test-audio.sh. Empty means that device reports
+      # configured:false and refuses to start, which is a disabled card on the
+      # admin page rather than an error. NOT `:?`-guarded, unlike the key above:
+      # provisioning one device and not the other is a legitimate state, and an
+      # unprovisioned device is inert rather than unsafe.
+      TEST_AUDIO_GOOD_DEVICE_TOKEN: ${TEST_AUDIO_GOOD_DEVICE_TOKEN:-}
+      TEST_AUDIO_FAULT_DEVICE_TOKEN: ${TEST_AUDIO_FAULT_DEVICE_TOKEN:-}
+      SESSION_MANAGER_BASE_URL: http://session-manager:80
+      NODE_SERVER_BASE_URL: http://node-server:80
+      # The authoritative cap on one run. Every run auto-stops at its own
+      # durationSec with no further instruction, and this bounds what may be
+      # asked for; admin-server's schema rejects only absurd values, so lowering
+      # this is obeyed rather than contradicted. It is what stops a forgotten
+      # device streaming into a room overnight.
+      TEST_AUDIO_MAX_DURATION_SEC: ${TEST_AUDIO_MAX_DURATION_SEC:-1800}
+      # Must equal sample_rate / num_channels in the test rooms' sessions'
+      # transcriptionStreamConfig; the transcription service rejects audio whose
+      # WAV header disagrees rather than resampling it.
+      TEST_AUDIO_SAMPLE_RATE: ${TEST_AUDIO_SAMPLE_RATE:-16000}
+      TEST_AUDIO_CHANNELS: ${TEST_AUDIO_CHANNELS:-1}
+      # Which clip the fault device streams. FaultParams has no clip knob - one
+      # knob per fault and nothing else - so the source material is config.
+      TEST_AUDIO_FAULT_CLIP: ${TEST_AUDIO_FAULT_CLIP:-harvard}
+    depends_on:
+      session-manager:
+        condition: service_healthy
+      node-server:
+        condition: service_healthy
     networks:
       - backend
     restart: unless-stopped

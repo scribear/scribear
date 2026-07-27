@@ -12,6 +12,102 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — operator test-audio devices (`compose.yml` v4)
+
+**No action required.** One new service, off by default behind a compose
+profile, and five new optional variables. Copy the new `compose.yml`; nothing
+starts or changes until you opt in.
+
+### What it is
+
+Two synthetic source devices an operator drives from the admin console
+(**Admin → Test Audio**):
+
+- **`good`** — clean speech at an adjustable level and noise floor. `gainDb`
+  spans −40 dB (below the ingress meter's silence floor) to +20 dB (hard
+  clipping); both ends are reachable on purpose.
+- **`fault`** — one knob per audio fault the stack claims to report — clipping,
+  stutter, drops, faster-than-realtime, silence, DC bias, CRC corruption, a
+  wrong-rate WAV header, clock skew — all independently settable and all
+  defaulting to zero.
+
+The point is to see what an alert looks like *before* it matters, and to check
+that the thing the dashboard claims to detect is the thing it actually detects.
+A retune applies to a running device without restarting the stream, so you turn
+a knob and watch a meter move.
+
+### ⚠️ Read this before provisioning
+
+These devices stream synthetic speech into whatever session is active in their
+room. **Each must have its own dedicated test room.**
+
+A device token reaches **only its own device's room** — neither device has any
+way to name another — so the device-to-room assignment you make at provisioning
+time is the *entire* safety boundary, the same one the monitoring canary relies
+on. Putting one of these devices in a teaching room would inject fixture speech
+into that lecture's live captions, **silently**, with nothing in the stack to
+notice it. It is a provisioning mistake, not a runtime one, and nothing at
+runtime can undo it.
+
+**Two rooms, not one:** a room has exactly one source device, and both devices
+must be able to run at once.
+
+### Turning it on
+
+```bash
+cd deployment
+./provision-test-audio.sh          # creates TEST-AUDIO-GOOD and TEST-AUDIO-FAULT
+```
+
+It registers and activates one device per source, creates a dedicated room for
+each with that device as its source device, and prints the lines to paste. It
+**refuses to touch any room it did not create** — if a room by either name
+already exists, it stops before registering anything.
+
+Then in `deployment/.env`:
+
+```sh
+COMPOSE_PROFILES=testaudio
+# Shared between admin-server and the generator. The generator REFUSES TO START
+# on an empty or CHANGEME value: an empty inbound key matches the empty
+# credential an unauthenticated caller presents as `Authorization: Bearer `.
+TEST_AUDIO_SERVICE_KEY=<a strong secret>
+TEST_AUDIO_BASE_URL=http://test-audio-generator:80
+TEST_AUDIO_GOOD_DEVICE_TOKEN=<printed by the script>
+TEST_AUDIO_FAULT_DEVICE_TOKEN=<printed by the script>
+```
+
+and give each room a standing session (`./create-session.sh`, or the admin
+console) — without one there is nothing for the devices to stream into.
+
+```bash
+docker compose --env-file .env -f compose.yml up -d
+```
+
+If you already run `COMPOSE_PROFILES=autoupdate`, the value is a comma-separated
+list: `COMPOSE_PROFILES=autoupdate,testaudio`.
+
+### Bounds
+
+Every run **auto-stops at the duration it was started with**, unconditionally —
+a timer is armed before any I/O and the send loop checks the same deadline every
+chunk. `TEST_AUDIO_MAX_DURATION_SEC` (default 1800) caps what may be asked for
+and is the authoritative limit; admin-server rejects only absurd values, so
+lowering this is obeyed rather than contradicted. A forgotten device cannot
+stream overnight, and the auto-stop survives admin-server going away.
+
+Every mutation is audited by admin-server with the knob that was turned, at what
+setting, for how long.
+
+### Turning it off
+
+Remove `testaudio` from `COMPOSE_PROFILES` and `docker compose up -d`. Unset
+`TEST_AUDIO_BASE_URL` as well to hide the admin panel. To retire the devices
+entirely, delete the two rooms and their devices in the admin console — while a
+device exists and belongs to a room, its token remains usable.
+
+---
+
 ## Unreleased — the transcription CRITICAL now reads dropped periods (`compose.yml` v3)
 
 **No action required.** Two new optional variables; leaving them unset gives the
