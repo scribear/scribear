@@ -253,20 +253,10 @@ export class AppConfig {
           name: 'nginx',
           url: `${this._env.NGINX_BASE_URL}${BUILD_INFO_FILE}`,
         },
-        // Only when it is actually deployed. Unlike every other entry here,
-        // test-audio-generator sits behind a compose profile and is off by
-        // default, so an unconditional target would put a permanently failing
-        // row on the Deployment Check page of every deployment that has not
-        // opted in — which is the opposite of what this table is for. Its
-        // absence is explained in `nonReporting` below instead.
-        ...(this._env.TEST_AUDIO_BASE_URL.length > 0
-          ? [
-              {
-                name: 'test-audio-generator',
-                url: `${this._env.TEST_AUDIO_BASE_URL}${BUILD_INFO_PATH}`,
-              },
-            ]
-          : []),
+        {
+          name: 'test-audio-generator',
+          url: `${this._env.TEST_AUDIO_BASE_URL}${BUILD_INFO_PATH}`,
+        },
       ],
       // Listed rather than omitted. An operator scanning this table for what is
       // deployed needs to see every container in compose.yml, and a service
@@ -284,19 +274,6 @@ export class AppConfig {
           detail:
             'Redis has no HTTP surface to report a build on. Its version moves with IMAGE_TAG like every other image — check it with `docker compose images redis`.',
         },
-        // The one entry here that is about configuration rather than protocol,
-        // and it disappears once the service is turned on: with
-        // TEST_AUDIO_BASE_URL set it moves up into `targets` and reports its
-        // build like any other Node service.
-        ...(this._env.TEST_AUDIO_BASE_URL.length === 0
-          ? [
-              {
-                name: 'test-audio-generator',
-                detail:
-                  'Not deployed. The operator test-audio devices sit behind the `testaudio` compose profile and are off by default; start the stack with COMPOSE_PROFILES=testaudio and set TEST_AUDIO_BASE_URL to bring this row to life.',
-              },
-            ]
-          : []),
       ],
     };
   }

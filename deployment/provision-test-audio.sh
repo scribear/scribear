@@ -173,9 +173,9 @@ TEST_AUDIO_GOOD_DEVICE_TOKEN=${GOOD_TOKEN}
 TEST_AUDIO_FAULT_DEVICE_TOKEN=${FAULT_TOKEN}
 TEST_AUDIO_BASE_URL=http://test-audio-generator:80
 
-then switch the service on and restart:
+then restart so the generator picks them up:
 
-COMPOSE_PROFILES=testaudio docker compose up -d
+docker compose up -d
 
 --------------------------------------------------------------------------
 Each token above reaches ONLY the room named beside it. That is the entire

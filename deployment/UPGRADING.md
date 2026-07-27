@@ -67,15 +67,17 @@ already exists, it stops before registering anything.
 Then in `deployment/.env`:
 
 ```sh
-COMPOSE_PROFILES=testaudio
-# Shared between admin-server and the generator. The generator REFUSES TO START
-# on an empty or CHANGEME value: an empty inbound key matches the empty
-# credential an unauthenticated caller presents as `Authorization: Bearer `.
+# Shared between admin-server and the generator. REQUIRED: the generator REFUSES
+# TO START on an empty or CHANGEME value, because an empty inbound key matches
+# the empty credential an unauthenticated caller presents as
+# `Authorization: Bearer `.
 TEST_AUDIO_SERVICE_KEY=<a strong secret>
-TEST_AUDIO_BASE_URL=http://test-audio-generator:80
 TEST_AUDIO_GOOD_DEVICE_TOKEN=<printed by the script>
 TEST_AUDIO_FAULT_DEVICE_TOKEN=<printed by the script>
 ```
+
+`TEST_AUDIO_BASE_URL` needs no entry — `compose.yml` defaults it to the in-stack
+generator.
 
 and give each room a standing session (`./create-session.sh`, or the admin
 console) — without one there is nothing for the devices to stream into.
@@ -83,9 +85,6 @@ console) — without one there is nothing for the devices to stream into.
 ```bash
 docker compose --env-file .env -f compose.yml up -d
 ```
-
-If you already run `COMPOSE_PROFILES=autoupdate`, the value is a comma-separated
-list: `COMPOSE_PROFILES=autoupdate,testaudio`.
 
 ### Bounds
 
@@ -99,10 +98,21 @@ stream overnight, and the auto-stop survives admin-server going away.
 Every mutation is audited by admin-server with the knob that was turned, at what
 setting, for how long.
 
+### The generator starts with the stack
+
+It is not behind a compose profile. **Set `TEST_AUDIO_SERVICE_KEY` before your
+next `up`**, or that one container will exit on every start with a message
+naming the variable — the rest of the stack is unaffected, since nothing depends
+on it.
+
+Until the devices are provisioned the generator is **inert**: with no
+`DEVICE_TOKEN`s both report `configured: false` and refuse to start, so the admin
+panel is visible with every control disabled. Provisioning is the step that arms
+it, which is why the safety note sits on the script rather than here.
+
 ### Turning it off
 
-Remove `testaudio` from `COMPOSE_PROFILES` and `docker compose up -d`. Unset
-`TEST_AUDIO_BASE_URL` as well to hide the admin panel. To retire the devices
+Blank `TEST_AUDIO_BASE_URL` to hide the admin panel. To retire the devices
 entirely, delete the two rooms and their devices in the admin console — while a
 device exists and belongs to a room, its token remains usable.
 
