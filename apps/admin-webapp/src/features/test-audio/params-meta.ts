@@ -10,20 +10,22 @@ import type {
  * Ranges, defaults and captions for the two synthetic sources
  * (`PLAN-TestAudioDevices.md` §2.1 and §2.2).
  *
- * The captions are the point of this file. §2.2 is a table of claims about what
- * each fault is *expected* to show up as, and the plan is explicit that the
+ * The captions are the point of this file. §2.2 was a table of claims about what
+ * each fault was *expected* to show up as, and the plan was explicit that the
  * table must not be taken on faith. Rendering the claim beside the knob that
  * makes it is what turns "the operator has to go and read the plan" into "the
  * operator can see what to go and look at", and what makes a wrong entry
  * visible the first time someone turns the knob.
  *
- * Every identifier named below was checked against the source at time of
- * writing: `apps/monitoring-sidecar/src/server/shared/alerts/alert-rules.ts`
- * (alert ids and severities), that app's `metrics-registry.service.ts` (metric
- * names, which all carry a `scribear_` prefix the plan's table omits), and
- * `AudioLevelStats` / `VadStats` in `#src/lib/admin-api` for the telemetry
- * fields. Where §2.2's claim is not backed by anything that exists, the caption
- * says so rather than repeating it.
+ * **The fault captions are now measurements, not predictions.** Every one was
+ * taken against a live GPU stack (`cuda128`, RTX 5070 Ti, `faster-whisper`
+ * `turbo`, one device at a time, 120 s per knob) — the raw numbers, the exact
+ * alert text and the baseline they are differences from are in
+ * `MEASURED-TestAudio-Faults.md`. Four of the nine original claims were wrong or
+ * half right, and those captions now say what actually happens instead. Two
+ * things a reader should carry: the numbers are hardware-dependent where the
+ * caption says so, and a knob whose caption says "nothing moves" is reporting a
+ * measured absence, not an untested guess.
  */
 
 // ---- Run duration (§2: required on start, capped, auto-stops at expiry) ----
@@ -86,8 +88,9 @@ export interface FaultKnob {
   step: number;
   /** Appended to the value in the accessible value text and the readout. */
   unit: string;
-  /** What turning this knob up is expected to show up as, named concretely
-   *  enough to go and look at. */
+  /** What turning this knob up **was measured to do**, named concretely enough
+   *  to go and look at. See `MEASURED-TestAudio-Faults.md` for the run each
+   *  number comes from. */
   caption: string;
 }
 
@@ -100,7 +103,7 @@ export const FAULT_KNOBS: FaultKnob[] = [
     step: 1,
     unit: '%',
     caption:
-      "Expected to trip: the ingress meter's clippingPct — the fraction of samples at full scale in runs of at least two — on the session's audio strip and on the standalone meter. No alert rule watches clipping, so the reading itself is the signal.",
+      "Measured: the ingress meter's clippingPct reads back the knob almost exactly — 50% here gave clippingPct 0.5002, with RMS up 24.9 dB, peak on the rail at 0.00 dBFS and VAD snrDb collapsing 17.5 → 0.03. No alert rule watches clipping, so the reading itself is the signal. Side effect worth knowing: the distortion raises the ASR duty ratio to ~0.54 and trips the asr-falling-behind WARNING on a GPU stack.",
   },
   {
     key: 'stutterPct',
@@ -110,7 +113,7 @@ export const FAULT_KNOBS: FaultKnob[] = [
     step: 1,
     unit: '%',
     caption:
-      'Expected to trip: caption repetition, scored by the canary-repetition WARNING. §2.2 predicts duplicate chunk ids as well; node-server neither counts nor de-duplicates them today, so repetition in the transcript is the only observable.',
+      "Measured: nothing moves. At 50% (404 duplicated frames in 120 s) every counter stayed flat — decode drops, pending-chunk evictions, unmatched chunks, repeated_segment_detected_total — and the transcript count matched the clean baseline exactly. Duplicate chunk ids are silently overwritten in node-server, and the canary-repetition WARNING scores the monitoring canary's own run in its own room, so this device cannot reach it. The only effect you can see is the captions garbling. Use it to reproduce a garbled transcript, not to trip an alert.",
   },
   {
     key: 'dropPct',
@@ -120,7 +123,7 @@ export const FAULT_KNOBS: FaultKnob[] = [
     step: 1,
     unit: '%',
     caption:
-      "Expected to trip: gaps in the audio — VAD's speechActiveRatio falls and the transcription service's vad_no_speech counter moves. Visible in the session's audio telemetry; no alert fires on it.",
+      'Measured: the gap is real — 50% halved asr_audio_seconds_total (119.6 → 58.7 s) — but VAD does not notice it. vad_no_speech_total and speechActiveRatio were unchanged from the clean baseline: a dropped frame is absent, not silent, so VAD never sees the hole. What does move is the ingress noise floor (+10.8 dB) and snrDb (−13.3 dB), because splicing removes the quiet gaps the floor estimate is made of, plus the low-confidence guards firing 5–6× as often. Halving the audio also doubles the duty ratio, which trips the asr-falling-behind WARNING.',
   },
   {
     key: 'speedup',
@@ -130,7 +133,7 @@ export const FAULT_KNOBS: FaultKnob[] = [
     step: 0.1,
     unit: '×',
     caption:
-      'Expected to trip: scribear_asr_audio_too_fast_total and the asr-audio-too-fast CRITICAL. The source is disconnected with close code 1007, so the run ends when this fires — that is the alert working, not the device failing.',
+      'Measured: on a GPU this knob trips nothing, at any setting it offers. 2.0× and 3.0× both ran the full two minutes and produced captions to the last frame, with scribear_asr_audio_too_fast_total flat at zero and no alert. "Client sent audio too quickly" is raised only when the 30-second buffer overflows, so this measures the transcription service\'s spare headroom rather than the send rate — at RTF ~0.35 it keeps up even at 2.96× realtime. Expect it to fire on CPU hardware, where RTF is around 0.47 at 1× (untested).',
   },
   {
     key: 'silencePct',
@@ -140,7 +143,7 @@ export const FAULT_KNOBS: FaultKnob[] = [
     step: 1,
     unit: '%',
     caption:
-      "Expected to trip: the ingress meter's silence flag and noise-floor readout, and the transcription service's vad_no_speech counter.",
+      'Measured: the loudest of the nine. At 100% the ingress meter reads silence: true with RMS, peak and noise floor all pinned at −120 dBFS, speechActiveRatio 0.0 and no VAD segments; vad_no_speech_total and no_words_total move on every single job (+239 in 120 s against +34 on clean audio). It also fires the asr-buffer-overflow WARNING — 180 buffers force-finalized in two minutes, because a buffer with no speech in it is never finalized normally.',
   },
   {
     key: 'dcOffset',
@@ -150,7 +153,7 @@ export const FAULT_KNOBS: FaultKnob[] = [
     step: 0.01,
     unit: ' of full scale',
     caption:
-      'Expected to trip: nothing directly. §2.2 predicts "meter DC/level telemetry", but no surface measures DC — not AudioLevelStats, not the standalone meter. A bias reads as raised RMS and lost headroom, so treat this knob as unverified until §7.4 says otherwise.',
+      'Measured: no surface reports DC, confirmed on a live stack — not AudioLevelStats, not the standalone meter, not node-server status. A bias of 0.5 of full scale showed up only as inflated level: RMS +20.7 dB, peak +7.8 dB, noise floor +35.6 dB, with clippingPct still 0.0000 (half scale does not reach the rail) and the captions unharmed. No alert fires. Use it to move the level meters without touching the speech.',
   },
   {
     key: 'corruptPct',
@@ -160,7 +163,7 @@ export const FAULT_KNOBS: FaultKnob[] = [
     step: 1,
     unit: '%',
     caption:
-      'Expected to trip: scribear_safp_decode_drops_total and the safp-decode-drops WARNING (failure modes U2/S4) — the version-skew signature, reproduced on demand.',
+      'Measured: exact. 20% corrupted 230 of 1200 frames and node-server\'s decode-drop counter moved by exactly 230, surfacing as scribear_safp_decode_drops_total and firing the safp-decode-drops WARNING (failure modes U2/S4) — "230 malformed SAFP frames dropped in 120s". The version-skew signature, reproduced on demand. The transcription service\'s own decode_drops_total stays at zero: node-server rejects the frame first, so its defence-in-depth decoder never sees one.',
   },
   {
     key: 'badHeaderPct',
@@ -170,7 +173,7 @@ export const FAULT_KNOBS: FaultKnob[] = [
     step: 1,
     unit: '%',
     caption:
-      "Expected to trip: transcription-service decode rejection. Every frame's payload is a complete 44-byte-header WAV that soundfile opens and validates, so a wrong rate is rejected there — not at node-server's SAFP decoder, which sees a well-formed frame.",
+      'Measured: the most destructive of the nine, and not a "decode rejection" — no decode counter moves anywhere. A wrong-rate WAV raises Sample rate mismatch inside the whisper job, which closes the upstream socket 1007; node-server reconnects and the next bad frame kills it again. At 50% that was 8 reconnects in 120 s, the upstream-churn CRITICAL, and zero captions for the entire run (asr_audio_seconds_total moved 1.4 s). Turn this one on knowing it takes the session out, not just a frame.',
   },
   {
     key: 'clockSkewMs',
@@ -180,7 +183,7 @@ export const FAULT_KNOBS: FaultKnob[] = [
     step: 100,
     unit: ' ms',
     caption:
-      'Expected to trip: negative end-to-end latency (latencyE2eNegativeTotal) and the clock-skew WARNING (S5), which needs at least 20 latency samples with 20% of them negative before it fires. Pipeline latency is unaffected — only the measurement breaks.',
+      'Measured: exact. +5000 ms put 175 of 189 latency samples negative in 120 s and fired the clock-skew WARNING (S5) — "93% of latency samples had a negative end-to-end time (175/189)". The rule needs 20 samples with 20% negative, so a skew larger than the ~2.6 s baseline end-to-end latency trips it within one window. Pipeline latency and the captions are unaffected — only the measurement breaks.',
   },
 ];
 

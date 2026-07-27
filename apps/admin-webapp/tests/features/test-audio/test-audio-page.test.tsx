@@ -151,20 +151,26 @@ describe('TestAudioPage', () => {
       }
     });
 
-    it('captions each fault knob with what it is expected to trip', async () => {
+    it('captions each fault knob with what it was measured to do', async () => {
       // The page doubles as the documentation for §2.2, so the caption is
-      // load-bearing content, not decoration.
+      // load-bearing content, not decoration. Since the live verification these
+      // are measurements, and two of the three asserted here are the knobs
+      // whose original claim turned out to be wrong — which is exactly why they
+      // are the ones pinned.
       // Arrange / Act
       await renderPage();
 
       // Assert
       expect(
-        screen.getByText(/asr-audio-too-fast CRITICAL/),
+        screen.getByText(/scribear_asr_audio_too_fast_total flat at zero/),
       ).toBeInTheDocument();
       expect(
         screen.getByText(/scribear_safp_decode_drops_total/),
       ).toBeInTheDocument();
       expect(screen.getByText(/clock-skew WARNING/)).toBeInTheDocument();
+      // `badHeaderPct` is the other wrong one: it takes the session out rather
+      // than rejecting a frame, and the caption has to say so.
+      expect(screen.getByText(/upstream-churn CRITICAL/)).toBeInTheDocument();
     });
 
     it('refuses to start a device with no credential, and says why', async () => {

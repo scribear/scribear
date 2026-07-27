@@ -67,10 +67,10 @@ export const FaultSourceCard = ({
       onStop={stop}
     >
       <Alert severity="info" sx={{ mb: 2 }}>
-        Each caption below says what the fault is <em>expected</em> to show up
-        as. They are predictions from the plan, checked against the alert rules
-        and metric names in this repo — not measurements. Confirm on a live
-        stack before quoting one in an incident.
+        Each caption below says what the fault <em>was measured to do</em>, on a
+        live GPU stack, one device at a time. Three knobs move nothing an alert
+        watches, and they say so. Where a number depends on the hardware — the
+        send-rate multiple above all — the caption says which way.
       </Alert>
       <Stack spacing={2.5}>
         {FAULT_KNOBS.map((knob) => (
