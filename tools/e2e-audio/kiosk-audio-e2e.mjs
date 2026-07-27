@@ -49,6 +49,7 @@ const CHROME_CANDIDATES = [
   '/usr/bin/google-chrome',
   '/usr/bin/chromium-browser',
   '/usr/bin/chromium',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 ].filter(Boolean);
 
 /** Speech fixture played into Chrome's fake microphone. */
