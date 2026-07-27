@@ -35,6 +35,16 @@ def _histogram_series(histogram: Histogram) -> list[dict[str, Any]]:
     detail of how exact percentiles are computed, and a response carrying
     thousands of them per series would be unusable.
 
+    A series that has been observed but whose retention window has since
+    emptied is still emitted, carrying `sampleCount` 0, zeroed percentiles and
+    its lifetime `count`/`sum`. That is the shape the sidecar's poller expects:
+    zero sample count is how it learns the quantile gauges are stale and must be
+    removed, while the lifetime totals it differences keep flowing. Omitting the
+    series instead would also work for the gauges, but would silently cost the
+    poller the totals for that interval. `None` is therefore only returned for a
+    series that has never been observed at all, which `series_labels()` cannot
+    produce - the guard below is kept as a contract check, not as a live path.
+
     Args:
         histogram   - Histogram to serialize
 

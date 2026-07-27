@@ -9,7 +9,12 @@ from src.webserver.shared.process_identity import (
     create_process_identity,
 )
 
-from .metric_types import DEFAULT_MAX_SAMPLES, Counter, Histogram
+from .metric_types import (
+    DEFAULT_MAX_SAMPLES,
+    DEFAULT_RETENTION_SEC,
+    Counter,
+    Histogram,
+)
 
 NS_PER_MS = 1_000_000
 NS_PER_SEC = 1_000_000_000
@@ -56,6 +61,7 @@ class MetricsRegistry:
         self,
         max_histogram_samples: int = DEFAULT_MAX_SAMPLES,
         process_identity: ProcessIdentity | None = None,
+        histogram_retention_sec: float = DEFAULT_RETENTION_SEC,
     ):
         """
         Args:
@@ -65,6 +71,12 @@ class MetricsRegistry:
                                       every telemetry endpoint reports the same
                                       uid, which is what lets a consumer
                                       correlate counters across them.
+            histogram_retention_sec - Age at which a retained observation stops
+                                      counting toward the reported percentiles.
+                                      Raise it for a deployment whose
+                                      `job_period_ms` is large enough that the
+                                      default window holds only a few dozen
+                                      samples; see DEFAULT_RETENTION_SEC.
         """
         identity = process_identity or create_process_identity()
         self._process_uid = identity.process_uid
@@ -79,25 +91,33 @@ class MetricsRegistry:
             "Job executions that raised, by provider and exception class",
         )
 
+        # Every histogram shares one retention window. The reported percentiles
+        # are read side by side on one dashboard panel, so a per-metric window
+        # would mean a p95 execution time and a p95 RTF that summarise different
+        # spans of time and cannot be reconciled by eye.
         self.asr_scheduling_delay_ms = Histogram(
             "asr_scheduling_delay_ms",
             "Time a job waited between becoming ready and being scheduled",
             max_histogram_samples,
+            histogram_retention_sec,
         )
         self.asr_execution_ms = Histogram(
             "asr_execution_ms",
             "Time a job spent executing",
             max_histogram_samples,
+            histogram_retention_sec,
         )
         self.asr_total_ms = Histogram(
             "asr_total_ms",
             "Total time a job spent in the worker pool",
             max_histogram_samples,
+            histogram_retention_sec,
         )
         self.asr_rtf = Histogram(
             "asr_rtf",
             "Wall-clock seconds spent per second of ingested audio",
             max_histogram_samples,
+            histogram_retention_sec,
         )
 
         self.asr_audio_seconds_total = Counter(
