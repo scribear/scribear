@@ -3,6 +3,10 @@ import { Type } from 'typebox';
 import type { Static } from 'typebox';
 
 import { LogLevel } from '@scribear/base-fastify-server';
+import {
+  TEST_AUDIO_DEVICE_UIDS,
+  deriveTestAudioDeviceToken,
+} from '@scribear/session-manager-schema/test-audio';
 
 import type { ServiceAuthConfig } from '#src/server/shared/auth/service-auth.service.js';
 import type { ClipCatalogConfig } from '#src/server/shared/clips/clip-catalog.service.js';
@@ -30,25 +34,35 @@ const CONFIG_SCHEMA = Type.Object({
 
   // --- The two devices' credentials -----------------------------------------
   /**
-   * Long-lived `DEVICE_TOKEN` cookie values, `{deviceUid}:{secret}`, one per
-   * device. Empty — the default — means that device reports
-   * `configured: false` and refuses to start.
+   * The one secret this service needs to authenticate as both of its devices.
+   *
+   * It holds no device *tokens*. The Session Manager seeds the two rooms and
+   * the two source devices at fixed uids and stores
+   * `bcrypt(derive(secret, deviceUid))` as each device's credential; this
+   * service derives the same secret from the same two inputs and presents
+   * `{deviceUid}:{secret}`. Nothing is ever copied between the two services —
+   * they agree because they compute the same function — so there is no
+   * provisioning script, no `Set-Cookie` header to scrape, and no `.env` line to
+   * paste. Must be the same value on both.
+   *
+   * Empty — the default — means **both** devices report `configured: false` and
+   * refuse to start, and the Session Manager seeds nothing at all. That is the
+   * inert state a deployment that has not asked for this feature is in.
    *
    * SECURITY: a device token reaches **only its own device's room**. Neither
-   * device has any way to name another, so the room each is registered to,
-   * decided once at provisioning time, is the entire safety boundary. Pointing
-   * one at a teaching room would inject fixture speech into that lecture's live
-   * captions, silently and with nothing to notice it. Use
-   * `deployment/provision-test-audio.sh`, which creates a dedicated room per
-   * device and refuses to touch anything else.
+   * device has any way to name another, so the room each is seeded into is the
+   * entire safety boundary — pointing one at a teaching room would inject
+   * fixture speech into that lecture's live captions, silently and with nothing
+   * to notice it. Seeding that assignment in code is *stronger* than wiring it
+   * by hand: it names two reserved rooms no database-generated uid can collide
+   * with, and room-management refuses to reassign either device out of its own
+   * room (`TEST_AUDIO_DEVICE_NOT_ASSIGNABLE`).
    *
-   * This service deliberately holds nothing but these two tokens: no
-   * `ADMIN_API_KEY` (which would let it create sessions in any room) and no
-   * `SESSION_TOKEN_SIGNING_KEY` (which would let it forge a token for any
-   * session in the fleet).
+   * This service deliberately holds nothing else: no `ADMIN_API_KEY` (which
+   * would let it create sessions in any room) and no `SESSION_TOKEN_SIGNING_KEY`
+   * (which would let it forge a token for any session in the fleet).
    */
-  TEST_AUDIO_GOOD_DEVICE_TOKEN: Type.String({ default: '' }),
-  TEST_AUDIO_FAULT_DEVICE_TOKEN: Type.String({ default: '' }),
+  TEST_AUDIO_DEVICE_SECRET: Type.String({ default: '' }),
 
   SESSION_MANAGER_BASE_URL: Type.String({
     default: 'http://session-manager:80',
@@ -192,10 +206,22 @@ export class AppConfig {
   }
 
   get deviceRunManagerConfig(): DeviceRunManagerConfig {
+    const secret = this._env.TEST_AUDIO_DEVICE_SECRET;
     return {
+      // Derived, not configured. An empty secret has to stay an empty token
+      // rather than becoming `uid:<hmac of "">` — an HMAC keyed on the empty
+      // string is a perfectly well-formed value that would make an
+      // unprovisioned device report `configured: true` and then fail to
+      // authenticate, which is the opposite of the inert default.
       deviceTokens: {
-        good: this._env.TEST_AUDIO_GOOD_DEVICE_TOKEN,
-        fault: this._env.TEST_AUDIO_FAULT_DEVICE_TOKEN,
+        good:
+          secret === ''
+            ? ''
+            : deriveTestAudioDeviceToken(secret, TEST_AUDIO_DEVICE_UIDS.good),
+        fault:
+          secret === ''
+            ? ''
+            : deriveTestAudioDeviceToken(secret, TEST_AUDIO_DEVICE_UIDS.fault),
       },
       deviceAuth: {
         sessionManagerBaseUrl: this._env.SESSION_MANAGER_BASE_URL,

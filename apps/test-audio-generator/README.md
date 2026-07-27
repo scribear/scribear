@@ -1,6 +1,6 @@
 # test-audio-generator
 
-Holds the two operator test-audio devices' tokens and runs them.
+Derives the two operator test-audio devices' credentials and runs them.
 
 - **`good`** — clean speech at an adjustable level and noise floor.
 - **`fault`** — one knob per audio fault the stack claims to report, all
@@ -17,28 +17,56 @@ admin-server's test-audio BFF, which proxies here. The contract is
 **A device token reaches only its own device's room.** Neither device has any
 way to name another room — the token is exchanged through session-manager's
 `my-schedule` and `exchange-device-token`, both of which are scoped to the
-device's own room. So the device-to-room assignment made once at provisioning
-time decides, permanently and by construction, which room synthetic audio can
-ever reach.
+device's own room. So the device-to-room assignment decides, permanently and by
+construction, which room synthetic audio can ever reach.
 
 That assignment is the entire safety boundary, and it is the same one the
 monitoring sidecar's canary relies on. **Pointing one of these devices at a
 teaching room would inject fixture speech into that lecture's live captions,
-silently**, with nothing in the stack to notice it. It is a provisioning
-mistake, not a runtime one, and nothing at runtime can undo it.
+silently**, with nothing in the stack to notice it.
 
-`deployment/provision-test-audio.sh` is the supported way to set them up. It
-creates a dedicated room per device and refuses to touch an existing room that
-is not one of its own.
+**It is made in code, and that is stronger than making it by hand.**
+session-manager seeds `TEST-AUDIO-GOOD` and `TEST-AUDIO-FAULT`, one source
+device in each, under reserved uids that no database-generated uid can collide
+with. There is no argument to point at a different room, no `Set-Cookie` header
+to scrape, and no `.env` line to paste. Room-management then refuses to move
+either device into another room (409 `TEST_AUDIO_DEVICE_NOT_ASSIGNABLE`) or to
+give either test room a different source device (409
+`TEST_AUDIO_ROOM_NOT_ASSIGNABLE`), so the pairing cannot be undone from the
+console either.
 
 **Two rooms, not one.** A room has exactly one source device, and both devices
 must be able to run at once.
 
-This service holds nothing but the two device tokens: no `ADMIN_API_KEY` (which
-would let it create and destroy sessions in any room) and no
-`SESSION_TOKEN_SIGNING_KEY` (which would let it forge a token for any session in
-the fleet). That restriction is why it is a service of its own rather than part
-of admin-server, which deliberately holds neither kind of credential either.
+**Nothing has to be scheduled.** Each seeded room holds one standing, open-ended
+`ON_DEMAND` session, so an idle device always has something to attach to. That
+session also pins the room: the `sessions_no_overlap` exclusion constraint
+models it as `[start, infinity)`, so no schedule, window or on-demand session
+can be created in a test-audio room while it stands.
+
+This service holds nothing but `TEST_AUDIO_DEVICE_SECRET`, from which it derives
+both device tokens: no `ADMIN_API_KEY` (which would let it create and destroy
+sessions in any room) and no `SESSION_TOKEN_SIGNING_KEY` (which would let it
+forge a token for any session in the fleet). That restriction is why it is a
+service of its own rather than part of admin-server, which deliberately holds
+neither kind of credential either.
+
+### How the two sides agree
+
+One function, `deriveTestAudioDeviceToken` in
+`@scribear/session-manager-schema/test-audio`, imported by both — not
+implemented twice, because two implementations of "the same" derivation drift
+and the failure looks exactly like a wrong secret.
+
+```
+secret + deviceUid --HMAC-SHA256--> plaintext secret
+   session-manager stores  bcrypt(plaintext)
+   this service presents   {deviceUid}:{plaintext}
+```
+
+Nothing is transmitted between the two services; they agree because they compute
+the same function of the same two inputs. An unset secret means both devices
+report `configured: false` and session-manager seeds nothing.
 
 ---
 
@@ -178,16 +206,15 @@ See `.env.example`. The ones that matter:
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `TEST_AUDIO_SERVICE_KEY` | — | Required. The service refuses to start on empty or `CHANGEME`. |
-| `TEST_AUDIO_GOOD_DEVICE_TOKEN` | empty | Empty ⇒ `configured: false`, refuses to start. |
-| `TEST_AUDIO_FAULT_DEVICE_TOKEN` | empty | Same. |
+| `TEST_AUDIO_DEVICE_SECRET` | empty | Shared with session-manager. Empty ⇒ both devices `configured: false`, and nothing is seeded. |
 | `TEST_AUDIO_MAX_DURATION_SEC` | 1800 | The authoritative cap. |
 | `TEST_AUDIO_LONGFORM_URL` | archive.org item | Set empty for an offline build. |
 | `TEST_AUDIO_FAULT_CLIP` | `harvard` | `FaultParams` has no clip knob. |
 | `TEST_AUDIO_RNG_SEED` | 1 | Fixed, so a reported run reproduces exactly. |
 
-Readiness is **503 until at least one device has a token**, so the common
-provisioning mistake — deploying the service and forgetting the `.env` lines —
-shows up in `docker compose ps` rather than only after someone opens the page
+Readiness is **503 until a device credential is configured**, so the common
+mistake — deploying the service and forgetting the `.env` line — shows up in
+`docker compose ps` rather than only after someone opens the page
 and presses a button. It deliberately does not check that a room is assigned or
 a session is active: a test room with no session scheduled is a normal resting
 state, and failing readiness for it would have the container restart-looping

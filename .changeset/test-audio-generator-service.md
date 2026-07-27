@@ -3,11 +3,11 @@
 '@scribear/admin-server': patch
 ---
 
-The service that holds the two operator test-audio devices' tokens and actually
-runs them (PLAN-TestAudioDevices §2 and §5).
+The service that holds the two operator test-audio devices' credentials and
+actually runs them (PLAN-TestAudioDevices §2 and §5).
 
 `libs/test-audio-source` had the streaming engine and `apps/admin-server` had
-the audit-proxy, but nothing held the device tokens or ran a send loop. This is
+the audit-proxy, but nothing held the device credentials or ran a send loop. This is
 that missing middle: Fastify on `@scribear/base-fastify-server`, Awilix DI, base
 path `/api/test-audio/v1`, service-key auth on every control route.
 
@@ -67,19 +67,21 @@ path `/api/test-audio/v1`, service-key auth on every control route.
   is an `onRequest` hook rather than node-server's `preHandler`, since body
   parsing and validation run between the two and an unauthenticated caller
   should not be told the shape of the body it failed to send.
-- **`deployment/provision-test-audio.sh`**, the compose service behind a
-  `testaudio` profile (off by default, like watchtower), and the `.env` keys.
+- **The compose service and the `.env` keys.** The two devices are seeded by
+  the Session Manager rather than provisioned by hand — see the companion
+  changeset — so the only key here is `TEST_AUDIO_DEVICE_SECRET`, which this
+  service and the Session Manager share and from which both derive the same
+  per-device credential.
 
 **The room assignment is the entire safety boundary.** A device token reaches
 only its own device's room — neither device has any way to name another — so the
-device-to-room assignment made once at provisioning time decides, permanently
-and by construction, which room synthetic audio can ever reach. Pointing one of
-these at a teaching room would inject fixture speech into that lecture's live
-captions, silently, and nothing at runtime could undo it. That is said in the
-service README, `.env.example`, `deployment/.env.example`, `compose.yml`,
-`UPGRADING.md` and the provisioning script, which creates two dedicated rooms —
-one device each, because a room has exactly one source device and both must run
-at once — and refuses to touch a room it did not create.
+device-to-room assignment decides, permanently and by construction, which room
+synthetic audio can ever reach. Pointing one of these at a teaching room would
+inject fixture speech into that lecture's live captions, silently. That is said
+in the service README, `.env.example`, `deployment/.env.example`, `compose.yml`
+and `UPGRADING.md`. The assignment itself is made in code, under reserved uids,
+by the Session Manager's seeder — two dedicated rooms, one device each, because
+a room has exactly one source device and both must run at once.
 
 Realtime pacing is not optional: the transcription service closes the socket
 `1007 Client sent audio too quickly` on faster-than-realtime audio. It is a

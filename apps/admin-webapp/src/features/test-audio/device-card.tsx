@@ -130,9 +130,9 @@ export const DeviceCard = ({
 
         {!device.configured && (
           <Alert severity="info" sx={{ mb: 2 }}>
-            No device token is set for this source, so it cannot be started.
-            Provision it with <code>deployment/provision-test-audio.sh</code>{' '}
-            and set the token in the generator&apos;s environment.
+            No credential is configured for this source, so it cannot be
+            started. Set <code>TEST_AUDIO_DEVICE_SECRET</code> to the same value
+            on the session manager and the generator, then restart both.
           </Alert>
         )}
 

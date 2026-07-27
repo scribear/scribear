@@ -6,6 +6,7 @@ import type {
   AppConfig,
   BaseConfig,
   DemoRoomConfig,
+  TestAudioRoomsConfig,
 } from '#src/app-config/app-config.js';
 import type { DBClientConfig } from '#src/db/db-client.js';
 import createServer from '#src/server/create-server.js';
@@ -39,6 +40,7 @@ export interface TestAppConfigOverrides {
   devicePresenceConfig?: Partial<DevicePresenceConfig>;
   materializationWorkerConfig?: Partial<MaterializationWorkerConfig>;
   demoRoomConfig?: Partial<DemoRoomConfig>;
+  testAudioRoomsConfig?: Partial<TestAudioRoomsConfig>;
 }
 
 /**
@@ -100,6 +102,13 @@ export function buildTestAppConfig(
       enabled: false,
       sessionUid: 'deadbeef-0000-4000-8000-000000000001',
       ...overrides.demoRoomConfig,
+    },
+    // Off by default for the same reason as the demo room: ordinary suites
+    // must not find two seeded rooms and four seeded rows in their tables.
+    testAudioRoomsConfig: {
+      enabled: false,
+      deviceSecret: '',
+      ...overrides.testAudioRoomsConfig,
     },
   } as unknown as AppConfig;
 }

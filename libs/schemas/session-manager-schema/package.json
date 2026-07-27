@@ -8,6 +8,10 @@
     ".": {
       "development": "./src/index.ts",
       "default": "./dist/src/index.js"
+    },
+    "./test-audio": {
+      "development": "./src/test-audio/index.ts",
+      "default": "./dist/src/test-audio/index.js"
     }
   },
   "type": "module",

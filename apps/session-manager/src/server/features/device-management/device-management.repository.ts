@@ -292,6 +292,78 @@ export class DeviceManagementRepository {
   }
 
   /**
+   * Idempotently inserts an **already-activated** device with an explicit
+   * caller-chosen `uid`, and re-writes its credential on every call.
+   *
+   * The counterpart of {@link createWithFixedUid} for a device whose secret is
+   * not minted by `activate-device` but *derived* — the seeded operator
+   * test-audio sources, whose plaintext secret both this service and the
+   * generator compute from `TEST_AUDIO_DEVICE_SECRET`. The row therefore has to
+   * be written in the activated shape (`active = TRUE`, `hash` set,
+   * `activation_code`/`expiry` null) to satisfy the `devices_active_has_hash`
+   * CHECK; there is no pending state to pass through, because nobody ever holds
+   * an activation code for these.
+   *
+   * `DO UPDATE` rather than `DO NOTHING`, deliberately, and this is the whole
+   * reason the method exists separately:
+   *
+   *  - bcrypt is salted, so the stored hash is *not* a deterministic function of
+   *    the secret and cannot be used to detect drift. Re-hashing unconditionally
+   *    is the only cheap way to guarantee the row agrees with the environment.
+   *  - it makes **secret rotation automatic**: change `TEST_AUDIO_DEVICE_SECRET`
+   *    on both services, restart, and the stored hash and the derived token move
+   *    together. With `DO NOTHING` the stored hash would keep verifying the old
+   *    secret and the generator would fail to authenticate with no indication
+   *    that a stale row was the reason.
+   *  - it **repairs** a device an operator re-registered (`reregister` sets
+   *    `active = FALSE, hash = NULL`), which would otherwise leave the source
+   *    permanently unable to authenticate with a restart no longer fixing it.
+   *
+   * It updates one existing row and never inserts a second: the conflict target
+   * is the primary key. Nothing in the stack watches `devices` rows — presence
+   * lives in its own `device_last_seen` table and no event-bus channel is keyed
+   * on a device — so the per-boot write churns nothing.
+   *
+   * @param uid The fixed uid to insert, or whose credential to replace.
+   * @param data.name The display name for the device (also re-applied on conflict).
+   * @param data.hash The bcrypt hash of the device's derived secret.
+   * @returns The persisted device.
+   */
+  async upsertActivatedWithFixedUid(
+    uid: string,
+    data: { name: string; hash: string },
+  ) {
+    await this._dbClient.db
+      .insertInto('devices')
+      .values({
+        uid,
+        name: data.name,
+        active: true,
+        hash: data.hash,
+        activation_code: null,
+        expiry: null,
+      })
+      .onConflict((oc) =>
+        oc.column('uid').doUpdateSet({
+          name: data.name,
+          active: true,
+          hash: data.hash,
+          activation_code: null,
+          expiry: null,
+        }),
+      )
+      .execute();
+
+    const persisted = await this.findById(uid);
+    if (!persisted) {
+      throw new Error(
+        `upsertActivatedWithFixedUid: no device found for uid ${uid} after upsert`,
+      );
+    }
+    return persisted;
+  }
+
+  /**
    * Looks up a device by its pending activation code.
    * @param activationCode The one-time code to look up.
    * @returns The matching device row, or `undefined` if the code does not exist.

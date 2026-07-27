@@ -3,6 +3,10 @@ import {
   DEMO_ROOM_UID,
   DEMO_SOURCE_DEVICE_UID,
 } from '#src/server/features/demo-room/demo-room.constants.js';
+import {
+  TEST_AUDIO_DEVICE_UID_SET,
+  TEST_AUDIO_ROOM_UID_SET,
+} from '#src/server/features/test-audio-rooms/test-audio-rooms.constants.js';
 
 // `Intl.supportedValuesOf('timeZone')` returns only canonical region zones
 // (e.g. `America/New_York`) and omits aliases like `UTC` and `Etc/UTC` even
@@ -54,6 +58,44 @@ function isDemoSourceDevice(deviceUid: string): boolean {
   return deviceUid === DEMO_SOURCE_DEVICE_UID;
 }
 
+/**
+ * The seeded operator test-audio sources, refused for a different reason from
+ * the demo room's placeholder — and a more serious one.
+ *
+ * These two devices are *real*: activated, credentialled, and streaming
+ * synthetic speech into whatever session is active in their room. A device token
+ * reaches only its own device's room, so the room each is seeded into is the
+ * entire thing keeping fixture speech out of a live lecture. Moving one into a
+ * teaching room would inject it into that lecture's captions, silently, and
+ * nothing at runtime would notice.
+ *
+ * The existing `WOULD_LEAVE_ROOM_WITHOUT_SOURCE` rule already blocks the usual
+ * route (each device is its room's only source, so it cannot be detached), but
+ * it stops covering the moment someone deletes the test room — the documented
+ * way to retire these devices — which cascades the membership away and leaves a
+ * roomless device with a still-valid token. This is the guard for that gap, and
+ * it is checked before any lookup so the answer does not depend on whether the
+ * seeder has run.
+ */
+function isTestAudioSourceDevice(deviceUid: string): boolean {
+  return TEST_AUDIO_DEVICE_UID_SET.has(deviceUid);
+}
+
+/**
+ * The mirror image: the seeded test-audio rooms themselves.
+ *
+ * Refused not because the room is inert — it is the one room these devices are
+ * *supposed* to reach — but to keep the seeded pairing intact. Promoting some
+ * other device to source silently demotes the synthetic source, which then still
+ * authenticates and still finds the session but is no longer granted SEND_AUDIO,
+ * so the operator sees a device that starts and sends nothing. Worse, the next
+ * boot's re-seed tries to restore `is_source` and trips the "at most one source
+ * per room" trigger. A 409 naming the room is a better answer than either.
+ */
+function isTestAudioRoom(roomUid: string): boolean {
+  return TEST_AUDIO_ROOM_UID_SET.has(roomUid);
+}
+
 export class RoomManagementService {
   private _log: AppDependencies['logger'];
   private _roomManagementRepository: AppDependencies['roomManagementRepository'];
@@ -98,7 +140,7 @@ export class RoomManagementService {
    * The source device must not already belong to another room.
    * @param data.timezone Must be a valid IANA timezone identifier.
    * @param data.autoSessionEnabled Master switch for auto sessions in the room.
-   * @param data.sourceDeviceUids Must contain exactly one UID; that device must not already be in a room, and must not be the demo room's placeholder source device.
+   * @param data.sourceDeviceUids Must contain exactly one UID; that device must not already be in a room, and must be neither the demo room's placeholder source device nor a seeded test-audio source.
    */
   async createRoom(data: {
     name: string;
@@ -124,6 +166,9 @@ export class RoomManagementService {
     // placeholder source device.
     if (isDemoSourceDevice(sourceDeviceUid)) {
       return 'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE';
+    }
+    if (isTestAudioSourceDevice(sourceDeviceUid)) {
+      return 'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE';
     }
 
     const device =
@@ -178,7 +223,7 @@ export class RoomManagementService {
    * @param params.roomUid The room to add the device to.
    * @param params.deviceUid The device to add; must not already be in a room.
    * @param params.asSource Whether to designate this device as the room's source.
-   * @returns `undefined` on success, or an error code: `'DEMO_ROOM_NOT_ASSIGNABLE'`, `'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE'`, `'ROOM_NOT_FOUND'`, `'DEVICE_NOT_FOUND'`, or `'DEVICE_ALREADY_IN_ROOM'`.
+   * @returns `undefined` on success, or an error code: `'DEMO_ROOM_NOT_ASSIGNABLE'`, `'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE'`, `'TEST_AUDIO_ROOM_NOT_ASSIGNABLE'`, `'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE'`, `'ROOM_NOT_FOUND'`, `'DEVICE_NOT_FOUND'`, or `'DEVICE_ALREADY_IN_ROOM'`.
    */
   async addDeviceToRoom(params: {
     roomUid: string;
@@ -188,6 +233,11 @@ export class RoomManagementService {
     if (isDemoRoom(params.roomUid)) return 'DEMO_ROOM_NOT_ASSIGNABLE';
     if (isDemoSourceDevice(params.deviceUid)) {
       return 'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE';
+    }
+    if (isTestAudioRoom(params.roomUid))
+      return 'TEST_AUDIO_ROOM_NOT_ASSIGNABLE';
+    if (isTestAudioSourceDevice(params.deviceUid)) {
+      return 'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE';
     }
 
     const [roomExists, device] = await Promise.all([
@@ -232,12 +282,16 @@ export class RoomManagementService {
    * Promotes a device to source within a room. The device must already be a member.
    * @param roomUid The room to update.
    * @param deviceUid The device to promote; must already be a member of the room.
-   * @returns `DEVICE_NOT_IN_ROOM` if the device is not a current member, or a demo-room refusal code.
+   * @returns `DEVICE_NOT_IN_ROOM` if the device is not a current member, or a demo-room / test-audio refusal code.
    */
   async setSourceDevice(roomUid: string, deviceUid: string) {
     if (isDemoRoom(roomUid)) return 'DEMO_ROOM_NOT_ASSIGNABLE';
     if (isDemoSourceDevice(deviceUid)) {
       return 'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE';
+    }
+    if (isTestAudioRoom(roomUid)) return 'TEST_AUDIO_ROOM_NOT_ASSIGNABLE';
+    if (isTestAudioSourceDevice(deviceUid)) {
+      return 'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE';
     }
 
     const roomExists =

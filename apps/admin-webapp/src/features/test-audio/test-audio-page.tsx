@@ -63,11 +63,11 @@ export const TestAudioPage = () => {
           This deployment has no test-audio generator:{' '}
           <code>TEST_AUDIO_BASE_URL</code> is unset on the admin server, so
           there is nothing to start and no device to start it on. To enable it,
-          run <code>deployment/provision-test-audio.sh</code> to register the
-          two devices and their rooms, bring up the{' '}
-          <code>test-audio-generator</code> service with the device tokens it
-          prints, and point <code>TEST_AUDIO_BASE_URL</code> at it. Nothing else
-          in the console depends on this.
+          set <code>TEST_AUDIO_DEVICE_SECRET</code> to the same value on the
+          session manager and the <code>test-audio-generator</code> service —
+          which seeds the two rooms and devices for you — and point{' '}
+          <code>TEST_AUDIO_BASE_URL</code> at the generator. Nothing else in the
+          console depends on this.
         </Alert>
       ) : (
         <Grid container spacing={2} sx={{ alignItems: 'flex-start' }}>

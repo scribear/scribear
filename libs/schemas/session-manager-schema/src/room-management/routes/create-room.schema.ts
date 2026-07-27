@@ -62,6 +62,10 @@ const CREATE_ROOM_SCHEMA = {
         code: Type.Literal('DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE'),
         message: Type.String(),
       }),
+      Type.Object({
+        code: Type.Literal('TEST_AUDIO_DEVICE_NOT_ASSIGNABLE'),
+        message: Type.String(),
+      }),
     ]),
     422: Type.Object({
       code: Type.Literal('INVALID_TIMEZONE'),

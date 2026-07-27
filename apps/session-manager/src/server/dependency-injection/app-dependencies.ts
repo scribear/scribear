@@ -7,6 +7,7 @@ import type {
   AppConfig,
   BaseConfig,
   DemoRoomConfig,
+  TestAudioRoomsConfig,
 } from '#src/app-config/app-config.js';
 import type { DBClient, DBClientConfig } from '#src/db/db-client.js';
 import type { DatabaseController } from '#src/server/features/database/database.controller.js';
@@ -30,6 +31,7 @@ import type { ScheduleManagementService } from '#src/server/features/schedule-ma
 import type { SessionAuthController } from '#src/server/features/session-auth/session-auth.controller.js';
 import type { SessionAuthRepository } from '#src/server/features/session-auth/session-auth.repository.js';
 import type { SessionAuthService } from '#src/server/features/session-auth/session-auth.service.js';
+import type { TestAudioRoomsSeeder } from '#src/server/features/test-audio-rooms/test-audio-rooms-seeder.js';
 import type { DeviceAuthRepository } from '#src/server/shared/repositories/device-auth.repository.js';
 import type { AdminAuthConfig } from '#src/server/shared/services/admin-auth.service.js';
 import type { AdminAuthService } from '#src/server/shared/services/admin-auth.service.js';
@@ -61,6 +63,7 @@ interface AppDependencies extends BaseDependencies {
   dbClientConfig: DBClientConfig;
   materializationWorkerConfig: MaterializationWorkerConfig;
   demoRoomConfig: DemoRoomConfig;
+  testAudioRoomsConfig: TestAudioRoomsConfig;
 
   // Database
   dbClient: DBClient;
@@ -106,6 +109,9 @@ interface AppDependencies extends BaseDependencies {
   // Demo caption room
   demoRoomSeeder: DemoRoomSeeder;
   demoRoomController: DemoRoomController;
+
+  // Operator test-audio rooms
+  testAudioRoomsSeeder: TestAudioRoomsSeeder;
 
   // Database schema state
   databaseController: DatabaseController;

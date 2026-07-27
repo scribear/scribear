@@ -35,15 +35,19 @@ import type {
 
 export interface DeviceRunManagerConfig extends DeviceRunnerConfig {
   /**
-   * Per-device token, `{deviceUid}:{secret}`. Empty means the device is not
-   * provisioned: it reports `configured: false` and refuses to start.
+   * Per-device token, `{deviceUid}:{secret}`, **derived** from
+   * `TEST_AUDIO_DEVICE_SECRET` and the device's fixed uid rather than
+   * configured. Empty means no secret is set: the device reports
+   * `configured: false` and refuses to start.
    *
    * SECURITY: a device token reaches **only its own device's room**. That is
    * the entire safety boundary for these two devices — neither has any way to
-   * name another room — so the device-to-room assignment made once at
-   * provisioning time decides, permanently and by construction, which room
-   * synthetic audio can ever reach. Provisioning one into a teaching room
-   * would inject fixture speech into that lecture's live captions, silently.
+   * name another room — so the device-to-room assignment decides, permanently
+   * and by construction, which room synthetic audio can ever reach. That
+   * assignment is now seeded by the Session Manager under a reserved uid, which
+   * is stronger than an operator making it by hand: there is no argument to
+   * point at the wrong room, and room-management refuses to move either device
+   * out of its own room afterwards.
    */
   deviceTokens: Record<DeviceId, string>;
   /** Base config for {@link DeviceAuthClient}; the token is filled per device. */

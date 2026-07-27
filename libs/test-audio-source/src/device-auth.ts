@@ -15,12 +15,15 @@ import { DEVICE_TOKEN_COOKIE_NAME } from '@scribear/session-manager-schema';
  * or `SESSION_TOKEN_SIGNING_KEY` (which would let it forge a token for any
  * session in the fleet). A synthetic audio source that could mint arbitrary
  * credentials would be a far larger liability than anything it exists to
- * detect. The cost of that choice is a one-time manual device registration.
+ * detect.
  *
  * That restriction is also the whole safety boundary for these devices: a
  * device token reaches only the room its device is registered to, so the
- * device-to-room assignment made at provisioning time decides — permanently
- * and by construction — which room synthetic audio can ever reach.
+ * device-to-room assignment decides — permanently and by construction — which
+ * room synthetic audio can ever reach. For the two operator test-audio devices
+ * that assignment is seeded in code under reserved uids
+ * (`TestAudioRoomsSeeder`) rather than made by hand, and room-management refuses
+ * to undo it.
  */
 
 /** A session token plus the scopes it actually carries. */

@@ -74,7 +74,9 @@ describe('TestAudioPage', () => {
         0,
       );
       expect(screen.getByText(/not configured here/i)).toBeInTheDocument();
-      expect(screen.getByText(/provision-test-audio\.sh/)).toBeInTheDocument();
+      expect(
+        screen.getAllByText('TEST_AUDIO_DEVICE_SECRET').length,
+      ).toBeGreaterThan(0);
     });
 
     it('offers nothing to start, rather than a control that would 503', async () => {
@@ -165,7 +167,7 @@ describe('TestAudioPage', () => {
       expect(screen.getByText(/clock-skew WARNING/)).toBeInTheDocument();
     });
 
-    it('refuses to start a device with no token, and says why', async () => {
+    it('refuses to start a device with no credential, and says why', async () => {
       // Arrange
       const status = buildStatus({
         devices: [
@@ -181,7 +183,9 @@ describe('TestAudioPage', () => {
       expect(
         screen.getByRole('button', { name: /Start the good source/ }),
       ).toBeDisabled();
-      expect(screen.getByText(/No device token is set/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/No credential is configured/),
+      ).toBeInTheDocument();
     });
   });
 

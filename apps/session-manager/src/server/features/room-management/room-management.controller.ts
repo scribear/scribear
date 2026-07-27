@@ -36,6 +36,26 @@ const DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE_MESSAGE =
   'it is never activated and can never send audio, so it cannot be added to a ' +
   'room or made a room source device.';
 
+/**
+ * Refusals for the seeded operator test-audio rooms. Also 409, for the same
+ * reason — but where the demo messages explain that nothing would happen, these
+ * have to explain that something would: these devices are real, they stream
+ * synthetic speech into whatever session is active in their room, and the room
+ * they are seeded into is the only thing keeping that speech out of a lecture.
+ */
+const TEST_AUDIO_ROOM_NOT_ASSIGNABLE_MESSAGE =
+  'The test-audio rooms are seeded with their synthetic source device already ' +
+  'attached, and that pairing is what confines synthetic speech to them. ' +
+  'Devices cannot be added to them or made their source device.';
+
+const TEST_AUDIO_DEVICE_NOT_ASSIGNABLE_MESSAGE =
+  'That is a seeded synthetic audio source. It streams fixture speech into ' +
+  'whatever session is active in its room, so it is confined to its own ' +
+  'dedicated test room and cannot be added to another room or made another ' +
+  "room's source device. Putting it in a teaching room would transcribe " +
+  "fixture speech into that lecture's live captions. To retire it, unset " +
+  'TEST_AUDIO_DEVICE_SECRET and delete the device.';
+
 export class RoomManagementController {
   private _roomManagementService: AppDependencies['roomManagementService'];
 
@@ -112,6 +132,15 @@ export class RoomManagementController {
         DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE_MESSAGE,
       );
     }
+    // No `TEST_AUDIO_ROOM_NOT_ASSIGNABLE` here: a room being created cannot be
+    // one of the seeded test rooms, whose uids are reserved literals, so only
+    // the device half is reachable from this route.
+    if (result === 'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE') {
+      throw HttpError.conflict(
+        'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE',
+        TEST_AUDIO_DEVICE_NOT_ASSIGNABLE_MESSAGE,
+      );
+    }
     if (result === 'DEVICE_NOT_FOUND') {
       throw HttpError.notFound('DEVICE_NOT_FOUND', 'Source device not found.');
     }
@@ -185,6 +214,18 @@ export class RoomManagementController {
         DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE_MESSAGE,
       );
     }
+    if (result === 'TEST_AUDIO_ROOM_NOT_ASSIGNABLE') {
+      throw HttpError.conflict(
+        'TEST_AUDIO_ROOM_NOT_ASSIGNABLE',
+        TEST_AUDIO_ROOM_NOT_ASSIGNABLE_MESSAGE,
+      );
+    }
+    if (result === 'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE') {
+      throw HttpError.conflict(
+        'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE',
+        TEST_AUDIO_DEVICE_NOT_ASSIGNABLE_MESSAGE,
+      );
+    }
     if (result === 'ROOM_NOT_FOUND') {
       throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
     }
@@ -244,6 +285,18 @@ export class RoomManagementController {
       throw HttpError.conflict(
         'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE',
         DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE_MESSAGE,
+      );
+    }
+    if (result === 'TEST_AUDIO_ROOM_NOT_ASSIGNABLE') {
+      throw HttpError.conflict(
+        'TEST_AUDIO_ROOM_NOT_ASSIGNABLE',
+        TEST_AUDIO_ROOM_NOT_ASSIGNABLE_MESSAGE,
+      );
+    }
+    if (result === 'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE') {
+      throw HttpError.conflict(
+        'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE',
+        TEST_AUDIO_DEVICE_NOT_ASSIGNABLE_MESSAGE,
       );
     }
     if (result === 'ROOM_NOT_FOUND') {

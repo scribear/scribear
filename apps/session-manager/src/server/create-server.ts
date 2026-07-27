@@ -83,6 +83,29 @@ async function createServer(config: AppConfig) {
     });
   }
 
+  // Operator test-audio rooms. Resolved and run only when
+  // TEST_AUDIO_DEVICE_SECRET is set; unset seeds nothing and leaves the
+  // generator's two devices reporting `configured: false`, which is the state a
+  // deployment that has not asked for the feature is already in.
+  //
+  // This is what replaced deployment/provision-test-audio.sh: the rooms, the
+  // devices, their credentials and their standing sessions are all seeded here,
+  // so there is nothing for an operator to register, activate, copy or paste.
+  if (config.testAudioRoomsConfig.enabled) {
+    const testAudioRoomsSeeder = dependencyContainer.resolve<
+      AppDependencies['testAudioRoomsSeeder']
+    >('testAudioRoomsSeeder');
+    fastify.addHook('onReady', async () => {
+      // As with the demo room: a transient seeding failure must not take down
+      // an otherwise-healthy instance over a test fixture.
+      try {
+        await testAudioRoomsSeeder.seed();
+      } catch (err) {
+        logger.error({ err }, 'test-audio rooms: seeding failed');
+      }
+    });
+  }
+
   // Drain the pg pool on shutdown. Without this, in-flight idle clients
   // surface a fatal admin-shutdown error (Postgres 57P01) when the database
   // shuts down before us, and pg-pool re-emits that as an unhandled `error`

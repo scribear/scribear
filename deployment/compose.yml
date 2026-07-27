@@ -91,6 +91,21 @@ services:
       # session uid uses a built-in default shared with the Node Server, so it
       # does not need to be passed here.
       DEMO_ROOM_ENABLED: ${DEMO_ROOM_ENABLED:-true}
+      # Operator test-audio rooms (PLAN-TestAudioDevices). The SAME value as the
+      # test-audio-generator's TEST_AUDIO_DEVICE_SECRET below - this service and
+      # that one are the only two holders.
+      #
+      # Set, it seeds TEST-AUDIO-GOOD and TEST-AUDIO-FAULT, one source device
+      # each at a reserved uid, and one standing open-ended session per room, on
+      # every boot. Each device's stored credential is bcrypt(HMAC(secret,
+      # deviceUid)), which is exactly what the generator derives, so no token is
+      # ever transmitted or pasted, and there is no provisioning step at all.
+      #
+      # Unset seeds nothing at all, which is the state a deployment that has not
+      # asked for the feature is already in. Changing it and restarting rotates
+      # both credentials; the stored hash is re-written from the current value
+      # every boot.
+      TEST_AUDIO_DEVICE_SECRET: ${TEST_AUDIO_DEVICE_SECRET:-}
     depends_on:
       scribear-db:
         condition: service_healthy
@@ -522,22 +537,25 @@ services:
   # configured:false and refuse to start, so an unprovisioned generator costs a
   # container and changes no behaviour. Provisioning is the step that arms it.
   #
-  # SAFETY: this service holds two long-lived device tokens and streams
-  # synthetic audio into whatever session is active in each device's room. A
-  # device token reaches ONLY ITS OWN DEVICE'S ROOM - neither device has any way
-  # to name another - so the device-to-room assignment made at provisioning time
-  # is the entire safety boundary. Each device MUST have its own dedicated test
+  # SAFETY: this service streams synthetic audio into whatever session is active
+  # in each device's room. A device token reaches ONLY ITS OWN DEVICE'S ROOM -
+  # neither device has any way to name another - so the device-to-room assignment
+  # is the entire safety boundary, and each device has its own dedicated test
   # room. Pointing one at a teaching room would inject fixture speech into that
-  # lecture's live captions, silently. Use deployment/provision-test-audio.sh,
-  # which creates the two rooms and refuses to touch anything else.
+  # lecture's live captions, silently.
+  #
+  # That assignment is SEEDED IN CODE by session-manager under reserved uids,
+  # which is stronger than an operator making it by hand: there is no argument to
+  # point at the wrong room, and room-management refuses to reassign either
+  # device afterwards (409 TEST_AUDIO_DEVICE_NOT_ASSIGNABLE).
   # Operator test-audio devices.
   #
   # Started with the rest of the stack, not behind a profile. It was profiled
   # while the concern was deployments that had never asked for it; there is one
   # deployment and it wants this, so the profile was only a lever to remember to
-  # pull. An unprovisioned generator is inert - both devices report
-  # `configured: false` and refuse to start until their DEVICE_TOKENs are set -
-  # so the cost of it running is a container and no behaviour.
+  # pull. A generator with no TEST_AUDIO_DEVICE_SECRET is inert - both devices
+  # report `configured: false` and refuse to start - so the cost of it running is
+  # a container and no behaviour.
   test-audio-generator:
     image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/test-audio-generator:${IMAGE_TAG:-latest}
     expose:
@@ -560,14 +578,17 @@ services:
       # no ScribeAR at all - which is not a trade worth making for a service
       # nothing else depends on.
       TEST_AUDIO_SERVICE_KEY: ${TEST_AUDIO_SERVICE_KEY:-}
-      # The two devices' DEVICE_TOKEN cookie values, {deviceUid}:{secret}, from
-      # deployment/provision-test-audio.sh. Empty means that device reports
-      # configured:false and refuses to start, which is a disabled card on the
-      # admin page rather than an error. NOT `:?`-guarded, unlike the key above:
-      # provisioning one device and not the other is a legitimate state, and an
-      # unprovisioned device is inert rather than unsafe.
-      TEST_AUDIO_GOOD_DEVICE_TOKEN: ${TEST_AUDIO_GOOD_DEVICE_TOKEN:-}
-      TEST_AUDIO_FAULT_DEVICE_TOKEN: ${TEST_AUDIO_FAULT_DEVICE_TOKEN:-}
+      # The one credential the two synthetic sources need, shared with
+      # session-manager below and with nothing else. This service derives
+      # {deviceUid}:HMAC(secret, deviceUid) for each of its two fixed device
+      # uids; session-manager seeds bcrypt of the same value. Nothing is copied
+      # between them, so there is no provisioning step and no token in this file.
+      #
+      # Empty means BOTH devices report configured:false and refuse to start,
+      # which is two disabled cards on the admin page rather than an error, and
+      # session-manager seeds nothing. NOT `:?`-guarded, unlike the key above: an
+      # unarmed generator is inert rather than unsafe.
+      TEST_AUDIO_DEVICE_SECRET: ${TEST_AUDIO_DEVICE_SECRET:-}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
       NODE_SERVER_BASE_URL: http://node-server:80
       # The authoritative cap on one run. Every run auto-stops at its own

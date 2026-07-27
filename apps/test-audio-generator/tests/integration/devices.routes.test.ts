@@ -21,6 +21,7 @@ import type { DeviceState } from '#src/server/shared/devices/device-state.js';
 const BASE = '/api/test-audio/v1';
 const DEVICES = `${BASE}/devices`;
 const SERVICE_KEY = 'integration-test-service-key';
+const DEVICE_SECRET = 'integration-test-device-secret';
 
 function repoFile(relative: string): string {
   let dir = process.cwd();
@@ -48,13 +49,15 @@ interface ErrorBody {
  * milliseconds and, more to the point, guarantees nothing here reaches the
  * network.
  */
-async function boot(tokens: { good?: string; fault?: string } = {}) {
+async function boot({ secret = '' }: { secret?: string } = {}) {
   process.env['LOG_LEVEL'] = 'silent';
   process.env['PORT'] = '0';
   process.env['HOST'] = '127.0.0.1';
   process.env['TEST_AUDIO_SERVICE_KEY'] = SERVICE_KEY;
-  process.env['TEST_AUDIO_GOOD_DEVICE_TOKEN'] = tokens.good ?? '';
-  process.env['TEST_AUDIO_FAULT_DEVICE_TOKEN'] = tokens.fault ?? '';
+  // One secret arms both devices, or neither. There is no longer a
+  // one-provisioned-one-not state to boot into: the tokens are derived from
+  // this value, so it configures the pair.
+  process.env['TEST_AUDIO_DEVICE_SECRET'] = secret;
   process.env['SESSION_MANAGER_BASE_URL'] = 'http://127.0.0.1:1';
   process.env['NODE_SERVER_BASE_URL'] = 'http://127.0.0.1:1';
   process.env['TEST_AUDIO_REQUEST_TIMEOUT_SEC'] = '1';
@@ -87,7 +90,7 @@ describe('control API', () => {
 
   describe('service-key auth', () => {
     beforeEach(async () => {
-      fastify = await boot({ good: 'good-uid:secret' });
+      fastify = await boot({ secret: DEVICE_SECRET });
     });
 
     const ROUTES = [
@@ -158,7 +161,7 @@ describe('control API', () => {
     });
   });
 
-  describe('with neither device provisioned (the default)', () => {
+  describe('with no device secret set (the default)', () => {
     beforeEach(async () => {
       fastify = await boot();
     });
@@ -175,7 +178,7 @@ describe('control API', () => {
         expect(res.statusCode).toBe(503);
         expect(
           res.json<{ checks: { devices: string } }>().checks.devices,
-        ).toMatch(/no device token configured/);
+        ).toMatch(/no device credential configured/);
       });
     });
 
@@ -212,17 +215,14 @@ describe('control API', () => {
         expect(res.statusCode).toBe(422);
         const body = res.json<ErrorBody>();
         expect(body.code).toBe('DEVICE_NOT_CONFIGURED');
-        expect(body.message).toMatch(/provision-test-audio\.sh/);
+        expect(body.message).toMatch(/TEST_AUDIO_DEVICE_SECRET/);
       });
     });
   });
 
-  describe('with both devices provisioned', () => {
+  describe('with a device secret set', () => {
     beforeEach(async () => {
-      fastify = await boot({
-        good: 'good-uid:secret',
-        fault: 'fault-uid:secret',
-      });
+      fastify = await boot({ secret: DEVICE_SECRET });
     });
 
     async function list(): Promise<DeviceState[]> {

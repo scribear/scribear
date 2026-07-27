@@ -90,9 +90,7 @@ describe('DeviceRunner', () => {
       expect(runner.snapshot().state).toBe('idle');
 
       // Act + Assert
-      expect(() => runner.start({}, 60)).toThrow(
-        /No device token is configured/,
-      );
+      expect(() => runner.start({}, 60)).toThrow(/No credential is configured/);
       expect(runner.running).toBe(false);
     });
 

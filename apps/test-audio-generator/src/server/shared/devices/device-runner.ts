@@ -148,7 +148,7 @@ export class DeviceRunner<TParams extends GoodParams | FaultParams> {
     if (auth === null) {
       throw HttpError.unprocessable(
         'DEVICE_NOT_CONFIGURED',
-        `No device token is configured for the "${this._deviceId}" source, so it has nothing to authenticate as. Provision it with deployment/provision-test-audio.sh.`,
+        `No credential is configured for the "${this._deviceId}" source, so it has nothing to authenticate as. Set TEST_AUDIO_DEVICE_SECRET on this service and on the Session Manager, to the same value, and restart both.`,
       );
     }
     if (this._run !== null) {

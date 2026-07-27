@@ -49,6 +49,14 @@ const SET_SOURCE_DEVICE_SCHEMA = {
         code: Type.Literal('DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE'),
         message: Type.String(),
       }),
+      Type.Object({
+        code: Type.Literal('TEST_AUDIO_ROOM_NOT_ASSIGNABLE'),
+        message: Type.String(),
+      }),
+      Type.Object({
+        code: Type.Literal('TEST_AUDIO_DEVICE_NOT_ASSIGNABLE'),
+        message: Type.String(),
+      }),
     ]),
   },
 } satisfies BaseRouteSchema;

@@ -14,9 +14,9 @@ lists every key the current `compose.yml` understands.
 
 ## Unreleased — operator test-audio devices (`compose.yml` v4)
 
-**No action required.** One new service, off by default behind a compose
-profile, and five new optional variables. Copy the new `compose.yml`; nothing
-starts or changes until you opt in.
+**No action required.** One new service and a handful of new optional
+variables. Copy the new `compose.yml`; nothing starts or changes until you opt
+in by setting two of them.
 
 ### What it is
 
@@ -36,55 +36,67 @@ that the thing the dashboard claims to detect is the thing it actually detects.
 A retune applies to a running device without restarting the stream, so you turn
 a knob and watch a meter move.
 
-### ⚠️ Read this before provisioning
+### ⚠️ Read this before turning it on
 
 These devices stream synthetic speech into whatever session is active in their
-room. **Each must have its own dedicated test room.**
+room. Each has its **own dedicated test room** — `TEST-AUDIO-GOOD` and
+`TEST-AUDIO-FAULT`.
 
 A device token reaches **only its own device's room** — neither device has any
-way to name another — so the device-to-room assignment you make at provisioning
-time is the *entire* safety boundary, the same one the monitoring canary relies
-on. Putting one of these devices in a teaching room would inject fixture speech
-into that lecture's live captions, **silently**, with nothing in the stack to
-notice it. It is a provisioning mistake, not a runtime one, and nothing at
-runtime can undo it.
+way to name another — so the device-to-room assignment is the *entire* safety
+boundary, the same one the monitoring canary relies on. Putting one of these
+devices in a teaching room would inject fixture speech into that lecture's live
+captions, **silently**, with nothing in the stack to notice it.
+
+That assignment is now made **in code**, and that is stronger than making it by
+hand, not weaker. The Session Manager seeds both rooms and both devices under
+reserved uids no other room or device can ever hold; there is no argument to
+point at the wrong room and no prompt to misanswer at 2am; and room-management
+**refuses** afterwards to move either device into another room (409
+`TEST_AUDIO_DEVICE_NOT_ASSIGNABLE`) or to give either test room a different
+source device (409 `TEST_AUDIO_ROOM_NOT_ASSIGNABLE`).
 
 **Two rooms, not one:** a room has exactly one source device, and both devices
 must be able to run at once.
 
 ### Turning it on
 
-```bash
-cd deployment
-./provision-test-audio.sh          # creates TEST-AUDIO-GOOD and TEST-AUDIO-FAULT
-```
-
-It registers and activates one device per source, creates a dedicated room for
-each with that device as its source device, and prints the lines to paste. It
-**refuses to touch any room it did not create** — if a room by either name
-already exists, it stops before registering anything.
-
-Then in `deployment/.env`:
+**There is no provisioning script and nothing to copy.** Two lines in
+`deployment/.env`:
 
 ```sh
-# Shared between admin-server and the generator. REQUIRED: the generator REFUSES
-# TO START on an empty or CHANGEME value, because an empty inbound key matches
-# the empty credential an unauthenticated caller presents as
-# `Authorization: Bearer `.
+# admin-server -> generator, inbound. REQUIRED: the generator REFUSES TO START on
+# an empty or CHANGEME value, because an empty inbound key matches the empty
+# credential an unauthenticated caller presents as `Authorization: Bearer `.
 TEST_AUDIO_SERVICE_KEY=<a strong secret>
-TEST_AUDIO_GOOD_DEVICE_TOKEN=<printed by the script>
-TEST_AUDIO_FAULT_DEVICE_TOKEN=<printed by the script>
+
+# session-manager <-> generator. A DIFFERENT secret from the one above. Empty
+# seeds nothing and leaves both devices disabled.
+TEST_AUDIO_DEVICE_SECRET=<another strong secret>
 ```
+
+```bash
+cd deployment
+docker compose --env-file .env -f compose.yml up -d
+```
+
+On its next boot the Session Manager creates, idempotently and at fixed uids:
+the two rooms, one source device in each, each device's stored credential
+(`bcrypt` of an HMAC of its uid under the secret), and **one standing,
+open-ended session per room** — which is what the devices attach to, so nothing
+has to be scheduled and `./create-session.sh` is not part of this any more. The
+generator derives the very same credential from the same secret and the same
+uids, so no token is ever transmitted, printed or pasted.
 
 `TEST_AUDIO_BASE_URL` needs no entry — `compose.yml` defaults it to the in-stack
 generator.
 
-and give each room a standing session (`./create-session.sh`, or the admin
-console) — without one there is nothing for the devices to stream into.
+**Rotating the secret** is a change to that one line plus a restart: the stored
+hash is re-written from the current value on every Session Manager boot, so both
+sides move together.
 
-```bash
-docker compose --env-file .env -f compose.yml up -d
-```
+**If a test room ever goes quiet** — someone ended its standing session from the
+console — restarting the Session Manager re-opens it.
 
 ### Bounds
 
@@ -105,16 +117,19 @@ next `up`**, or that one container will exit on every start with a message
 naming the variable — the rest of the stack is unaffected, since nothing depends
 on it.
 
-Until the devices are provisioned the generator is **inert**: with no
-`DEVICE_TOKEN`s both report `configured: false` and refuse to start, so the admin
-panel is visible with every control disabled. Provisioning is the step that arms
-it, which is why the safety note sits on the script rather than here.
+Until `TEST_AUDIO_DEVICE_SECRET` is set the generator is **inert**: both devices
+report `configured: false` and refuse to start, so the admin panel is visible
+with every control disabled, and the Session Manager seeds nothing at all.
+Setting the secret is the step that arms it, which is why the safety note above
+sits next to it.
 
 ### Turning it off
 
 Blank `TEST_AUDIO_BASE_URL` to hide the admin panel. To retire the devices
-entirely, delete the two rooms and their devices in the admin console — while a
-device exists and belongs to a room, its token remains usable.
+entirely: unset `TEST_AUDIO_DEVICE_SECRET`, restart, **then** delete the two
+rooms and their devices in the admin console — while a device exists with a
+stored credential, a token derived from the old secret remains usable. Unsetting
+the secret alone stops the seeder re-writing the hash; it does not erase it.
 
 ---
 

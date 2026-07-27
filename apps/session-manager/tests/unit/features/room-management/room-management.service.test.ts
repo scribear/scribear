@@ -5,6 +5,10 @@ import {
   DEMO_SOURCE_DEVICE_UID,
 } from '#src/server/features/demo-room/demo-room.constants.js';
 import { RoomManagementService } from '#src/server/features/room-management/room-management.service.js';
+import {
+  TEST_AUDIO_GOOD_DEVICE_UID,
+  TEST_AUDIO_GOOD_ROOM_UID,
+} from '#src/server/features/test-audio-rooms/test-audio-rooms.constants.js';
 import { createMockLogger } from '#tests/utils/mock-logger.js';
 
 const VALID_TIMEZONE = 'America/New_York';
@@ -797,6 +801,148 @@ describe('RoomManagementService', () => {
       expect(result).toBeUndefined();
       expect(mockRoomRepo.removeDeviceFromRoom).toHaveBeenCalledWith(
         ORDINARY_DEVICE_UID,
+      );
+    });
+  });
+
+  /**
+   * The seeded operator test-audio sources, guarded for a different and more
+   * serious reason than the demo room's placeholder.
+   *
+   * These devices are real: activated, credentialled, and streaming synthetic
+   * speech into whatever session is active in their room. A device token reaches
+   * only its own device's room, so the room each is seeded into is the entire
+   * thing keeping fixture speech out of a live lecture. `remove-device-from-room`
+   * already refuses to detach them (each is its room's only source), but that
+   * stops covering the moment someone deletes the test room — the documented way
+   * to retire these devices — which leaves a roomless device with a still-valid
+   * credential and nothing but this guard between it and a lecture hall.
+   */
+  describe('test-audio room guards', (it) => {
+    const ORDINARY_ROOM_UID = 'b1f0c2d3-4e5a-4b6c-8d7e-9f0a1b2c3d4e';
+    const ORDINARY_DEVICE_UID = '7f3c1b2a-9d84-4c11-9f5e-2a6b8c0d4e71';
+
+    it("refuses to add a seeded synthetic source to another room with 'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE'", async () => {
+      // Arrange - the dangerous direction, and the whole reason this guard
+      // exists: an ordinary room that could perfectly well take this device, and
+      // synthetic speech that would be transcribed into its captions.
+      mockRoomRepo.findRoomExists.mockResolvedValue(true);
+      mockDeviceRepo.findById.mockResolvedValue({
+        ...mockDevice,
+        uid: TEST_AUDIO_GOOD_DEVICE_UID,
+        roomUid: null,
+      });
+
+      // Act
+      const result = await service.addDeviceToRoom({
+        roomUid: ORDINARY_ROOM_UID,
+        deviceUid: TEST_AUDIO_GOOD_DEVICE_UID,
+        asSource: true,
+      });
+
+      // Assert
+      expect(result).toBe('TEST_AUDIO_DEVICE_NOT_ASSIGNABLE');
+      expect(mockRoomRepo.addDeviceToRoom).not.toHaveBeenCalled();
+    });
+
+    it("refuses to create a room sourced by a seeded synthetic source with 'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE'", async () => {
+      // Arrange - the same escape by a different route. The device is
+      // unassigned, exactly as it would be after its test room was deleted, so
+      // `DEVICE_ALREADY_IN_ROOM` would not catch it.
+      mockDeviceRepo.findById.mockResolvedValue({
+        ...mockDevice,
+        uid: TEST_AUDIO_GOOD_DEVICE_UID,
+        roomUid: null,
+      });
+      mockRoomRepo.create.mockResolvedValue(mockRoom);
+
+      // Act
+      const result = await service.createRoom({
+        name: 'Lecture Hall 1',
+        timezone: VALID_TIMEZONE,
+        sourceDeviceUids: [TEST_AUDIO_GOOD_DEVICE_UID],
+        autoSessionEnabled: true,
+      });
+
+      // Assert
+      expect(result).toBe('TEST_AUDIO_DEVICE_NOT_ASSIGNABLE');
+      expect(mockRoomRepo.create).not.toHaveBeenCalled();
+    });
+
+    it("refuses to promote a seeded synthetic source in another room with 'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE'", async () => {
+      // Arrange
+      mockRoomRepo.findRoomExists.mockResolvedValue(true);
+      mockRoomRepo.setSourceDevice.mockResolvedValue(true);
+
+      // Act
+      const result = await service.setSourceDevice(
+        ORDINARY_ROOM_UID,
+        TEST_AUDIO_GOOD_DEVICE_UID,
+      );
+
+      // Assert
+      expect(result).toBe('TEST_AUDIO_DEVICE_NOT_ASSIGNABLE');
+      expect(mockRoomRepo.setSourceDevice).not.toHaveBeenCalled();
+    });
+
+    it("refuses to add a device to a seeded test-audio room with 'TEST_AUDIO_ROOM_NOT_ASSIGNABLE'", async () => {
+      // Arrange - the mirror image. Harmless on its own, but it is the first
+      // half of demoting the synthetic source, which leaves a device that
+      // authenticates, finds the session and is silently denied SEND_AUDIO.
+      mockRoomRepo.findRoomExists.mockResolvedValue(true);
+      mockDeviceRepo.findById.mockResolvedValue(mockDevice);
+
+      // Act
+      const result = await service.addDeviceToRoom({
+        roomUid: TEST_AUDIO_GOOD_ROOM_UID,
+        deviceUid: ORDINARY_DEVICE_UID,
+        asSource: false,
+      });
+
+      // Assert
+      expect(result).toBe('TEST_AUDIO_ROOM_NOT_ASSIGNABLE');
+      expect(mockRoomRepo.addDeviceToRoom).not.toHaveBeenCalled();
+    });
+
+    it("refuses to hand a seeded test-audio room a different source with 'TEST_AUDIO_ROOM_NOT_ASSIGNABLE'", async () => {
+      // Arrange - and the second half. It would also make the next boot's
+      // re-seed trip the "at most one source per room" trigger, so a 409 naming
+      // the room is a better answer than either outcome.
+      mockRoomRepo.findRoomExists.mockResolvedValue(true);
+      mockRoomRepo.setSourceDevice.mockResolvedValue(true);
+
+      // Act
+      const result = await service.setSourceDevice(
+        TEST_AUDIO_GOOD_ROOM_UID,
+        ORDINARY_DEVICE_UID,
+      );
+
+      // Assert
+      expect(result).toBe('TEST_AUDIO_ROOM_NOT_ASSIGNABLE');
+      expect(mockRoomRepo.setSourceDevice).not.toHaveBeenCalled();
+    });
+
+    it('still attaches an ordinary device to an ordinary room', async () => {
+      // Arrange - the guard is an exact-uid match against two literals, and
+      // every other room and device uid is generated by the database. This is
+      // the case that would break if it ever became looser than that.
+      mockRoomRepo.findRoomExists.mockResolvedValue(true);
+      mockDeviceRepo.findById.mockResolvedValue(mockDevice);
+      mockRoomRepo.addDeviceToRoom.mockResolvedValue(undefined);
+
+      // Act
+      const result = await service.addDeviceToRoom({
+        roomUid: ORDINARY_ROOM_UID,
+        deviceUid: ORDINARY_DEVICE_UID,
+        asSource: true,
+      });
+
+      // Assert
+      expect(result).toBeUndefined();
+      expect(mockRoomRepo.addDeviceToRoom).toHaveBeenCalledWith(
+        ORDINARY_ROOM_UID,
+        ORDINARY_DEVICE_UID,
+        true,
       );
     });
   });

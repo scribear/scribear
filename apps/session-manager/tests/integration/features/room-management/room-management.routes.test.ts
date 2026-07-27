@@ -4,6 +4,10 @@ import {
   DEMO_ROOM_UID,
   DEMO_SOURCE_DEVICE_UID,
 } from '#src/server/features/demo-room/demo-room.constants.js';
+import {
+  TEST_AUDIO_GOOD_DEVICE_UID,
+  TEST_AUDIO_GOOD_ROOM_UID,
+} from '#src/server/features/test-audio-rooms/test-audio-rooms.constants.js';
 import { useDb } from '#tests/utils/use-db.js';
 import { ADMIN_HEADER, useServer } from '#tests/utils/use-server.js';
 
@@ -668,6 +672,53 @@ describe('Room Management Routes', () => {
       expect(res.statusCode).toBe(409);
       expect(res.json<{ code: string }>().code).toBe(
         'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE',
+      );
+    });
+
+    it('returns 409 TEST_AUDIO_DEVICE_NOT_ASSIGNABLE for a seeded synthetic source, which reaches these routes with the same admin key', async () => {
+      // Arrange - the admin key that `deployment/register-device.sh` holds
+      // reaches this route without going through the admin BFF, and a seeded
+      // synthetic source in a teaching room would transcribe fixture speech
+      // into that lecture. The uids are reserved literals, so the refusal does
+      // not depend on the seeder having run (this suite runs with it off).
+      const { deviceUid: sourceUid } = await setupActivatedDevice('Source');
+      const { uid: roomUid } = await createRoom(sourceUid, 'Lecture Hall');
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/add-device-to-room`,
+        headers: { authorization: ADMIN_HEADER },
+        body: {
+          roomUid,
+          deviceUid: TEST_AUDIO_GOOD_DEVICE_UID,
+          asSource: false,
+        },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      const body = res.json<{ code: string; message: string }>();
+      expect(body.code).toBe('TEST_AUDIO_DEVICE_NOT_ASSIGNABLE');
+      expect(body.message).toContain('synthetic audio source');
+    });
+
+    it('returns 409 TEST_AUDIO_ROOM_NOT_ASSIGNABLE when handing a seeded test room a different source', async () => {
+      // Arrange
+      const { deviceUid } = await setupActivatedDevice();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/set-source-device`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { roomUid: TEST_AUDIO_GOOD_ROOM_UID, deviceUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe(
+        'TEST_AUDIO_ROOM_NOT_ASSIGNABLE',
       );
     });
 

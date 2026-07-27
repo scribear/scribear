@@ -47,6 +47,22 @@ const CONFIG_SCHEMA = Type.Object({
   // DEMO_SESSION_UID; both services share the same built-in default, so neither
   // normally needs this set - override only if you change both.
   DEMO_SESSION_UID: Type.String({ default: DEFAULT_DEMO_SESSION_UID }),
+
+  // Operator test-audio rooms (PLAN-TestAudioDevices). One shared secret, held
+  // by this service and by the test-audio generator and by nothing else. This
+  // service seeds two rooms and two source devices at fixed uids and stores
+  // bcrypt(derive(secret, deviceUid)) as each device's credential; the generator
+  // derives the same secret and authenticates with it. No token is ever copied
+  // between them.
+  //
+  // Empty - the default - seeds NOTHING, which is exactly the inert state a
+  // deployment that has not asked for this feature had before: the generator's
+  // two devices report `configured: false` and refuse to start. Same shape as
+  // DEMO_ROOM_ENABLED.
+  //
+  // Rotating it is a restart of both services: the stored hash is re-written
+  // from the current value on every boot.
+  TEST_AUDIO_DEVICE_SECRET: Type.String({ default: '' }),
 });
 
 export interface BaseConfig {
@@ -61,6 +77,17 @@ export interface DemoRoomConfig {
   enabled: boolean;
   /** Session UID the seeded demo session is created with. */
   sessionUid: string;
+}
+
+export interface TestAudioRoomsConfig {
+  /** When false, the test-audio seeder is never constructed or run. */
+  enabled: boolean;
+  /**
+   * The deployment's `TEST_AUDIO_DEVICE_SECRET`. Each seeded device's stored
+   * credential is `bcrypt(deriveTestAudioDeviceSecret(secret, deviceUid))`; the
+   * generator derives the same value from the same two inputs.
+   */
+  deviceSecret: string;
 }
 
 export class AppConfig {
@@ -119,6 +146,16 @@ export class AppConfig {
     return {
       enabled: this._env.DEMO_ROOM_ENABLED,
       sessionUid: this._env.DEMO_SESSION_UID,
+    };
+  }
+
+  get testAudioRoomsConfig(): TestAudioRoomsConfig {
+    return {
+      // Derived from the secret rather than being its own flag: there is
+      // nothing to seed without one, and a separate TEST_AUDIO_ROOMS_ENABLED
+      // would only add a way to be half-configured.
+      enabled: this._env.TEST_AUDIO_DEVICE_SECRET !== '',
+      deviceSecret: this._env.TEST_AUDIO_DEVICE_SECRET,
     };
   }
 

@@ -40,7 +40,7 @@ export class ReadinessController {
         status: 'fail',
         checks: {
           devices:
-            'no device token configured; set TEST_AUDIO_GOOD_DEVICE_TOKEN and/or TEST_AUDIO_FAULT_DEVICE_TOKEN (deployment/provision-test-audio.sh mints them)',
+            'no device credential configured; set TEST_AUDIO_DEVICE_SECRET here and on the Session Manager, to the same value',
         },
       });
       return;
