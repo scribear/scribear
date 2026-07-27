@@ -2,6 +2,14 @@
 Public exports for WorkerPool
 """
 
+from .capacity_estimator import (
+    BUSY_MEASUREMENT_CEILING,
+    ELEVATED_DROP_SHARE,
+    MIN_CLEAN_SAMPLES,
+    WARMUP_PASSES_DISCARDED,
+    CapacityEstimator,
+    WorkerCapacitySnapshot,
+)
 from .job_context_interface import JobContextInterface
 from .job_interface import JobInterface
 from .job_result import (

@@ -8,6 +8,10 @@ from fastapi import FastAPI
 
 from src.shared.config import Config
 from src.shared.logger import Logger
+from src.shared.utils.worker_pool import (
+    CapacityEstimator,
+    JobExecutionObservation,
+)
 
 from .features.build_info import build_info_router
 from .features.metrics import metrics_router
@@ -47,8 +51,27 @@ def create_webserver(config: Config, logger: Logger):
     # restart, and a consumer can only correlate them if the uid matches.
     process_identity = create_process_identity()
     metrics_registry = MetricsRegistry(process_identity=process_identity)
+    # Shadow mode (PLAN-AdmissionControl.md §3): nothing in the live
+    # connection/admission path calls admit() yet. Constructed here, next to
+    # metrics_registry, because both are fed by the same job_observer below
+    # and both are threaded to metrics_router the same way.
+    capacity_estimator = CapacityEstimator(
+        target_busy=config.target_busy,
+        min_sessions=config.min_sessions,
+        max_sessions=config.max_sessions,
+    )
+
+    def _observe_job(observation: JobExecutionObservation) -> None:
+        """
+        Fans one completed job execution out to both consumers that need it:
+        the metrics registry (what /metrics/status reports) and the capacity
+        estimator (shadow-mode only - nothing reads its admit() yet).
+        """
+        metrics_registry.record_job_execution(observation)
+        capacity_estimator.record(observation)
+
     provider_registry = TranscriptionProviderRegistry(
-        config, logger, metrics_registry.record_job_execution
+        config, logger, _observe_job
     )
     # One join, two consumers: the /providers/health route below and the
     # telemetry publisher started in the lifespan hook.
@@ -120,7 +143,11 @@ def create_webserver(config: Config, logger: Logger):
     app.include_router(build_info_router())
     app.include_router(
         metrics_router(
-            logger, metrics_auth_service, metrics_registry, provider_registry
+            logger,
+            metrics_auth_service,
+            metrics_registry,
+            provider_registry,
+            capacity_estimator,
         )
     )
     app.include_router(

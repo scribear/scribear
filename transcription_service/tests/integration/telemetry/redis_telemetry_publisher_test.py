@@ -80,6 +80,12 @@ def mock_config():
     mock.redis_url = REDIS_URL
     mock.transcription_host_id = HOST_ID
     mock.ws_init_timeout_sec = 1
+    # Real numbers, not a MagicMock: create_webserver feeds these straight
+    # into CapacityEstimator's ratchet, which does arithmetic on them the
+    # moment a worker leaves warm-up.
+    mock.target_busy = 0.85
+    mock.min_sessions = 1
+    mock.max_sessions = None
     mock.provider_config.num_workers = NUM_WORKERS
     mock.provider_config.contexts = []
     mock.provider_config.providers = {

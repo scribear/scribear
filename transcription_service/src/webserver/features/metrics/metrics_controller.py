@@ -4,6 +4,7 @@ Defines MetricsController that shapes the metrics registry into a JSON body
 
 from typing import Any
 
+from src.shared.utils.worker_pool import CapacityEstimator
 from src.webserver.shared.metrics import Counter, Histogram, MetricsRegistry
 from src.webserver.shared.transcription_provider_registry import (
     TranscriptionProviderRegistry,
@@ -85,14 +86,20 @@ class MetricsController:
         self,
         metrics_registry: MetricsRegistry,
         provider_registry: TranscriptionProviderRegistry,
+        capacity_estimator: CapacityEstimator,
     ):
         """
         Args:
             metrics_registry    - In-memory telemetry store
             provider_registry   - Owner of the worker pool and providers
+            capacity_estimator  - Shadow-mode per-worker capacity estimator
+                                    (PLAN-AdmissionControl.md §3); nothing
+                                    reads its admit() yet, this only reports
+                                    its snapshot()
         """
         self._metrics = metrics_registry
         self._providers = provider_registry
+        self._capacity_estimator = capacity_estimator
 
     def status(self) -> dict[str, Any]:
         """
@@ -125,7 +132,21 @@ class MetricsController:
             # than guessed at.
             "providerJobPeriodMs": self._providers.provider_job_period_ms,
             "workers": [
-                serialize_worker(snapshot)
+                {
+                    **serialize_worker(snapshot),
+                    # N* layered on top of the pool's own view of the worker,
+                    # by a completely separate observer (PLAN-AdmissionControl
+                    # .md §3) - not a WorkerSnapshot field, so this stays
+                    # independent of what /providers/health reports. None
+                    # means "not measured yet", never zero: the estimator is
+                    # still in shadow mode and this is the first place its
+                    # numbers become visible to an operator.
+                    "estimatedCapacitySessions": (
+                        self._capacity_estimator.snapshot(
+                            snapshot.worker_id, snapshot.live_job_count
+                        ).estimated_capacity_sessions
+                    ),
+                }
                 for snapshot in self._providers.worker_snapshots()
             ],
             "counters": {

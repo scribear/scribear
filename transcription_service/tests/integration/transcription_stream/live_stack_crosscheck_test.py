@@ -176,6 +176,12 @@ def mock_config_fixture():
     mock.transcription_host_id = "live-stack-crosscheck-host"
     mock.ws_init_timeout_sec = 5.0
     mock.audio_silence_threshold = 0.01
+    # Real numbers, not a MagicMock: create_webserver feeds these straight
+    # into CapacityEstimator's ratchet, which does arithmetic on them the
+    # moment a worker leaves warm-up.
+    mock.target_busy = 0.85
+    mock.min_sessions = 1
+    mock.max_sessions = None
     mock.provider_config.num_workers = 1
     mock.provider_config.contexts = []
     mock.provider_config.providers = {

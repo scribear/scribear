@@ -68,6 +68,12 @@ def mock_config():
     # mock, which sends the lifespan into opening a Redis connection to a
     # nonsense URL and hangs startup.
     mock.redis_url = ""
+    # Real numbers, not a MagicMock: create_webserver feeds these straight
+    # into CapacityEstimator's ratchet, which does arithmetic on them the
+    # moment a worker leaves warm-up.
+    mock.target_busy = 0.85
+    mock.min_sessions = 1
+    mock.max_sessions = None
     mock.ws_init_timeout_sec = TIMEOUT_SEC
     mock.provider_config.num_workers = NUM_WORKERS
     mock.provider_config.contexts = []
@@ -194,6 +200,11 @@ def test_reports_workers_and_capacity(test_client: TestClient):
         assert worker["totalJobsRegistered"] == 0
         assert worker["contextIds"] == []
         assert worker["activeJobs"] == []
+        # The capacity estimator's warm-up default (PLAN-AdmissionControl.md
+        # §3): nothing has called record() yet in a freshly-started test
+        # client, so every worker reads "not measured", never a fabricated
+        # zero.
+        assert worker["estimatedCapacitySessions"] is None
 
 
 def test_reports_identity_and_empty_series_before_any_job(
