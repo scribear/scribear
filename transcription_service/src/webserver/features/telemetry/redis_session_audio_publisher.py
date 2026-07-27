@@ -208,7 +208,8 @@ class RedisSessionAudioPublisher:
 
         Call on session close, so the tracking dict does not grow with the
         number of sessions ever served over the process's lifetime - the same
-        lifetime rule WorkerProcessManager._job_labels already established.
+        lifetime rule WorkerProcessManager._job_correlation already
+        establishes for bookkeeping nothing else needs after a job ends.
         A session_uid forgotten here publishes immediately on its next
         `publish()` call, regardless of prior timing; that is fine, because
         forgetting only happens once the session that owned the throttle

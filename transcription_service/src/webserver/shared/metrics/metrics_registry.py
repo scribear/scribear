@@ -22,9 +22,13 @@ from .metric_types import (
 NS_PER_MS = 1_000_000
 NS_PER_SEC = 1_000_000_000
 
-# Label applied to executions whose job carried no label. Only reachable when a
-# result arrives after its job was deregistered, so it should stay near zero;
-# it is named rather than dropped so that it is visible if it does not.
+# Label applied to executions whose job carried no label. The label a job
+# execution reports travels with its own JobExecutionResult, stamped at
+# registration (see RegisterJobTask.label), so this is reachable only when the
+# caller registered the job with no label to begin with - never merely because
+# the job was since deregistered, which is exactly the case a saturation
+# collapse produces in bulk. It is named rather than dropped so that it is
+# visible if it does turn up.
 UNLABELED_PROVIDER = "unknown"
 
 
