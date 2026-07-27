@@ -12,6 +12,42 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — transcription-service model downloads are now cached on a bind mount (`compose.yml` v4)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. Deployment
+Check will report `old file` until you do. Nothing breaks if you delay: the
+service still runs, it just re-downloads model weights on every container
+recreation as before.
+
+### What changed
+
+`transcription-service` downloads faster-whisper and silero-vad weights at
+runtime into `/root/.cache` inside the container, which a `docker compose up -d`
+discards. The service now sets `HF_HOME: /models/hf` and bind-mounts a host
+directory there, so weights are fetched once and reused. Both `huggingface_hub`
+and `torch.hub` (silero-vad) honour `HF_HOME`, so the one variable covers both.
+
+The host path is `MODEL_DOWNLOAD_PATH`, defaulting to `./models` relative to
+`compose.yml`. **Create it before the next `up -d`** so Docker does not create
+it as root-owned:
+
+```bash
+mkdir -p models
+```
+
+A deployment that already has weights downloaded can point `MODEL_DOWNLOAD_PATH`
+at that directory to skip the initial download.
+
+### No separate `COMPOSE_FILE_VERSION` bump
+
+This adds a volume and an environment variable, which on its own would earn a
+bump. It does not get one: `compose.yml` v4 is still unreleased, so no operator
+has ever held a v4 file, and a v5 would only mean "copy the file you have not
+copied yet". The change rides along in v4 — copying that one file picks up both
+this and the test-audio services below.
+
+---
+
 ## Unreleased — operator test-audio devices (`compose.yml` v4)
 
 **No action required.** One new service and a handful of new optional
