@@ -10,8 +10,10 @@ to pass through under any configuration. Those two facts frame everything below.
 Evidence comes from three places, and this document labels which is which:
 
 - **Measured in CI.** Real builds on GitHub-hosted runners, run from this branch
-  (`.github/workflows/arm64-probe.yml`, run
-  [30228315304](https://github.com/scribear/scribear/actions/runs/30228315304)).
+  (`.github/workflows/arm64-probe.yml`, runs
+  [30228315304](https://github.com/scribear/scribear/actions/runs/30228315304) and
+  [30228715230](https://github.com/scribear/scribear/actions/runs/30228715230)).
+  Ten jobs each; all twenty passed.
 - **Measured locally, without building.** `docker manifest inspect` against the
   registry, and `uv sync --frozen --dry-run --python-platform …`, which resolves
   the lockfile for a foreign platform without installing anything.
@@ -35,7 +37,7 @@ cold.
 
 | Image | Native amd64 | Native arm64 | arm64 via QEMU on amd64 |
 | --- | --- | --- | --- |
-| `transcription-service-cpu` | 34s | **28s** | 277s (**9.9× the native arm64 cost**) |
+| `transcription-service-cpu` | 34s | **28s** | 277s / 274s (**9.9× the native arm64 cost**) |
 | `transcription-service-cuda` | — | 289s | not measured |
 | `node-server` | — | 68s | — |
 | `client-webapp` | — | 67s | — |
@@ -377,16 +379,25 @@ are worth reading closely:
 - **`soundfile 0.13.1 1.2.2`** — the bundled `libsndfile` loaded. No system
   package needed on aarch64, exactly as on amd64.
 - **`ct2 compute {'int8_float32', 'int8', 'float32'}`** — the CTranslate2 compute
-  types available on arm64 CPU. The only place any template pins one is the
-  CrisperWhisper context, which asks for `"compute_type": "float32"` (in all three
-  of `transcription_service/provider_config.template.json`,
+  types available on arm64 CPU. A second probe run reported the same thing from the
+  amd64 image for comparison:
+
+  | | CTranslate2 CPU compute types |
+  | --- | --- |
+  | amd64 | `{'float32', 'int16', 'int8', 'int8_float32'}` |
+  | arm64 | `{'float32', 'int8', 'int8_float32'}` |
+
+  **The only difference is `int16`**, which nothing in this repo asks for. (Neither
+  architecture offers a half-precision CPU type, so the obvious worry — a
+  `float16`/`bfloat16` config that works on the GPU boxes and not on a Mac — is not
+  available on CPU on *either* platform and therefore is not an arm64 asymmetry.)
+  The only place any template pins a compute type is the CrisperWhisper context,
+  which asks for `"compute_type": "float32"` in all three of
+  `transcription_service/provider_config.template.json`,
   `deployment/provider_config.template.json` and
-  `deployment/provider_config.cuda.template.json`); the plain `whisper` context
-  omits `compute_type` entirely and lets CTranslate2 choose. So **nothing in the
-  repo asks for a type arm64 lacks today**. But `float16`, `int8_float16` and
-  `bfloat16` are not in that set, so a future config change to a half-precision CPU
-  compute type would break a Mac developer while passing on the GPU boxes. Worth
-  knowing before someone makes that change.
+  `deployment/provider_config.cuda.template.json`; the plain `whisper` context omits
+  it and lets CTranslate2 choose. So a Mac developer's only exposure here would be
+  someone pinning `int16` on CPU, which would be an odd thing to do.
 - **`torch mps False`** — as expected inside a Linux container, and a reminder
   that MPS is not part of this story even on a real Mac (see §3).
 
@@ -684,6 +695,24 @@ notice that `docker/setup-qemu-action@v3` and `docker/setup-buildx-action@v3`
 target Node 20. That last one is not arm64-specific but it does affect the real
 pipeline, which uses `setup-buildx-action` in `build-container`.
 
+### A second run, for reproducibility and one extra data point
+
+Run [30228715230](https://github.com/scribear/scribear/actions/runs/30228715230)
+is the same workflow with one step added — the amd64 baseline now reports its
+native stack too, so the CTranslate2 compute-type sets could be compared rather
+than half-inferred (see §2). **All ten jobs passed again**, and the QEMU
+cross-build reproduced at **274s** against the first run's 277s, which is good
+evidence that the 9.9× figure is not noise.
+
+Two process notes from having run it twice:
+
+- `paths-ignore: ["**.md"]` on the push trigger does what it should: the commit
+  that only edited this document produced no third run.
+- The `setup-uv` cache-reservation race between jobs 7 and 8 recurred. Both jobs
+  passed both times, so it is cosmetic here, but it is the kind of thing that
+  becomes a real flake if an arm64 leg is added to the actual pipeline alongside
+  jobs that share a cache key.
+
 ---
 
 ## What development on a Mac would actually look like
@@ -802,15 +831,16 @@ case is settled, the value case is not something this investigation can answer.
 
 Stated plainly so nobody mistakes analysis for verification.
 
-**Determined by real builds** (run 30228315304, native arm64 GitHub runners):
-that `node-server`, `client-webapp`, `scribear-nginx`,
+**Determined by real builds** (runs 30228315304 and 30228715230, native arm64
+GitHub runners): that `node-server`, `client-webapp`, `scribear-nginx`,
 `transcription-service-cpu` and `transcription-service-cuda` all build on arm64;
 that the aarch64 wheel set installs *and imports*, with versions and CTranslate2
 compute types captured from inside the running container; that
 `make install_dev_cpu`, `make install_dev`, `make test_unit`,
 `make test_integration`, `npm ci`, `npm run build` and `npm run test:unit` all
-succeed on arm64; which per-platform npm binaries npm selects on arm64; the
-arm64-vs-amd64 build times; and the QEMU cross-build cost (277s, 9.9× native).
+succeed on arm64; which per-platform npm binaries npm selects on arm64; that the
+CTranslate2 CPU compute-type sets differ only by `int16`; the arm64-vs-amd64 build
+times; and the QEMU cross-build cost (277s then 274s, 9.9× native).
 
 **Determined without a build, but by execution** (`uv` resolution, `docker
 manifest inspect`): the lockfile resolves for `aarch64-unknown-linux-gnu` and for
@@ -835,11 +865,6 @@ arm64 buildcache tag has ever existed.
   that its CUDA Python stack loads. It reports `ct2 devices 0`, which any GPU-less
   runner would, so it says nothing about Grace, GH200 or Jetson. That NVIDIA's
   arm64 CUDA tags target SBSA is *(documentation)*.
-- **The CTranslate2 CPU compute-type set on amd64.** The arm64 set was measured
-  (`{'int8_float32', 'int8', 'float32'}`); the amd64 baseline job did not run the
-  equivalent report, so the claim that arm64's set is *narrower* than amd64's is
-  **not established** — only that arm64's set contains the `float32` every shipped
-  config asks for. One extra step in job 4 would settle it.
 - **Whether the multi-arch publishing shape in §5 works.** It was designed, not
   built. The digest-merge plumbing is the part most likely to need iteration.
 - **Real transcription accuracy or throughput on Apple Silicon CPU.** No model was
