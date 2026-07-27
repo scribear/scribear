@@ -128,7 +128,10 @@ const CONFIG_SCHEMA = Type.Object({
    * 2.0, so a deployment that left the variable unset got exactly the 1.0 that
    * live verification had shown fires on a healthy stack — the schema default
    * won because this field, unlike its neighbours, did not use `OPTIONAL_NUMBER`.
-   * It does now, so empty means the compiled default and there is one number.
+   * It does now: empty-string-means-default, the same form as its siblings
+   * below, so `compose.yml` can plumb it through as `MONITORING_RTF_P95`
+   * without a number baked into two places that then drift — the sole default
+   * lives in `DEFAULT_THRESHOLDS.rtfP95`.
    */
   ALERT_RTF_P95: OPTIONAL_NUMBER,
   /**
@@ -137,7 +140,7 @@ const CONFIG_SCHEMA = Type.Object({
    * the point is to fire while captions are still on time.
    */
   ALERT_ASR_DUTY_RATIO: OPTIONAL_NUMBER,
-  ALERT_ASR_DUTY_RATIO_MIN_JOBS: Type.Integer({ minimum: 1, default: 20 }),
+  ALERT_ASR_DUTY_RATIO_MIN_JOBS: OPTIONAL_NUMBER,
   /**
    * Share of a provider's job periods that may be dropped — no pass ran in them
    * at all, because the previous pass overran — over `ALERT_RATE_WINDOW_SEC`
@@ -178,7 +181,7 @@ const CONFIG_SCHEMA = Type.Object({
    * realtime line, which measured as routine: a healthy single session reported
    * p99 2.17 while captioning correctly.
    */
-  ALERT_ASR_TAIL_P99_RTF: Type.Number({ minimum: 0, default: 3.0 }),
+  ALERT_ASR_TAIL_P99_RTF: OPTIONAL_NUMBER,
   ALERT_PROBE_FAILURE_THRESHOLD: Type.Integer({ minimum: 1, default: 2 }),
   ALERT_AUTH_FAILURE_RATIO: Type.Number({
     minimum: 0,
@@ -370,7 +373,10 @@ export class AppConfig {
         this._env.ALERT_ASR_DUTY_RATIO,
         DEFAULT_THRESHOLDS.asrDutyRatio,
       ),
-      asrDutyRatioMinJobs: this._env.ALERT_ASR_DUTY_RATIO_MIN_JOBS,
+      asrDutyRatioMinJobs: threshold(
+        this._env.ALERT_ASR_DUTY_RATIO_MIN_JOBS,
+        DEFAULT_THRESHOLDS.asrDutyRatioMinJobs,
+      ),
       asrDroppedPeriodRatio: threshold(
         this._env.ALERT_ASR_DROPPED_PERIOD_RATIO,
         DEFAULT_THRESHOLDS.asrDroppedPeriodRatio,
@@ -387,7 +393,10 @@ export class AppConfig {
         this._env.ALERT_ASR_TAIL_MIN_JOBS,
         DEFAULT_THRESHOLDS.asrTailMinJobs,
       ),
-      asrTailP99Rtf: this._env.ALERT_ASR_TAIL_P99_RTF,
+      asrTailP99Rtf: threshold(
+        this._env.ALERT_ASR_TAIL_P99_RTF,
+        DEFAULT_THRESHOLDS.asrTailP99Rtf,
+      ),
       probeFailureThreshold: this._env.ALERT_PROBE_FAILURE_THRESHOLD,
       authFailureRatio: this._env.ALERT_AUTH_FAILURE_RATIO,
       authFailureMinSamples: this._env.ALERT_AUTH_FAILURE_MIN_SAMPLES,

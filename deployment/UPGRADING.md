@@ -12,6 +12,48 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — the last three T1 alert thresholds are now tunable (`compose.yml` v5)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. Nothing
+breaks if you delay — these three thresholds simply keep whatever value was
+compiled in, same as before this release.
+
+### Why it changed
+
+`ALERT_RTF_P95`, `ALERT_ASR_DUTY_RATIO_MIN_JOBS` and `ALERT_ASR_TAIL_P99_RTF` had
+no `MONITORING_*` equivalent in `compose.yml`, unlike every neighbouring
+threshold. Tuning any of them meant hand-editing `compose.yml` — exactly what
+operators are told not to fork (see _Moving a host off a hand-edited
+`compose.yml`_ below). They are now plumbed the same way as their neighbours:
+
+```dotenv
+MONITORING_RTF_P95=
+MONITORING_ASR_DUTY_RATIO_MIN_JOBS=
+MONITORING_ASR_TAIL_P99_RTF=
+```
+
+Empty (the default) means "use the sidecar's compiled default" — 2.0, 20 and 3.0
+respectively — exactly like `MONITORING_ASR_DUTY_RATIO` and its two siblings
+already worked. A CPU deployment tuning transcription saturation will most often
+want `MONITORING_ASR_DUTY_RATIO` alongside these; see the wiki's "Transcription
+on CPU-Only Hardware" page for measured values (e.g. `MONITORING_ASR_DUTY_RATIO=0.7`
+for a CPU stack) — that variable is unchanged by this release, called out here
+only because these thresholds are tuned together.
+
+### A schema default was silently overriding the documented one
+
+While wiring `ALERT_RTF_P95` through, the sidecar's config schema turned out to
+default it to `1.0` even though `DEFAULT_THRESHOLDS.rtfP95` (and `.env.example`)
+already said `2.0` — measured healthy GPU operation put p95 RTF at 0.96-1.28, so
+`1.0` fires this CRITICAL on a healthy stack. Any deployment that left
+`ALERT_RTF_P95` unset was silently getting the wrong default. It now uses the
+same empty-string-means-default form as its neighbours, so the compiled default
+in `alert-rules.ts` is the only place the number lives. If your `.env` sets
+`ALERT_RTF_P95` explicitly, nothing changes for you; if it does not, you were
+getting `1.0` before this release and get the documented `2.0` after.
+
+---
+
 ## Unreleased — the monitoring canary is seeded, not provisioned (`compose.yml` v4)
 
 **Action required only if you run the synthetic canary.**
