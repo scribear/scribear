@@ -18,22 +18,19 @@
   ],
   "references": [
     {
-      "path": "../../libs/base-fastify-server"
+      "path": "../audio-frame-protocol"
     },
     {
-      "path": "../../libs/audio-frame-protocol"
+      "path": "../base-fastify-server"
     },
     {
-      "path": "../../libs/clients/base-websocket-client"
+      "path": "../clients/base-websocket-client"
     },
     {
-      "path": "../../libs/schemas/node-server-schema"
+      "path": "../schemas/node-server-schema"
     },
     {
-      "path": "../../libs/schemas/session-manager-schema"
-    },
-    {
-      "path": "../../libs/test-audio-source"
+      "path": "../schemas/session-manager-schema"
     }
   ]
 }

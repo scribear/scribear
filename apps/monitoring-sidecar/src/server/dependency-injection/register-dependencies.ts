@@ -1,12 +1,13 @@
 import { type AwilixContainer, Lifetime, asClass, asValue } from 'awilix';
 
+import { DeviceAuthClient } from '@scribear/test-audio-source';
+
 import { AudioMeterController } from '#src/server/features/audio-meter/audio-meter.controller.js';
 import { MetricsController } from '#src/server/features/metrics/metrics.controller.js';
 import { LivenessController } from '#src/server/features/probes/liveness.controller.js';
 import { ReadinessController } from '#src/server/features/probes/readiness.controller.js';
 import { AlertEvaluatorService } from '#src/server/shared/alerts/alert-evaluator.service.js';
 import { DEFAULT_RULES } from '#src/server/shared/alerts/alert-rules.js';
-import { CanaryAuthClient } from '#src/server/shared/canary/canary-auth.js';
 import { CanaryRunnerService } from '#src/server/shared/canary/canary-runner.service.js';
 import { MetricsRegistry } from '#src/server/shared/metrics/metrics-registry.service.js';
 import { NodeStatusPollerService } from '#src/server/shared/node-status/node-status-poller.service.js';
@@ -38,7 +39,7 @@ function registerDependencies(
       config.transcriptionMetricsPollerConfig,
     ),
     alertThresholds: asValue(config.alertThresholds),
-    canaryAuthConfig: asValue(config.canaryAuthConfig),
+    deviceAuthConfig: asValue(config.deviceAuthConfig),
     canaryRunnerConfig: asValue(config.canaryRunnerConfig(expectedTranscript)),
     // Registered explicitly rather than relying on the constructor default:
     // Awilix CLASSIC mode resolves every constructor parameter by name and
@@ -63,7 +64,7 @@ function registerDependencies(
     nodeStatusPollerService: asClass(NodeStatusPollerService, {
       lifetime: Lifetime.SINGLETON,
     }),
-    canaryAuthClient: asClass(CanaryAuthClient, {
+    deviceAuthClient: asClass(DeviceAuthClient, {
       lifetime: Lifetime.SINGLETON,
     }),
     canaryRunnerService: asClass(CanaryRunnerService, {

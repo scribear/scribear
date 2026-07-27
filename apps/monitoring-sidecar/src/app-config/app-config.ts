@@ -3,12 +3,12 @@ import { Type } from 'typebox';
 import type { Static } from 'typebox';
 
 import { LogLevel } from '@scribear/base-fastify-server';
+import type { DeviceAuthConfig } from '@scribear/test-audio-source';
 
 import {
   type AlertThresholds,
   DEFAULT_THRESHOLDS,
 } from '#src/server/shared/alerts/alert-rules.js';
-import type { CanaryAuthConfig } from '#src/server/shared/canary/canary-auth.js';
 import type { CanaryRunnerConfig } from '#src/server/shared/canary/canary-runner.service.js';
 import type { NodeStatusPollerConfig } from '#src/server/shared/node-status/node-status-poller.service.js';
 import type {
@@ -349,7 +349,7 @@ export class AppConfig {
     };
   }
 
-  get canaryAuthConfig(): CanaryAuthConfig {
+  get deviceAuthConfig(): DeviceAuthConfig {
     return {
       sessionManagerBaseUrl: this._env.SESSION_MANAGER_BASE_URL,
       deviceToken: this._env.CANARY_DEVICE_TOKEN,

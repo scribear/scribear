@@ -1,21 +1,22 @@
 import { ClockSync, encodeAudioFrame } from '@scribear/audio-frame-protocol';
 import type { BaseLogger } from '@scribear/base-fastify-server';
-import { createWebSocketClient } from '@scribear/base-websocket-client';
-import type { WebSocketClient } from '@scribear/base-websocket-client';
 import {
   LatencyKind,
   TRANSCRIPTION_STREAM_CLIENT_ROUTE,
-  TRANSCRIPTION_STREAM_SCHEMA,
   TRANSCRIPTION_STREAM_SOURCE_ROUTE,
   TranscriptionStreamClientMessageType,
   TranscriptionStreamServerMessageType,
 } from '@scribear/node-server-schema';
-
 import {
-  CanaryAuthClient,
-  CanaryAuthError,
+  type AudioChunk,
+  DeviceAuthClient,
+  DeviceAuthError,
   NoActiveSessionError,
-} from '#src/server/shared/canary/canary-auth.js';
+  type StreamSocket,
+  connectStreamSocket,
+  waitForSocketOpen,
+} from '@scribear/test-audio-source';
+
 import {
   CanaryOutcome,
   type CanaryRunResult,
@@ -24,17 +25,6 @@ import {
   repetitionRatio,
   scoreTranscript,
 } from '#src/server/shared/canary/transcript-accuracy.js';
-import type { AudioChunk } from '#src/server/shared/canary/wav.js';
-
-/**
- * Auth failures must not be retried.
- *
- * 1008 means the token was rejected. The default client behaviour — reconnect
- * with backoff — would hammer session-manager with doomed handshakes for the
- * whole run window and bury the real signal. Listing it as a "normal" close
- * makes the client stop, so the run fails fast with an accurate reason.
- */
-const NORMAL_CLOSE_CODES = [1000, 1001, 1008];
 
 /** How often the source probes the server clock, matching the kiosk. */
 const TIME_SYNC_INTERVAL_MS = 15_000;
@@ -50,8 +40,6 @@ export interface CanarySessionConfig {
   /** How long to wait for `sessionStatus.transcriptionServiceConnected`. */
   upstreamWaitMs: number;
 }
-
-type StreamSocket = WebSocketClient<typeof TRANSCRIPTION_STREAM_SCHEMA>;
 
 /** Mutable state accumulated across one run. */
 interface RunState {
@@ -79,12 +67,12 @@ interface RunState {
  */
 export class CanarySession {
   private _config: CanarySessionConfig;
-  private _auth: CanaryAuthClient;
+  private _auth: DeviceAuthClient;
   private _logger: BaseLogger;
 
   constructor(
     config: CanarySessionConfig,
-    auth: CanaryAuthClient,
+    auth: DeviceAuthClient,
     logger: BaseLogger,
   ) {
     this._config = config;
@@ -141,12 +129,14 @@ export class CanarySession {
     };
     const clockSync = new ClockSync();
 
-    const viewer = this._connect(
+    const viewer = connectStreamSocket(
+      this._config.nodeServerBaseUrl,
       TRANSCRIPTION_STREAM_CLIENT_ROUTE,
       sessionUid,
       sessionToken,
     );
-    const source = this._connect(
+    const source = connectStreamSocket(
+      this._config.nodeServerBaseUrl,
       TRANSCRIPTION_STREAM_SOURCE_ROUTE,
       sessionUid,
       sessionToken,
@@ -162,8 +152,8 @@ export class CanarySession {
       // the viewer is listening produces transcripts nobody measures, which
       // would read as a caption failure that never happened.
       await Promise.all([
-        waitForOpen(viewer, this._config.upstreamWaitMs),
-        waitForOpen(source, this._config.upstreamWaitMs),
+        waitForSocketOpen(viewer, this._config.upstreamWaitMs),
+        waitForSocketOpen(source, this._config.upstreamWaitMs),
       ]);
 
       timeSyncTimer = setInterval(() => {
@@ -209,44 +199,6 @@ export class CanarySession {
       source.terminate(1000, 'canary-complete');
       viewer.terminate(1000, 'canary-complete');
     }
-  }
-
-  private _connect(
-    route: typeof TRANSCRIPTION_STREAM_SOURCE_ROUTE,
-    sessionUid: string,
-    sessionToken: string,
-  ): StreamSocket {
-    const factory = createWebSocketClient(
-      TRANSCRIPTION_STREAM_SCHEMA,
-      route,
-      this._config.nodeServerBaseUrl,
-      {
-        normalCloseCodes: NORMAL_CLOSE_CODES,
-        // The handshake is the auth exchange: send the token, wait for
-        // `authOk`. Rejecting here abandons the attempt, so a bad token
-        // surfaces as a failed run rather than a silently useless socket.
-        onHandshake: async (sender, messages) => {
-          sender.send({
-            type: TranscriptionStreamClientMessageType.AUTH,
-            sessionToken,
-          });
-          await new Promise<void>((resolve) => {
-            const onMessage = (msg: {
-              type: TranscriptionStreamServerMessageType;
-            }) => {
-              if (msg.type === TranscriptionStreamServerMessageType.AUTH_OK) {
-                messages.off('message', onMessage);
-                resolve();
-              }
-            };
-            messages.on('message', onMessage);
-          });
-        },
-      },
-    );
-    const socket = factory({ params: { sessionUid } });
-    socket.start();
-    return socket;
   }
 
   private _observeViewer(viewer: StreamSocket, state: RunState): void {
@@ -361,46 +313,6 @@ export class CanarySession {
   }
 }
 
-/** Resolves when the socket reaches an authenticated OPEN, or rejects. */
-function waitForOpen(socket: StreamSocket, timeoutMs: number): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error(`Socket did not open within ${String(timeoutMs)}ms.`));
-    }, timeoutMs);
-
-    const onOpen = () => {
-      cleanup();
-      resolve();
-    };
-    // A close with no scheduled reconnect means the client has given up —
-    // for 1008 that is an auth rejection, and waiting out the timeout would
-    // report a vague "did not open" instead of the actual cause.
-    const onClose = (
-      code: number,
-      reason: string,
-      reconnectInMs: number | null,
-    ) => {
-      if (reconnectInMs !== null) return;
-      cleanup();
-      reject(
-        new Error(
-          `Socket closed before opening: ${String(code)} ${reason || '(no reason)'}.`,
-        ),
-      );
-    };
-
-    function cleanup() {
-      clearTimeout(timer);
-      socket.off('open', onOpen);
-      socket.off('close', onClose);
-    }
-
-    socket.on('open', onOpen);
-    socket.on('close', onClose);
-  });
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -408,7 +320,7 @@ function sleep(ms: number): Promise<void> {
 /** Maps a thrown error onto the outcome that best explains it. */
 function classifyError(err: unknown): CanaryOutcome {
   if (err instanceof NoActiveSessionError) return CanaryOutcome.NO_SESSION;
-  if (err instanceof CanaryAuthError) return CanaryOutcome.AUTH_FAILED;
+  if (err instanceof DeviceAuthError) return CanaryOutcome.AUTH_FAILED;
   if (err instanceof Error && err.message.includes('Socket')) {
     return CanaryOutcome.CONNECT_FAILED;
   }
