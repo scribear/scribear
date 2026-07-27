@@ -199,7 +199,22 @@ export class TranscriptionMetricsPollerService extends AbsoluteStatusPoller<Tran
       c.bufferOverflowSecondsTotal,
       this._metrics.asrBufferOverflowSecondsTotal,
     );
-    this._foldProvider(c.audioTooFastTotal, this._metrics.asrAudioTooFastTotal);
+    // Optional on the wire (renamed from `audioTooFastTotal`), so a service
+    // predating the rename simply reports no drops rather than failing the
+    // whole poll. Nothing here needs to tell "not reported" from "zero" —
+    // unlike dropped periods, no rule falls back to a different signal.
+    if (c.audioDroppedBufferFullTotal !== undefined) {
+      this._foldProvider(
+        c.audioDroppedBufferFullTotal,
+        this._metrics.asrAudioDroppedBufferFullTotal,
+      );
+    }
+    if (c.audioDroppedBufferFullSecondsTotal !== undefined) {
+      this._foldProvider(
+        c.audioDroppedBufferFullSecondsTotal,
+        this._metrics.asrAudioDroppedBufferFullSecondsTotal,
+      );
+    }
 
     // Dropped periods, and whether they are being reported at all.
     //

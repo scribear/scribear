@@ -16,8 +16,8 @@ import pytest
 import soundfile as sf
 
 from src.transcription_provider_interface import (
+    STAGE_ASR_INPUT,
     AudioChunkPayload,
-    TranscriptionClientError,
     TranscriptionJobCounter,
 )
 from src.transcription_providers.whisper_streaming_provider.whisper_streaming_config import (
@@ -151,19 +151,54 @@ def test_counts_vad_no_speech(log):
     assert job.drain_counters()[TranscriptionJobCounter.VAD_NO_SPEECH] == 1
 
 
-def test_counts_audio_too_fast_before_raising(log, contexts):
-    """Overrunning the buffer counts the event, not just raises.
+def test_survives_a_batch_the_buffer_has_no_room_for(log, contexts):
+    """A batch bigger than the buffer drops its tail; it does not end the job.
 
     The buffer is sized at twice max_buffer_len_sec, so a chunk past that
-    overruns it in one call. This is the only place audio-too-fast is
-    observable, which is why the drain has to happen on the failure path.
+    overruns it in one call. That used to raise, and any job exception
+    deregisters the job - so a service stall that made one batch too large
+    disconnected every saturated session and blamed the client for it. The
+    overrun is counted and survivable instead.
     """
     job = make_job(max_buffer_len_sec=1)
 
-    with pytest.raises(TranscriptionClientError):
-        job.process_batch(log, contexts, [chunk(5)])
+    # 5s into a buffer that holds 2s: 3s has nowhere to go.
+    job.process_batch(log, contexts, [chunk(5)])
 
-    assert job.drain_counters()[TranscriptionJobCounter.AUDIO_TOO_FAST] == 1
+    counters = job.drain_counters()
+    assert counters[TranscriptionJobCounter.AUDIO_DROPPED_BUFFER_FULL] == 1
+    assert counters[
+        TranscriptionJobCounter.AUDIO_DROPPED_BUFFER_FULL_SECONDS
+    ] == pytest.approx(3.0)
+
+    # And the job is still usable afterwards, which is the whole point.
+    job.process_batch(log, contexts, [chunk(0.5)])
+
+
+def test_dropped_audio_is_not_counted_as_decoded(log, contexts):
+    """Only samples the buffer kept count as decoded.
+
+    `_total_decoded_samples` is the absolute stream position word timestamps
+    and ledger spans resolve against, and `_decoded_audio_seconds` is the
+    asr_input stage reading whose gap below ingress is *defined* as what the
+    pipeline lost. Charging either for audio that was dropped would desync
+    timestamps permanently from the first drop onwards, and would hide the
+    loss from the stage graph at the same time.
+    """
+    job = make_job(max_buffer_len_sec=1)
+
+    # 5s offered, 2s of room: 2s decoded, 3s dropped.
+    result = job.process_batch(log, contexts, [chunk(5)])
+
+    counters = job.drain_counters()
+    assert counters[
+        TranscriptionJobCounter.AUDIO_SECONDS_DECODED
+    ] == pytest.approx(2.0)
+
+    asr_input = next(
+        stage for stage in result.audio_stages if stage.stage == STAGE_ASR_INPUT
+    )
+    assert asr_input.audio_seconds == pytest.approx(2.0)
 
 
 def test_drain_resets_between_executions(log, contexts):

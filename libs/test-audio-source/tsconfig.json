@@ -1,0 +1,36 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "paths": {
+      "#src/*": [
+        "./src/*"
+      ],
+      "#tests/*": [
+        "./tests/*"
+      ]
+    }
+  },
+  "include": [
+    "src",
+    "tests"
+  ],
+  "references": [
+    {
+      "path": "../audio-frame-protocol"
+    },
+    {
+      "path": "../base-fastify-server"
+    },
+    {
+      "path": "../clients/base-websocket-client"
+    },
+    {
+      "path": "../schemas/node-server-schema"
+    },
+    {
+      "path": "../schemas/session-manager-schema"
+    }
+  ]
+}

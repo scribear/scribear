@@ -253,6 +253,22 @@ describe('DeviceManagementController', () => {
       ).rejects.toMatchObject({ statusCode: 404, code: 'DEVICE_NOT_FOUND' });
     });
 
+    it("throws 409 when service returns 'DEMO_SOURCE_DEVICE_NOT_REREGISTRABLE'", async () => {
+      // Arrange
+      mockService.reregisterDevice.mockResolvedValue(
+        'DEMO_SOURCE_DEVICE_NOT_REREGISTRABLE',
+      );
+      const mockReq = { body: { deviceUid: 'device-1' } };
+
+      // Act + Assert
+      await expect(
+        controller.reregisterDevice(mockReq as never, mockRes as never),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'DEMO_SOURCE_DEVICE_NOT_REREGISTRABLE',
+      });
+    });
+
     it('serializes expiry to ISO string', async () => {
       // Arrange
       mockService.reregisterDevice.mockResolvedValue({
@@ -489,6 +505,22 @@ describe('DeviceManagementController', () => {
       ).rejects.toMatchObject({
         statusCode: 409,
         code: 'WOULD_LEAVE_ROOM_WITHOUT_SOURCE',
+      });
+    });
+
+    it("throws 409 when service returns 'DEMO_SOURCE_DEVICE_NOT_DELETABLE'", async () => {
+      // Arrange
+      mockService.deleteDevice.mockResolvedValue(
+        'DEMO_SOURCE_DEVICE_NOT_DELETABLE',
+      );
+      const mockReq = { body: { deviceUid: 'device-1' } };
+
+      // Act + Assert
+      await expect(
+        controller.deleteDevice(mockReq as never, mockRes as never),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'DEMO_SOURCE_DEVICE_NOT_DELETABLE',
       });
     });
 

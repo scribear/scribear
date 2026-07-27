@@ -16,6 +16,8 @@ type Hook = (...args: unknown[]) => unknown;
 describe('createServer', () => {
   let mockWorker: { start: Mock; stop: Mock };
   let mockSeeder: { seed: Mock };
+  let mockTestAudioSeeder: { seed: Mock };
+  let mockCanarySeeder: { seed: Mock };
   let mockDbClient: { destroy: Mock };
   let onReadyHooks: Hook[];
   let onCloseHooks: Hook[];
@@ -23,10 +25,16 @@ describe('createServer', () => {
   let mockContainer: { resolve: Mock; register: Mock };
   let logger: ReturnType<typeof createMockLogger>;
 
-  function buildConfig(demoRoomEnabled: boolean): AppConfig {
+  function buildConfig(
+    demoRoomEnabled: boolean,
+    testAudioRoomsEnabled = false,
+    canaryRoomEnabled = false,
+  ): AppConfig {
     return {
       baseConfig: { isDevelopment: false, logLevel: 'silent' },
       demoRoomConfig: { enabled: demoRoomEnabled },
+      testAudioRoomsConfig: { enabled: testAudioRoomsEnabled },
+      canaryRoomConfig: { enabled: canaryRoomEnabled },
     } as unknown as AppConfig;
   }
 
@@ -35,6 +43,8 @@ describe('createServer', () => {
     logger = createMockLogger();
     mockWorker = { start: vi.fn(), stop: vi.fn() };
     mockSeeder = { seed: vi.fn() };
+    mockTestAudioSeeder = { seed: vi.fn() };
+    mockCanarySeeder = { seed: vi.fn() };
     mockDbClient = { destroy: vi.fn() };
     onReadyHooks = [];
     onCloseHooks = [];
@@ -49,6 +59,8 @@ describe('createServer', () => {
       resolve: vi.fn((name: string) => {
         if (name === 'materializationWorker') return mockWorker;
         if (name === 'demoRoomSeeder') return mockSeeder;
+        if (name === 'testAudioRoomsSeeder') return mockTestAudioSeeder;
+        if (name === 'canaryRoomSeeder') return mockCanarySeeder;
         if (name === 'dbClient') return mockDbClient;
         throw new Error(`unexpected resolve: ${name}`);
       }),
@@ -91,6 +103,65 @@ describe('createServer', () => {
       expect(logger.error).toHaveBeenCalledWith(
         expect.objectContaining({ err: expect.any(Error) }),
         expect.stringContaining('seeding failed'),
+      );
+    });
+  });
+
+  describe('test-audio room seeding', (it) => {
+    it('is not resolved at all when no device secret is configured', async () => {
+      // Arrange / Act - the inert default. Resolving the seeder would be
+      // harmless, but not resolving it is what guarantees a deployment that has
+      // never asked for this feature cannot have rows appear in its tables.
+      await createServer(buildConfig(false, false));
+      await Promise.all(onReadyHooks.map((hook) => hook()));
+
+      // Assert
+      expect(mockTestAudioSeeder.seed).not.toHaveBeenCalled();
+    });
+
+    it('swallows a transient seeding failure so a healthy instance stays up', async () => {
+      // Arrange - a database blip must not take down session-manager over two
+      // test rooms, exactly as for the demo room above.
+      mockTestAudioSeeder.seed.mockRejectedValue(new Error('ECONNREFUSED'));
+
+      // Act
+      await createServer(buildConfig(false, true));
+      await Promise.all(onReadyHooks.map((hook) => hook()));
+
+      // Assert
+      expect(mockTestAudioSeeder.seed).toHaveBeenCalledTimes(1);
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.any(Error) }),
+        expect.stringContaining('test-audio rooms: seeding failed'),
+      );
+    });
+  });
+
+  describe('monitoring canary room seeding', (it) => {
+    it('is not resolved at all when no canary secret is configured', async () => {
+      // Arrange / Act - the inert default, and the state every deployment that
+      // never provisioned a canary device is already in.
+      await createServer(buildConfig(false, false, false));
+      await Promise.all(onReadyHooks.map((hook) => hook()));
+
+      // Assert
+      expect(mockCanarySeeder.seed).not.toHaveBeenCalled();
+    });
+
+    it('swallows a transient seeding failure so a healthy instance stays up', async () => {
+      // Arrange - a database blip must not take down session-manager over a
+      // monitoring fixture, exactly as for the two seeders above.
+      mockCanarySeeder.seed.mockRejectedValue(new Error('ECONNREFUSED'));
+
+      // Act
+      await createServer(buildConfig(false, false, true));
+      await Promise.all(onReadyHooks.map((hook) => hook()));
+
+      // Assert
+      expect(mockCanarySeeder.seed).toHaveBeenCalledTimes(1);
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.any(Error) }),
+        expect.stringContaining('monitoring canary room: seeding failed'),
       );
     });
   });

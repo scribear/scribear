@@ -1,5 +1,17 @@
 import { describe, expect } from 'vitest';
 
+import {
+  CANARY_DEVICE_UID,
+  CANARY_ROOM_UID,
+} from '#src/server/features/canary-room/canary-room.constants.js';
+import {
+  DEMO_ROOM_UID,
+  DEMO_SOURCE_DEVICE_UID,
+} from '#src/server/features/demo-room/demo-room.constants.js';
+import {
+  TEST_AUDIO_GOOD_DEVICE_UID,
+  TEST_AUDIO_GOOD_ROOM_UID,
+} from '#src/server/features/test-audio-rooms/test-audio-rooms.constants.js';
 import { useDb } from '#tests/utils/use-db.js';
 import { ADMIN_HEADER, useServer } from '#tests/utils/use-server.js';
 
@@ -569,6 +581,271 @@ describe('Room Management Routes', () => {
       // Assert
       expect(res.statusCode).toBe(404);
       expect(res.json<{ code: string }>().code).toBe('DEVICE_NOT_IN_ROOM');
+    });
+  });
+
+  /**
+   * The demo caption room is a synthetic emitter with no audio path, so the
+   * admin key — which `deployment/register-device.sh` and friends hold, and
+   * which reaches these routes without going through the admin BFF — must not
+   * be able to attach a device to it. The uids are reserved by the seeder, so
+   * the refusal does not depend on the demo room actually being seeded (this
+   * suite runs with `DEMO_ROOM_ENABLED` off); every ordinary-room case in the
+   * suites above exercises the same routes and must stay green.
+   */
+  describe('demo caption room refusals', (it) => {
+    it('returns 409 DEMO_ROOM_NOT_ASSIGNABLE when adding a device to the demo room', async () => {
+      // Arrange - a perfectly valid, unassigned device; only the room is special.
+      const { deviceUid } = await setupActivatedDevice();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/add-device-to-room`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { roomUid: DEMO_ROOM_UID, deviceUid, asSource: true },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      const body = res.json<{ code: string; message: string }>();
+      expect(body.code).toBe('DEMO_ROOM_NOT_ASSIGNABLE');
+      expect(body.message).toContain('no audio path');
+    });
+
+    it("returns 409 DEMO_ROOM_NOT_ASSIGNABLE when setting the demo room's source device", async () => {
+      // Arrange
+      const { deviceUid } = await setupActivatedDevice();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/set-source-device`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { roomUid: DEMO_ROOM_UID, deviceUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe(
+        'DEMO_ROOM_NOT_ASSIGNABLE',
+      );
+    });
+
+    it('returns 409 DEMO_ROOM_NOT_RENAMABLE when renaming the demo room', async () => {
+      // Arrange / Act - the demo room's name is fixed identity, same family as
+      // the assignment refusals above.
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/update-room`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { roomUid: DEMO_ROOM_UID, name: 'Not The Demo Room Anymore' },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe('DEMO_ROOM_NOT_RENAMABLE');
+    });
+
+    it('returns 409 DEMO_ROOM_NOT_DELETABLE when deleting the demo room', async () => {
+      // Arrange / Act - deleting it would strand its placeholder device, which
+      // nothing else can be attached in place of.
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/delete-room`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { roomUid: DEMO_ROOM_UID },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe('DEMO_ROOM_NOT_DELETABLE');
+    });
+
+    it('returns 409 DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE when adding the demo placeholder device to an ordinary room', async () => {
+      // Arrange - the mirror image: a real room, but a device that can never
+      // send audio for it.
+      const { deviceUid: sourceUid } = await setupActivatedDevice('Source');
+      const { uid: roomUid } = await createRoom(sourceUid);
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/add-device-to-room`,
+        headers: { authorization: ADMIN_HEADER },
+        body: {
+          roomUid,
+          deviceUid: DEMO_SOURCE_DEVICE_UID,
+          asSource: false,
+        },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe(
+        'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE',
+      );
+    });
+
+    it('returns 409 DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE when creating a room sourced by the demo placeholder device', async () => {
+      // Arrange / Act - create-room cannot recreate the demo room (the uid is
+      // generated), so the placeholder device is the only demo state it reaches.
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/create-room`,
+        headers: { authorization: ADMIN_HEADER },
+        body: {
+          name: 'Sneaky Room',
+          timezone: 'America/New_York',
+          autoSessionEnabled: true,
+          sourceDeviceUids: [DEMO_SOURCE_DEVICE_UID],
+        },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe(
+        'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE',
+      );
+    });
+
+    it('returns 409 TEST_AUDIO_DEVICE_NOT_ASSIGNABLE for a seeded synthetic source, which reaches these routes with the same admin key', async () => {
+      // Arrange - the admin key that `deployment/register-device.sh` holds
+      // reaches this route without going through the admin BFF, and a seeded
+      // synthetic source in a teaching room would transcribe fixture speech
+      // into that lecture. The uids are reserved literals, so the refusal does
+      // not depend on the seeder having run (this suite runs with it off).
+      const { deviceUid: sourceUid } = await setupActivatedDevice('Source');
+      const { uid: roomUid } = await createRoom(sourceUid, 'Lecture Hall');
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/add-device-to-room`,
+        headers: { authorization: ADMIN_HEADER },
+        body: {
+          roomUid,
+          deviceUid: TEST_AUDIO_GOOD_DEVICE_UID,
+          asSource: false,
+        },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      const body = res.json<{ code: string; message: string }>();
+      expect(body.code).toBe('TEST_AUDIO_DEVICE_NOT_ASSIGNABLE');
+      expect(body.message).toContain('synthetic audio source');
+    });
+
+    it('returns 409 TEST_AUDIO_ROOM_NOT_ASSIGNABLE when handing a seeded test room a different source', async () => {
+      // Arrange
+      const { deviceUid } = await setupActivatedDevice();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/set-source-device`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { roomUid: TEST_AUDIO_GOOD_ROOM_UID, deviceUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe(
+        'TEST_AUDIO_ROOM_NOT_ASSIGNABLE',
+      );
+    });
+
+    it('returns 409 CANARY_DEVICE_NOT_ASSIGNABLE for the seeded monitoring canary source', async () => {
+      // Arrange - the same refusal as the test-audio sources, for the source
+      // that matters most: the canary streams on a timer, unattended, so a
+      // mis-assignment here would not be noticed until someone read a
+      // transcript. The uid is a reserved literal, so the refusal does not
+      // depend on the seeder having run (this suite runs with it off).
+      const { deviceUid: sourceUid } = await setupActivatedDevice('Source');
+      const { uid: roomUid } = await createRoom(sourceUid, 'Lecture Hall 2');
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/add-device-to-room`,
+        headers: { authorization: ADMIN_HEADER },
+        body: {
+          roomUid,
+          deviceUid: CANARY_DEVICE_UID,
+          asSource: false,
+        },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      const body = res.json<{ code: string; message: string }>();
+      expect(body.code).toBe('CANARY_DEVICE_NOT_ASSIGNABLE');
+      expect(body.message).toContain('unattended');
+    });
+
+    it('returns 409 CANARY_ROOM_NOT_ASSIGNABLE when handing the canary room a different source', async () => {
+      // Arrange
+      const { deviceUid } = await setupActivatedDevice();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/set-source-device`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { roomUid: CANARY_ROOM_UID, deviceUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe(
+        'CANARY_ROOM_NOT_ASSIGNABLE',
+      );
+    });
+
+    it('returns 409 CANARY_DEVICE_NOT_ASSIGNABLE when creating a room sourced by the canary device', async () => {
+      // Arrange / Act - create-room cannot recreate the canary room (its uid is
+      // reserved and this route's uid is database-generated), so the device
+      // half is the only canary state it reaches. This is the gap the guard
+      // exists for: after the canary room is deleted the device is roomless,
+      // and this route would otherwise put it straight into a new one.
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/create-room`,
+        headers: { authorization: ADMIN_HEADER },
+        body: {
+          name: 'Sneaky Canary Room',
+          timezone: 'America/New_York',
+          autoSessionEnabled: true,
+          sourceDeviceUids: [CANARY_DEVICE_UID],
+        },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe(
+        'CANARY_DEVICE_NOT_ASSIGNABLE',
+      );
+    });
+
+    it('still attaches a device to an ordinary room whose uid shares the demo prefix', async () => {
+      // Arrange - the guard must match the reserved uids exactly. This room is
+      // created normally (database-generated uid), so if the ordinary path ever
+      // regressed into the guard, every real room would break.
+      const { deviceUid: sourceUid } = await setupActivatedDevice('Source');
+      const { uid: roomUid } = await createRoom(sourceUid, 'Ordinary Room');
+      const { deviceUid: memberUid } = await registerDevice('Member');
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/add-device-to-room`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { roomUid, deviceUid: memberUid, asSource: false },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(204);
     });
   });
 

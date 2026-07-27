@@ -320,6 +320,47 @@ async def test_overrunning_job_reports_the_periods_it_dropped(
 
 
 @pytest.mark.asyncio
+async def test_result_after_deregistration_still_carries_its_label(
+    observed_wpm: tuple[WorkerProcessManager, list[JobExecutionObservation]],
+):
+    """
+    Test an execution that was already in flight when its job was
+    deregistered is still observed under its own label, not lost to
+    UNLABELED_PROVIDER
+
+    Reproduces the saturation-collapse failure mode measured live: a
+    caller (e.g. a session ending, or the pool closing every job at once)
+    deregisters a job while the worker is still mid-execution on it. The
+    result the worker already computed still arrives and is still observed
+    - `_handle_loop_result` deliberately observes before checking whether
+    the job is still registered - but the label used to have to be looked
+    up from `WorkerProcessManager`'s own registration bookkeeping by
+    job_id, which `deregister()` pops immediately. Every such straggling
+    result therefore reported `""` (and, at the metrics registry, the
+    "unknown" provider) instead of the provider the job actually ran
+    under. The label must now travel on the result itself instead.
+    """
+    # Arrange - a pass that cannot finish inside its period, so there is a
+    # window while the worker is still busy on the first execution
+    wpm, observations = observed_wpm
+    job = wpm.register_job(
+        (), OVERRUN_PERIOD_MS, SlowJob(OVERRUN_WORK_NS), "whisper"
+    )
+    job.queue_data([None])
+
+    # Act - deregister partway through the worker's first (250ms) busy loop,
+    # which starts once OVERRUN_PERIOD_MS (100ms) elapses
+    await asyncio.sleep(OVERRUN_PERIOD_MS / 1000 + 0.05)
+    job.deregister()
+    await asyncio.sleep(OVERRUN_SETTLE_SEC)
+
+    # Assert - the in-flight execution still reached the observer, still
+    # labelled "whisper" rather than falling back to an empty/unknown label
+    assert len(observations) >= 1
+    assert all(observation.label == "whisper" for observation in observations)
+
+
+@pytest.mark.asyncio
 async def test_job_that_fits_its_period_reports_no_dropped_periods(
     observed_wpm: tuple[WorkerProcessManager, list[JobExecutionObservation]],
 ):

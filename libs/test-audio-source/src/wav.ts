@@ -1,11 +1,12 @@
 /**
- * Minimal WAV reader/writer for the synthetic canary.
+ * Minimal WAV reader/writer for synthetic source devices.
  *
- * The canary must put bytes on the wire that are byte-for-byte the shape a real
- * source device sends. A real source is `audio-chunk-processor.worklet.js`,
- * which emits **one complete 44-byte-header RIFF/WAVE file per chunk** — not a
- * raw PCM stream and not one long WAV. Anything else would exercise a code path
- * production never takes, so the canary would be testing a fiction.
+ * A synthetic source must put bytes on the wire that are byte-for-byte the
+ * shape a real source device sends. A real source is
+ * `audio-chunk-processor.worklet.js`, which emits **one complete
+ * 44-byte-header RIFF/WAVE file per chunk** — not a raw PCM stream and not one
+ * long WAV. Anything else would exercise a code path production never takes,
+ * so the synthetic source would be testing a fiction.
  *
  * Only the subset that fixture audio uses is supported: uncompressed PCM
  * (format 1), 16-bit samples. Everything else is rejected loudly at load time
@@ -29,7 +30,7 @@ export interface DecodedWav {
   durationMs: number;
 }
 
-/** Thrown when a buffer is not WAV the canary can stream. */
+/** Thrown when a buffer is not WAV a synthetic source can stream. */
 export class WavFormatError extends Error {
   constructor(message: string) {
     super(message);
@@ -138,7 +139,7 @@ export function encodeWav(
   return Buffer.concat([header, pcm]);
 }
 
-/** One chunk of the canary loop, ready to be wrapped in a SAFP frame. */
+/** One chunk of the source loop, ready to be wrapped in a SAFP frame. */
 export interface AudioChunk {
   /** A complete standalone WAV file, as a real source device emits. */
   wav: Buffer;
@@ -153,8 +154,8 @@ export interface AudioChunk {
  *
  * A trailing remainder shorter than `chunkMs` is emitted as a final short
  * chunk rather than dropped: silently truncating the tail would cost the last
- * words of the fixture and depress the accuracy score for a reason that has
- * nothing to do with the pipeline's health.
+ * words of the fixture and depress the canary's accuracy score for a reason
+ * that has nothing to do with the pipeline's health.
  */
 export function sliceIntoChunks(
   wav: DecodedWav,

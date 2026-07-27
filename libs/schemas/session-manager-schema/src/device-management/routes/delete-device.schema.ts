@@ -16,7 +16,7 @@ import { DEVICE_MANAGEMENT_TAG } from '#src/tags.js';
 
 const DELETE_DEVICE_SCHEMA = {
   description:
-    "Delete a device. Fails with 409 if the device is its room's source, since the source invariant would be violated at commit; reassign the source first.",
+    "Delete a device. Fails with 409 if the device is its room's source, since the source invariant would be violated at commit; reassign the source first. Also refused with 409 for the demo caption room's placeholder source device, which would strand that room without a source.",
   tags: [DEVICE_MANAGEMENT_TAG],
   security: ADMIN_API_KEY_SECURITY,
   headers: Type.Object({
@@ -33,10 +33,16 @@ const DELETE_DEVICE_SCHEMA = {
       code: Type.Literal('DEVICE_NOT_FOUND'),
       message: Type.String(),
     }),
-    409: Type.Object({
-      code: Type.Literal('WOULD_LEAVE_ROOM_WITHOUT_SOURCE'),
-      message: Type.String(),
-    }),
+    409: Type.Union([
+      Type.Object({
+        code: Type.Literal('WOULD_LEAVE_ROOM_WITHOUT_SOURCE'),
+        message: Type.String(),
+      }),
+      Type.Object({
+        code: Type.Literal('DEMO_SOURCE_DEVICE_NOT_DELETABLE'),
+        message: Type.String(),
+      }),
+    ]),
   },
 } satisfies BaseRouteSchema;
 

@@ -1,8 +1,13 @@
 import { readFile } from 'node:fs/promises';
 
 import type { BaseLogger } from '@scribear/base-fastify-server';
+import {
+  type AudioChunk,
+  type DeviceAuthClient,
+  decodeWav,
+  sliceIntoChunks,
+} from '@scribear/test-audio-source';
 
-import type { CanaryAuthClient } from '#src/server/shared/canary/canary-auth.js';
 import {
   CanarySession,
   type CanarySessionConfig,
@@ -11,11 +16,6 @@ import {
   CanaryOutcome,
   type CanaryRunResult,
 } from '#src/server/shared/canary/canary-types.js';
-import {
-  type AudioChunk,
-  decodeWav,
-  sliceIntoChunks,
-} from '#src/server/shared/canary/wav.js';
 import type { MetricsRegistry } from '#src/server/shared/metrics/metrics-registry.service.js';
 
 export interface CanaryRunnerConfig extends CanarySessionConfig {
@@ -60,7 +60,7 @@ export class CanaryRunnerService {
 
   constructor(
     canaryRunnerConfig: CanaryRunnerConfig,
-    canaryAuthClient: CanaryAuthClient,
+    deviceAuthClient: DeviceAuthClient,
     metricsRegistry: MetricsRegistry,
     logger: BaseLogger,
   ) {
@@ -69,7 +69,7 @@ export class CanaryRunnerService {
     this._logger = logger;
     this._session = new CanarySession(
       canaryRunnerConfig,
-      canaryAuthClient,
+      deviceAuthClient,
       logger,
     );
   }

@@ -136,6 +136,12 @@ class _JobEntry:
     job: JobInterface[Any, Any, Any, Any]
     # Cached child logger to avoid rebuilding every batch
     log: Logger
+    # Opaque grouping label, stamped here at registration and copied onto
+    # every JobExecutionResult this entry produces (see _execute_job). Read
+    # from here rather than from the parent process's own registration
+    # bookkeeping, which may already be torn down by the time a result for an
+    # in-flight execution arrives.
+    label: str = ""
     # Periods this job never ran, awaiting a result to ride out on. Owned by
     # the scheduler and deliberately *not* held in the job's own counter
     # collector: the job is never told a period was skipped, cannot observe it,
@@ -310,6 +316,7 @@ class WorkerProcess:
                 buffer=[],
                 job=task.job,
                 log=self._log.child({"job_id": task.job_id}),
+                label=task.label,
             )
 
     def _execute_job(self, job_id: int):
@@ -391,7 +398,9 @@ class WorkerProcess:
                 # that - would otherwise never leave the worker.
                 self._result_queue.put(
                     JobExecutionResult(
-                        job_id, JobException(error, stats, _counters())
+                        job_id,
+                        JobException(error, stats, _counters()),
+                        label=entry.label,
                     )
                 )
                 entry.state = _JobState.ERRORED
@@ -405,7 +414,9 @@ class WorkerProcess:
             )
             self._result_queue.put(
                 JobExecutionResult(
-                    job_id, JobSuccess(result, stats, _counters())
+                    job_id,
+                    JobSuccess(result, stats, _counters()),
+                    label=entry.label,
                 )
             )
 
@@ -425,7 +436,9 @@ class WorkerProcess:
                     complete_time_ns=time.perf_counter_ns(),
                 )
                 self._result_queue.put(
-                    JobExecutionResult(job_id, JobException(error, stats))
+                    JobExecutionResult(
+                        job_id, JobException(error, stats), label=entry.label
+                    )
                 )
                 entry.state = _JobState.ERRORED
                 return

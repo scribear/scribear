@@ -1069,6 +1069,42 @@ export class ScheduleManagementRepository {
   }
 
   /**
+   * Re-opens a session that has been given an end, by clearing both
+   * `end_override` and `scheduled_end_time`.
+   *
+   * Only the boot-time test-audio seeder calls this. Those two rooms hold one
+   * standing, open-ended session each, which is the *only* thing their synthetic
+   * source device can attach to; if an operator ends it early from the console,
+   * the device has nowhere to stream and nothing brings it back, because the
+   * seeder's `ON CONFLICT (uid) DO NOTHING` insert finds the row already there.
+   * Re-opening on the next boot makes "restart the Session Manager" the remedy
+   * for a test room that has gone quiet, rather than a trap.
+   *
+   * Deliberately does *not* bump `session_config_version` or publish an event:
+   * it runs at boot, before this instance serves traffic, and the only reader
+   * that cares — a device polling `my-schedule` — re-reads the schedule on its
+   * next poll anyway.
+   *
+   * @param db Kysely client or transaction.
+   * @param uid The session to re-open.
+   * @returns `true` if a row was actually re-opened, `false` if it was already open-ended or missing.
+   */
+  async reopenSession(db: DBOrTrx, uid: string): Promise<boolean> {
+    const result = await db
+      .updateTable('sessions')
+      .set({ end_override: null, scheduled_end_time: null })
+      .where('uid', '=', uid)
+      .where((eb) =>
+        eb.or([
+          eb('end_override', 'is not', null),
+          eb('scheduled_end_time', 'is not', null),
+        ]),
+      )
+      .executeTakeFirst();
+    return Number(result.numUpdatedRows) > 0;
+  }
+
+  /**
    * Updates `scheduled_end_time` and bumps `session_config_version`.
    * @returns The new `session_config_version`.
    */

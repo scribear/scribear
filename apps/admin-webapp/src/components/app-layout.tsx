@@ -8,6 +8,7 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import MeetingRoomIcon from '@mui/icons-material/MeetingRoom';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import ScienceIcon from '@mui/icons-material/Science';
 import SpaceDashboardIcon from '@mui/icons-material/SpaceDashboard';
 import TabletIcon from '@mui/icons-material/Tablet';
 import AppBar from '@mui/material/AppBar';
@@ -65,6 +66,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Rooms', to: '/rooms', icon: <MeetingRoomIcon /> },
   { label: 'Devices', to: '/devices', icon: <DevicesIcon /> },
   { label: 'Set up a kiosk', to: '/kiosk-setup', icon: <TabletIcon /> },
+  { label: 'Test audio', to: '/test-audio', icon: <ScienceIcon /> },
   { label: 'Audit log', to: '/audit', icon: <HistoryIcon /> },
   { label: 'Deployment Check', to: '/config-check', icon: <FactCheckIcon /> },
   { label: 'Documentation', to: '/documentation', icon: <MenuBookIcon /> },

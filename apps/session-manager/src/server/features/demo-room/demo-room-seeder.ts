@@ -52,6 +52,29 @@ const PLACEHOLDER_ACTIVATION_CODE_VALID_MINUTES = 5;
  *
  * Enabled by default; when `DEMO_ROOM_ENABLED=false` it is never resolved and
  * no session is seeded (see `create-server.ts`).
+ *
+ * RECLAIMING A STRANDED DEVICE. `_createDemoSession` also repairs the
+ * placeholder device being found outside the demo room - reachable only from
+ * before `RoomManagementService`'s `DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE` guard
+ * existed, since every API path that could move it there is refused now. This
+ * is the one seeder in the family that *can* reclaim rather than always
+ * refuse: the test-audio and canary sources are real, activated devices that
+ * might be streaming into whatever room they were found in, so moving them
+ * silently could hide a live pipeline problem. This device is never activated
+ * and nobody holds its activation code, so it can never have been
+ * authenticating audio into that other room.
+ *
+ * That safety argument has one hole: if the device is the *source* of the
+ * room it was found in, removing it would leave that room without one, which
+ * `room_devices_ensure_source` refuses at commit regardless of what this
+ * seeder wants - and even if it did not, silently demoting a room's source is
+ * a bigger surprise than a stranded placeholder is worth risking. So the
+ * device is reclaimed only when it is a harmless non-source member elsewhere;
+ * when it is the other room's source, this logs a loud warning and leaves the
+ * demo room without a source until an operator resolves it by hand, the same
+ * fallback the test-audio/canary seeders always take. Either branch logs,
+ * because both mean the same thing: this device should never have left the
+ * demo room, and something upstream let it.
  */
 export class DemoRoomSeeder {
   private readonly _logger: AppDependencies['logger'];
@@ -116,8 +139,10 @@ export class DemoRoomSeeder {
   /**
    * Idempotently ensures the placeholder source device and the dedicated
    * demo room exist (fixed uids, `ON CONFLICT (uid) DO NOTHING`), links the
-   * device to the room as its source on first creation only, then inserts
-   * the open-ended `ON_DEMAND` session with the fixed demo `uid`.
+   * device to the room as its source (on first creation, or reclaiming it if
+   * it was found stranded as a non-source member elsewhere - see "RECLAIMING
+   * A STRANDED DEVICE" on the class docs), then inserts the open-ended
+   * `ON_DEMAND` session with the fixed demo `uid`.
    */
   private async _createDemoSession(now: Date): Promise<Session> {
     const device = await this._deviceManagementRepository.createWithFixedUid(
@@ -136,14 +161,56 @@ export class DemoRoomSeeder {
       { name: DEMO_ROOM_NAME, timezone: 'UTC', autoSessionEnabled: false },
     );
 
-    // Only link on first creation - a pre-existing device is already the
-    // room's source, and `addDeviceToRoom` has no conflict handling.
     if (device.roomUid === null) {
+      // First creation, or a device cleanly detached since (the escape hatch
+      // `remove-device-from-room` deliberately leaves available). Link it -
+      // `addDeviceToRoom` has no conflict handling, so this only runs once.
       await this._roomManagementRepository.addDeviceToRoom(
         room.uid,
         device.uid,
         true,
       );
+    } else if (device.roomUid !== room.uid) {
+      // Stranded outside the demo room. Reachable only from before
+      // room-management's guards existed: `DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE`
+      // now refuses every API path (`add-device-to-room`, `set-source-device`,
+      // `create-room`) that could attach this device anywhere, so nothing
+      // going forward can put it here again.
+      //
+      // Unlike the test-audio and canary seeders - which refuse outright to
+      // move a source found outside its seeded room, because those sources
+      // are real, activated, and might already be streaming into whatever
+      // room they were found in - this device is never activated and nobody
+      // holds its activation code, so it cannot be authenticating audio
+      // anywhere. That makes reclaiming it safe *unless* it is the other
+      // room's source: `room_devices_ensure_source` requires every room to
+      // keep at least one source device at commit, so removing it would
+      // either throw (if nothing else there can take over) or silently leave
+      // a real, functioning room without the source an operator put there for
+      // a reason neither this seeder nor its uid can distinguish from a real
+      // one. That case is refused loudly instead, exactly like the
+      // test-audio/canary sources, and the demo room is left without a
+      // source until an operator resolves it by hand.
+      if (device.isSource) {
+        this._logger.warn(
+          { deviceUid: device.uid, foundInRoomUid: device.roomUid },
+          'demo caption room: placeholder source device is the source of ' +
+            'another room; refusing to reclaim it automatically. The demo ' +
+            'room has no source device until this is resolved by hand.',
+        );
+      } else {
+        this._logger.warn(
+          { deviceUid: device.uid, foundInRoomUid: device.roomUid },
+          'demo caption room: placeholder source device was stranded ' +
+            'outside the demo room as a non-source member; reclaiming it',
+        );
+        await this._roomManagementRepository.removeDeviceFromRoom(device.uid);
+        await this._roomManagementRepository.addDeviceToRoom(
+          room.uid,
+          device.uid,
+          true,
+        );
+      }
     }
 
     const db = this._scheduleManagementRepository.db;

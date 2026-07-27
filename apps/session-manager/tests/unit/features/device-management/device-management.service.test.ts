@@ -1,5 +1,6 @@
 import { type Mock, afterEach, beforeEach, describe, expect, vi } from 'vitest';
 
+import { DEMO_SOURCE_DEVICE_UID } from '#src/server/features/demo-room/demo-room.constants.js';
 import { DeviceManagementService } from '#src/server/features/device-management/device-management.service.js';
 import { createMockLogger } from '#tests/utils/mock-logger.js';
 
@@ -247,6 +248,18 @@ describe('DeviceManagementService', () => {
       expect(deviceUid).toBe('device-1');
       expect(activationCode).toHaveLength(8);
     });
+
+    it("refuses to reregister the demo caption room's placeholder source device with 'DEMO_SOURCE_DEVICE_NOT_REREGISTRABLE'", async () => {
+      // Arrange - nobody holds this device's activation code by design; a
+      // fresh one would let some physical device claim its identity.
+      // Act
+      const result = await service.reregisterDevice(DEMO_SOURCE_DEVICE_UID);
+
+      // Assert
+      expect(result).toBe('DEMO_SOURCE_DEVICE_NOT_REREGISTRABLE');
+      expect(mockRepository.findById).not.toHaveBeenCalled();
+      expect(mockRepository.reregister).not.toHaveBeenCalled();
+    });
   });
 
   describe('activateDevice', (it) => {
@@ -488,6 +501,18 @@ describe('DeviceManagementService', () => {
 
       // Assert
       expect(mockRepository.delete).toHaveBeenCalledWith('device-1');
+    });
+
+    it("refuses to delete the demo caption room's placeholder source device with 'DEMO_SOURCE_DEVICE_NOT_DELETABLE'", async () => {
+      // Arrange - deleting it would strand the demo room without a source,
+      // and nothing else can be attached in its place.
+      // Act
+      const result = await service.deleteDevice(DEMO_SOURCE_DEVICE_UID);
+
+      // Assert
+      expect(result).toBe('DEMO_SOURCE_DEVICE_NOT_DELETABLE');
+      expect(mockRepository.findById).not.toHaveBeenCalled();
+      expect(mockRepository.delete).not.toHaveBeenCalled();
     });
   });
 

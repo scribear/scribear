@@ -14,6 +14,7 @@ import { RoomDetailPage } from '#src/features/rooms/room-detail-page';
 import { RoomsListPage } from '#src/features/rooms/rooms-list-page';
 import { RoomSchedulingPage } from '#src/features/scheduling/room-scheduling-page';
 import { SessionDetailPage } from '#src/features/sessions/session-detail-page';
+import { TestAudioPage } from '#src/features/test-audio/test-audio-page';
 
 export const AppRoutes = () => (
   <Routes>
@@ -31,6 +32,7 @@ export const AppRoutes = () => (
         <Route path="/devices/:deviceUid" element={<DeviceDetailPage />} />
         <Route path="/sessions/:sessionUid" element={<SessionDetailPage />} />
         <Route path="/kiosk-setup" element={<KioskWizardPage />} />
+        <Route path="/test-audio" element={<TestAudioPage />} />
         <Route path="/audit" element={<AuditPage />} />
         <Route path="/config-check" element={<ConfigCheckPage />} />
         <Route path="/documentation" element={<DocumentationPage />} />

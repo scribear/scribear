@@ -12,7 +12,132 @@ lists every key the current `compose.yml` understands.
 
 ---
 
-## Unreleased — transcription-service model downloads are now cached on a bind mount (`compose.yml` v3)
+## Unreleased — the last three T1 alert thresholds are now tunable (`compose.yml` v5)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. Nothing
+breaks if you delay — these three thresholds simply keep whatever value was
+compiled in, same as before this release.
+
+### Why it changed
+
+`ALERT_RTF_P95`, `ALERT_ASR_DUTY_RATIO_MIN_JOBS` and `ALERT_ASR_TAIL_P99_RTF` had
+no `MONITORING_*` equivalent in `compose.yml`, unlike every neighbouring
+threshold. Tuning any of them meant hand-editing `compose.yml` — exactly what
+operators are told not to fork (see _Moving a host off a hand-edited
+`compose.yml`_ below). They are now plumbed the same way as their neighbours:
+
+```dotenv
+MONITORING_RTF_P95=
+MONITORING_ASR_DUTY_RATIO_MIN_JOBS=
+MONITORING_ASR_TAIL_P99_RTF=
+```
+
+Empty (the default) means "use the sidecar's compiled default" — 2.0, 20 and 3.0
+respectively — exactly like `MONITORING_ASR_DUTY_RATIO` and its two siblings
+already worked. A CPU deployment tuning transcription saturation will most often
+want `MONITORING_ASR_DUTY_RATIO` alongside these; see the wiki's "Transcription
+on CPU-Only Hardware" page for measured values (e.g. `MONITORING_ASR_DUTY_RATIO=0.7`
+for a CPU stack) — that variable is unchanged by this release, called out here
+only because these thresholds are tuned together.
+
+### A schema default was silently overriding the documented one
+
+While wiring `ALERT_RTF_P95` through, the sidecar's config schema turned out to
+default it to `1.0` even though `DEFAULT_THRESHOLDS.rtfP95` (and `.env.example`)
+already said `2.0` — measured healthy GPU operation put p95 RTF at 0.96-1.28, so
+`1.0` fires this CRITICAL on a healthy stack. Any deployment that left
+`ALERT_RTF_P95` unset was silently getting the wrong default. It now uses the
+same empty-string-means-default form as its neighbours, so the compiled default
+in `alert-rules.ts` is the only place the number lives. If your `.env` sets
+`ALERT_RTF_P95` explicitly, nothing changes for you; if it does not, you were
+getting `1.0` before this release and get the documented `2.0` after.
+
+---
+
+## Unreleased — the monitoring canary is seeded, not provisioned (`compose.yml` v4)
+
+**Action required only if you run the synthetic canary.**
+`MONITORING_CANARY_DEVICE_TOKEN` is gone. If your `.env` sets it, **delete that
+line** and set `MONITORING_CANARY_DEVICE_SECRET` to any value you like instead:
+
+```dotenv
+# Delete this line:
+# MONITORING_CANARY_DEVICE_TOKEN=<uid>:<secret>
+
+# Add this one. Any value; it is never transmitted anywhere.
+MONITORING_CANARY_DEVICE_SECRET=<a long random string>
+```
+
+Then copy the new [`compose.yml`](compose.yml) and `docker compose up -d`. If
+you never ran the canary, there is nothing to do — it stays off, and nothing is
+seeded.
+
+### What changed
+
+The canary authenticated as a device an operator provisioned **by hand**:
+register a device through the admin API, activate it, scrape `DEVICE_TOKEN` out
+of a `Set-Cookie` header, paste it into `.env`, then create a room, attach the
+device, mark it the source and give the room a standing schedule. Seven steps,
+one of which — which room the device went into — decided whether fixture speech
+could reach a live lecture.
+
+Now the Session Manager seeds the room (`MONITORING-CANARY`), its source device
+and one standing open-ended session, all under reserved uids, on every boot; and
+the monitoring sidecar derives the token it presents from the same secret and the
+same uid. Nothing is copied, pasted or transmitted between the two. This is the
+same scheme `TEST_AUDIO_DEVICE_SECRET` already uses for the operator test-audio
+devices, applied to the last hand-provisioned credential in the fleet.
+
+### Why a second secret rather than reusing `TEST_AUDIO_DEVICE_SECRET`
+
+They gate different features and would otherwise be tied together: setting one
+value to arm the operator test devices would also start an unattended canary
+probe every few minutes, and unsetting it to retire them would silently stop
+monitoring. It would also hand a third service the root key every synthetic
+device's credential is derived from. One extra line in `.env` is the cheaper
+side of that trade.
+
+### The room assignment is enforced now, not just documented
+
+The canary streams a fixture recording into whatever session is active in its
+room, **unattended**, every `MONITORING_CANARY_INTERVAL_SEC`. It is the only
+synthetic source in the stack that runs with nobody watching, so a wrong room
+would not be noticed until somebody read a transcript.
+
+A device token reaches only its own device's room — the canary has no way to name
+another — so that assignment is the entire safety boundary. Making it **in code**
+is stronger than making it by hand: the room is seeded under a reserved uid no
+other room can hold, there is no `Set-Cookie` header to misread, a re-run repairs
+a drifted assignment rather than adding a second one, and room-management now
+**refuses** to move the device into another room (409
+`CANARY_DEVICE_NOT_ASSIGNABLE`) or to hand the canary room a different source
+device (409 `CANARY_ROOM_NOT_ASSIGNABLE`).
+
+### Retiring or rotating it
+
+- **Rotate:** change `MONITORING_CANARY_DEVICE_SECRET` and restart the stack. The
+  stored hash is re-written from the current value on every Session Manager boot.
+- **Retire:** unset it, restart, **then** delete the room and the device in the
+  admin console. Unsetting alone stops the seeder rewriting the hash but does not
+  erase it, and while a device exists with a hash its derived token remains
+  usable. That ordering matters, and it is the same one the test-audio devices
+  use.
+
+### Your old canary device is still there
+
+Deleting `MONITORING_CANARY_DEVICE_TOKEN` does not delete the device it named.
+That device and its hand-made room are now unused; delete both in the admin
+console once the seeded canary is reporting.
+
+### No separate `COMPOSE_FILE_VERSION` bump
+
+Removing a variable and adding one would ordinarily earn a bump. It does not get
+one here: `compose.yml` v4 is still unreleased, so no operator has ever held a v4
+file. The change rides along in v4.
+
+---
+
+## Unreleased — transcription-service model downloads are now cached on a bind mount (`compose.yml` v4)
 
 **Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. Deployment
 Check will report `old file` until you do. Nothing breaks if you delay: the
@@ -32,11 +157,209 @@ The host path is `MODEL_DOWNLOAD_PATH`, defaulting to `./models` relative to
 already has weights downloaded can point `MODEL_DOWNLOAD_PATH` at that directory
 to skip the initial download.
 
-### `COMPOSE_FILE_VERSION` bumped to 3
+### No separate `COMPOSE_FILE_VERSION` bump
 
-This change adds a volume and an environment variable, so the file version
-moves from 2 to 3. `EXPECTED_COMPOSE_FILE_VERSION` in admin-server moves with
-it; Deployment Check reports `old file` until the new `compose.yml` is copied.
+This adds a volume and an environment variable, which on its own would earn a
+bump. It does not get one: `compose.yml` v4 is still unreleased, so no operator
+has ever held a v4 file, and a v5 would only mean "copy the file you have not
+copied yet". The change rides along in v4 — copying that one file picks up both
+this and the test-audio services below.
+
+---
+
+## Unreleased — operator test-audio devices (`compose.yml` v4)
+
+**No action required.** One new service and a handful of new optional
+variables. Copy the new `compose.yml`; nothing starts or changes until you opt
+in by setting two of them.
+
+### What it is
+
+Two synthetic source devices an operator drives from the admin console
+(**Admin → Test Audio**):
+
+- **`good`** — clean speech at an adjustable level and noise floor. `gainDb`
+  spans −40 dB (below the ingress meter's silence floor) to +20 dB (hard
+  clipping); both ends are reachable on purpose.
+- **`fault`** — one knob per audio fault the stack claims to report — clipping,
+  stutter, drops, faster-than-realtime, silence, DC bias, CRC corruption, a
+  wrong-rate WAV header, clock skew — all independently settable and all
+  defaulting to zero.
+
+The point is to see what an alert looks like *before* it matters, and to check
+that the thing the dashboard claims to detect is the thing it actually detects.
+A retune applies to a running device without restarting the stream, so you turn
+a knob and watch a meter move.
+
+### ⚠️ Read this before turning it on
+
+These devices stream synthetic speech into whatever session is active in their
+room. Each has its **own dedicated test room** — `TEST-AUDIO-GOOD` and
+`TEST-AUDIO-FAULT`.
+
+A device token reaches **only its own device's room** — neither device has any
+way to name another — so the device-to-room assignment is the *entire* safety
+boundary, the same one the monitoring canary relies on. Putting one of these
+devices in a teaching room would inject fixture speech into that lecture's live
+captions, **silently**, with nothing in the stack to notice it.
+
+That assignment is now made **in code**, and that is stronger than making it by
+hand, not weaker. The Session Manager seeds both rooms and both devices under
+reserved uids no other room or device can ever hold; there is no argument to
+point at the wrong room and no prompt to misanswer at 2am; and room-management
+**refuses** afterwards to move either device into another room (409
+`TEST_AUDIO_DEVICE_NOT_ASSIGNABLE`) or to give either test room a different
+source device (409 `TEST_AUDIO_ROOM_NOT_ASSIGNABLE`).
+
+**Two rooms, not one:** a room has exactly one source device, and both devices
+must be able to run at once.
+
+### Turning it on
+
+**There is no provisioning script and nothing to copy.** Two lines in
+`deployment/.env`:
+
+```sh
+# admin-server -> generator, inbound. REQUIRED: the generator REFUSES TO START on
+# an empty or CHANGEME value, because an empty inbound key matches the empty
+# credential an unauthenticated caller presents as `Authorization: Bearer `.
+TEST_AUDIO_SERVICE_KEY=<a strong secret>
+
+# session-manager <-> generator. A DIFFERENT secret from the one above. Empty
+# seeds nothing and leaves both devices disabled.
+TEST_AUDIO_DEVICE_SECRET=<another strong secret>
+```
+
+```bash
+cd deployment
+docker compose --env-file .env -f compose.yml up -d
+```
+
+On its next boot the Session Manager creates, idempotently and at fixed uids:
+the two rooms, one source device in each, each device's stored credential
+(`bcrypt` of an HMAC of its uid under the secret), and **one standing,
+open-ended session per room** — which is what the devices attach to, so nothing
+has to be scheduled and `./create-session.sh` is not part of this any more. The
+generator derives the very same credential from the same secret and the same
+uids, so no token is ever transmitted, printed or pasted.
+
+`TEST_AUDIO_BASE_URL` needs no entry — `compose.yml` defaults it to the in-stack
+generator.
+
+**Rotating the secret** is a change to that one line plus a restart: the stored
+hash is re-written from the current value on every Session Manager boot, so both
+sides move together.
+
+**If a test room ever goes quiet** — someone ended its standing session from the
+console — restarting the Session Manager re-opens it.
+
+### Bounds
+
+Every run **auto-stops at the duration it was started with**, unconditionally —
+a timer is armed before any I/O and the send loop checks the same deadline every
+chunk. `TEST_AUDIO_MAX_DURATION_SEC` (default 1800) caps what may be asked for
+and is the authoritative limit; admin-server rejects only absurd values, so
+lowering this is obeyed rather than contradicted. A forgotten device cannot
+stream overnight, and the auto-stop survives admin-server going away.
+
+Every mutation is audited by admin-server with the knob that was turned, at what
+setting, for how long.
+
+### The generator starts with the stack
+
+It is not behind a compose profile. **Set `TEST_AUDIO_SERVICE_KEY` before your
+next `up`**, or that one container will exit on every start with a message
+naming the variable — the rest of the stack is unaffected, since nothing depends
+on it.
+
+Until `TEST_AUDIO_DEVICE_SECRET` is set the generator is **inert**: both devices
+report `configured: false` and refuse to start, so the admin panel is visible
+with every control disabled, and the Session Manager seeds nothing at all.
+Setting the secret is the step that arms it, which is why the safety note above
+sits next to it.
+
+### Turning it off
+
+Blank `TEST_AUDIO_BASE_URL` to hide the admin panel. To retire the devices
+entirely: unset `TEST_AUDIO_DEVICE_SECRET`, restart, **then** delete the two
+rooms and their devices in the admin console — while a device exists with a
+stored credential, a token derived from the old secret remains usable. Unsetting
+the secret alone stops the seeder re-writing the hash; it does not erase it.
+
+---
+
+## Unreleased — the transcription CRITICAL now reads dropped periods (`compose.yml` v3)
+
+**No action required.** Two new optional variables; leaving them unset gives the
+measured defaults baked into the image. Copy the new `compose.yml` to get the
+override knobs.
+
+### What changed
+
+The T1 `asr-saturation` CRITICAL was keyed on `asrRtf{quantile=p95}`. It is now
+keyed on the **share of scheduled job periods in which no pass ran at all**, at
+50%. `ALERT_RTF_P95` survives only as the fallback for a transcription-service
+too old to report that counter.
+
+RTF was the wrong signal in kind, not merely mis-thresholded. A period whose pass
+overruns is dropped, and the audio in it is left for the next pass, so per-pass
+cost amortises over a longer buffer and **RTF falls as the service saturates**.
+Measured on a GPU stack at 1/2/3/5/8 concurrent sessions: mean RTF 0.277 → 0.139
+while the worker went 26% → 94.5% busy and transcripts per 1000 chunks collapsed
+190 → 48. An alert on it was moving *further* from firing as captions failed.
+Dropped periods rose monotonically through the same sweep.
+
+### If you tuned `ALERT_RTF_P95`
+
+Your value now applies only during a rolling upgrade, against a service that
+predates the dropped-period counter. Tune `ALERT_ASR_DROPPED_PERIOD_CRITICAL_RATIO`
+instead. Note also that `ALERT_RTF_P95` used to default to **1.0** when unset
+even though the documented default was 2.0 — a schema default that outranked the
+compiled one. If you never set it, your stack has been using 1.0, which fires on
+a healthy deployment. It now falls back to 2.0 like the documentation says.
+
+### The tail warning was silently inactive on CPU
+
+`asr-tail-overrun` was floored at 100 *passes* in the 120s alert window. Two
+problems: a CPU template at `job_period_ms: 5000` only gets ~24 scheduled periods
+in that window (measured), so the floor was unreachable; and dropping a period
+removes a pass, so the floor rose out of reach exactly as the fault got worse.
+The counter path now floors on scheduled periods
+(`ALERT_ASR_SCHEDULED_PERIOD_MIN_COUNT`, 20), a total dropping does not move. The
+p99 fallback keeps the 100-pass floor, where the percentile-resolution argument
+genuinely applies.
+
+### The first poll no longer folds a service's lifetime
+
+`AbsoluteStatusPoller` differenced each absolute total against the previous
+reading, defaulting to zero. On the sidecar's *first* poll that meant a
+long-running service's entire history landed as one increment stamped `now`, so
+`asr-decode-drops`, `asr-buffer-overflow` and `upstream-churn` could all fire
+immediately after a sidecar restart and clear themselves one window later. The
+first poll now records baselines only. Expect to lose up to one poll interval of
+counts when the sidecar starts; those events happened before it was watching.
+
+### New variables
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `MONITORING_ASR_DROPPED_PERIOD_CRITICAL_RATIO` | `0.5` | drop share at which the T1 CRITICAL fires |
+| `MONITORING_ASR_SCHEDULED_PERIOD_MIN_COUNT` | `20` | scheduled periods needed before either drop share is believed |
+
+### CPU deployments
+
+A full stack was run on `TRANSCRIPTION_DEVICE=cpu` for the first time. On an
+RTX-class host's CPU (`small`, `cpu_threads` 4, 5000 ms period) a healthy single
+session measured **mean RTF 0.45–0.479 and a 2.9% drop share**, and at 3 sessions
+**56.3%** — so the drop-share thresholds need no CPU override, but
+`MONITORING_ASR_DUTY_RATIO` does: the GPU-calibrated 0.45 sits exactly on the
+healthy CPU value. Set it to **0.7** on CPU. With that one line a healthy CPU
+stack reports `{"alerts":[]}`.
+
+Above ~3 concurrent sessions this CPU configuration stops working altogether: at
+6 sessions every one was closed `1007 Client sent audio too quickly` and no
+transcript was produced, with the load driver pacing correctly at realtime. That
+is a capacity limit to plan around, not a setting to tune.
 
 ---
 
@@ -687,6 +1010,11 @@ TRANSCRIPTION_METRICS_KEY=<new secret>
 ```
 
 `NODE_SERVER_SERVICE_KEY` above already covers the node-server status poll.
+
+> **Superseded.** `MONITORING_CANARY_DEVICE_TOKEN` and the one-time device
+> registration below no longer exist — see the unreleased "the monitoring canary
+> is seeded, not provisioned" section at the top of this file. The safety note
+> still stands, and is now enforced in code.
 
 The synthetic canary (`MONITORING_CANARY_DEVICE_TOKEN`) is off by default and
 needs a one-time device registration. **It streams synthetic speech into a real

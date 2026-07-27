@@ -9,7 +9,6 @@ import CircularProgress from '@mui/material/CircularProgress';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
-import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
@@ -32,6 +31,7 @@ import { useNavigate } from 'react-router-dom';
 import type { Device } from '@scribear/session-manager-schema';
 
 import { ActivationCodeDisplay } from '#src/components/activation-code-display';
+import { KioskUrlInstructions } from '#src/components/kiosk-url-instructions';
 import { NameWithUid } from '#src/components/name-with-uid';
 import type { RegisterDeviceResult } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
@@ -115,9 +115,7 @@ const RegisterDeviceDialog = ({
               code={result.activationCode}
               expiry={result.expiry}
             />
-            <DialogContentText sx={{ mt: 2 }}>
-              On the kiosk browser, open /kiosk and enter this code.
-            </DialogContentText>
+            <KioskUrlInstructions />
           </Box>
         ) : (
           <TextField

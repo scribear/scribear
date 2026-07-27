@@ -62,7 +62,12 @@ describe('BUG.txt upstream flap replay', () => {
     await node.close();
   });
 
-  function createStack(probes: ProbeStatus[] = []) {
+  /**
+   * Builds the poller/evaluator pair and takes it past its priming poll, which
+   * records baselines without emitting increments — see `_advance`. Without it a
+   * replay's first body would be folded as node-server's whole lifetime.
+   */
+  async function createStack(probes: ProbeStatus[] = []) {
     const metrics = new MetricsRegistry();
     const poller = new NodeStatusPollerService(
       {
@@ -86,6 +91,8 @@ describe('BUG.txt upstream flap replay', () => {
       canaryRunner,
       DEFAULT_THRESHOLDS,
     );
+    node.setBody(statusBody());
+    await poller.pollOnce();
     return { metrics, poller, evaluator };
   }
 
@@ -93,7 +100,7 @@ describe('BUG.txt upstream flap replay', () => {
     it('raises a critical N1 alert once the flap crosses the threshold', async () => {
       // Arrange - a healthy first poll, so the alert cannot come from a
       // cold-start baseline being mistaken for a burst of churn.
-      const { poller, evaluator } = createStack();
+      const { poller, evaluator } = await createStack();
       node.setBody(statusBody({ sessions: [session()] }));
       await poller.pollOnce();
 
@@ -123,7 +130,7 @@ describe('BUG.txt upstream flap replay', () => {
       // Arrange - the do-no-false-alarm side of the gate. A session that starts
       // up normally walks IDLE -> CONNECTING -> HANDSHAKING -> OPEN, and none of
       // that is churn.
-      const { poller, evaluator } = createStack();
+      const { poller, evaluator } = await createStack();
 
       // Act
       node.setBody(
@@ -149,7 +156,7 @@ describe('BUG.txt upstream flap replay', () => {
     it('names the flapping session and not the healthy one', async () => {
       // Arrange - a real deployment runs many rooms at once. The counter is now
       // process-wide, so the room is named from the per-session upstream gauge.
-      const { poller, evaluator } = createStack();
+      const { poller, evaluator } = await createStack();
 
       // Act
       node.setBody(
@@ -186,7 +193,7 @@ describe('BUG.txt upstream flap replay', () => {
   describe('snapshot output', (it) => {
     it('exposes the firing alert, the churn counter and the session gauges', async () => {
       // Arrange
-      const { metrics, poller, evaluator } = createStack();
+      const { metrics, poller, evaluator } = await createStack();
       node.setBody(
         statusBody({
           summary: { upstreamChurnTotal: 4, activeSessionCount: 1 },

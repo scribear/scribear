@@ -75,5 +75,12 @@
     "dockerfile": "apps/admin-webapp/Dockerfile",
     "workspace": "apps/admin-webapp",
     "version_file": "apps/admin-webapp/package.json"
+  },
+  {
+    "image_name": "scribear/test-audio-generator",
+    "build_context": ".",
+    "dockerfile": "apps/test-audio-generator/Dockerfile",
+    "workspace": "apps/test-audio-generator",
+    "version_file": "apps/test-audio-generator/package.json"
   }
 ]

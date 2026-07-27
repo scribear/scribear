@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect } from 'vitest';
 
-import { decodeWav } from '#src/server/shared/canary/wav.js';
+import { decodeWav } from '@scribear/test-audio-source';
 
 /**
  * PLAN-AUDIOVIZ §9 cross-check gate, standalone-page leg.

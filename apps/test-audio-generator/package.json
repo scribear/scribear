@@ -1,0 +1,56 @@
+{
+  "name": "@scribear/test-audio-generator",
+  "version": "0.1.0",
+  "description": "Holds the two operator test-audio devices' tokens and runs them: one synthetic source playing clean speech at an adjustable level and noise floor, one reproducing on demand every audio fault the stack claims to report.",
+  "author": "scribear",
+  "main": "dist/src/index.js",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./server": {
+      "development": "./src/server/create-server.ts",
+      "default": "./dist/src/server/create-server.js"
+    },
+    "./app-config": {
+      "development": "./src/app-config/app-config.ts",
+      "default": "./dist/src/app-config/app-config.js"
+    }
+  },
+  "type": "module",
+  "imports": {
+    "#src/*": {
+      "development": "./src/*",
+      "default": "./dist/src/*"
+    },
+    "#tests/*": {
+      "development": "./tests/*",
+      "default": "./dist/tests/*"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build && node esbuild.config.mjs",
+    "build:longform": "node ./dist/src/scripts/build-longform-clip.js",
+    "start": "node ./dist/src/index.js",
+    "dev": "tsc --build && concurrently -k \"tsc --build --watch\" \"node --watch-path=dist dist/src/index.js --dev | pino-pretty\"",
+    "format": "prettier --check ./src ./tests",
+    "format:fix": "prettier --write ./src ./tests",
+    "lint": "eslint ./src ./tests",
+    "lint:fix": "eslint ./src ./tests --fix",
+    "test:dev": "vitest --ui --coverage",
+    "test:integration": "vitest run --project integration",
+    "test:unit": "vitest run --project unit"
+  },
+  "dependencies": {
+    "@fastify/awilix": "8.2.0",
+    "awilix": "13.0.0",
+    "env-schema": "7.0.0",
+    "fastify": "5.10.0",
+    "typebox": "1.1.5"
+  },
+  "devDependencies": {
+    "@types/ws": "8.18.1",
+    "ws": "8.21.1"
+  }
+}

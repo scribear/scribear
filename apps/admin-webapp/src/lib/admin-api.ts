@@ -604,6 +604,119 @@ export interface SessionStatusEvent {
 }
 export type FleetEvent = SessionStatusEvent;
 
+// ---- Test audio devices (PLAN-TestAudioDevices §2, via the §3 BFF) ----
+// Mirrors `DeviceState`, `GoodParams` and `FaultParams` from
+// apps/test-audio-generator. Restated here rather than imported for the same
+// reason the fleet mirrors above are: the generator is a server-side service
+// with its own dependency graph, and the SPA only ever sees these shapes
+// second-hand through the admin BFF.
+
+export type TestAudioDeviceId = 'good' | 'fault';
+
+/** Run state of one synthetic source. Kept loose in spirit but exhaustive here:
+ *  unlike `HealthComponent.status` this drives a start/stop button, so a state
+ *  the SPA does not know about must not silently read as "idle". */
+export type TestAudioRunState = 'idle' | 'connecting' | 'streaming' | 'error';
+
+/** Catalog id of a committed/generated speech fixture (§2.1). */
+export type TestAudioClip = 'harvard' | 'apollo' | 'longform';
+
+export type TestAudioNoiseType = 'none' | 'white' | 'brown';
+
+/** Noise floor in dBFS. Five fixed levels rather than a continuum, per §2.1. */
+export type TestAudioNoiseDb = -60 | -50 | -40 | -30 | -20;
+
+/** Device 1 — clean speech with a level and a noise floor (§2.1). */
+export interface TestAudioGoodParams {
+  clip: TestAudioClip;
+  /** −40 dB is below the ingress meter's silence floor; +20 dB drives the
+   *  fixture into hard clipping. Both ends are meant to be reachable. */
+  gainDb: number;
+  noiseType: TestAudioNoiseType;
+  noiseDb: TestAudioNoiseDb;
+}
+
+/** Device 2 — one knob per fault, independently settable (§2.2). All default
+ *  to zero, so a `fault` device started untouched streams clean audio. */
+export interface TestAudioFaultParams {
+  /** 0..100 — hard-clip the waveform. */
+  clipPct: number;
+  /** 0..100 — probability a frame is repeated. */
+  stutterPct: number;
+  /** 0..100 — probability a frame is skipped. */
+  dropPct: number;
+  /** 1.0..3.0 — send-rate multiple ("too many frames"). */
+  speedup: number;
+  /** 0..100 — probability a frame is digital silence. */
+  silencePct: number;
+  /** 0..1 — DC bias added to the waveform. */
+  dcOffset: number;
+  /** 0..100 — probability of a bad-CRC / truncated frame. */
+  corruptPct: number;
+  /** 0..100 — probability of a wrong-sample-rate WAV header. */
+  badHeaderPct: number;
+  /** −5000..5000 ms — offset written into the frame's `sentAt`. */
+  clockSkewMs: number;
+}
+
+interface TestAudioDeviceBase {
+  /** A device token is set for this device. False means the deployment ran no
+   *  provisioning for it — distinct from the feature being off entirely, which
+   *  is `TestAudioStatus.available`. */
+  configured: boolean;
+  state: TestAudioRunState;
+  /** The session the device found in its own room, once it has one. */
+  sessionUid: string | null;
+  roomName: string | null;
+  startedAtMs: number | null;
+  /** Epoch ms of the auto-stop. Every run expires (§2), so this is non-null
+   *  whenever the device is running. */
+  expiresAtMs: number | null;
+  framesSent: number;
+  /** Frames the fault engine altered. Always 0 for the `good` device. */
+  framesFaulted: number;
+  transcriptCount: number;
+  lastTranscript: string | null;
+  error: string | null;
+}
+
+export interface TestAudioGoodDevice extends TestAudioDeviceBase {
+  deviceId: 'good';
+  params: TestAudioGoodParams;
+}
+
+export interface TestAudioFaultDevice extends TestAudioDeviceBase {
+  deviceId: 'fault';
+  params: TestAudioFaultParams;
+}
+
+/** Discriminated on `deviceId`, which is what decides the shape of `params`. */
+export type TestAudioDeviceState = TestAudioGoodDevice | TestAudioFaultDevice;
+
+/**
+ * `available: false` means `TEST_AUDIO_BASE_URL` is unset on the admin server,
+ * i.e. this deployment never provisioned the devices — `devices` is then `[]`
+ * and every mutation would 503. It is a deployment fact, not a failure, so it
+ * is reported in the success envelope rather than thrown (§3).
+ */
+export interface TestAudioStatus {
+  available: boolean;
+  devices: TestAudioDeviceState[];
+}
+
+export interface StartTestAudioBody {
+  params: TestAudioGoodParams | TestAudioFaultParams;
+  /** Required, and capped server-side by `TEST_AUDIO_MAX_DURATION_SEC`
+   *  (default 1800). The run auto-stops at expiry with no further instruction. */
+  durationSec: number;
+}
+
+/** A PATCH carries only the knobs that moved — which knob was turned is the
+ *  whole point of the audit row (§3). */
+export type TestAudioParamsPatch =
+  | Partial<TestAudioGoodParams>
+  | Partial<TestAudioFaultParams>;
+
 export interface RoomDetail {
   room: Room;
   devices: Device[];
@@ -776,6 +889,40 @@ export class AdminApiClient {
    *  fleet that is genuinely idle. */
   fleet(): Promise<FleetSnapshot> {
     return this._request('GET', '/fleet');
+  }
+
+  // ---- Test audio devices ----
+  /** Never throws for an unconfigured deployment — see `TestAudioStatus`. */
+  testAudio(): Promise<TestAudioStatus> {
+    return this._request('GET', '/test-audio');
+  }
+  startTestAudio(
+    deviceId: TestAudioDeviceId,
+    body: StartTestAudioBody,
+  ): Promise<TestAudioDeviceState> {
+    return this._request(
+      'POST',
+      `/test-audio/${encodeURIComponent(deviceId)}/start`,
+      body,
+    );
+  }
+  stopTestAudio(deviceId: TestAudioDeviceId): Promise<TestAudioDeviceState> {
+    return this._request(
+      'POST',
+      `/test-audio/${encodeURIComponent(deviceId)}/stop`,
+    );
+  }
+  /** Retunes a **running** device without restarting the stream. A restart
+   *  would lose the session, which defeats the point of the feature (§2). */
+  updateTestAudioParams(
+    deviceId: TestAudioDeviceId,
+    params: TestAudioParamsPatch,
+  ): Promise<TestAudioDeviceState> {
+    return this._request(
+      'PATCH',
+      `/test-audio/${encodeURIComponent(deviceId)}/params`,
+      params,
+    );
   }
 
   // ---- Rooms ----
