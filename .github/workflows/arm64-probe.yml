@@ -24,6 +24,9 @@ on:
   push:
     branches:
       - explore/apple-silicon
+    # Editing the findings document must not rebuild eleven images.
+    paths-ignore:
+      - "**.md"
   workflow_dispatch:
     inputs:
       run_qemu:
@@ -127,6 +130,27 @@ jobs:
           docker build -f transcription_service/Dockerfile_CPU \
             -t probe/transcription-cpu:amd64 transcription_service
           echo "::notice title=transcription-cpu amd64 native::$((SECONDS - start))s"
+      # Deliberately the same report as job 3, so the two are comparable line for
+      # line. The interesting field is get_supported_compute_types("cpu"): if
+      # amd64 offers half-precision CPU types that arm64 does not, then a future
+      # change of `compute_type` in a provider config could pass on the GPU boxes
+      # and fail on a Mac. Every shipped config uses float32 today, so this is a
+      # forward-looking check rather than a current defect.
+      - name: Report the native stack, for comparison with the arm64 build
+        run: |
+          docker image inspect probe/transcription-cpu:amd64 \
+            --format 'arch={{.Architecture}} os={{.Os}}'
+          docker run --rm --entrypoint python probe/transcription-cpu:amd64 -c '
+          import platform, ctranslate2, torch, torchaudio, onnxruntime, soundfile, numpy
+          print("machine      ", platform.machine())
+          print("ctranslate2  ", ctranslate2.__version__)
+          print("ct2 compute  ", ctranslate2.get_supported_compute_types("cpu"))
+          print("torch        ", torch.__version__)
+          print("torchaudio   ", torchaudio.__version__)
+          print("onnxruntime  ", onnxruntime.__version__, onnxruntime.get_available_providers())
+          print("soundfile    ", soundfile.__version__, soundfile.__libsndfile_version__)
+          print("numpy        ", numpy.__version__)
+          '
 
   # The alternative to native arm64 runners, measured rather than assumed.
   # Everything in this image that is not a wheel download runs interpreted, and
