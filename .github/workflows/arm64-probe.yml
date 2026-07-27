@@ -1,0 +1,295 @@
+# EXPLORATION ONLY - not part of the CI/CD pipeline.
+#
+# Answers one question with real builds instead of reasoning: can ScribeAR's
+# images be built for linux/arm64, i.e. the platform Docker Desktop uses on an
+# Apple Silicon Mac? It publishes nothing, pushes nothing, and writes no build
+# cache, so it cannot affect any other branch or any deployment. Delete it (and
+# this branch) once the question is answered.
+#
+# Triggered by hand only. Every job carries its own timeout so the deliberately
+# slow QEMU job cannot sit on a runner indefinitely.
+name: ARM64 Probe (exploration)
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_qemu:
+        description: "Also cross-build the CPU transcription image under QEMU (slow, for the cost comparison)"
+        type: boolean
+        default: true
+      run_cuda:
+        description: "Also build the CUDA transcription image on arm64 (sbsa base; no Mac can use the result)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Does this repository get arm64 runners at all? Everything below depends on
+  # the answer, and a "label not found" queue-forever is the failure mode worth
+  # isolating in a job of its own.
+  runner-probe:
+    name: 1. arm64 runner availability
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    steps:
+      - name: Report the machine
+        run: |
+          echo "uname -m      : $(uname -m)"
+          echo "nproc         : $(nproc)"
+          echo "RUNNER_ARCH   : $RUNNER_ARCH"
+          echo "RUNNER_OS     : $RUNNER_OS"
+          free -h
+          . /etc/os-release && echo "os            : $PRETTY_NAME"
+          docker version --format '{{.Server.Version}} ({{.Server.Arch}})'
+
+  # The cheap control. A Node image is nothing but `npm ci` plus esbuild, so if
+  # this fails the problem is a native npm dependency, which is a much more
+  # ordinary problem than a missing Python wheel.
+  node-arm64:
+    name: 2. node-server image, native arm64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build (no push, no cache)
+        run: |
+          start=$SECONDS
+          docker build -f apps/node-server/Dockerfile -t probe/node-server:arm64 .
+          echo "::notice title=node-server arm64::$((SECONDS - start))s"
+      - name: Confirm the image is arm64 and starts
+        run: |
+          docker image inspect probe/node-server:arm64 \
+            --format 'arch={{.Architecture}} os={{.Os}}'
+          docker run --rm --entrypoint node probe/node-server:arm64 \
+            -e 'console.log(process.arch, process.platform, process.version)'
+
+  # The interesting one. Every heavyweight wheel the transcription service needs
+  # - ctranslate2, torch, torchaudio, onnxruntime, numpy, soundfile - has to
+  # exist for manylinux aarch64 or this fails, and the failure names the wheel.
+  python-cpu-arm64:
+    name: 3. transcription CPU image, native arm64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build (no push, no cache)
+        run: |
+          start=$SECONDS
+          docker build -f transcription_service/Dockerfile_CPU \
+            -t probe/transcription-cpu:arm64 transcription_service
+          echo "::notice title=transcription-cpu arm64 native::$((SECONDS - start))s"
+      - name: Confirm the image is arm64 and the native extensions import
+        run: |
+          docker image inspect probe/transcription-cpu:arm64 \
+            --format 'arch={{.Architecture}} os={{.Os}}'
+          docker run --rm --entrypoint python probe/transcription-cpu:arm64 -c '
+          import platform, ctranslate2, torch, torchaudio, onnxruntime, soundfile, numpy
+          print("machine      ", platform.machine())
+          print("ctranslate2  ", ctranslate2.__version__)
+          print("ct2 cuda     ", ctranslate2.get_cuda_device_count())
+          print("ct2 compute  ", ctranslate2.get_supported_compute_types("cpu"))
+          print("torch        ", torch.__version__)
+          print("torch cuda   ", torch.cuda.is_available())
+          print("torch mps    ", getattr(torch.backends, "mps", None) and torch.backends.mps.is_available())
+          print("torchaudio   ", torchaudio.__version__)
+          print("onnxruntime  ", onnxruntime.__version__, onnxruntime.get_available_providers())
+          print("soundfile    ", soundfile.__version__, soundfile.__libsndfile_version__)
+          print("numpy        ", numpy.__version__)
+          '
+
+  # The amd64 baseline for the same image, so the arm64 numbers above and the
+  # QEMU number below both have something to be compared against on the same
+  # day, on the same runner generation, with the same cold cache.
+  python-cpu-amd64-baseline:
+    name: 4. transcription CPU image, native amd64 (baseline)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build (no push, no cache)
+        run: |
+          start=$SECONDS
+          docker build -f transcription_service/Dockerfile_CPU \
+            -t probe/transcription-cpu:amd64 transcription_service
+          echo "::notice title=transcription-cpu amd64 native::$((SECONDS - start))s"
+
+  # The alternative to native arm64 runners, measured rather than assumed.
+  # Everything in this image that is not a wheel download runs interpreted, and
+  # `uv sync` + bytecode compilation of torch is a great deal of that.
+  python-cpu-qemu:
+    name: 5. transcription CPU image, arm64 under QEMU on amd64
+    if: inputs.run_qemu
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Cross-build (no push, no cache, no export)
+        run: |
+          start=$SECONDS
+          docker buildx build --platform linux/arm64 \
+            -f transcription_service/Dockerfile_CPU \
+            --output type=cacheonly \
+            transcription_service
+          echo "::notice title=transcription-cpu arm64 via QEMU::$((SECONDS - start))s"
+
+  # nvidia/cuda publishes a linux/arm64 tag, but it is the sbsa (server-class
+  # Arm, e.g. Grace) build. Whether it *builds* and whether a Mac could ever
+  # *use* it are different questions; this settles the first one only.
+  python-cuda-arm64:
+    name: 6. transcription CUDA image, native arm64
+    if: inputs.run_cuda
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - name: Read the default CUDA base image from cuda-variants.json
+        id: base
+        run: |
+          base=$(python3 -c "import json;print(json.load(open('transcription_service/cuda-variants.json'))[0]['base_image'])")
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "base image: $base"
+      - name: Build (no push, no cache)
+        run: |
+          start=$SECONDS
+          docker build -f transcription_service/Dockerfile_CUDA \
+            --build-arg "CUDA_BASE_IMAGE=${{ steps.base.outputs.base }}" \
+            -t probe/transcription-cuda:arm64 transcription_service
+          echo "::notice title=transcription-cuda arm64 native::$((SECONDS - start))s"
+      - name: Report what the CUDA runtime thinks it is on
+        run: |
+          docker image inspect probe/transcription-cuda:arm64 \
+            --format 'arch={{.Architecture}} os={{.Os}}'
+          docker run --rm --entrypoint /app/.venv/bin/python probe/transcription-cuda:arm64 -c '
+          import platform, ctranslate2, torch
+          print("machine     ", platform.machine())
+          print("ct2 devices ", ctranslate2.get_cuda_device_count())
+          print("torch       ", torch.__version__)
+          print("torch cuda  ", torch.cuda.is_available())
+          '
+
+  # No container at all: this is the `make install_dev_cpu` question, which is
+  # what native development on a Mac actually runs. Linux aarch64 rather than
+  # darwin arm64 - GitHub has no arm64 macOS-with-Linux-wheels runner - so it
+  # proves the aarch64 wheel set installs, imports and passes the suite, and
+  # leaves the darwin-specific wheels to the lockfile analysis.
+  uv-native-arm64:
+    name: 7. uv sync + pytest on native arm64 (no container)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: "3.12.11"
+      - name: install_dev_cpu (the Mac developer's command)
+        working-directory: transcription_service
+        run: |
+          start=$SECONDS
+          make install_dev_cpu
+          echo "::notice title=install_dev_cpu arm64::$((SECONDS - start))s"
+      - name: Report the installed native stack
+        working-directory: transcription_service
+        run: |
+          uv run python -c '
+          import platform, ctranslate2, torch, torchaudio, onnxruntime, soundfile, numpy
+          print("machine    ", platform.machine())
+          print("ctranslate2", ctranslate2.__version__, ctranslate2.get_supported_compute_types("cpu"))
+          print("torch      ", torch.__version__, "cuda:", torch.cuda.is_available())
+          print("torchaudio ", torchaudio.__version__)
+          print("onnxruntime", onnxruntime.__version__, onnxruntime.get_available_providers())
+          print("soundfile  ", soundfile.__version__, soundfile.__libsndfile_version__)
+          print("numpy      ", numpy.__version__)
+          '
+      - name: Unit tests on arm64
+        working-directory: transcription_service
+        run: make test_unit
+      - name: Integration tests on arm64
+        working-directory: transcription_service
+        run: make test_integration
+
+  # `make install_dev`, i.e. the CUDA-flavoured extra CI uses today, on arm64.
+  # Separate from job 7 because it resolves torch from PyPI and drags in the
+  # nvidia-*-cu13 aarch64 wheels, which is a very different download.
+  uv-native-arm64-cuda-extra:
+    name: 8. uv sync (CUDA extra) on native arm64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: "3.12.11"
+      - name: install_dev (silero-vad, i.e. the CUDA torch)
+        working-directory: transcription_service
+        run: |
+          start=$SECONDS
+          make install_dev
+          echo "::notice title=install_dev (cuda extra) arm64::$((SECONDS - start))s"
+      - name: Report the installed native stack
+        working-directory: transcription_service
+        run: |
+          uv run python -c '
+          import platform, torch
+          print("machine   ", platform.machine())
+          print("torch     ", torch.__version__, "cuda:", torch.cuda.is_available())
+          '
+
+  # A representative slice of the Node side: one webapp (vite/esbuild/rollup,
+  # the native-binary-heavy part of the toolchain) and one nginx-based infra
+  # image, so "the Node images are fine" is a measurement rather than a guess.
+  webapp-and-infra-arm64:
+    name: 9. client-webapp + nginx images, native arm64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build client-webapp
+        run: |
+          start=$SECONDS
+          docker build -f apps/client-webapp/Dockerfile -t probe/client-webapp:arm64 .
+          echo "::notice title=client-webapp arm64::$((SECONDS - start))s"
+      - name: Build scribear-nginx
+        run: |
+          start=$SECONDS
+          docker build -f infra/scribear-nginx/Dockerfile -t probe/scribear-nginx:arm64 .
+          echo "::notice title=scribear-nginx arm64::$((SECONDS - start))s"
+      - name: Confirm both are arm64
+        run: |
+          docker image inspect probe/client-webapp:arm64 --format 'client-webapp  {{.Architecture}}/{{.Os}}'
+          docker image inspect probe/scribear-nginx:arm64 --format 'scribear-nginx {{.Architecture}}/{{.Os}}'
+
+  # npm's own view of the platform. `npm ci` at the repo root is what a Mac
+  # developer runs first, and the failure mode to look for is an optional
+  # per-platform native package that package-lock.json has no arm64 entry for.
+  npm-ci-arm64:
+    name: 10. npm ci + build + test, native arm64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      # Deliberately NOT ./.github/actions/setup-node: that action's
+      # node_modules cache key is keyed on runner.os, which is "Linux" for both
+      # amd64 and arm64 runners, so an arm64 job saving under it would hand a
+      # tree of aarch64 native binaries to every amd64 job in the real
+      # pipeline. No cache here at all.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24.10.0"
+      - name: npm ci
+        run: |
+          start=$SECONDS
+          npm ci
+          echo "::notice title=npm ci arm64::$((SECONDS - start))s"
+      - name: Which native/optional binaries did npm actually install
+        run: |
+          find node_modules -maxdepth 3 -name '*.node' -printf '%p\n' | sort | head -50
+          echo "--- per-platform optional packages present:"
+          ls node_modules/@esbuild node_modules/@rollup 2>/dev/null || true
+      - name: npm run build
+        run: npm run build
+      - name: npm run test:unit
+        run: npm run test:unit
