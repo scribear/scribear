@@ -12,6 +12,64 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — watchtower is gone; `deploy_latest.sh` replaces it (`compose.yml` v7)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. If
+`.env` has `COMPOSE_PROFILES=autoupdate`, `WATCHTOWER_POLL_INTERVAL` or
+`WATCHTOWER_SCOPE`, remove them — they are no longer read (leave `monitoring`
+in `COMPOSE_PROFILES` if you use it; only `autoupdate` is gone). No service
+depended on watchtower, so this is otherwise a no-op until you set up its
+replacement below.
+
+### Why it's gone
+
+Watchtower updates containers **one at a time**, the moment it notices a new
+digest for each — independently of everything `compose.yml`'s `depends_on`
+exists to enforce. Concretely, that meant:
+
+- It has no idea `db-migrate` exists. `session-manager` or `admin-server`
+  could get recreated against a new image whose schema migration never ran,
+  because watchtower only manages long-running containers, and the migration
+  is deliberately a one-shot job.
+- It recreates services in whatever order it happens to poll them, not the
+  order `depends_on`/`service_healthy` would choose. Two services meant to
+  ship together can sit version-skewed for a full poll interval.
+- Nothing tells `nginx` afterward. Its `upstream` blocks resolve a backend
+  container's hostname once, at nginx's own startup; when watchtower recreates
+  that container it gets a new address on the docker network, and nginx keeps
+  talking to the old one until something restarts it too.
+- It runs with the Docker socket mounted, permanently, for a background poll
+  loop — root-equivalent on the host, which is exactly what the monitoring
+  sidecar gave up in B1.2.
+
+None of that is a corner case: it is a full outage or a wrong-service response
+waiting for the poll interval to trigger it.
+
+### What replaces it
+
+[`deploy_latest.sh`](deploy_latest.sh) does the same three things an operator
+already had to do by hand — fetch the compose file this branch/tag tracks,
+`docker compose pull`, `docker compose up -d` — as one script meant to run on
+a timer instead of a long-lived container. Unlike watchtower, that third step
+*is* `docker compose up -d`, so it runs `db-migrate` and waits on
+`depends_on`/`service_healthy` exactly as a manual upgrade would; the script
+also restarts `nginx` afterward as a blunt guard against the stale-upstream
+problem above.
+
+Sample [systemd unit/timer](deploy/scribear-deploy@.service) and
+[crontab entry](deploy/crontab.sample) are in `deployment/deploy/` — pick
+whichever this host already uses, point `WorkingDirectory` (systemd) or the
+`cd` (cron) at wherever this deployment's `.env` lives, and enable it. Both run
+`deploy_latest.sh` at the same interval watchtower polled at
+(`WATCHTOWER_POLL_INTERVAL` defaulted to 1800s), so if you were relying on that
+cadence nothing needs to change but the mechanism.
+
+The WebSocket-dropping caveat that applied to watchtower applies here too, by
+nature of `docker compose up -d` recreating whatever changed — this script
+does not make that free, it makes it the same `up -d` you would have run
+anyway, on a schedule. Production still wants that schedule chosen
+deliberately rather than left at "every 30 minutes."
+
 ## Unreleased — Config Check probes the monitoring profile (`compose.yml` v6)
 
 **Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d` to
@@ -1095,6 +1153,10 @@ steps are in [`../apps/monitoring-sidecar/.env.example`](../apps/monitoring-side
   changed. Re-check any external consumer of `/api/admin/v1/health`.
 
 ### Optional: automatic image updates (watchtower)
+
+> **Removed as of `compose.yml` v7** — see the "watchtower is gone" entry near
+> the top of this file. Left below as a historical record of what this release
+> introduced.
 
 `watchtower` polls the registry and recreates any container whose tag now points
 at a newer digest. It is in `compose.yml` behind the `autoupdate` profile, so it

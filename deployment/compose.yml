@@ -205,7 +205,7 @@ services:
       # Not `:?`-guarded, like DEPLOYMENT_ENV below and unlike the secrets: it
       # changes what is *reported*, never what runs, and must not be able to
       # stop a stack from starting.
-      COMPOSE_FILE_VERSION: "6"
+      COMPOSE_FILE_VERSION: "7"
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
@@ -733,46 +733,6 @@ services:
       - prometheus
     networks:
       - backend
-    restart: unless-stopped
-
-  # Automatic image updates.
-  #
-  # Polls the registry and recreates any container whose tag now points at a
-  # newer digest. On staging, where IMAGE_TAG=staging and every push to the
-  # staging branch republishes it, this is what makes the box continuously
-  # deployed without anyone logging in.
-  #
-  # OFF BY DEFAULT, via the profile: `docker compose up -d` does not start it
-  # unless COMPOSE_PROFILES=autoupdate is set. Recreating a container ends every
-  # WebSocket it was serving, so an update to node-server or
-  # transcription-service drops the live sessions they are carrying - captions
-  # simply stop mid-sentence and the kiosk has to reconnect. That is a fair
-  # trade on staging and a poor one during a lecture, and it is unattended: with
-  # IMAGE_TAG=latest a merge to main would deploy itself. Production wants a
-  # chosen moment, so opting in is a per-deployment decision rather than a
-  # default.
-  #
-  # Note also that this mounts the Docker socket, which is root-equivalent on
-  # the host. The monitoring sidecar gave up exactly that mount in B1.2; this
-  # reintroduces one to the stack, in a container whose whole job is to pull
-  # images and restart things. Weigh it as such.
-  watchtower:
-    profiles:
-      - autoupdate
-    image: ${WATCHTOWER_IMAGE:-nickfedor/watchtower:latest}
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      WATCHTOWER_POLL_INTERVAL: ${WATCHTOWER_POLL_INTERVAL:-1800}
-      # Without this the superseded image layers are never reclaimed, and a box
-      # polling every 30 minutes fills its disk with images nothing references.
-      WATCHTOWER_CLEANUP: "true"
-      # Empty means "every container on this host", including any that have
-      # nothing to do with ScribeAR. Set a scope and label the containers that
-      # should be updated to narrow it - see deployment/UPGRADING.md.
-      WATCHTOWER_SCOPE: ${WATCHTOWER_SCOPE:-}
-    # No network: it talks to the Docker socket and the registry, never to
-    # another service in this stack.
     restart: unless-stopped
 
 networks:
