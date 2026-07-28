@@ -1,0 +1,21 @@
+[Unit]
+Description=Fetch and apply the latest ScribeAR deployment (%i)
+Documentation=https://github.com/scribear/scribear/blob/main/deployment/UPGRADING.md
+Wants=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+# %i is the environment name: /opt/scribear/deploy_%i/deploy_latest.sh, e.g.
+# `systemctl enable --now scribear-deploy@prod.timer` runs
+# /opt/scribear/deploy_prod/deploy_latest.sh. Adjust the base path to wherever
+# this host actually keeps its deployment directories.
+WorkingDirectory=/opt/scribear/deploy_%i
+ExecStart=/opt/scribear/deploy_%i/deploy_latest.sh
+TimeoutStartSec=600
+
+# `journalctl -u scribear-deploy@%i` is the operator's first stop after a
+# failed run - deploy_latest.sh already prints `docker compose ps -a` on
+# failure, so the log has the same picture an SSH session would.
+StandardOutput=journal
+StandardError=journal
