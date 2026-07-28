@@ -71,6 +71,14 @@ export function latencySeries(
   };
 }
 
+/** Mirrors `SecretPlaceholders` (PLAN-ConfigCheck-Coverage Phase 2). */
+export interface FakeSecretPlaceholders {
+  sessionTokenSigningKeyIsPlaceholder: boolean;
+  sessionManagerServiceApiKeyIsPlaceholder: boolean;
+  nodeServerServiceApiKeyIsPlaceholder: boolean;
+  transcriptionServiceApiKeyIsPlaceholder: boolean;
+}
+
 export interface FakeStatusBody {
   processUid: string;
   processStartedAt: string;
@@ -88,7 +96,15 @@ export interface FakeStatusBody {
   latency: FakeLatencySeries[];
   sessions: FakeSession[];
   sessionsTruncated: boolean;
+  secretPlaceholders: FakeSecretPlaceholders;
 }
+
+const NO_PLACEHOLDERS: FakeSecretPlaceholders = {
+  sessionTokenSigningKeyIsPlaceholder: false,
+  sessionManagerServiceApiKeyIsPlaceholder: false,
+  nodeServerServiceApiKeyIsPlaceholder: false,
+  transcriptionServiceApiKeyIsPlaceholder: false,
+};
 
 const ZERO_SUMMARY = {
   activeSessionCount: 0,
@@ -112,12 +128,15 @@ export const FAKE_PROCESS_UID = '11111111-1111-4111-8111-111111111111';
  * without restating the other ten.
  */
 export function statusBody(
-  overrides: Partial<Omit<FakeStatusBody, 'summary' | 'sessions'>> & {
+  overrides: Partial<
+    Omit<FakeStatusBody, 'summary' | 'sessions' | 'secretPlaceholders'>
+  > & {
     summary?: Partial<typeof ZERO_SUMMARY>;
     sessions?: FakeSessionInput[];
+    secretPlaceholders?: Partial<FakeSecretPlaceholders>;
   } = {},
 ): FakeStatusBody {
-  const { summary, sessions, ...rest } = overrides;
+  const { summary, sessions, secretPlaceholders, ...rest } = overrides;
   return {
     processUid: FAKE_PROCESS_UID,
     processStartedAt: '2026-07-20T00:00:00.000Z',
@@ -134,6 +153,7 @@ export function statusBody(
       ...session,
     })),
     summary: { ...ZERO_SUMMARY, ...summary },
+    secretPlaceholders: { ...NO_PLACEHOLDERS, ...secretPlaceholders },
   };
 }
 

@@ -152,6 +152,16 @@ export abstract class AbsoluteStatusPoller<
     return this._lastResult;
   }
 
+  /**
+   * False when this poller was constructed with no API key, and so will never
+   * poll at all — distinct from `lastResult === null`, which a consumer could
+   * otherwise not tell apart from "enabled, but the first poll has not
+   * completed yet".
+   */
+  get enabled(): boolean {
+    return this._config.enabled;
+  }
+
   /** Runs one poll. Exposed so tests can drive it deterministically. */
   async pollOnce(): Promise<StatusPollResult> {
     const body = await this._fetchStatus();

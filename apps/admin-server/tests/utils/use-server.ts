@@ -13,6 +13,8 @@ export const TEST_LOCAL_CREDENTIALS = `${TEST_USERNAME} ${TEST_PASSWORD}`;
 export const TEST_SM_BASE_URL = 'http://session-manager.test';
 export const TEST_NODE_BASE_URL = 'http://node-server.test';
 export const TEST_TS_BASE_URL = 'http://transcription-service.test';
+export const TEST_MONITORING_SIDECAR_BASE_URL =
+  'http://monitoring-sidecar.test';
 export const TEST_CLIENT_WEBAPP_BASE_URL = 'http://client-webapp.test';
 export const TEST_AUDIO_BASE_URL = 'http://test-audio-generator.test';
 export const TEST_AUDIO_SERVICE_KEY = 'test-audio-service-key';
@@ -161,10 +163,31 @@ export function buildTestAppConfig(
       dbUser: dbConfig.dbUser,
       dbPassword: 'test-db-password',
       redisUrl: 'redis://:test-redis-password@redis.test:6379',
+      testAudioServiceKey: TEST_AUDIO_SERVICE_KEY,
+      // Disabled by default, like a deployment that never turns on the
+      // monitoring profile — which is most of them. Tests that exercise the
+      // probes pass both base URLs explicitly.
+      grafanaBaseUrl: '',
+      prometheusBaseUrl: '',
+      // Unlike the two above, this is never empty in a real deployment - the
+      // sidecar is a core service with no compose profile. Tests that care
+      // about `_checkSecretPlaceholders` stub this URL's `/config-audit`
+      // response explicitly; the shared `beforeEach` in
+      // config-check.routes.test.ts answers it cleanly by default.
+      monitoringSidecarBaseUrl: TEST_MONITORING_SIDECAR_BASE_URL,
       azureTenantId: 'test-tenant',
       azureClientId: 'test-client',
       azureClientSecret: 'test-client-secret',
       allowedGroup: 'test-admins',
+      // Was missing entirely until Phase 2: every prior caller of `_probe`
+      // (`_checkMonitoring`) was gated behind `grafanaBaseUrl`/
+      // `prometheusBaseUrl`, both empty by default here, so `_probe` was
+      // never actually exercised by this fixture until
+      // `_checkSecretPlaceholders` (unconditional) started calling it. Short,
+      // matching the other stubbed timeouts above - these targets are
+      // stubbed, so a real timeout would only ever be hit by a test that
+      // meant to hit it.
+      upstreamTimeoutMs: 500,
       ...overrides.configCheckConfig,
     },
     cookieSecret: overrides.cookieSecret ?? TEST_COOKIE_SECRET,

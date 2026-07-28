@@ -2,7 +2,10 @@ import type { Static } from 'typebox';
 import { Value } from 'typebox/value';
 
 import type { BaseLogger } from '@scribear/base-fastify-server';
-import { STATUS_SCHEMA } from '@scribear/node-server-schema';
+import {
+  STATUS_SCHEMA,
+  type SecretPlaceholders,
+} from '@scribear/node-server-schema';
 
 import type { MetricsRegistry } from '#src/server/shared/metrics/metrics-registry.service.js';
 import {
@@ -41,6 +44,16 @@ export class NodeStatusPollerService extends AbsoluteStatusPoller<NodeStatusBody
   /** Sessions present in the previous poll, so vanished ones can be removed. */
   private _knownSessions = new Set<string>();
 
+  /**
+   * The most recently polled secret-placeholder classification
+   * (PLAN-ConfigCheck-Coverage Phase 2), or null before the first successful
+   * poll. Not a metric — folding it into `MetricsRegistry` would wrongly gate
+   * Config Check's findings behind the optional `monitoring`/Prometheus
+   * profile — so it is stashed here instead, the same way `lastResult` is,
+   * and re-exposed directly by `ConfigAuditController`.
+   */
+  private _secretPlaceholders: SecretPlaceholders | null = null;
+
   // Own constructor solely so Awilix (CLASSIC mode, resolves by parameter name)
   // sees a first parameter named `nodeStatusPollerConfig`, matching the
   // registration key. Without it the class inherits the base constructor whose
@@ -67,10 +80,16 @@ export class NodeStatusPollerService extends AbsoluteStatusPoller<NodeStatusBody
   /** Kinds seen in the previous poll, so a kind that stopped can be removed. */
   private _knownLatencyKinds = new Set<string>();
 
+  /** @see {@link _secretPlaceholders} */
+  get secretPlaceholders(): SecretPlaceholders | null {
+    return this._secretPlaceholders;
+  }
+
   protected _apply(body: NodeStatusBody): void {
     this._applyCounters(body);
     this._applySessionGauges(body);
     this._applyLatencyQuantiles(body);
+    this._secretPlaceholders = body.secretPlaceholders;
   }
 
   private _applyCounters(body: NodeStatusBody): void {

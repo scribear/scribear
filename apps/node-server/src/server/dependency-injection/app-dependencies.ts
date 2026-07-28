@@ -2,6 +2,7 @@
 import '@fastify/awilix';
 
 import type { BaseDependencies } from '@scribear/base-fastify-server';
+import type { SecretPlaceholders } from '@scribear/node-server-schema';
 import type { TelemetryRedisClient } from '@scribear/scribear-redis';
 import type { SessionManagerClient } from '@scribear/session-manager-client';
 import type { TranscriptionServiceClient } from '@scribear/transcription-service-client';
@@ -48,6 +49,7 @@ interface AppDependencies extends BaseDependencies {
   transcriptionServiceClientConfig: TranscriptionServiceClientConfig;
   telemetryPublisherConfig: TelemetryPublisherConfig;
   demoRoomConfig: DemoRoomConfig;
+  secretPlaceholders: SecretPlaceholders;
 
   // Shared services
   serviceAuthService: ServiceAuthService;

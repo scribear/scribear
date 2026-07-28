@@ -7,6 +7,7 @@ import type { AppConfig } from '#src/app-config/app-config.js';
 import type { AppDependencies } from './dependency-injection/app-dependencies.js';
 import registerDependencies from './dependency-injection/register-dependencies.js';
 import { audioMeterRouter } from './features/audio-meter/audio-meter.router.js';
+import { configAuditRouter } from './features/config-audit/config-audit.router.js';
 import { metricsRouter } from './features/metrics/metrics.router.js';
 import { probesRouter } from './features/probes/probes.router.js';
 
@@ -72,6 +73,7 @@ async function createServer(
 
   fastify.register(probesRouter);
   fastify.register(metricsRouter);
+  fastify.register(configAuditRouter);
   if (audioMeterPage) fastify.register(audioMeterRouter);
 
   if (startCollectors) {

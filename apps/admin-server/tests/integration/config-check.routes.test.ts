@@ -2,12 +2,28 @@ import { afterEach, beforeAll, beforeEach, describe, expect, vi } from 'vitest';
 
 import type { ConfigCheckReport } from '#src/server/features/config-check/config-check.service.js';
 import {
+  TEST_MONITORING_SIDECAR_BASE_URL,
   TEST_NODE_BASE_URL,
   TEST_SM_BASE_URL,
   TEST_TS_BASE_URL,
   login,
   useServer,
 } from '#tests/utils/use-server.js';
+
+const CONFIG_AUDIT_URL = `${TEST_MONITORING_SIDECAR_BASE_URL}/api/monitoring/v1/config-audit`;
+
+/** node-server reports every secret fine - the default unless a test spoils it. */
+const CONFIG_AUDIT_CLEAN = {
+  nodeServer: {
+    status: 'ok',
+    secretPlaceholders: {
+      sessionTokenSigningKeyIsPlaceholder: false,
+      sessionManagerServiceApiKeyIsPlaceholder: false,
+      nodeServerServiceApiKeyIsPlaceholder: false,
+      transcriptionServiceApiKeyIsPlaceholder: false,
+    },
+  },
+};
 
 const URL = '/api/admin/v1/config-check';
 
@@ -30,8 +46,19 @@ describe('Config check route', () => {
 
   beforeEach(() => {
     // Every probed service answers healthy, so `services-unreachable` stays
-    // quiet unless a test wants it.
+    // quiet unless a test wants it. The sidecar's `/config-audit` gets its
+    // own body - `_checkSecretPlaceholders` is unconditional (the sidecar has
+    // no compose profile to be "off" behind), so every test in this file
+    // needs an answer for it, not just the ones that care about Phase 2.
     vi.stubGlobal('fetch', (url: string) => {
+      if (url.startsWith(CONFIG_AUDIT_URL)) {
+        return Promise.resolve(
+          new Response(JSON.stringify(CONFIG_AUDIT_CLEAN), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        );
+      }
       const known = [TEST_SM_BASE_URL, TEST_NODE_BASE_URL, TEST_TS_BASE_URL];
       if (!known.some((base) => url.startsWith(base))) {
         return Promise.reject(new Error('connect ECONNREFUSED'));
@@ -72,13 +99,14 @@ describe('Config check route', () => {
       expect(body.data.environmentSource).toBe('explicit');
     });
 
-    // Two findings, and both are properties of this fixture rather than of the
-    // configuration: telemetry is switched off above, and the test database is a
-    // plain Postgres carrying only admin-server's own audit tables — the shared
-    // schema `infra/scribear-db` owns has deliberately never been migrated here,
-    // since applying it would mean building that image (pg_cron, pg_trgm) to
-    // test a route that has nothing to do with it.
-    it('reports the telemetry advisory and the unmigrated shared schema', async () => {
+    // Three findings, and all are properties of this fixture rather than of
+    // the configuration: telemetry is switched off above, the monitoring
+    // profile's base URLs are unset by default (`buildTestAppConfig`), and the
+    // test database is a plain Postgres carrying only admin-server's own audit
+    // tables — the shared schema `infra/scribear-db` owns has deliberately
+    // never been migrated here, since applying it would mean building that
+    // image (pg_cron, pg_trgm) to test a route that has nothing to do with it.
+    it('reports the telemetry and monitoring advisories and the unmigrated shared schema', async () => {
       const res = await server.fastify.inject({
         method: 'GET',
         url: URL,
@@ -87,7 +115,11 @@ describe('Config check route', () => {
 
       expect(
         res.json<ConfigCheckBody>().data.findings.map((f) => f.id),
-      ).toEqual(['fleet-telemetry-disabled', 'schema-never-migrated']);
+      ).toEqual([
+        'fleet-telemetry-disabled',
+        'schema-never-migrated',
+        'monitoring-not-configured',
+      ]);
     });
 
     it('states the schema finding with a fix and a wiki link', async () => {
@@ -157,6 +189,74 @@ describe('Config check route', () => {
       });
 
       expect(res.body).not.toContain('test-db-password');
+    });
+  });
+
+  describe('a secret only node-server can see (PLAN-ConfigCheck-Coverage Phase 2)', (it) => {
+    it('is reported as critical when node-server flags it via the sidecar', async () => {
+      vi.stubGlobal('fetch', (url: string) => {
+        if (url.startsWith(CONFIG_AUDIT_URL)) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                nodeServer: {
+                  status: 'ok',
+                  secretPlaceholders: {
+                    sessionTokenSigningKeyIsPlaceholder: true,
+                    sessionManagerServiceApiKeyIsPlaceholder: false,
+                    nodeServerServiceApiKeyIsPlaceholder: false,
+                    transcriptionServiceApiKeyIsPlaceholder: false,
+                  },
+                },
+              }),
+              { status: 200, headers: { 'content-type': 'application/json' } },
+            ),
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ status: 'ok' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        );
+      });
+
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: URL,
+        headers: { cookie },
+      });
+
+      const { data } = res.json<ConfigCheckBody>();
+      const found = data.findings.find(
+        (f) => f.id === 'jwt-secret-placeholder',
+      );
+      expect(found?.severity).toBe('critical');
+      expect(data.blockingForProduction).toBeGreaterThanOrEqual(1);
+    });
+
+    it('reports unavailable rather than silence when the sidecar cannot answer', async () => {
+      vi.stubGlobal('fetch', (url: string) => {
+        if (url.startsWith(CONFIG_AUDIT_URL)) {
+          return Promise.reject(new Error('connect ECONNREFUSED'));
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ status: 'ok' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        );
+      });
+
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: URL,
+        headers: { cookie },
+      });
+
+      expect(
+        res.json<ConfigCheckBody>().data.findings.map((f) => f.id),
+      ).toContain('secret-placeholder-audit-unavailable');
     });
   });
 });

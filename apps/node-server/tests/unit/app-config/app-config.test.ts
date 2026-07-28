@@ -234,6 +234,52 @@ describe('AppConfig', () => {
     });
   });
 
+  describe('secret placeholders (PLAN-ConfigCheck-Coverage Phase 2)', (it) => {
+    it('reports every secret as not-a-placeholder for a fully-populated environment', () => {
+      // Act
+      const config = new AppConfig(NO_DOTENV_FILE);
+
+      // Assert
+      expect(config.secretPlaceholders).toStrictEqual({
+        sessionTokenSigningKeyIsPlaceholder: false,
+        sessionManagerServiceApiKeyIsPlaceholder: false,
+        nodeServerServiceApiKeyIsPlaceholder: false,
+        transcriptionServiceApiKeyIsPlaceholder: false,
+      });
+    });
+
+    it('flags only the secret that is still CHANGEME, matching case-insensitively', () => {
+      // Arrange - the deployment/.env.example marker embedded in an otherwise
+      // real-looking value, same as config-check.service.ts's own tests on
+      // the Admin Server exercise for its own secrets.
+      process.env['TRANSCRIPTION_SERVICE_API_KEY'] = 'changeme';
+
+      // Act
+      const config = new AppConfig(NO_DOTENV_FILE);
+
+      // Assert - never the value itself, only the classification.
+      expect(config.secretPlaceholders).toStrictEqual({
+        sessionTokenSigningKeyIsPlaceholder: false,
+        sessionManagerServiceApiKeyIsPlaceholder: false,
+        nodeServerServiceApiKeyIsPlaceholder: false,
+        transcriptionServiceApiKeyIsPlaceholder: true,
+      });
+    });
+
+    it('flags a secret whose value only contains the marker as a substring', () => {
+      // Arrange
+      process.env['SESSION_TOKEN_SIGNING_KEY'] = 'prefix-CHANGEME-suffix';
+
+      // Act
+      const config = new AppConfig(NO_DOTENV_FILE);
+
+      // Assert
+      expect(
+        config.secretPlaceholders.sessionTokenSigningKeyIsPlaceholder,
+      ).toBe(true);
+    });
+  });
+
   describe('schema validation', (it) => {
     it('throws when a required variable is missing', () => {
       // Arrange

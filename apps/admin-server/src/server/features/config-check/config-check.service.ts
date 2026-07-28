@@ -1,3 +1,7 @@
+import { Type } from 'typebox';
+import type { Static } from 'typebox';
+import { Value } from 'typebox/value';
+
 import {
   LATEST_MIGRATION,
   MIGRATION_TABLE,
@@ -25,7 +29,8 @@ export type CheckCategory =
   | 'access'
   | 'telemetry'
   | 'services'
-  | 'environment';
+  | 'environment'
+  | 'monitoring';
 
 /**
  * Severity of one finding in each environment.
@@ -77,7 +82,43 @@ const DOC = {
   postgres: `${WIKI}/Deployment#postgres`,
   migrations: `${WIKI}/Deployment#3-run-database-migrations`,
   redis: `${WIKI}/Deployment#redis`,
+  monitoring: `${WIKI}/Deployment#monitoring`,
 } as const;
+
+/**
+ * The shape of `GET /api/monitoring/v1/config-audit` on the monitoring
+ * sidecar (PLAN-ConfigCheck-Coverage Phase 2). Restated here rather than
+ * imported — the sidecar has no schema package other services depend on
+ * (unlike node-server/session-manager/transcription-service), the same
+ * reasoning `_prometheusIsScrapingSidecar`'s local `TargetsResponse`
+ * interface already follows for Prometheus's API.
+ *
+ * A runtime schema rather than a bare `interface` + cast, because this body
+ * crosses a version boundary: an older or newer sidecar can answer 200 with a
+ * shape this build does not know, and every field below is dereferenced
+ * unconditionally afterwards. `Value.Check` is what
+ * `NodeStatusPollerService._parseBody` already does one hop upstream for the
+ * same reason.
+ */
+const CONFIG_AUDIT_RESPONSE_SCHEMA = Type.Object({
+  nodeServer: Type.Union([
+    Type.Object({
+      status: Type.Literal('ok'),
+      secretPlaceholders: Type.Object({
+        sessionTokenSigningKeyIsPlaceholder: Type.Boolean(),
+        sessionManagerServiceApiKeyIsPlaceholder: Type.Boolean(),
+        nodeServerServiceApiKeyIsPlaceholder: Type.Boolean(),
+        transcriptionServiceApiKeyIsPlaceholder: Type.Boolean(),
+      }),
+    }),
+    Type.Object({
+      status: Type.Literal('unavailable'),
+      reason: Type.String(),
+    }),
+  ]),
+});
+
+type ConfigAuditResponse = Static<typeof CONFIG_AUDIT_RESPONSE_SCHEMA>;
 
 export interface ConfigCheckReport {
   environment: DeploymentEnv;
@@ -118,6 +159,27 @@ export interface ConfigCheckConfig {
   dbUser: string;
   dbPassword: string;
   redisUrl: string;
+  /** admin-server's inbound key for the test-audio generator (`TestAudioConfig.serviceKey`). */
+  testAudioServiceKey: string;
+  /**
+   * Base URL of Grafana, reached only over the backend network. Empty unless
+   * the `monitoring` compose profile is on — see `_checkMonitoring`.
+   */
+  grafanaBaseUrl: string;
+  /** Base URL of Prometheus, reached only over the backend network. Empty unless the `monitoring` compose profile is on. */
+  prometheusBaseUrl: string;
+  /**
+   * Base URL of the monitoring sidecar, reached only over the backend
+   * network. Unlike `grafanaBaseUrl`/`prometheusBaseUrl` this is never empty
+   * in practice — the sidecar is a core service with no compose profile —
+   * used to read `/api/monitoring/v1/config-audit` (PLAN-ConfigCheck-Coverage
+   * Phase 2): node-server's self-reported classification of whether
+   * JWT_SECRET/NODE_SERVER_KEY/NODE_SERVER_SERVICE_KEY/TRANSCRIPTION_API_KEY
+   * are still placeholders, relayed through the sidecar because it already
+   * holds the key node-server's status endpoint requires and admin-server
+   * never needs to.
+   */
+  monitoringSidecarBaseUrl: string;
   azureTenantId: string;
   azureClientId: string;
   azureClientSecret: string;
@@ -280,6 +342,12 @@ export function evaluateStaticChecks(
       title: 'DB_PASSWORD is still the example placeholder',
       value: config.dbPassword,
       variable: 'DB_PASSWORD',
+    },
+    {
+      id: 'test-audio-service-key-placeholder',
+      title: 'TEST_AUDIO_SERVICE_KEY is still the example placeholder',
+      value: config.testAudioServiceKey,
+      variable: 'TEST_AUDIO_SERVICE_KEY',
     },
   ];
 
@@ -479,9 +547,49 @@ export function evaluateStaticChecks(
         env,
       ),
     );
+  } else if (redisUrlHasPlaceholderPassword(config.redisUrl)) {
+    findings.push(
+      finding(
+        {
+          id: 'redis-url-placeholder-password',
+          category: 'telemetry',
+          title:
+            'The telemetry Redis URL is still the example placeholder password',
+          detail:
+            "ADMIN_REDIS_URL's password is still the deployment/.env.example placeholder. Anyone who has read the repository knows this value.",
+          remediation:
+            'Set REDIS_PASSWORD in deployment/.env to a high-entropy secret, then update ADMIN_REDIS_URL (and NODE_SERVER_REDIS_URL/TRANSCRIPTION_REDIS_URL, if set) to match.',
+          docUrl: DOC.redis,
+        },
+        {
+          development: 'advisory',
+          staging: 'critical',
+          production: 'critical',
+        },
+        env,
+      ),
+    );
   }
 
   return findings;
+}
+
+/**
+ * Why a `_probe` call did not produce a usable answer, as a clause to drop
+ * into a finding's detail.
+ *
+ * Worth spelling out rather than assuming a timeout: `_probe` returns `null`
+ * for both an abort at `upstreamTimeoutMs` and an immediate connection/DNS
+ * failure — indistinguishable from its `catch`, hence the deliberately
+ * unspecific "did not answer" — but a non-`null` response that failed
+ * `.ok` is a service that answered promptly with an error status, which
+ * "did not answer within Nms" would describe simply wrongly, sending an
+ * operator looking for a network problem that isn't there.
+ */
+function probeFailure(response: Response | null, timeoutMs: number): string {
+  return response === null
+    ? `did not answer within ${String(timeoutMs)}ms`
+    : `answered HTTP ${String(response.status)}`;
 }
 
 /** True when the URL has a non-empty password component. */
@@ -493,6 +601,20 @@ function redisUrlHasPassword(rawUrl: string): boolean {
     // fail to connect; claiming "no password" here would be a second, worse
     // explanation of the same fact.
     return true;
+  }
+}
+
+/**
+ * True when the URL's password is still the `deployment/.env.example`
+ * placeholder — e.g. a copied `redis://:CHANGEME@redis:6379` where
+ * `REDIS_PASSWORD` was since changed but `ADMIN_REDIS_URL` was not.
+ */
+function redisUrlHasPlaceholderPassword(rawUrl: string): boolean {
+  try {
+    return isPlaceholder(new URL(rawUrl).password);
+  } catch {
+    // Unparseable. Reported separately by the reachability check.
+    return false;
   }
 }
 
@@ -533,17 +655,22 @@ export class ConfigCheckService {
     const { environment, environmentSource, declaredButInvalid } =
       resolveEnvironment(this._config);
 
-    const [telemetry, services, database] = await Promise.all([
-      this._checkTelemetryBackplane(environment),
-      this._checkServiceReachability(environment),
-      this._checkDatabase(environment),
-    ]);
+    const [telemetry, services, database, monitoring, secretPlaceholders] =
+      await Promise.all([
+        this._checkTelemetryBackplane(environment),
+        this._checkServiceReachability(environment),
+        this._checkDatabase(environment),
+        this._checkMonitoring(environment),
+        this._checkSecretPlaceholders(environment),
+      ]);
 
     const findings = [
       ...evaluateStaticChecks(this._config, environment, declaredButInvalid),
       ...database,
       ...telemetry,
       ...services,
+      ...monitoring,
+      ...secretPlaceholders,
     ];
 
     const summary: Record<CheckSeverity, number> = {
@@ -628,6 +755,374 @@ export class ConfigCheckService {
         ),
       ];
     }
+  }
+
+  /**
+   * Is the `monitoring` compose profile (if the operator turned it on)
+   * actually working — Prometheus reachable and scraping its one target,
+   * Grafana reachable and its default password actually changed.
+   *
+   * Unlike most optional features on this page, an unset pair of base URLs is
+   * not treated as silent: a fleet-health dashboard is worth having in
+   * staging and production, so leaving it off is worth a nudge there (not in
+   * development, where a dashboard for a single throwaway container buys
+   * nothing). Reachability is gated on both `grafanaBaseUrl` and
+   * `prometheusBaseUrl` being set, since a deployment that never turns the
+   * profile on has neither container running, and probing them would report
+   * a false `unreachable` rather than the true fact.
+   *
+   * Each of Prometheus and Grafana is checked independently once configured:
+   * an operator who only wired one of the two base URLs (unusual, but not
+   * invalid) still gets a report on whichever one they configured.
+   */
+  private async _checkMonitoring(env: DeploymentEnv): Promise<ConfigFinding[]> {
+    const { grafanaBaseUrl, prometheusBaseUrl } = this._config;
+
+    if (grafanaBaseUrl === '' && prometheusBaseUrl === '') {
+      return [
+        finding(
+          {
+            id: 'monitoring-not-configured',
+            category: 'monitoring',
+            title: 'The fleet-health dashboard is not set up',
+            detail:
+              'ADMIN_GRAFANA_BASE_URL and ADMIN_PROMETHEUS_BASE_URL are both unset, so Config Check cannot see whether the monitoring compose profile is on, and there is no dashboard for evaluators or on-call staff to check.',
+            remediation:
+              'Add monitoring to COMPOSE_PROFILES in deployment/.env, then set ADMIN_GRAFANA_BASE_URL and ADMIN_PROMETHEUS_BASE_URL — see deployment/monitoring/README.md.',
+            docUrl: DOC.monitoring,
+          },
+          {
+            development: 'advisory',
+            staging: 'warning',
+            production: 'warning',
+          },
+          env,
+        ),
+      ];
+    }
+
+    const [prometheus, grafana] = await Promise.all([
+      prometheusBaseUrl === ''
+        ? Promise.resolve([])
+        : this._checkPrometheus(prometheusBaseUrl, env),
+      grafanaBaseUrl === ''
+        ? Promise.resolve([])
+        : this._checkGrafana(grafanaBaseUrl, env),
+    ]);
+
+    return [...prometheus, ...grafana];
+  }
+
+  /** `fetch` with the shared upstream timeout, `null` on any failure to answer at all. */
+  private async _probe(
+    url: string,
+    init?: RequestInit,
+  ): Promise<Response | null> {
+    try {
+      return await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(this._config.upstreamTimeoutMs),
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Reachable, and scraping the one target it is configured to scrape
+   * (`deployment/monitoring/prometheus.yml`'s `scribear_sidecar` job).
+   * Short-circuited like `_checkDatabase`: an unreachable Prometheus cannot
+   * meaningfully be asked what it is scraping.
+   */
+  private async _checkPrometheus(
+    baseUrl: string,
+    env: DeploymentEnv,
+  ): Promise<ConfigFinding[]> {
+    const health = await this._probe(`${baseUrl}/-/healthy`);
+    if (!health?.ok) {
+      return [
+        finding(
+          {
+            id: 'monitoring-prometheus-unreachable',
+            category: 'monitoring',
+            title: 'Prometheus is configured but unreachable',
+            detail: `ADMIN_PROMETHEUS_BASE_URL is set and /-/healthy ${probeFailure(health, this._config.upstreamTimeoutMs)}. The monitoring compose profile may not be running.`,
+            remediation:
+              'Check that COMPOSE_PROFILES includes monitoring in deployment/.env and that the prometheus container is up.',
+            docUrl: DOC.monitoring,
+          },
+          {
+            development: 'advisory',
+            staging: 'warning',
+            production: 'warning',
+          },
+          env,
+        ),
+      ];
+    }
+
+    if (await this._prometheusIsScrapingSidecar(baseUrl)) return [];
+
+    return [
+      finding(
+        {
+          id: 'monitoring-prometheus-not-scraping',
+          category: 'monitoring',
+          title: 'Prometheus is up but not scraping the fleet sidecar',
+          detail:
+            "Prometheus answered /-/healthy, but its scribear_sidecar scrape target is missing or not up. The Grafana fleet dashboard's data source will be empty.",
+          remediation:
+            'Check monitoring-sidecar is running and reachable at monitoring-sidecar:80, and that deployment/monitoring/prometheus.yml was not edited to remove the target.',
+          docUrl: DOC.monitoring,
+        },
+        { development: 'advisory', staging: 'warning', production: 'warning' },
+        env,
+      ),
+    ];
+  }
+
+  private async _prometheusIsScrapingSidecar(
+    baseUrl: string,
+  ): Promise<boolean> {
+    const response = await this._probe(`${baseUrl}/api/v1/targets`);
+    if (!response?.ok) return false;
+
+    interface TargetsResponse {
+      data?: {
+        activeTargets?: { labels?: { job?: string }; health?: string }[];
+      };
+    }
+
+    try {
+      const body = (await response.json()) as TargetsResponse;
+      return (body.data?.activeTargets ?? []).some(
+        (t) => t.labels?.job === 'scribear_sidecar' && t.health === 'up',
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Reachable, and no longer answering to the well-known default admin
+   * password.
+   *
+   * No dashboard-provisioning check here, deliberately: Grafana's dashboard
+   * API (`/api/dashboards/uid/...`) requires authentication, same as every
+   * other route past `/api/health`, and admin-server holds no real Grafana
+   * credential to check it with (see the class doc — that is the whole
+   * point). The only credential this check is allowed to try is the
+   * well-known default, which by construction only succeeds on exactly the
+   * deployments that have *not* changed it — so a dashboard check built on it
+   * would read "missing" on every properly-secured deployment, a guaranteed
+   * false positive on the good case. Verified live: the earlier version of
+   * this check did exactly that.
+   *
+   * The password check needs no secret at all — it always attempts exactly
+   * `admin`/`CHANGEME` over HTTP Basic auth against an authenticated route and
+   * reports whether that succeeded, so admin-server never receives (and does
+   * not need) `GRAFANA_ADMIN_PASSWORD` itself.
+   */
+  private async _checkGrafana(
+    baseUrl: string,
+    env: DeploymentEnv,
+  ): Promise<ConfigFinding[]> {
+    const health = await this._probe(`${baseUrl}/api/health`);
+    if (!health?.ok) {
+      return [
+        finding(
+          {
+            id: 'monitoring-grafana-unreachable',
+            category: 'monitoring',
+            title: 'Grafana is configured but unreachable',
+            detail: `ADMIN_GRAFANA_BASE_URL is set and /api/health ${probeFailure(health, this._config.upstreamTimeoutMs)}. The monitoring compose profile may not be running.`,
+            remediation:
+              'Check that COMPOSE_PROFILES includes monitoring in deployment/.env and that the grafana container is up.',
+            docUrl: DOC.monitoring,
+          },
+          {
+            development: 'advisory',
+            staging: 'warning',
+            production: 'warning',
+          },
+          env,
+        ),
+      ];
+    }
+
+    const findings: ConfigFinding[] = [];
+
+    const credentials = Buffer.from('admin:CHANGEME').toString('base64');
+    const login = await this._probe(`${baseUrl}/api/org`, {
+      headers: { Authorization: `Basic ${credentials}` },
+    });
+    if (login?.ok) {
+      findings.push(
+        finding(
+          {
+            id: 'monitoring-grafana-default-password',
+            category: 'monitoring',
+            title: 'Grafana admin password is still the example placeholder',
+            detail:
+              'Grafana accepted admin/CHANGEME, the deployment/.env.example placeholder. Anyone who has read the repository can sign in to Grafana as an administrator.',
+            remediation:
+              'Set GRAFANA_ADMIN_PASSWORD in deployment/.env to a high-entropy secret and recreate the grafana container — its admin password is set from GF_SECURITY_ADMIN_PASSWORD only on first start.',
+            docUrl: DOC.monitoring,
+          },
+          {
+            development: 'advisory',
+            staging: 'critical',
+            production: 'critical',
+          },
+          env,
+        ),
+      );
+    }
+
+    return findings;
+  }
+
+  /**
+   * Reads node-server's self-reported classification of the four secrets
+   * admin-server has no way to see directly — JWT_SECRET, NODE_SERVER_KEY,
+   * NODE_SERVER_SERVICE_KEY, TRANSCRIPTION_API_KEY (PLAN-ConfigCheck-Coverage
+   * Phase 2) — relayed through the monitoring sidecar's
+   * `/api/monitoring/v1/config-audit`, which already holds the key
+   * node-server's status endpoint requires. admin-server never receives (and
+   * does not need) any of these four secrets themselves — the same "probe,
+   * don't acquire" discipline `_checkGrafana`'s password check already
+   * follows.
+   *
+   * Unlike the Grafana/Prometheus checks above, this is never gated on an
+   * optional profile: the sidecar is a core service, and all four secrets are
+   * live in every deployment regardless of whether `monitoring` is on.
+   */
+  private async _checkSecretPlaceholders(
+    env: DeploymentEnv,
+  ): Promise<ConfigFinding[]> {
+    const response = await this._probe(
+      `${this._config.monitoringSidecarBaseUrl}/api/monitoring/v1/config-audit`,
+    );
+
+    const unavailable = (detail: string): ConfigFinding[] => [
+      finding(
+        {
+          id: 'secret-placeholder-audit-unavailable',
+          category: 'secrets',
+          title: 'Could not check node-server-held secrets for placeholders',
+          detail,
+          // Verified live: a placeholder NODE_SERVER_SERVICE_KEY produces
+          // exactly this finding, never `node-server-service-key-placeholder`
+          // — node-server's ServiceAuthService refuses to construct at all
+          // once its own inbound key contains CHANGEME (fails closed by
+          // design, so a misconfigured deployment fails loudly rather than
+          // serving telemetry to anyone), which means /status itself 500s
+          // before it can ever self-report on that specific key. Named here
+          // so an operator does not have to discover it by reading logs.
+          remediation:
+            "Check that monitoring-sidecar is running and reachable at monitoring-sidecar:80, and that its NODE_SERVER_SERVICE_API_KEY matches node-server's. If node-server is otherwise healthy, this can also mean NODE_SERVER_SERVICE_KEY itself is still the deployment/.env.example placeholder — node-server refuses to serve /status at all in that case, which this check cannot distinguish from an unrelated outage.",
+          docUrl: DOC.deployment,
+        },
+        { development: 'advisory', staging: 'warning', production: 'warning' },
+        env,
+      ),
+    ];
+
+    if (!response?.ok) {
+      return unavailable(
+        `monitoring-sidecar's /api/monitoring/v1/config-audit ${probeFailure(response, this._config.upstreamTimeoutMs)}. JWT_SECRET, NODE_SERVER_KEY, NODE_SERVER_SERVICE_KEY and TRANSCRIPTION_API_KEY could not be checked.`,
+      );
+    }
+
+    // Parsing and shape-validating are both failures of the same kind from a
+    // caller's point of view — "the sidecar cannot currently vouch for this" —
+    // and neither may throw uncaught out of a `Promise.all` member, which
+    // would 500 the whole report over one check that has its own dedicated
+    // unavailable state to report instead. The shape check is `Value.Check`
+    // over the whole body rather than a `'nodeServer' in parsed` guard: the
+    // fields below are dereferenced unconditionally, so a partial match (a
+    // `nodeServer` with no `secretPlaceholders`, or a `secretPlaceholders`
+    // with no fields) would otherwise either throw here or, worse, read every
+    // flag as `undefined` and report a malformed sidecar as a clean deployment.
+    let parsed: unknown;
+    try {
+      parsed = await response.json();
+    } catch {
+      return unavailable(
+        "monitoring-sidecar's /api/monitoring/v1/config-audit answered with a body Config Check could not parse.",
+      );
+    }
+
+    if (!Value.Check(CONFIG_AUDIT_RESPONSE_SCHEMA, parsed)) {
+      return unavailable(
+        "monitoring-sidecar's /api/monitoring/v1/config-audit answered with a body Config Check does not recognize — the sidecar may be a different version than admin-server. JWT_SECRET, NODE_SERVER_KEY, NODE_SERVER_SERVICE_KEY and TRANSCRIPTION_API_KEY could not be checked.",
+      );
+    }
+
+    const body: ConfigAuditResponse = parsed;
+
+    if (body.nodeServer.status !== 'ok') {
+      return unavailable(
+        `monitoring-sidecar reports node-server status "${body.nodeServer.reason}" — JWT_SECRET, NODE_SERVER_KEY, NODE_SERVER_SERVICE_KEY and TRANSCRIPTION_API_KEY could not be checked.`,
+      );
+    }
+
+    const sp = body.nodeServer.secretPlaceholders;
+    const checks: {
+      id: string;
+      flagged: boolean;
+      variable: string;
+      consequence: string;
+    }[] = [
+      {
+        id: 'jwt-secret-placeholder',
+        flagged: sp.sessionTokenSigningKeyIsPlaceholder,
+        variable: 'JWT_SECRET',
+        consequence: 'Every session token is forgeable.',
+      },
+      {
+        id: 'node-server-key-placeholder',
+        flagged: sp.sessionManagerServiceApiKeyIsPlaceholder,
+        variable: 'NODE_SERVER_KEY',
+        consequence:
+          'The shared service-to-service key between node-server and session-manager is public.',
+      },
+      {
+        id: 'node-server-service-key-placeholder',
+        flagged: sp.nodeServerServiceApiKeyIsPlaceholder,
+        variable: 'NODE_SERVER_SERVICE_KEY',
+        consequence:
+          "The key guarding node-server's own status endpoint — the one this very check reads through the sidecar — is public.",
+      },
+      {
+        id: 'transcription-api-key-placeholder',
+        flagged: sp.transcriptionServiceApiKeyIsPlaceholder,
+        variable: 'TRANSCRIPTION_API_KEY',
+        consequence:
+          'The shared key between node-server and transcription-service is public.',
+      },
+    ];
+
+    return checks
+      .filter((c) => c.flagged)
+      .map((c) =>
+        finding(
+          {
+            id: c.id,
+            category: 'secrets',
+            title: `${c.variable} is still the example placeholder`,
+            detail: `node-server reports ${c.variable} is still deployment/.env.example's CHANGEME placeholder. ${c.consequence}`,
+            remediation: `Set ${c.variable} in deployment/.env to a high-entropy secret and recreate node-server (and session-manager/transcription-service, which also hold it) — see deployment/UPGRADING.md.`,
+            docUrl: DOC.deployment,
+          },
+          {
+            development: 'advisory',
+            staging: 'critical',
+            production: 'critical',
+          },
+          env,
+        ),
+      );
   }
 
   /**

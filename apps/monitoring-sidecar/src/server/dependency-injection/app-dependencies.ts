@@ -9,6 +9,7 @@ import type {
 
 import type { AppConfig, BaseConfig } from '#src/app-config/app-config.js';
 import type { AudioMeterController } from '#src/server/features/audio-meter/audio-meter.controller.js';
+import type { ConfigAuditController } from '#src/server/features/config-audit/config-audit.controller.js';
 import type { MetricsController } from '#src/server/features/metrics/metrics.controller.js';
 import type { LivenessController } from '#src/server/features/probes/liveness.controller.js';
 import type { ReadinessController } from '#src/server/features/probes/readiness.controller.js';
@@ -64,6 +65,9 @@ interface AppDependencies extends BaseDependencies {
 
   // Metrics
   metricsController: MetricsController;
+
+  // Config audit (PLAN-ConfigCheck-Coverage Phase 2)
+  configAuditController: ConfigAuditController;
 
   // Standalone audio meter (A4)
   audioMeterController: AudioMeterController;

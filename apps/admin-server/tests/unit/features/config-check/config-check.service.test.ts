@@ -1,4 +1,4 @@
-import { describe, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, vi } from 'vitest';
 
 import {
   LATEST_MIGRATION,
@@ -13,6 +13,16 @@ import {
   resolveEnvironment,
 } from '#src/server/features/config-check/config-check.service.js';
 
+/**
+ * The sidecar is a core service with no compose profile, unlike Grafana/
+ * Prometheus, so — unlike `grafanaBaseUrl`/`prometheusBaseUrl` below — `CLEAN`
+ * gives it a real (test) URL rather than leaving it unset. The top-level
+ * `beforeEach` near the bottom of this file stubs every test's `fetch` to
+ * answer it cleanly by default, so `_checkSecretPlaceholders` fires no
+ * findings for a test that does not care about it.
+ */
+const SIDECAR_TEST_URL = 'http://monitoring-sidecar.test';
+
 /** A deployment with nothing wrong with it. Each test spoils one thing. */
 const CLEAN: ConfigCheckConfig = {
   declaredEnv: 'production',
@@ -25,6 +35,12 @@ const CLEAN: ConfigCheckConfig = {
   dbUser: 'scribear',
   dbPassword: 'e2b7d94a1c60f38b',
   redisUrl: 'redis://:5c9e1a7f3d824b60@redis:6379',
+  testAudioServiceKey: 'c3f8a2e91d5b7064af0e9d3c7b1a5e82',
+  // Off by default, like a deployment that never turns on the monitoring
+  // profile. `monitoringService` below turns it on with its own overrides.
+  grafanaBaseUrl: '',
+  prometheusBaseUrl: '',
+  monitoringSidecarBaseUrl: SIDECAR_TEST_URL,
   azureTenantId: 'tenant-1',
   azureClientId: 'client-1',
   azureClientSecret: '0b4e8d2a7f16c395',
@@ -155,6 +171,124 @@ async function healthIds(components: HealthComponentLike[]): Promise<string[]> {
   return report.findings.map((f) => f.id);
 }
 
+const PROMETHEUS_TEST_URL = 'http://prometheus.test';
+const GRAFANA_TEST_URL = 'http://grafana.test';
+const CONFIG_AUDIT_URL = `${SIDECAR_TEST_URL}/api/monitoring/v1/config-audit`;
+
+/** One stubbed HTTP answer, or a network failure, keyed by URL prefix. */
+type ProbeAnswers = Record<
+  string,
+  { status: number; body?: unknown } | 'network-error'
+>;
+
+/**
+ * node-server reports every secret fine — the default `/config-audit` answer
+ * everywhere except the `secret placeholders` describe below, which overrides
+ * it to explore every other shape.
+ */
+const CONFIG_AUDIT_HEALTHY: { status: number; body: unknown } = {
+  status: 200,
+  body: {
+    nodeServer: {
+      status: 'ok',
+      secretPlaceholders: {
+        sessionTokenSigningKeyIsPlaceholder: false,
+        sessionManagerServiceApiKeyIsPlaceholder: false,
+        nodeServerServiceApiKeyIsPlaceholder: false,
+        transcriptionServiceApiKeyIsPlaceholder: false,
+      },
+    },
+  },
+};
+
+/**
+ * Everything reachable and healthy: both monitoring endpoints answer, the
+ * sidecar scrape target is up, the default Grafana password is rejected, and
+ * node-server's secret audit comes back clean. Each monitoring test overrides
+ * exactly the one answer it cares about.
+ */
+const MONITORING_HEALTHY: ProbeAnswers = {
+  [`${PROMETHEUS_TEST_URL}/-/healthy`]: { status: 200 },
+  [`${PROMETHEUS_TEST_URL}/api/v1/targets`]: {
+    status: 200,
+    body: {
+      data: {
+        activeTargets: [{ labels: { job: 'scribear_sidecar' }, health: 'up' }],
+      },
+    },
+  },
+  [`${GRAFANA_TEST_URL}/api/health`]: { status: 200 },
+  // The real check: a probe that always tries admin/CHANGEME and nothing
+  // else. Rejected here, since the "healthy" baseline models a deployment
+  // that already changed the default password.
+  [`${GRAFANA_TEST_URL}/api/org`]: { status: 401 },
+  [CONFIG_AUDIT_URL]: CONFIG_AUDIT_HEALTHY,
+};
+
+function stubProbes(answers: ProbeAnswers) {
+  vi.stubGlobal('fetch', (url: string) => {
+    const match = Object.keys(answers).find((base) => url.startsWith(base));
+    const answer = match === undefined ? undefined : answers[match];
+    if (answer === undefined || answer === 'network-error') {
+      return Promise.reject(new Error('connect ECONNREFUSED'));
+    }
+    return Promise.resolve(
+      new Response(JSON.stringify(answer.body ?? {}), {
+        status: answer.status,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+  });
+}
+
+/**
+ * Every `.check()`-calling test needs a `/config-audit` answer regardless of
+ * whether it cares about Phase 2 secrets — `_checkSecretPlaceholders` is
+ * unconditional, unlike the Grafana/Prometheus probes above, since the
+ * sidecar is a core service rather than behind the optional `monitoring`
+ * profile. This keeps `dbService`/`healthService`-based tests hermetic
+ * without every one of them having to know that. Tests that care about this
+ * check (or about Grafana/Prometheus) call `stubProbes` themselves, which
+ * replaces this default outright.
+ */
+beforeEach(() => {
+  stubProbes({ [CONFIG_AUDIT_URL]: CONFIG_AUDIT_HEALTHY });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+/**
+ * A `ConfigCheckService` with both monitoring base URLs wired to the stubbed
+ * `fetch` above, and every other dependency healthy, so `check()`'s findings
+ * are exactly what `_checkMonitoring` produced.
+ */
+function monitoringService(
+  overrides: Partial<ConfigCheckConfig> = {},
+): ConfigCheckService {
+  type Args = ConstructorParameters<typeof ConfigCheckService>;
+  return new ConfigCheckService(
+    {
+      ...CLEAN,
+      grafanaBaseUrl: GRAFANA_TEST_URL,
+      prometheusBaseUrl: PROMETHEUS_TEST_URL,
+      ...overrides,
+    },
+    { enabled: false } as unknown as Args[1],
+    { check: () => Promise.resolve([]) } as unknown as Args[2],
+    REACHABLE_DB as unknown as Args[3],
+    gateway(LATEST_MIGRATION) as unknown as Args[4],
+  );
+}
+
+async function monitoringIds(
+  overrides: Partial<ConfigCheckConfig> = {},
+): Promise<string[]> {
+  const report = await monitoringService(overrides).check();
+  return report.findings.map((f) => f.id);
+}
+
 describe('resolveEnvironment', () => {
   describe('an explicit value', (it) => {
     it.each(['development', 'staging', 'production'] as const)(
@@ -233,6 +367,7 @@ describe('evaluateStaticChecks', () => {
       ['adminApiKey', 'admin-api-key-placeholder'],
       ['adminSessionSecret', 'admin-session-secret-placeholder'],
       ['dbPassword', 'db-password-placeholder'],
+      ['testAudioServiceKey', 'test-audio-service-key-placeholder'],
     ] as const)('are caught for %s', (field, expectedId) => {
       expect(ids({ [field]: 'CHANGEME' })).toContain(expectedId);
     });
@@ -362,6 +497,24 @@ describe('evaluateStaticChecks', () => {
         'redis-url-no-password',
       );
     });
+
+    // The realistic mistake: REDIS_PASSWORD was changed but the copied
+    // `redis://:CHANGEME@redis:6379` example from .env.example was not.
+    it('flags a Redis URL whose password is still the placeholder', () => {
+      expect(ids({ redisUrl: 'redis://:CHANGEME@redis:6379' })).toContain(
+        'redis-url-placeholder-password',
+      );
+    });
+
+    it('does not flag a real password as a placeholder', () => {
+      expect(ids()).not.toContain('redis-url-placeholder-password');
+    });
+
+    it('does not also claim an unparseable URL has a placeholder password', () => {
+      expect(ids({ redisUrl: 'not-a-url' })).not.toContain(
+        'redis-url-placeholder-password',
+      );
+    });
   });
 
   describe('the --dev flag', (it) => {
@@ -395,6 +548,7 @@ describe('evaluateStaticChecks', () => {
         adminLocalCredentials: 'engrit CHANGEME',
         dbPassword: 'CHANGEME',
         redisUrl: 'redis://:sup3rs3cr3tp4ss@redis:6379',
+        testAudioServiceKey: 'CHANGEME',
         allowedGroup: '',
       };
       const { environment, declaredButInvalid } = resolveEnvironment(spoiled);
@@ -406,6 +560,7 @@ describe('evaluateStaticChecks', () => {
         CLEAN.adminApiKey,
         CLEAN.adminSessionSecret,
         CLEAN.dbPassword,
+        CLEAN.testAudioServiceKey,
         'sup3rs3cr3tp4ss',
         '4f9a2c7e1b83d05a',
       ]) {
@@ -761,5 +916,453 @@ describe('the service health rollup', (it) => {
     expect(found).not.toContain('services-unreachable');
     expect(found).not.toContain('services-failing');
     expect(found).not.toContain('services-degraded');
+  });
+});
+
+describe('the monitoring probes', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  describe('neither base URL configured', (it) => {
+    it('reports the dashboard as not set up, not silence', async () => {
+      stubProbes(MONITORING_HEALTHY);
+      const report = await monitoringService({
+        grafanaBaseUrl: '',
+        prometheusBaseUrl: '',
+      }).check();
+
+      const found = report.findings.find(
+        (f) => f.id === 'monitoring-not-configured',
+      );
+      expect(found).toBeTruthy();
+      // Not development: a dashboard for a single throwaway container buys
+      // nothing there, but staging/production is a warning, not silence.
+      expect(found?.severity).toBe('warning');
+    });
+
+    it('is only advisory in development', async () => {
+      const report = await monitoringService({
+        grafanaBaseUrl: '',
+        prometheusBaseUrl: '',
+        declaredEnv: 'development',
+      }).check();
+
+      const found = report.findings.find(
+        (f) => f.id === 'monitoring-not-configured',
+      );
+      expect(found?.severity).toBe('advisory');
+    });
+
+    it('probes nothing over the network', async () => {
+      vi.stubGlobal('fetch', () => {
+        throw new Error('unexpected fetch when monitoring is unconfigured');
+      });
+
+      await expect(
+        monitoringService({
+          grafanaBaseUrl: '',
+          prometheusBaseUrl: '',
+        }).check(),
+      ).resolves.toBeTruthy();
+    });
+  });
+
+  describe('both base URLs configured and healthy', (it) => {
+    it('reports nothing', async () => {
+      stubProbes(MONITORING_HEALTHY);
+      const found = await monitoringIds();
+      expect(found.filter((id) => id.startsWith('monitoring-'))).toEqual([]);
+    });
+  });
+
+  describe('Prometheus', (it) => {
+    it('reports unreachable when /-/healthy does not answer', async () => {
+      stubProbes({
+        ...MONITORING_HEALTHY,
+        [`${PROMETHEUS_TEST_URL}/-/healthy`]: 'network-error',
+      });
+      expect(await monitoringIds()).toContain(
+        'monitoring-prometheus-unreachable',
+      );
+    });
+
+    it('reports not-scraping when the sidecar target is missing', async () => {
+      stubProbes({
+        ...MONITORING_HEALTHY,
+        [`${PROMETHEUS_TEST_URL}/api/v1/targets`]: {
+          status: 200,
+          body: { data: { activeTargets: [] } },
+        },
+      });
+      const found = await monitoringIds();
+      expect(found).toContain('monitoring-prometheus-not-scraping');
+      expect(found).not.toContain('monitoring-prometheus-unreachable');
+    });
+
+    it('reports not-scraping when the target is down rather than up', async () => {
+      stubProbes({
+        ...MONITORING_HEALTHY,
+        [`${PROMETHEUS_TEST_URL}/api/v1/targets`]: {
+          status: 200,
+          body: {
+            data: {
+              activeTargets: [
+                { labels: { job: 'scribear_sidecar' }, health: 'down' },
+              ],
+            },
+          },
+        },
+      });
+      expect(await monitoringIds()).toContain(
+        'monitoring-prometheus-not-scraping',
+      );
+    });
+
+    it('does not also ask about targets when unreachable', async () => {
+      // Short-circuited like `_checkDatabase`: an unreachable Prometheus
+      // cannot meaningfully be asked what it is scraping.
+      stubProbes({
+        [`${PROMETHEUS_TEST_URL}/-/healthy`]: 'network-error',
+        [`${GRAFANA_TEST_URL}/api/health`]: { status: 200 },
+        [`${GRAFANA_TEST_URL}/api/org`]: { status: 401 },
+      });
+      const found = await monitoringIds();
+      expect(found).toContain('monitoring-prometheus-unreachable');
+      expect(found).not.toContain('monitoring-prometheus-not-scraping');
+    });
+  });
+
+  describe('Grafana', (it) => {
+    it('reports unreachable when /api/health does not answer', async () => {
+      stubProbes({
+        ...MONITORING_HEALTHY,
+        [`${GRAFANA_TEST_URL}/api/health`]: 'network-error',
+      });
+      expect(await monitoringIds()).toContain('monitoring-grafana-unreachable');
+    });
+
+    it('does not also probe the password when unreachable', async () => {
+      stubProbes({
+        [`${PROMETHEUS_TEST_URL}/-/healthy`]: { status: 200 },
+        [`${PROMETHEUS_TEST_URL}/api/v1/targets`]: MONITORING_HEALTHY[
+          `${PROMETHEUS_TEST_URL}/api/v1/targets`
+        ] as { status: number; body?: unknown },
+        [`${GRAFANA_TEST_URL}/api/health`]: 'network-error',
+      });
+      const found = await monitoringIds();
+      expect(found).toContain('monitoring-grafana-unreachable');
+      expect(found).not.toContain('monitoring-grafana-default-password');
+    });
+
+    describe('the default-password probe', (it) => {
+      it('fires critical in staging/production when admin/CHANGEME is accepted', async () => {
+        stubProbes({
+          ...MONITORING_HEALTHY,
+          [`${GRAFANA_TEST_URL}/api/org`]: { status: 200 },
+        });
+        const report = await monitoringService().check();
+        const found = report.findings.find(
+          (f) => f.id === 'monitoring-grafana-default-password',
+        );
+        expect(found).toBeTruthy();
+        expect(found?.severity).toBe('critical');
+      });
+
+      it('does not fire when the credentials are rejected', async () => {
+        // MONITORING_HEALTHY already answers 401 to admin/CHANGEME, modelling
+        // a deployment that changed the default password.
+        stubProbes(MONITORING_HEALTHY);
+        expect(await monitoringIds()).not.toContain(
+          'monitoring-grafana-default-password',
+        );
+      });
+
+      it('sends exactly admin/CHANGEME over HTTP Basic auth, and nothing else', async () => {
+        let sawAuthHeader: string | null = null;
+        vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+          if (url.startsWith(`${GRAFANA_TEST_URL}/api/org`)) {
+            const headers = new Headers(init?.headers);
+            sawAuthHeader = headers.get('authorization');
+            return Promise.resolve(new Response(null, { status: 401 }));
+          }
+          const match = Object.keys(MONITORING_HEALTHY).find((base) =>
+            url.startsWith(base),
+          );
+          const answer =
+            match === undefined ? undefined : MONITORING_HEALTHY[match];
+          if (answer === undefined || answer === 'network-error') {
+            return Promise.reject(new Error('connect ECONNREFUSED'));
+          }
+          return Promise.resolve(
+            new Response(JSON.stringify(answer.body ?? {}), {
+              status: answer.status,
+            }),
+          );
+        });
+
+        await monitoringService().check();
+
+        expect(sawAuthHeader).toBe(
+          `Basic ${Buffer.from('admin:CHANGEME').toString('base64')}`,
+        );
+      });
+    });
+  });
+
+  describe('a deployment that only wires one of the two base URLs', (it) => {
+    it('still reports on the one it configured', async () => {
+      stubProbes({
+        [`${GRAFANA_TEST_URL}/api/health`]: 'network-error',
+      });
+      const found = await monitoringIds({ prometheusBaseUrl: '' });
+
+      expect(found).toContain('monitoring-grafana-unreachable');
+      expect(found).not.toContain('monitoring-not-configured');
+      expect(found.some((id) => id.startsWith('monitoring-prometheus-'))).toBe(
+        false,
+      );
+    });
+  });
+});
+
+describe('secret placeholders (PLAN-ConfigCheck-Coverage Phase 2)', (it) => {
+  it('reports nothing when node-server says every secret is fine', async () => {
+    // Arrange - the top-level `beforeEach` already stubs this cleanly;
+    // asserted explicitly here as the baseline the rest of this block spoils.
+    const found = await monitoringIds();
+
+    expect(found.some((id) => id.endsWith('-placeholder'))).toBe(false);
+  });
+
+  it.each([
+    [
+      'sessionTokenSigningKeyIsPlaceholder',
+      'jwt-secret-placeholder',
+      'JWT_SECRET',
+    ],
+    [
+      'sessionManagerServiceApiKeyIsPlaceholder',
+      'node-server-key-placeholder',
+      'NODE_SERVER_KEY',
+    ],
+    [
+      'nodeServerServiceApiKeyIsPlaceholder',
+      'node-server-service-key-placeholder',
+      'NODE_SERVER_SERVICE_KEY',
+    ],
+    [
+      'transcriptionServiceApiKeyIsPlaceholder',
+      'transcription-api-key-placeholder',
+      'TRANSCRIPTION_API_KEY',
+    ],
+  ] as const)(
+    'flags %s as %s, critical in production',
+    async (field, expectedId, variable) => {
+      stubProbes({
+        [CONFIG_AUDIT_URL]: {
+          status: 200,
+          body: {
+            nodeServer: {
+              status: 'ok',
+              secretPlaceholders: {
+                sessionTokenSigningKeyIsPlaceholder: false,
+                sessionManagerServiceApiKeyIsPlaceholder: false,
+                nodeServerServiceApiKeyIsPlaceholder: false,
+                transcriptionServiceApiKeyIsPlaceholder: false,
+                [field]: true,
+              },
+            },
+          },
+        },
+      });
+
+      const report = await monitoringService().check();
+      const found = report.findings.find((f) => f.id === expectedId);
+
+      expect(found).toBeTruthy();
+      expect(found?.severity).toBe('critical');
+      expect(found?.title).toContain(variable);
+      // Never a value, only ever the variable name and a classification.
+      expect(found?.detail).not.toMatch(/[A-Za-z0-9+/]{16,}/);
+    },
+  );
+
+  it('is only advisory in development, unlike a real deployment secret', async () => {
+    stubProbes({
+      [CONFIG_AUDIT_URL]: {
+        status: 200,
+        body: {
+          nodeServer: {
+            status: 'ok',
+            secretPlaceholders: {
+              sessionTokenSigningKeyIsPlaceholder: true,
+              sessionManagerServiceApiKeyIsPlaceholder: false,
+              nodeServerServiceApiKeyIsPlaceholder: false,
+              transcriptionServiceApiKeyIsPlaceholder: false,
+            },
+          },
+        },
+      },
+    });
+
+    const report = await monitoringService({
+      declaredEnv: 'development',
+    }).check();
+    const found = report.findings.find(
+      (f) => f.id === 'jwt-secret-placeholder',
+    );
+
+    expect(found?.severity).toBe('advisory');
+    expect(found?.productionSeverity).toBe('critical');
+  });
+
+  it('reports unavailable, not silence, when the sidecar cannot be reached', async () => {
+    stubProbes({ [CONFIG_AUDIT_URL]: 'network-error' });
+
+    const found = await monitoringIds();
+
+    expect(found).toContain('secret-placeholder-audit-unavailable');
+  });
+
+  it('reports unavailable when the sidecar answers with a body Config Check cannot parse', async () => {
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve(new Response('not json at all', { status: 200 })),
+    );
+
+    const found = await monitoringIds();
+
+    expect(found).toContain('secret-placeholder-audit-unavailable');
+  });
+
+  // Valid JSON of the wrong shape is the version-skew case - an older or
+  // newer sidecar answering 200 - and is the failure mode that matters most,
+  // because both bad outcomes are silent: a missing `secretPlaceholders`
+  // throws inside `check()`'s `Promise.all` and 500s the whole report, and a
+  // present-but-empty one reads every flag as `undefined` and reports a
+  // malformed sidecar as a clean deployment. Neither is invalid JSON, so the
+  // test above never covered them.
+  it.each([
+    ['`nodeServer` is missing entirely', {}],
+    ['`nodeServer` is not an object', { nodeServer: 'ok' }],
+    [
+      '`status` is ok but `secretPlaceholders` is missing',
+      { nodeServer: { status: 'ok' } },
+    ],
+    [
+      '`secretPlaceholders` is present but empty',
+      { nodeServer: { status: 'ok', secretPlaceholders: {} } },
+    ],
+    [
+      '`secretPlaceholders` is missing one field',
+      {
+        nodeServer: {
+          status: 'ok',
+          secretPlaceholders: {
+            sessionTokenSigningKeyIsPlaceholder: false,
+            sessionManagerServiceApiKeyIsPlaceholder: false,
+            nodeServerServiceApiKeyIsPlaceholder: false,
+          },
+        },
+      },
+    ],
+    [
+      '`status` is unavailable but `reason` is missing',
+      { nodeServer: { status: 'unavailable' } },
+    ],
+  ])(
+    'reports unavailable, and never crashes the report, when %s',
+    async (_label, body) => {
+      stubProbes({ [CONFIG_AUDIT_URL]: { status: 200, body } });
+
+      const report = await monitoringService().check();
+      const found = report.findings.map((f) => f.id);
+
+      expect(found).toContain('secret-placeholder-audit-unavailable');
+      expect(found.some((id) => id.endsWith('-placeholder'))).toBe(false);
+    },
+  );
+
+  it('accepts a body carrying fields this build does not know about', async () => {
+    // The other half of version skew: a *newer* sidecar adding a field must
+    // not read as unavailable, or upgrading the sidecar first would blind
+    // Config Check until admin-server caught up.
+    stubProbes({
+      [CONFIG_AUDIT_URL]: {
+        status: 200,
+        body: {
+          nodeServer: {
+            status: 'ok',
+            somethingNew: 42,
+            secretPlaceholders: {
+              sessionTokenSigningKeyIsPlaceholder: true,
+              sessionManagerServiceApiKeyIsPlaceholder: false,
+              nodeServerServiceApiKeyIsPlaceholder: false,
+              transcriptionServiceApiKeyIsPlaceholder: false,
+              someFutureKeyIsPlaceholder: false,
+            },
+          },
+        },
+      },
+    });
+
+    const found = await monitoringIds();
+
+    expect(found).toContain('jwt-secret-placeholder');
+    expect(found).not.toContain('secret-placeholder-audit-unavailable');
+  });
+
+  it('says the sidecar answered with an error, not that it timed out, on a non-2xx', async () => {
+    stubProbes({ [CONFIG_AUDIT_URL]: { status: 503 } });
+
+    const report = await monitoringService().check();
+    const found = report.findings.find(
+      (f) => f.id === 'secret-placeholder-audit-unavailable',
+    );
+
+    expect(found?.detail).toContain('answered HTTP 503');
+    expect(found?.detail).not.toContain('did not answer');
+  });
+
+  it('says it timed out when the sidecar does not answer at all', async () => {
+    stubProbes({ [CONFIG_AUDIT_URL]: 'network-error' });
+
+    const report = await monitoringService().check();
+    const found = report.findings.find(
+      (f) => f.id === 'secret-placeholder-audit-unavailable',
+    );
+
+    expect(found?.detail).toContain('did not answer within');
+  });
+
+  it.each(['disabled', 'unauthorized', 'not-yet-polled'] as const)(
+    'reports unavailable, not a clean bill of health, when node-server status is %s',
+    async (reason) => {
+      stubProbes({
+        [CONFIG_AUDIT_URL]: {
+          status: 200,
+          body: { nodeServer: { status: 'unavailable', reason } },
+        },
+      });
+
+      const found = await monitoringIds();
+
+      expect(found).toContain('secret-placeholder-audit-unavailable');
+      expect(found.some((id) => id.endsWith('-placeholder'))).toBe(false);
+    },
+  );
+
+  it('is only a warning, never critical, when the audit itself is unavailable', async () => {
+    // A missing report is a sidecar/network problem, not proof of a bad
+    // secret - it must not read as worse than "cannot currently check".
+    stubProbes({ [CONFIG_AUDIT_URL]: 'network-error' });
+
+    const report = await monitoringService().check();
+    const found = report.findings.find(
+      (f) => f.id === 'secret-placeholder-audit-unavailable',
+    );
+
+    expect(found?.severity).toBe('warning');
+    expect(found?.productionSeverity).toBe('warning');
   });
 });
