@@ -2,8 +2,11 @@ import { describe, expect } from 'vitest';
 
 import {
   AUDIO_THRESHOLDS,
+  CAPACITY_WARN_RATIO,
   audioBySession,
   deriveAudioStatus,
+  deriveCapacityStatus,
+  deriveProviderCapacity,
   deriveStageEdges,
   formatClippingPct,
   headlineStage,
@@ -14,7 +17,13 @@ import {
   stagesByDepth,
   vadStage,
 } from '#src/features/dashboard/fleet-status';
-import type { FleetSnapshot, SessionSnapshot } from '#src/lib/admin-api';
+import type {
+  FleetSnapshot,
+  MergedProvider,
+  ProviderHealth,
+  SessionSnapshot,
+  TranscriptionWorker,
+} from '#src/lib/admin-api';
 
 import {
   buildAudioSnapshot,
@@ -525,5 +534,209 @@ describe('formatClippingPct', (it) => {
 
   it('renders an exact zero as 0.00%', () => {
     expect(formatClippingPct(0)).toBe('0.00%');
+  });
+});
+
+// ---- Provider capacity (PLAN-AdmissionControl.md §5) ----
+
+function buildWorker(
+  overrides: Partial<TranscriptionWorker> = {},
+): TranscriptionWorker {
+  return {
+    workerId: 0,
+    utilization: 0.5,
+    liveJobCount: 0,
+    totalJobsRegistered: 0,
+    contextIds: [],
+    alive: true,
+    activeJobs: [],
+    estimatedCapacitySessions: null,
+    ...overrides,
+  };
+}
+
+function buildProviderHealth(
+  overrides: Partial<ProviderHealth> = {},
+): ProviderHealth {
+  return {
+    providerUid: 'whisper-streaming',
+    kind: 'local',
+    status: 'ok',
+    activeSessions: 0,
+    model: null,
+    modelLoaded: null,
+    owningWorkers: [],
+    endpoint: null,
+    reachable: null,
+    probeLatencyMs: null,
+    detail: null,
+    ...overrides,
+  };
+}
+
+function buildMergedProvider(
+  overrides: Partial<MergedProvider> = {},
+): MergedProvider {
+  return {
+    providerKey: 'whisper',
+    status: 'ok',
+    activeSessions: 0,
+    hosts: [{ transcriptionHost: 'gpu-1', health: buildProviderHealth() }],
+    ...overrides,
+  };
+}
+
+describe('deriveProviderCapacity', (it) => {
+  it('is applicable for a local provider', () => {
+    const provider = buildMergedProvider({
+      hosts: [
+        {
+          transcriptionHost: 'gpu-1',
+          health: buildProviderHealth({
+            kind: 'local',
+            owningWorkers: [buildWorker({ estimatedCapacitySessions: 6 })],
+          }),
+        },
+      ],
+    });
+
+    expect(deriveProviderCapacity(provider).applicable).toBe(true);
+  });
+
+  it('is not applicable for a remote provider (e.g. lumen_granite)', () => {
+    const provider = buildMergedProvider({
+      hosts: [
+        {
+          transcriptionHost: 'gpu-1',
+          health: buildProviderHealth({ kind: 'remote' }),
+        },
+      ],
+    });
+
+    expect(deriveProviderCapacity(provider).applicable).toBe(false);
+  });
+
+  it('sums estimatedCapacitySessions across every owning worker and host', () => {
+    const provider = buildMergedProvider({
+      activeSessions: 5,
+      hosts: [
+        {
+          transcriptionHost: 'gpu-1',
+          health: buildProviderHealth({
+            owningWorkers: [
+              buildWorker({ workerId: 0, estimatedCapacitySessions: 4 }),
+            ],
+          }),
+        },
+        {
+          transcriptionHost: 'gpu-2',
+          health: buildProviderHealth({
+            owningWorkers: [
+              buildWorker({ workerId: 0, estimatedCapacitySessions: 3 }),
+            ],
+          }),
+        },
+      ],
+    });
+
+    const capacity = deriveProviderCapacity(provider);
+
+    expect(capacity.liveSessions).toBe(5);
+    expect(capacity.estimatedCapacitySessions).toBe(7);
+  });
+
+  it('reads null when any owning worker has not measured yet, rather than treating it as zero', () => {
+    // A real ceiling from one worker summed with a fabricated zero for an
+    // unmeasured one would understate the true capacity, so the whole
+    // aggregate stays "not measured" instead.
+    const provider = buildMergedProvider({
+      hosts: [
+        {
+          transcriptionHost: 'gpu-1',
+          health: buildProviderHealth({
+            owningWorkers: [
+              buildWorker({ workerId: 0, estimatedCapacitySessions: 4 }),
+              buildWorker({ workerId: 1, estimatedCapacitySessions: null }),
+            ],
+          }),
+        },
+      ],
+    });
+
+    expect(deriveProviderCapacity(provider).estimatedCapacitySessions).toBe(
+      null,
+    );
+  });
+
+  it('reads null with no owning worker at all (e.g. an unroutable provider)', () => {
+    const provider = buildMergedProvider({
+      hosts: [
+        {
+          transcriptionHost: 'gpu-1',
+          health: buildProviderHealth({ owningWorkers: [] }),
+        },
+      ],
+    });
+
+    expect(deriveProviderCapacity(provider).estimatedCapacitySessions).toBe(
+      null,
+    );
+  });
+});
+
+describe('deriveCapacityStatus', (it) => {
+  it('is unknown while the estimate has not been measured yet', () => {
+    expect(
+      deriveCapacityStatus({
+        applicable: true,
+        liveSessions: 0,
+        estimatedCapacitySessions: null,
+      }),
+    ).toBe('unknown');
+  });
+
+  it('is good well under the ceiling', () => {
+    expect(
+      deriveCapacityStatus({
+        applicable: true,
+        liveSessions: 1,
+        estimatedCapacitySessions: 6,
+      }),
+    ).toBe('good');
+  });
+
+  it('is warn at the CAPACITY_WARN_RATIO boundary', () => {
+    const estimated = 20;
+    const live = Math.ceil(estimated * CAPACITY_WARN_RATIO);
+
+    expect(
+      deriveCapacityStatus({
+        applicable: true,
+        liveSessions: live,
+        estimatedCapacitySessions: estimated,
+      }),
+    ).toBe('warn');
+  });
+
+  it('is warn exactly at the ceiling (a full worker is not an error state)', () => {
+    expect(
+      deriveCapacityStatus({
+        applicable: true,
+        liveSessions: 4,
+        estimatedCapacitySessions: 4,
+      }),
+    ).toBe('warn');
+  });
+
+  it('is crit only when live sessions exceed the estimate', () => {
+    // The admission check should never let this happen, but the UI renders it
+    // sanely rather than assuming it is impossible.
+    expect(
+      deriveCapacityStatus({
+        applicable: true,
+        liveSessions: 5,
+        estimatedCapacitySessions: 4,
+      }),
+    ).toBe('crit');
   });
 });

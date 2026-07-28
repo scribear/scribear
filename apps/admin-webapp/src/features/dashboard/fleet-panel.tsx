@@ -31,6 +31,7 @@ import { buildJoinUrl } from '#src/lib/join-url';
 import { useToast } from '#src/lib/toast-context';
 
 import { AudioMeterBar, PEAK_CONVENTION } from './audio-meter-bar';
+import { CapacityMeterBar } from './capacity-meter-bar';
 import type {
   AudioStatus,
   FleetFilter,
@@ -42,6 +43,7 @@ import {
   AUDIO_STATUS_COLOR,
   audioBySession,
   deriveAudioStatus,
+  deriveProviderCapacity,
   deriveSessionStatus,
   formatClippingPct,
   headlineStage,
@@ -118,6 +120,54 @@ const ProviderStatusRow = ({ providers }: { providers: MergedProvider[] }) => {
           size="small"
         />
       ))}
+    </Stack>
+  );
+};
+
+/**
+ * Per-provider capacity readout: live sessions against the estimator's
+ * current ceiling (PLAN-AdmissionControl.md §5). One row per provider, same
+ * bar/text pattern as the session cards' audio strip — a bar is drawn only
+ * for a `local` provider; a `remote` one (`lumen_granite`) shows "not
+ * applicable" rather than a fabricated number, since its real capacity
+ * question is upstream rate limits, not a local worker pool.
+ */
+const ProviderCapacityRow = ({
+  providers,
+}: {
+  providers: MergedProvider[];
+}) => {
+  if (providers.length === 0) return null;
+
+  return (
+    <Stack spacing={0.75} sx={{ mb: 2 }}>
+      {providers.map((p) => {
+        const capacity = deriveProviderCapacity(p);
+        return (
+          <Stack
+            key={p.providerKey}
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: 'center' }}
+          >
+            <Typography
+              variant="caption"
+              sx={{
+                color: 'text.secondary',
+                fontFamily: 'monospace',
+                minWidth: '9em',
+                flexShrink: 0,
+              }}
+            >
+              {p.providerKey}
+            </Typography>
+            <CapacityMeterBar
+              capacity={capacity}
+              label={`Capacity for provider ${p.providerKey}`}
+            />
+          </Stack>
+        );
+      })}
     </Stack>
   );
 };
@@ -659,6 +709,7 @@ export const FleetPanel = () => {
       <Box sx={{ mb: 2 }}>
         <ProviderStatusRow providers={snapshot?.providers ?? []} />
       </Box>
+      <ProviderCapacityRow providers={snapshot?.providers ?? []} />
       {snapshot === null ? (
         <Typography
           sx={{

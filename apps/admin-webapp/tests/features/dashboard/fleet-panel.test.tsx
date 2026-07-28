@@ -7,9 +7,12 @@ import { useFleet } from '#src/features/dashboard/use-fleet';
 import type {
   AudioLevelStats,
   FleetSnapshot,
+  MergedProvider,
+  ProviderHealth,
   SessionAudioSnapshot,
   SessionSnapshot,
   SessionStatusEvent,
+  TranscriptionWorker,
 } from '#src/lib/admin-api';
 
 import { renderWithProviders } from '../../utils/render-with-providers';
@@ -74,13 +77,14 @@ function mountFleet(
   sessions: SessionSnapshot[],
   sessionAudio: SessionAudioSnapshot[],
   sessionEvents = new Map<string, SessionStatusEvent>(),
+  providers: MergedProvider[] = [],
 ): HTMLElement {
   const snapshot: FleetSnapshot = {
     generatedAt: 1,
     nodes: [],
     sessions,
     transcriptionHosts: [],
-    providers: [],
+    providers,
     sessionAudio,
   };
   vi.mocked(useFleet).mockReturnValue({
@@ -91,6 +95,53 @@ function mountFleet(
     refresh: vi.fn(),
   });
   return renderWithProviders(<FleetPanel />).container;
+}
+
+function buildWorker(
+  overrides: Partial<TranscriptionWorker> = {},
+): TranscriptionWorker {
+  return {
+    workerId: 0,
+    utilization: 0.5,
+    liveJobCount: 0,
+    totalJobsRegistered: 0,
+    contextIds: [],
+    alive: true,
+    activeJobs: [],
+    estimatedCapacitySessions: null,
+    ...overrides,
+  };
+}
+
+function buildProviderHealth(
+  overrides: Partial<ProviderHealth> = {},
+): ProviderHealth {
+  return {
+    providerUid: 'whisper-streaming',
+    kind: 'local',
+    status: 'ok',
+    activeSessions: 0,
+    model: null,
+    modelLoaded: null,
+    owningWorkers: [],
+    endpoint: null,
+    reachable: null,
+    probeLatencyMs: null,
+    detail: null,
+    ...overrides,
+  };
+}
+
+function buildMergedProvider(
+  overrides: Partial<MergedProvider> = {},
+): MergedProvider {
+  return {
+    providerKey: 'whisper',
+    status: 'ok',
+    activeSessions: 0,
+    hosts: [{ transcriptionHost: 'gpu-1', health: buildProviderHealth() }],
+    ...overrides,
+  };
 }
 
 /**
@@ -414,6 +465,79 @@ describe('SessionCard with no audio snapshot', (it) => {
 
     expect(screen.getByText('no audio telemetry')).toBeInTheDocument();
     expect(screen.queryByText('no audio from source')).not.toBeInTheDocument();
+  });
+});
+
+describe('FleetPanel provider capacity', (it) => {
+  beforeEach(() => {
+    vi.mocked(useFleet).mockReset();
+  });
+
+  it('renders a live/estimated readout for a local provider', () => {
+    const provider = buildMergedProvider({
+      providerKey: 'whisper',
+      activeSessions: 2,
+      hosts: [
+        {
+          transcriptionHost: 'gpu-1',
+          health: buildProviderHealth({
+            kind: 'local',
+            owningWorkers: [buildWorker({ estimatedCapacitySessions: 6 })],
+          }),
+        },
+      ],
+    });
+
+    mountFleet([], [], new Map(), [provider]);
+
+    expect(screen.getByText('whisper')).toBeInTheDocument();
+    expect(document.body).toHaveTextContent('2 / 6');
+  });
+
+  it('renders "not applicable" for a remote provider (lumen_granite), never a fake number', () => {
+    const provider = buildMergedProvider({
+      providerKey: 'lumen_granite',
+      activeSessions: 1,
+      hosts: [
+        {
+          transcriptionHost: 'gpu-1',
+          health: buildProviderHealth({ kind: 'remote', owningWorkers: [] }),
+        },
+      ],
+    });
+
+    mountFleet([], [], new Map(), [provider]);
+
+    expect(screen.getByText('lumen_granite')).toBeInTheDocument();
+    expect(screen.getByText('not applicable')).toBeInTheDocument();
+  });
+
+  it('renders "warming up" for a local provider with no clean measurement yet', () => {
+    const provider = buildMergedProvider({
+      providerKey: 'whisper',
+      activeSessions: 0,
+      hosts: [
+        {
+          transcriptionHost: 'gpu-1',
+          health: buildProviderHealth({
+            kind: 'local',
+            owningWorkers: [buildWorker({ estimatedCapacitySessions: null })],
+          }),
+        },
+      ],
+    });
+
+    mountFleet([], [], new Map(), [provider]);
+
+    expect(document.body).toHaveTextContent('0 / warming up');
+  });
+
+  it('renders nothing when the fleet reports no providers', () => {
+    mountFleet([], [], new Map(), []);
+
+    expect(
+      document.querySelector('[aria-label^="Capacity for provider"]'),
+    ).toBeNull();
   });
 });
 

@@ -383,6 +383,14 @@ export interface TranscriptionWorker {
     sessionUid: string | null;
     roomUid: string | null;
   }[];
+  /**
+   * N* (PLAN-AdmissionControl.md §3/§5): this worker's current auto-tuned
+   * session ceiling, or the operator-pinned `max_sessions` when set. Always
+   * present, sometimes `null` - `null` means "not measured yet" (warm-up, or
+   * a worker that has never had a clean measurement window), never zero or
+   * unlimited. Do not render it as either.
+   */
+  estimatedCapacitySessions: number | null;
 }
 
 /** Fields that don't apply to a provider's `kind` are `null`, never omitted. */
