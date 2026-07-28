@@ -399,6 +399,7 @@ export interface ProviderHealth {
   kind: 'local' | 'remote' | 'debug' | 'unknown';
   status: 'ok' | 'degraded' | 'down';
   activeSessions: number;
+  sessionsRefusedCapacityTotal: number;
   model: string | null;
   modelLoaded: boolean | null;
   owningWorkers: TranscriptionWorker[];
@@ -570,12 +571,14 @@ export interface SessionAudioSnapshot {
 
 /** One provider merged across every Transcription Service host serving it.
  * `status` is `down` only when every host reporting this key is `down`, `ok`
- * only when every host is `ok`; `activeSessions` is summed.
+ * only when every host is `ok`; `activeSessions` and
+ * `sessionsRefusedCapacityTotal` are both summed.
  */
 export interface MergedProvider {
   providerKey: string;
   status: 'ok' | 'degraded' | 'down';
   activeSessions: number;
+  sessionsRefusedCapacityTotal: number;
   hosts: { transcriptionHost: string; health: ProviderHealth }[];
 }
 

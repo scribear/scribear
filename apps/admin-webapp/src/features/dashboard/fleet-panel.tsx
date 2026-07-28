@@ -131,6 +131,15 @@ const ProviderStatusRow = ({ providers }: { providers: MergedProvider[] }) => {
  * for a `local` provider; a `remote` one (`lumen_granite`) shows "not
  * applicable" rather than a fabricated number, since its real capacity
  * question is upstream rate limits, not a local worker pool.
+ *
+ * Each row also carries `sessionsRefusedCapacityTotal` — sessions this
+ * provider's fleet has turned away at admission because the worker they
+ * landed on had no room, summed across hosts, monotonic since each host's
+ * process start. Always rendered as text, never colour alone (SC 1.4.1,
+ * matching `CapacityMeterBar`'s own "N / N*" readout): a nonzero count picks
+ * up `warning.main` for emphasis, but the count itself is what carries the
+ * information, and 0 is deliberately styled as an unremarkable fact rather
+ * than a muted "everything is fine" absence.
  */
 const ProviderCapacityRow = ({
   providers,
@@ -143,6 +152,7 @@ const ProviderCapacityRow = ({
     <Stack spacing={0.75} sx={{ mb: 2 }}>
       {providers.map((p) => {
         const capacity = deriveProviderCapacity(p);
+        const refused = p.sessionsRefusedCapacityTotal;
         return (
           <Stack
             key={p.providerKey}
@@ -165,6 +175,21 @@ const ProviderCapacityRow = ({
               capacity={capacity}
               label={`Capacity for provider ${p.providerKey}`}
             />
+            <Typography
+              variant="caption"
+              sx={{
+                color: refused > 0 ? 'warning.main' : 'text.secondary',
+                fontFamily: 'monospace',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+                minWidth: '13em',
+                textAlign: 'right',
+              }}
+            >
+              {refused > 0
+                ? `refused ${String(refused)} (since restart)`
+                : '0 refused'}
+            </Typography>
           </Stack>
         );
       })}

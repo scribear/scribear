@@ -563,6 +563,7 @@ function buildProviderHealth(
     kind: 'local',
     status: 'ok',
     activeSessions: 0,
+    sessionsRefusedCapacityTotal: 0,
     model: null,
     modelLoaded: null,
     owningWorkers: [],
@@ -581,6 +582,7 @@ function buildMergedProvider(
     providerKey: 'whisper',
     status: 'ok',
     activeSessions: 0,
+    sessionsRefusedCapacityTotal: 0,
     hosts: [{ transcriptionHost: 'gpu-1', health: buildProviderHealth() }],
     ...overrides,
   };

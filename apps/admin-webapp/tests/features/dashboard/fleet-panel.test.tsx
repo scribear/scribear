@@ -121,6 +121,7 @@ function buildProviderHealth(
     kind: 'local',
     status: 'ok',
     activeSessions: 0,
+    sessionsRefusedCapacityTotal: 0,
     model: null,
     modelLoaded: null,
     owningWorkers: [],
@@ -139,6 +140,7 @@ function buildMergedProvider(
     providerKey: 'whisper',
     status: 'ok',
     activeSessions: 0,
+    sessionsRefusedCapacityTotal: 0,
     hosts: [{ transcriptionHost: 'gpu-1', health: buildProviderHealth() }],
     ...overrides,
   };
@@ -538,6 +540,42 @@ describe('FleetPanel provider capacity', (it) => {
     expect(
       document.querySelector('[aria-label^="Capacity for provider"]'),
     ).toBeNull();
+  });
+
+  it('renders the refusal count as visible text when nonzero', () => {
+    const provider = buildMergedProvider({
+      providerKey: 'whisper',
+      sessionsRefusedCapacityTotal: 7,
+    });
+
+    mountFleet([], [], new Map(), [provider]);
+
+    expect(screen.getByText('refused 7 (since restart)')).toBeInTheDocument();
+  });
+
+  it('renders the zero-refusal case as visible text, not silence', () => {
+    // 0 is the honest answer for a provider that has never been refused
+    // (every remote provider, and any local one that has never saturated),
+    // not a gap - so it must still render as text (SC 1.4.1: never colour or
+    // absence alone), distinct from the nonzero "refused N (since restart)"
+    // wording so a reader never mistakes it for a live refusal count.
+    const provider = buildMergedProvider({
+      providerKey: 'lumen_granite',
+      sessionsRefusedCapacityTotal: 0,
+      hosts: [
+        {
+          transcriptionHost: 'gpu-1',
+          health: buildProviderHealth({ kind: 'remote', owningWorkers: [] }),
+        },
+      ],
+    });
+
+    mountFleet([], [], new Map(), [provider]);
+
+    expect(screen.getByText('0 refused')).toBeInTheDocument();
+    expect(
+      screen.queryByText(/refused 0 \(since restart\)/),
+    ).not.toBeInTheDocument();
   });
 });
 
