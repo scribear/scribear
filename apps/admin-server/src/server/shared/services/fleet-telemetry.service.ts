@@ -83,6 +83,14 @@ export interface MergedProvider {
   status: 'ok' | 'degraded' | 'down';
   /** Summed across every host reporting this key. */
   activeSessions: number;
+  /**
+   * Summed across every host reporting this key, same as `activeSessions`.
+   * Monotonic since each host's process start, so this sum resets downward
+   * whenever any contributing host restarts — the same caveat
+   * `invalidProviderKeyRejects` carries per host. Always 0 for a provider
+   * never subject to local admission control (every `remote` provider).
+   */
+  sessionsRefusedCapacityTotal: number;
   /** Per-host detail, verbatim from each host's `/providers/health` body. */
   hosts: { transcriptionHost: string; health: ProviderHealth }[];
 }
@@ -396,6 +404,7 @@ function mergeProviders(hosts: TranscriptionHostSnapshot[]): MergedProvider[] {
           providerKey,
           status: health.status,
           activeSessions: health.activeSessions,
+          sessionsRefusedCapacityTotal: health.sessionsRefusedCapacityTotal,
           hosts: [entry],
         });
         continue;
@@ -403,6 +412,8 @@ function mergeProviders(hosts: TranscriptionHostSnapshot[]): MergedProvider[] {
 
       existing.hosts.push(entry);
       existing.activeSessions += health.activeSessions;
+      existing.sessionsRefusedCapacityTotal +=
+        health.sessionsRefusedCapacityTotal;
       if (
         PROVIDER_STATUS_RANK[health.status] <
         PROVIDER_STATUS_RANK[existing.status]

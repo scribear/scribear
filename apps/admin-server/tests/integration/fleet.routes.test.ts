@@ -50,6 +50,7 @@ function fakeProviderHealth(
     kind: 'local',
     status: 'ok',
     activeSessions: 1,
+    sessionsRefusedCapacityTotal: 0,
     model: 'base.en',
     modelLoaded: true,
     owningWorkers: [],
@@ -280,6 +281,7 @@ describe('Fleet route wired to a real fleet backplane', () => {
           providerKey: 'whisper',
           status: 'ok',
           activeSessions: 1,
+          sessionsRefusedCapacityTotal: 0,
           hosts: [
             {
               transcriptionHost: 'fleet-test-ts',
