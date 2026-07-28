@@ -64,6 +64,7 @@ describe('transcription host snapshot cross-check', (it) => {
         contextIds: number[];
         activeJobs: unknown[];
         alive: boolean;
+        estimatedCapacitySessions: number | null;
       }[];
       providers: Record<string, { kind: string; owningWorkers: unknown[] }>;
     };
@@ -81,6 +82,15 @@ describe('transcription host snapshot cross-check', (it) => {
     expect(
       Object.values(manifest.providers).some(
         (provider) => provider.owningWorkers.length > 0,
+      ),
+    ).toBe(true);
+    // `null` trivially satisfies `Type.Union([Type.Integer(), Type.Null()])`
+    // no matter what the non-null variant declares - the same reason this
+    // suite insists on non-empty arrays above. Only a concrete number here
+    // exercises the `Type.Integer()` half.
+    expect(
+      manifest.workers.some(
+        (worker) => typeof worker.estimatedCapacitySessions === 'number',
       ),
     ).toBe(true);
   });

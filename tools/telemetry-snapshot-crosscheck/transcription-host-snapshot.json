@@ -25,7 +25,8 @@
           "sessionUid": null,
           "roomUid": null
         }
-      ]
+      ],
+      "estimatedCapacitySessions": 4
     },
     {
       "workerId": 1,
@@ -34,7 +35,8 @@
       "totalJobsRegistered": 0,
       "contextIds": [],
       "alive": false,
-      "activeJobs": []
+      "activeJobs": [],
+      "estimatedCapacitySessions": 4
     }
   ],
   "providers": {
@@ -67,7 +69,8 @@
               "sessionUid": null,
               "roomUid": null
             }
-          ]
+          ],
+          "estimatedCapacitySessions": 4
         }
       ],
       "endpoint": null,
