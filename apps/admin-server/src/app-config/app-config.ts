@@ -97,6 +97,16 @@ const CONFIG_SCHEMA = Type.Object({
   // and /fleet answers 503 rather than the BFF failing to boot.
   REDIS_URL: Type.String({ default: '' }),
 
+  // Config Check's monitoring probes (Phase 1, PLAN-ConfigCheck-Coverage).
+  // Empty (the default) means the monitoring compose profile was never
+  // turned on — reported as a warning in staging/production (advisory in
+  // development), since a fleet-health dashboard is worth having once a
+  // deployment is more than a throwaway container. Set both together when
+  // you turn the profile on; never `:?`-guarded, since an unset value must
+  // never stop the stack from starting.
+  ADMIN_GRAFANA_BASE_URL: Type.String({ default: '' }),
+  ADMIN_PROMETHEUS_BASE_URL: Type.String({ default: '' }),
+
   // Operator test-audio devices (PLAN-TestAudioDevices §3). Empty base URL is
   // the default and means the feature is off: the panel reads
   // `{ available: false, devices: [] }` at 200 and every mutation 503s, the
@@ -324,6 +334,9 @@ export class AppConfig {
       dbUser: this._env.DB_USER,
       dbPassword: this._env.DB_PASSWORD,
       redisUrl: this._env.REDIS_URL,
+      testAudioServiceKey: this._env.TEST_AUDIO_SERVICE_KEY,
+      grafanaBaseUrl: this._env.ADMIN_GRAFANA_BASE_URL,
+      prometheusBaseUrl: this._env.ADMIN_PROMETHEUS_BASE_URL,
       azureTenantId: this._env.AZURE_TENANT_ID,
       azureClientId: this._env.AZURE_CLIENT_ID,
       azureClientSecret: this._env.AZURE_CLIENT_SECRET,

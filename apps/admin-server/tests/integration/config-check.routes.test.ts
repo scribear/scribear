@@ -72,13 +72,14 @@ describe('Config check route', () => {
       expect(body.data.environmentSource).toBe('explicit');
     });
 
-    // Two findings, and both are properties of this fixture rather than of the
-    // configuration: telemetry is switched off above, and the test database is a
-    // plain Postgres carrying only admin-server's own audit tables — the shared
-    // schema `infra/scribear-db` owns has deliberately never been migrated here,
-    // since applying it would mean building that image (pg_cron, pg_trgm) to
-    // test a route that has nothing to do with it.
-    it('reports the telemetry advisory and the unmigrated shared schema', async () => {
+    // Three findings, and all are properties of this fixture rather than of
+    // the configuration: telemetry is switched off above, the monitoring
+    // profile's base URLs are unset by default (`buildTestAppConfig`), and the
+    // test database is a plain Postgres carrying only admin-server's own audit
+    // tables — the shared schema `infra/scribear-db` owns has deliberately
+    // never been migrated here, since applying it would mean building that
+    // image (pg_cron, pg_trgm) to test a route that has nothing to do with it.
+    it('reports the telemetry and monitoring advisories and the unmigrated shared schema', async () => {
       const res = await server.fastify.inject({
         method: 'GET',
         url: URL,
@@ -87,7 +88,11 @@ describe('Config check route', () => {
 
       expect(
         res.json<ConfigCheckBody>().data.findings.map((f) => f.id),
-      ).toEqual(['fleet-telemetry-disabled', 'schema-never-migrated']);
+      ).toEqual([
+        'fleet-telemetry-disabled',
+        'schema-never-migrated',
+        'monitoring-not-configured',
+      ]);
     });
 
     it('states the schema finding with a fix and a wiki link', async () => {

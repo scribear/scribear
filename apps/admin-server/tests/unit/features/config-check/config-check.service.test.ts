@@ -1,4 +1,4 @@
-import { describe, expect, vi } from 'vitest';
+import { afterEach, describe, expect, vi } from 'vitest';
 
 import {
   LATEST_MIGRATION,
@@ -25,6 +25,11 @@ const CLEAN: ConfigCheckConfig = {
   dbUser: 'scribear',
   dbPassword: 'e2b7d94a1c60f38b',
   redisUrl: 'redis://:5c9e1a7f3d824b60@redis:6379',
+  testAudioServiceKey: 'c3f8a2e91d5b7064af0e9d3c7b1a5e82',
+  // Off by default, like a deployment that never turns on the monitoring
+  // profile. `monitoringService` below turns it on with its own overrides.
+  grafanaBaseUrl: '',
+  prometheusBaseUrl: '',
   azureTenantId: 'tenant-1',
   azureClientId: 'client-1',
   azureClientSecret: '0b4e8d2a7f16c395',
@@ -155,6 +160,83 @@ async function healthIds(components: HealthComponentLike[]): Promise<string[]> {
   return report.findings.map((f) => f.id);
 }
 
+const PROMETHEUS_TEST_URL = 'http://prometheus.test';
+const GRAFANA_TEST_URL = 'http://grafana.test';
+
+/** One stubbed HTTP answer, or a network failure, keyed by URL prefix. */
+type ProbeAnswers = Record<
+  string,
+  { status: number; body?: unknown } | 'network-error'
+>;
+
+/**
+ * Everything reachable and healthy: both healthy endpoints answer, the
+ * sidecar scrape target is up, and the default password is rejected. Each
+ * monitoring test overrides exactly the one answer it cares about.
+ */
+const MONITORING_HEALTHY: ProbeAnswers = {
+  [`${PROMETHEUS_TEST_URL}/-/healthy`]: { status: 200 },
+  [`${PROMETHEUS_TEST_URL}/api/v1/targets`]: {
+    status: 200,
+    body: {
+      data: {
+        activeTargets: [{ labels: { job: 'scribear_sidecar' }, health: 'up' }],
+      },
+    },
+  },
+  [`${GRAFANA_TEST_URL}/api/health`]: { status: 200 },
+  // The real check: a probe that always tries admin/CHANGEME and nothing
+  // else. Rejected here, since the "healthy" baseline models a deployment
+  // that already changed the default password.
+  [`${GRAFANA_TEST_URL}/api/org`]: { status: 401 },
+};
+
+function stubProbes(answers: ProbeAnswers) {
+  vi.stubGlobal('fetch', (url: string) => {
+    const match = Object.keys(answers).find((base) => url.startsWith(base));
+    const answer = match === undefined ? undefined : answers[match];
+    if (answer === undefined || answer === 'network-error') {
+      return Promise.reject(new Error('connect ECONNREFUSED'));
+    }
+    return Promise.resolve(
+      new Response(JSON.stringify(answer.body ?? {}), {
+        status: answer.status,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+  });
+}
+
+/**
+ * A `ConfigCheckService` with both monitoring base URLs wired to the stubbed
+ * `fetch` above, and every other dependency healthy, so `check()`'s findings
+ * are exactly what `_checkMonitoring` produced.
+ */
+function monitoringService(
+  overrides: Partial<ConfigCheckConfig> = {},
+): ConfigCheckService {
+  type Args = ConstructorParameters<typeof ConfigCheckService>;
+  return new ConfigCheckService(
+    {
+      ...CLEAN,
+      grafanaBaseUrl: GRAFANA_TEST_URL,
+      prometheusBaseUrl: PROMETHEUS_TEST_URL,
+      ...overrides,
+    },
+    { enabled: false } as unknown as Args[1],
+    { check: () => Promise.resolve([]) } as unknown as Args[2],
+    REACHABLE_DB as unknown as Args[3],
+    gateway(LATEST_MIGRATION) as unknown as Args[4],
+  );
+}
+
+async function monitoringIds(
+  overrides: Partial<ConfigCheckConfig> = {},
+): Promise<string[]> {
+  const report = await monitoringService(overrides).check();
+  return report.findings.map((f) => f.id);
+}
+
 describe('resolveEnvironment', () => {
   describe('an explicit value', (it) => {
     it.each(['development', 'staging', 'production'] as const)(
@@ -233,6 +315,7 @@ describe('evaluateStaticChecks', () => {
       ['adminApiKey', 'admin-api-key-placeholder'],
       ['adminSessionSecret', 'admin-session-secret-placeholder'],
       ['dbPassword', 'db-password-placeholder'],
+      ['testAudioServiceKey', 'test-audio-service-key-placeholder'],
     ] as const)('are caught for %s', (field, expectedId) => {
       expect(ids({ [field]: 'CHANGEME' })).toContain(expectedId);
     });
@@ -362,6 +445,24 @@ describe('evaluateStaticChecks', () => {
         'redis-url-no-password',
       );
     });
+
+    // The realistic mistake: REDIS_PASSWORD was changed but the copied
+    // `redis://:CHANGEME@redis:6379` example from .env.example was not.
+    it('flags a Redis URL whose password is still the placeholder', () => {
+      expect(ids({ redisUrl: 'redis://:CHANGEME@redis:6379' })).toContain(
+        'redis-url-placeholder-password',
+      );
+    });
+
+    it('does not flag a real password as a placeholder', () => {
+      expect(ids()).not.toContain('redis-url-placeholder-password');
+    });
+
+    it('does not also claim an unparseable URL has a placeholder password', () => {
+      expect(ids({ redisUrl: 'not-a-url' })).not.toContain(
+        'redis-url-placeholder-password',
+      );
+    });
   });
 
   describe('the --dev flag', (it) => {
@@ -395,6 +496,7 @@ describe('evaluateStaticChecks', () => {
         adminLocalCredentials: 'engrit CHANGEME',
         dbPassword: 'CHANGEME',
         redisUrl: 'redis://:sup3rs3cr3tp4ss@redis:6379',
+        testAudioServiceKey: 'CHANGEME',
         allowedGroup: '',
       };
       const { environment, declaredButInvalid } = resolveEnvironment(spoiled);
@@ -406,6 +508,7 @@ describe('evaluateStaticChecks', () => {
         CLEAN.adminApiKey,
         CLEAN.adminSessionSecret,
         CLEAN.dbPassword,
+        CLEAN.testAudioServiceKey,
         'sup3rs3cr3tp4ss',
         '4f9a2c7e1b83d05a',
       ]) {
@@ -761,5 +864,212 @@ describe('the service health rollup', (it) => {
     expect(found).not.toContain('services-unreachable');
     expect(found).not.toContain('services-failing');
     expect(found).not.toContain('services-degraded');
+  });
+});
+
+describe('the monitoring probes', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  describe('neither base URL configured', (it) => {
+    it('reports the dashboard as not set up, not silence', async () => {
+      stubProbes(MONITORING_HEALTHY);
+      const report = await monitoringService({
+        grafanaBaseUrl: '',
+        prometheusBaseUrl: '',
+      }).check();
+
+      const found = report.findings.find(
+        (f) => f.id === 'monitoring-not-configured',
+      );
+      expect(found).toBeTruthy();
+      // Not development: a dashboard for a single throwaway container buys
+      // nothing there, but staging/production is a warning, not silence.
+      expect(found?.severity).toBe('warning');
+    });
+
+    it('is only advisory in development', async () => {
+      const report = await monitoringService({
+        grafanaBaseUrl: '',
+        prometheusBaseUrl: '',
+        declaredEnv: 'development',
+      }).check();
+
+      const found = report.findings.find(
+        (f) => f.id === 'monitoring-not-configured',
+      );
+      expect(found?.severity).toBe('advisory');
+    });
+
+    it('probes nothing over the network', async () => {
+      vi.stubGlobal('fetch', () => {
+        throw new Error('unexpected fetch when monitoring is unconfigured');
+      });
+
+      await expect(
+        monitoringService({
+          grafanaBaseUrl: '',
+          prometheusBaseUrl: '',
+        }).check(),
+      ).resolves.toBeTruthy();
+    });
+  });
+
+  describe('both base URLs configured and healthy', (it) => {
+    it('reports nothing', async () => {
+      stubProbes(MONITORING_HEALTHY);
+      const found = await monitoringIds();
+      expect(found.filter((id) => id.startsWith('monitoring-'))).toEqual([]);
+    });
+  });
+
+  describe('Prometheus', (it) => {
+    it('reports unreachable when /-/healthy does not answer', async () => {
+      stubProbes({
+        ...MONITORING_HEALTHY,
+        [`${PROMETHEUS_TEST_URL}/-/healthy`]: 'network-error',
+      });
+      expect(await monitoringIds()).toContain(
+        'monitoring-prometheus-unreachable',
+      );
+    });
+
+    it('reports not-scraping when the sidecar target is missing', async () => {
+      stubProbes({
+        ...MONITORING_HEALTHY,
+        [`${PROMETHEUS_TEST_URL}/api/v1/targets`]: {
+          status: 200,
+          body: { data: { activeTargets: [] } },
+        },
+      });
+      const found = await monitoringIds();
+      expect(found).toContain('monitoring-prometheus-not-scraping');
+      expect(found).not.toContain('monitoring-prometheus-unreachable');
+    });
+
+    it('reports not-scraping when the target is down rather than up', async () => {
+      stubProbes({
+        ...MONITORING_HEALTHY,
+        [`${PROMETHEUS_TEST_URL}/api/v1/targets`]: {
+          status: 200,
+          body: {
+            data: {
+              activeTargets: [
+                { labels: { job: 'scribear_sidecar' }, health: 'down' },
+              ],
+            },
+          },
+        },
+      });
+      expect(await monitoringIds()).toContain(
+        'monitoring-prometheus-not-scraping',
+      );
+    });
+
+    it('does not also ask about targets when unreachable', async () => {
+      // Short-circuited like `_checkDatabase`: an unreachable Prometheus
+      // cannot meaningfully be asked what it is scraping.
+      stubProbes({
+        [`${PROMETHEUS_TEST_URL}/-/healthy`]: 'network-error',
+        [`${GRAFANA_TEST_URL}/api/health`]: { status: 200 },
+        [`${GRAFANA_TEST_URL}/api/org`]: { status: 401 },
+      });
+      const found = await monitoringIds();
+      expect(found).toContain('monitoring-prometheus-unreachable');
+      expect(found).not.toContain('monitoring-prometheus-not-scraping');
+    });
+  });
+
+  describe('Grafana', (it) => {
+    it('reports unreachable when /api/health does not answer', async () => {
+      stubProbes({
+        ...MONITORING_HEALTHY,
+        [`${GRAFANA_TEST_URL}/api/health`]: 'network-error',
+      });
+      expect(await monitoringIds()).toContain('monitoring-grafana-unreachable');
+    });
+
+    it('does not also probe the password when unreachable', async () => {
+      stubProbes({
+        [`${PROMETHEUS_TEST_URL}/-/healthy`]: { status: 200 },
+        [`${PROMETHEUS_TEST_URL}/api/v1/targets`]: MONITORING_HEALTHY[
+          `${PROMETHEUS_TEST_URL}/api/v1/targets`
+        ] as { status: number; body?: unknown },
+        [`${GRAFANA_TEST_URL}/api/health`]: 'network-error',
+      });
+      const found = await monitoringIds();
+      expect(found).toContain('monitoring-grafana-unreachable');
+      expect(found).not.toContain('monitoring-grafana-default-password');
+    });
+
+    describe('the default-password probe', (it) => {
+      it('fires critical in staging/production when admin/CHANGEME is accepted', async () => {
+        stubProbes({
+          ...MONITORING_HEALTHY,
+          [`${GRAFANA_TEST_URL}/api/org`]: { status: 200 },
+        });
+        const report = await monitoringService().check();
+        const found = report.findings.find(
+          (f) => f.id === 'monitoring-grafana-default-password',
+        );
+        expect(found).toBeTruthy();
+        expect(found?.severity).toBe('critical');
+      });
+
+      it('does not fire when the credentials are rejected', async () => {
+        // MONITORING_HEALTHY already answers 401 to admin/CHANGEME, modelling
+        // a deployment that changed the default password.
+        stubProbes(MONITORING_HEALTHY);
+        expect(await monitoringIds()).not.toContain(
+          'monitoring-grafana-default-password',
+        );
+      });
+
+      it('sends exactly admin/CHANGEME over HTTP Basic auth, and nothing else', async () => {
+        let sawAuthHeader: string | null = null;
+        vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+          if (url.startsWith(`${GRAFANA_TEST_URL}/api/org`)) {
+            const headers = new Headers(init?.headers);
+            sawAuthHeader = headers.get('authorization');
+            return Promise.resolve(new Response(null, { status: 401 }));
+          }
+          const match = Object.keys(MONITORING_HEALTHY).find((base) =>
+            url.startsWith(base),
+          );
+          const answer =
+            match === undefined ? undefined : MONITORING_HEALTHY[match];
+          if (answer === undefined || answer === 'network-error') {
+            return Promise.reject(new Error('connect ECONNREFUSED'));
+          }
+          return Promise.resolve(
+            new Response(JSON.stringify(answer.body ?? {}), {
+              status: answer.status,
+            }),
+          );
+        });
+
+        await monitoringService().check();
+
+        expect(sawAuthHeader).toBe(
+          `Basic ${Buffer.from('admin:CHANGEME').toString('base64')}`,
+        );
+      });
+    });
+  });
+
+  describe('a deployment that only wires one of the two base URLs', (it) => {
+    it('still reports on the one it configured', async () => {
+      stubProbes({
+        [`${GRAFANA_TEST_URL}/api/health`]: 'network-error',
+      });
+      const found = await monitoringIds({ prometheusBaseUrl: '' });
+
+      expect(found).toContain('monitoring-grafana-unreachable');
+      expect(found).not.toContain('monitoring-not-configured');
+      expect(found.some((id) => id.startsWith('monitoring-prometheus-'))).toBe(
+        false,
+      );
+    });
   });
 });

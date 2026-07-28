@@ -205,7 +205,7 @@ services:
       # Not `:?`-guarded, like DEPLOYMENT_ENV below and unlike the secrets: it
       # changes what is *reported*, never what runs, and must not be able to
       # stop a stack from starting.
-      COMPOSE_FILE_VERSION: "5"
+      COMPOSE_FILE_VERSION: "6"
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
@@ -239,6 +239,16 @@ services:
       # start, and this console reports the devices as unreachable.
       TEST_AUDIO_BASE_URL: ${TEST_AUDIO_BASE_URL:-http://test-audio-generator:80}
       TEST_AUDIO_SERVICE_KEY: ${TEST_AUDIO_SERVICE_KEY:-}
+      # Config Check's monitoring probes (PLAN-ConfigCheck-Coverage Phase 1).
+      # Empty by default and NOT defaulted to the in-stack services, unlike
+      # the URLs above — grafana/prometheus only exist when the `monitoring`
+      # profile (below) is on, so defaulting these would make Config Check
+      # probe containers that do not exist on every deployment that never
+      # turns that profile on. Left unset, Config Check reports a warning in
+      # staging/production nudging the operator to turn monitoring on, rather
+      # than staying silent. Set both in .env when you do.
+      ADMIN_GRAFANA_BASE_URL: ${ADMIN_GRAFANA_BASE_URL:-}
+      ADMIN_PROMETHEUS_BASE_URL: ${ADMIN_PROMETHEUS_BASE_URL:-}
       ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET}
       ADMIN_LOCAL_CREDENTIALS: ${ADMIN_LOCAL_CREDENTIALS}
       # Defaulted to the bundled container. Point them at a managed Postgres

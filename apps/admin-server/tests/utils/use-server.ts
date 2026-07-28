@@ -161,6 +161,12 @@ export function buildTestAppConfig(
       dbUser: dbConfig.dbUser,
       dbPassword: 'test-db-password',
       redisUrl: 'redis://:test-redis-password@redis.test:6379',
+      testAudioServiceKey: TEST_AUDIO_SERVICE_KEY,
+      // Disabled by default, like a deployment that never turns on the
+      // monitoring profile — which is most of them. Tests that exercise the
+      // probes pass both base URLs explicitly.
+      grafanaBaseUrl: '',
+      prometheusBaseUrl: '',
       azureTenantId: 'test-tenant',
       azureClientId: 'test-client',
       azureClientSecret: 'test-client-secret',

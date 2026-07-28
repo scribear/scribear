@@ -12,7 +12,35 @@ lists every key the current `compose.yml` understands.
 
 ---
 
-## Unreleased — opt-in Prometheus + Grafana dashboard (`compose.yml` v6)
+## Unreleased — Config Check probes the monitoring profile (`compose.yml` v6)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d` to
+pick up two new admin-server environment variables:
+`ADMIN_GRAFANA_BASE_URL` and `ADMIN_PROMETHEUS_BASE_URL`. Both are empty by
+default, so nothing breaks if you delay.
+
+### What it adds
+
+Admin → Config Check now reports whether the `monitoring` profile (see the
+entry below), once turned on, is actually working — Prometheus reachable and
+scraping the fleet sidecar, and Grafana reachable with its admin password no
+longer the `CHANGEME` default. Leaving `monitoring` off is itself reported: a
+warning in staging/production nudging you to turn it on (advisory in
+development).
+
+To wire it up once you have the `monitoring` profile on, add to `.env` (see
+`.env.example`):
+
+```dotenv
+ADMIN_GRAFANA_BASE_URL=http://grafana:3000
+ADMIN_PROMETHEUS_BASE_URL=http://prometheus:9090
+```
+
+## Unreleased — opt-in Prometheus + Grafana dashboard
+
+No `compose.yml` version bump: two new services gated entirely behind the
+`monitoring` profile, so a stack that never sets `COMPOSE_PROFILES=monitoring`
+recreates no existing container.
 
 **No action needed unless you want it.** Purely additive: a new `monitoring`
 compose profile, off by default, same mechanism `autoupdate` already uses.
