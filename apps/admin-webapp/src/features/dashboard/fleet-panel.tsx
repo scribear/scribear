@@ -31,6 +31,7 @@ import { buildJoinUrl } from '#src/lib/join-url';
 import { useToast } from '#src/lib/toast-context';
 
 import { AudioMeterBar, PEAK_CONVENTION } from './audio-meter-bar';
+import { CapacityMeterBar } from './capacity-meter-bar';
 import type {
   AudioStatus,
   FleetFilter,
@@ -42,6 +43,7 @@ import {
   AUDIO_STATUS_COLOR,
   audioBySession,
   deriveAudioStatus,
+  deriveProviderCapacity,
   deriveSessionStatus,
   formatClippingPct,
   headlineStage,
@@ -118,6 +120,79 @@ const ProviderStatusRow = ({ providers }: { providers: MergedProvider[] }) => {
           size="small"
         />
       ))}
+    </Stack>
+  );
+};
+
+/**
+ * Per-provider capacity readout: live sessions against the estimator's
+ * current ceiling (PLAN-AdmissionControl.md §5). One row per provider, same
+ * bar/text pattern as the session cards' audio strip — a bar is drawn only
+ * for a `local` provider; a `remote` one (`lumen_granite`) shows "not
+ * applicable" rather than a fabricated number, since its real capacity
+ * question is upstream rate limits, not a local worker pool.
+ *
+ * Each row also carries `sessionsRefusedCapacityTotal` — sessions this
+ * provider's fleet has turned away at admission because the worker they
+ * landed on had no room, summed across hosts, monotonic since each host's
+ * process start. Always rendered as text, never colour alone (SC 1.4.1,
+ * matching `CapacityMeterBar`'s own "N / N*" readout): a nonzero count picks
+ * up `warning.main` for emphasis, but the count itself is what carries the
+ * information, and 0 is deliberately styled as an unremarkable fact rather
+ * than a muted "everything is fine" absence.
+ */
+const ProviderCapacityRow = ({
+  providers,
+}: {
+  providers: MergedProvider[];
+}) => {
+  if (providers.length === 0) return null;
+
+  return (
+    <Stack spacing={0.75} sx={{ mb: 2 }}>
+      {providers.map((p) => {
+        const capacity = deriveProviderCapacity(p);
+        const refused = p.sessionsRefusedCapacityTotal;
+        return (
+          <Stack
+            key={p.providerKey}
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: 'center' }}
+          >
+            <Typography
+              variant="caption"
+              sx={{
+                color: 'text.secondary',
+                fontFamily: 'monospace',
+                minWidth: '9em',
+                flexShrink: 0,
+              }}
+            >
+              {p.providerKey}
+            </Typography>
+            <CapacityMeterBar
+              capacity={capacity}
+              label={`Capacity for provider ${p.providerKey}`}
+            />
+            <Typography
+              variant="caption"
+              sx={{
+                color: refused > 0 ? 'warning.main' : 'text.secondary',
+                fontFamily: 'monospace',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+                minWidth: '13em',
+                textAlign: 'right',
+              }}
+            >
+              {refused > 0
+                ? `refused ${String(refused)} (since restart)`
+                : '0 refused'}
+            </Typography>
+          </Stack>
+        );
+      })}
     </Stack>
   );
 };
@@ -659,6 +734,7 @@ export const FleetPanel = () => {
       <Box sx={{ mb: 2 }}>
         <ProviderStatusRow providers={snapshot?.providers ?? []} />
       </Box>
+      <ProviderCapacityRow providers={snapshot?.providers ?? []} />
       {snapshot === null ? (
         <Typography
           sx={{

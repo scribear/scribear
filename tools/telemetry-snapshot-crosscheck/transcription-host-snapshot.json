@@ -25,7 +25,8 @@
           "sessionUid": null,
           "roomUid": null
         }
-      ]
+      ],
+      "estimatedCapacitySessions": 4
     },
     {
       "workerId": 1,
@@ -34,7 +35,8 @@
       "totalJobsRegistered": 0,
       "contextIds": [],
       "alive": false,
-      "activeJobs": []
+      "activeJobs": [],
+      "estimatedCapacitySessions": 4
     }
   ],
   "providers": {
@@ -43,6 +45,7 @@
       "kind": "local",
       "status": "degraded",
       "activeSessions": 2,
+      "sessionsRefusedCapacityTotal": 3,
       "model": "small",
       "modelLoaded": true,
       "owningWorkers": [
@@ -67,7 +70,8 @@
               "sessionUid": null,
               "roomUid": null
             }
-          ]
+          ],
+          "estimatedCapacitySessions": 4
         }
       ],
       "endpoint": null,
@@ -80,6 +84,7 @@
       "kind": "remote",
       "status": "ok",
       "activeSessions": 1,
+      "sessionsRefusedCapacityTotal": 0,
       "model": "granite-speech-4.1-2b-plus",
       "modelLoaded": null,
       "owningWorkers": [],
@@ -93,6 +98,7 @@
       "kind": "debug",
       "status": "ok",
       "activeSessions": 0,
+      "sessionsRefusedCapacityTotal": 0,
       "model": null,
       "modelLoaded": null,
       "owningWorkers": [],
@@ -106,6 +112,7 @@
       "kind": "unknown",
       "status": "down",
       "activeSessions": 0,
+      "sessionsRefusedCapacityTotal": 0,
       "model": null,
       "modelLoaded": null,
       "owningWorkers": [],

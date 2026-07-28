@@ -85,6 +85,21 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
             # that did not open.
             self._provider.session_started()
 
+        @property
+        def admission_worker_id(self) -> int | None:
+            """
+            The worker this session's transcription job was actually assigned
+            to, read off the handle register_job returned
+
+            Read from the JobHandle rather than recomputed, because the pool's
+            choice is made from live utilization at registration time and any
+            second derivation of it would be a guess about a decision that has
+            already been made. This is the only shipped provider that overrides
+            it: local ASR compute on a pool worker is exactly what the capacity
+            estimator measures.
+            """
+            return self._job.worker_id
+
         def _handle_job_result(
             self, result: JobSuccess[TranscriptionResult] | JobException
         ):

@@ -31,6 +31,7 @@ const LOCAL_PROVIDER = {
   kind: 'local',
   status: 'degraded',
   activeSessions: 5,
+  sessionsRefusedCapacityTotal: 2,
   model: null,
   modelLoaded: true,
   owningWorkers: [
@@ -45,6 +46,7 @@ const LOCAL_PROVIDER = {
         { jobId: 12, sessionUid: 'session-1', roomUid: 'room-1' },
         { jobId: 13, sessionUid: null, roomUid: null },
       ],
+      estimatedCapacitySessions: 8,
     },
   ],
   endpoint: null,
@@ -58,6 +60,9 @@ const REMOTE_PROVIDER = {
   kind: 'remote',
   status: 'down',
   activeSessions: 1,
+  // Never subject to local admission control, so always 0 - the honest
+  // reading for a remote provider, not a gap.
+  sessionsRefusedCapacityTotal: 0,
   model: 'granite-speech',
   modelLoaded: null,
   owningWorkers: [],
@@ -142,6 +147,31 @@ describe('transcription worker schema', () => {
         ...WORKER,
         activeJobs: [{ jobId: 1, sessionUid: null }],
       }),
+    ).toBe(false);
+  });
+
+  it('should accept a null estimatedCapacitySessions', () => {
+    // "Not measured yet" (warm-up) - the estimator always has an answer to
+    // give, but not always a real one, so this field is always present and
+    // sometimes null rather than sometimes absent (PLAN-AdmissionControl.md
+    // §5).
+    //
+    // Assert
+    expect(
+      Value.Check(TRANSCRIPTION_WORKER_SCHEMA, {
+        ...WORKER,
+        estimatedCapacitySessions: null,
+      }),
+    ).toBe(true);
+  });
+
+  it('should reject estimatedCapacitySessions missing entirely', () => {
+    // Assert
+    expect(
+      Value.Check(
+        TRANSCRIPTION_WORKER_SCHEMA,
+        without(WORKER!, 'estimatedCapacitySessions'),
+      ),
     ).toBe(false);
   });
 });
@@ -501,6 +531,7 @@ describe('TRANSCRIPTION_HOST_SNAPSHOT_SCHEMA contextIds', () => {
       contextIds: [1, 2],
       alive: true,
       activeJobs: [],
+      estimatedCapacitySessions: null,
     };
 
     // Act / Assert - integers accept.

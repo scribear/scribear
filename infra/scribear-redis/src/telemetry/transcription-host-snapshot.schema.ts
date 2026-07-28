@@ -55,6 +55,10 @@ export const TRANSCRIPTION_WORKER_SCHEMA = Type.Object({
     description:
       'Jobs currently registered to this worker, correlated to the session/room that opened each - what lets an operator trace a saturated worker back to who is saturating it, beyond the aggregate liveJobCount.',
   }),
+  estimatedCapacitySessions: Type.Union([Type.Integer(), Type.Null()], {
+    description:
+      'N* (PLAN-AdmissionControl.md §3/§5): the current auto-tuned session ceiling for this worker, or the operator-pinned `max_sessions` when set. Always present, never absent, because the publisher always has an estimator to ask - but null while the worker is still warming up (too few clean measurement windows yet) or has never had a clean window. Null means "not measured yet", never zero or unlimited - do not render it as either.',
+  }),
 });
 
 /** One worker process. @see {@link TRANSCRIPTION_WORKER_SCHEMA} */
@@ -85,6 +89,10 @@ export const PROVIDER_HEALTH_SCHEMA = Type.Object({
     Type.Literal('down'),
   ]),
   activeSessions: Type.Integer(),
+  sessionsRefusedCapacityTotal: Type.Integer({
+    description:
+      'Sessions refused at admission (PLAN-AdmissionControl.md §4) because the worker they landed on had no capacity for them - monotonic since process start, same caveat as invalidProviderKeyRejects. Always 0 for a remote provider: remote providers are never subject to local admission control, so this is the honest reading for lumen_granite and friends, not a gap.',
+  }),
   model: Type.Union([Type.String(), Type.Null()]),
   modelLoaded: Type.Union([Type.Boolean(), Type.Null()], {
     description:

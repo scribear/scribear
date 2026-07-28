@@ -389,3 +389,30 @@ def test_decode_drops_are_counted_per_provider():
     # Assert
     assert registry.decode_drops_total.get({"provider_key": "whisper"}) == 2
     assert registry.decode_drops_total.get({"provider_key": "unknown"}) == 1
+
+
+def test_capacity_refusals_are_counted_per_provider():
+    """
+    Test refused sessions are counted, labelled by the provider refused for
+
+    The counter behind PLAN-AdmissionControl.md §4's operator visibility. A
+    refusal leaves no other trace on this service: no job is registered for
+    long enough to report anything, and on the wire it is a closed socket -
+    which is indistinguishable from a client that hung up. Labelled per
+    provider because a host serving a local model and a remote one needs to
+    know which of the two it ran out of, and folded onto the same
+    "unknown" fallback the other FastAPI-process counter uses so an unlabelled
+    series is visible rather than dropped.
+    """
+    # Arrange
+    registry = MetricsRegistry()
+
+    # Act
+    registry.record_capacity_refusal("whisper")
+    registry.record_capacity_refusal("whisper")
+    registry.record_capacity_refusal("")
+
+    # Assert
+    counter = registry.sessions_refused_capacity_total
+    assert counter.get({"provider_key": "whisper"}) == 2
+    assert counter.get({"provider_key": "unknown"}) == 1

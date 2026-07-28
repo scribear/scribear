@@ -156,6 +156,16 @@ class MetricsRegistry:
             "decode_drops_total",
             "Audio frames dropped because they failed to decode, by provider",
         )
+        # The refusal half of admission control (PLAN-AdmissionControl.md §4).
+        # Counted here rather than left to the close-code statistics because a
+        # refusal is otherwise indistinguishable from a client that hung up:
+        # both end as a closed socket with no transcript, and only one of them
+        # means the deployment needs more capacity.
+        self.sessions_refused_capacity_total = Counter(
+            "sessions_refused_capacity_total",
+            "Sessions refused at the config step because the worker they were "
+            "placed on had no capacity for them, by provider",
+        )
         self.no_words_total = Counter(
             "no_words_total",
             "Executions that transcribed no words from a non-empty buffer",
@@ -248,6 +258,22 @@ class MetricsRegistry:
             provider_key    - Provider the connection was opened against
         """
         self.decode_drops_total.inc(
+            {"provider_key": provider_key or UNLABELED_PROVIDER}
+        )
+
+    def record_capacity_refusal(self, provider_key: str) -> None:
+        """
+        Counts one session refused because its worker was at capacity
+
+        The second counter here incremented in the FastAPI process rather than
+        a worker, and for the strongest form of that reason: a refused session
+        never registers work that survives long enough to report anything, so
+        there is no job execution to hang this off.
+
+        Args:
+            provider_key    - Provider the connection was opened against
+        """
+        self.sessions_refused_capacity_total.inc(
             {"provider_key": provider_key or UNLABELED_PROVIDER}
         )
 

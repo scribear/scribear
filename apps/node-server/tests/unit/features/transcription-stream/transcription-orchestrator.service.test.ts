@@ -53,7 +53,7 @@ class FakeLongPoll extends EventEmitter {
  * reaching `OPEN`.
  */
 class FakeUpstream extends EventEmitter {
-  state: 'IDLE' | 'CONNECTING' | 'OPEN' | 'CLOSED' = 'IDLE';
+  state: 'IDLE' | 'CONNECTING' | 'OPEN' | 'WAITING_RETRY' | 'CLOSED' = 'IDLE';
   start = vi.fn(() => {
     this.state = 'CONNECTING';
   });
@@ -69,6 +69,22 @@ class FakeUpstream extends EventEmitter {
     const prev = this.state;
     this.state = 'OPEN';
     this.emit('stateChange', 'OPEN', prev);
+  }
+
+  /**
+   * Simulate the real `WebSocketClient`'s close sequence: a `stateChange`
+   * away from `OPEN`, followed by the `close` event carrying the code and
+   * reason. Real `WebSocketClient` emits `close` LAST (see
+   * `_handleClose` in `websocket-client.ts`), so the orchestrator's
+   * `stateChange` listener fires before its `close` listener sees the new
+   * code - matching that order here is what exercises the "publish again
+   * once the close code is known" path in `_setStatus`.
+   */
+  closeWith(code: number, reason: string): void {
+    const prev = this.state;
+    this.state = 'WAITING_RETRY';
+    this.emit('stateChange', 'WAITING_RETRY', prev);
+    this.emit('close', code, reason, 1000);
   }
 }
 
@@ -584,6 +600,101 @@ describe('TranscriptionOrchestratorService', () => {
         sourceDeviceConnected: true,
         sourceMicrophoneActive: null,
       });
+    });
+  });
+
+  // PLAN-AdmissionControl.md §4: node-server must distinguish "service
+  // refused" (capacity) from "service crashed" instead of collapsing both
+  // into the same `transcriptionServiceConnected: false`.
+  describe('close-code disconnect reason (AdmissionControl §4)', (it) => {
+    it('reports "at-capacity" after the upstream closes with 1013', async () => {
+      // Arrange
+      await registerAndDrain(h, SESSION_UID);
+      h.upstream.setOpen();
+
+      const statuses: {
+        transcriptionServiceConnected: boolean;
+        transcriptionServiceDisconnectReason?: string;
+      }[] = [];
+      h.bus.subscribe(
+        SessionStatusChannel,
+        (s) => {
+          statuses.push(s);
+        },
+        SESSION_UID,
+      );
+
+      // Act - the transcription service refuses the reconnect for capacity.
+      h.upstream.closeWith(1013, 'at-capacity');
+
+      // Assert
+      expect(statuses[statuses.length - 1]).toMatchObject({
+        transcriptionServiceConnected: false,
+        transcriptionServiceDisconnectReason: 'at-capacity',
+      });
+      expect(h.orchestrator.getStatus(SESSION_UID)).toMatchObject({
+        transcriptionServiceDisconnectReason: 'at-capacity',
+      });
+    });
+
+    it('leaves the disconnect reason unset for a non-1013 close', async () => {
+      // Arrange
+      await registerAndDrain(h, SESSION_UID);
+      h.upstream.setOpen();
+
+      const statuses: {
+        transcriptionServiceConnected: boolean;
+        transcriptionServiceDisconnectReason?: string;
+      }[] = [];
+      h.bus.subscribe(
+        SessionStatusChannel,
+        (s) => {
+          statuses.push(s);
+        },
+        SESSION_UID,
+      );
+
+      // Act - an ordinary abnormal closure, not a capacity refusal.
+      h.upstream.closeWith(1006, '');
+
+      // Assert - "not connected", same as before this field existed, with no
+      // reason attached because none is known.
+      expect(statuses[statuses.length - 1]).toMatchObject({
+        transcriptionServiceConnected: false,
+      });
+      expect(
+        statuses[statuses.length - 1]?.transcriptionServiceDisconnectReason,
+      ).toBeUndefined();
+    });
+
+    it('clears the disconnect reason once the upstream reconnects and reaches OPEN', async () => {
+      // Arrange
+      await registerAndDrain(h, SESSION_UID);
+      h.upstream.setOpen();
+      h.upstream.closeWith(1013, 'at-capacity');
+
+      const statuses: {
+        transcriptionServiceConnected: boolean;
+        transcriptionServiceDisconnectReason?: string;
+      }[] = [];
+      h.bus.subscribe(
+        SessionStatusChannel,
+        (s) => {
+          statuses.push(s);
+        },
+        SESSION_UID,
+      );
+
+      // Act - capacity freed up; the client's own retry succeeds.
+      h.upstream.setOpen();
+
+      // Assert
+      expect(statuses[statuses.length - 1]).toMatchObject({
+        transcriptionServiceConnected: true,
+      });
+      expect(
+        statuses[statuses.length - 1]?.transcriptionServiceDisconnectReason,
+      ).toBeUndefined();
     });
   });
 });

@@ -34,7 +34,10 @@ def make_job(**overrides) -> WhisperStreamingProviderJob:
     config = {
         "whisper_context_tag": "w",
         "silero_context_tag": "s",
-        "job_period_ms": 5000,
+        # Below every max_buffer_len_sec override in this file (smallest is
+        # 1s) - config validation now rejects job_period_ms exceeding
+        # max_buffer_len_sec in milliseconds.
+        "job_period_ms": 500,
         "max_buffer_len_sec": 2,
         "local_agree_dim": 2,
     }

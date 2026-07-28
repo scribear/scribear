@@ -4,6 +4,7 @@ import type {
   AudioLevelStats,
   AudioStage,
   FleetSnapshot,
+  MergedProvider,
   SessionAudioSnapshot,
   SessionSnapshot,
   SessionStatusEvent,
@@ -593,4 +594,108 @@ export function useFilteredSessions(
     filter.audioStatus,
     filter.text,
   ]);
+}
+
+// ---- Provider capacity (PLAN-AdmissionControl.md §5) ----
+
+export type CapacityStatus = 'good' | 'warn' | 'crit' | 'unknown';
+
+/**
+ * Chip/bar colour per capacity status, same table shape as
+ * `AUDIO_STATUS_COLOR`. `unknown` is `default` (grey) for the same reason:
+ * "not measured yet" is not the same claim as "bad".
+ */
+export const CAPACITY_STATUS_COLOR: Record<CapacityStatus, StatusColor> = {
+  good: 'success',
+  warn: 'warning',
+  crit: 'error',
+  unknown: 'default',
+};
+
+/**
+ * `live / estimated` at or above this ratio is `warn` ("near the ceiling").
+ * Deliberately the estimator's own `TARGET_BUSY` default
+ * (`transcription_service`'s `CapacityEstimator`, PLAN-AdmissionControl.md
+ * §3): N* is already sized so that admitting up to it keeps busy fraction
+ * near `TARGET_BUSY`, so a live count approaching N* is the UI's own signal
+ * that the worker is approaching the same headroom boundary the estimator
+ * was tuned around — not a second, independently-chosen number.
+ */
+export const CAPACITY_WARN_RATIO = 0.85;
+
+/**
+ * One provider's capacity reading, aggregated across every host and worker
+ * serving it.
+ */
+export interface ProviderCapacity {
+  /**
+   * `false` for a non-`local` provider (`remote`, `debug`, `unknown`) — a
+   * remote API's capacity question is upstream rate limits, not a local
+   * worker pool (PLAN-AdmissionControl.md §5), and is explicitly out of scope
+   * for this readout. Taken from the first reporting host's `kind`: a
+   * `providerKey` names one implementation, so every host reporting it is
+   * expected to agree.
+   */
+  applicable: boolean;
+  /** Current session count, summed across every host serving this provider. */
+  liveSessions: number;
+  /**
+   * Sum of `estimatedCapacitySessions` across every worker that owns this
+   * provider, across every host. `null` when there is no owning worker to ask
+   * (an unroutable provider, B1.7) or when *any* owning worker has not
+   * produced a real measurement yet — summing a real number with a
+   * placeholder zero for the unmeasured one would understate the true
+   * ceiling, so the whole aggregate stays "not measured" rather than
+   * partially fabricated.
+   */
+  estimatedCapacitySessions: number | null;
+}
+
+/**
+ * Aggregates one merged provider's owning workers into a single capacity
+ * reading, the same join `ProviderHealthSnapshotService` already performs
+ * per host — this only sums it across hosts.
+ */
+export function deriveProviderCapacity(
+  provider: MergedProvider,
+): ProviderCapacity {
+  const kind = provider.hosts[0]?.health.kind ?? 'unknown';
+  const workers = provider.hosts.flatMap((host) => host.health.owningWorkers);
+  const estimatedCapacitySessions =
+    workers.length > 0 &&
+    workers.every((worker) => worker.estimatedCapacitySessions !== null)
+      ? workers.reduce(
+          (sum, worker) => sum + (worker.estimatedCapacitySessions ?? 0),
+          0,
+        )
+      : null;
+
+  return {
+    applicable: kind === 'local',
+    liveSessions: provider.activeSessions,
+    estimatedCapacitySessions,
+  };
+}
+
+/**
+ * `unknown` when capacity has not been measured yet (never a fabricated
+ * `good`/`crit`); `crit` only when live sessions exceed the estimate, which
+ * `CapacityEstimator.admit()` should never let happen — rendered anyway
+ * (PLAN-AdmissionControl.md §5: "render sanely if it does") rather than
+ * assumed impossible on a UI that must survive its own assumptions being
+ * wrong.
+ */
+export function deriveCapacityStatus(
+  capacity: ProviderCapacity,
+): CapacityStatus {
+  const { liveSessions, estimatedCapacitySessions } = capacity;
+  if (estimatedCapacitySessions === null) return 'unknown';
+  if (liveSessions > estimatedCapacitySessions) return 'crit';
+  if (
+    estimatedCapacitySessions > 0 &&
+    liveSessions / estimatedCapacitySessions >= CAPACITY_WARN_RATIO
+  ) {
+    return 'warn';
+  }
+  return 'good';
 }

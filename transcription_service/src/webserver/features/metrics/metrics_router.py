@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Header
 
 from src.shared.logger import Logger
+from src.shared.utils.worker_pool import CapacityEstimator
 from src.webserver.shared.auth_service import (
     MetricsAuthService,
     invalid_metrics_key_response,
@@ -24,6 +25,7 @@ def metrics_router(
     metrics_auth_service: MetricsAuthService,
     metrics_registry: MetricsRegistry,
     provider_registry: TranscriptionProviderRegistry,
+    capacity_estimator: CapacityEstimator,
 ):
     """
     Creates FastAPI router for the GET /metrics/status endpoint
@@ -37,6 +39,8 @@ def metrics_router(
         metrics_auth_service    - Auth service for the metrics key
         metrics_registry        - In-memory telemetry store
         provider_registry       - Owner of the worker pool and providers
+        capacity_estimator      - Shadow-mode per-worker capacity estimator
+                                    (PLAN-AdmissionControl.md §3)
 
     Returns:
         FastAPI router
@@ -50,7 +54,9 @@ def metrics_router(
         )
         return router
 
-    controller = MetricsController(metrics_registry, provider_registry)
+    controller = MetricsController(
+        metrics_registry, provider_registry, capacity_estimator
+    )
 
     # Path is /metrics/status rather than a bare /metrics because a bare
     # /metrics reads as Prometheus text exposition to every operator and every

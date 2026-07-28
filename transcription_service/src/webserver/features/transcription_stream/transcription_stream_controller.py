@@ -17,6 +17,7 @@ from src.shared.utils.audio_frame_protocol import (
     decode_audio_frame,
 )
 from src.transcription_provider_interface import (
+    TranscriptionCapacityError,
     TranscriptionClientError,
     TranscriptionResult,
 )
@@ -140,6 +141,16 @@ class TranscriptionStreamController(WebsocketHandler):
         Handle the config client message. Constructs the per-connection
         TranscriptionStreamService once auth has completed and a config has
         not yet been received.
+
+        This is also the capacity-admission point (PLAN-AdmissionControl.md
+        §4): `service.start()` below reaches the registry, which registers the
+        session's job, checks the worker it actually landed on and raises
+        `TranscriptionCapacityError` if that worker is full. The refusal
+        propagates out of here to `_handle_error`, which maps it to a 1013
+        close. Deliberately not the WebSocket handshake, which is
+        unconditional before anything about the session is known, and
+        deliberately after auth, so an unauthenticated peer can neither
+        consume capacity nor learn anything about it.
         """
         if not self._is_authenticated or self._service is not None:
             self.close(1008, "Unexpected Config Message")
@@ -324,6 +335,17 @@ class TranscriptionStreamController(WebsocketHandler):
 
         if isinstance(error, ValidationError):
             self.close(1007, "Invalid message format")
+            return True
+
+        # Before the TranscriptionClientError branch, and a separate type
+        # rather than a subclass of it, because 1007 ("invalid frame payload
+        # data") is the misattribution PR #171 removed: it blames the client
+        # for the service being busy. 1013 ("Try Again Later") is the IANA
+        # registry's code for exactly this, and the reason string is what lets
+        # the node server report "refused" rather than "crashed"
+        # (PLAN-AdmissionControl.md §4).
+        if isinstance(error, TranscriptionCapacityError):
+            self.close(1013, error.message)
             return True
 
         if isinstance(error, TranscriptionClientError):

@@ -28,6 +28,9 @@ API_KEY = "SOME_KEY"
 METRICS_API_KEY = "SOME_METRICS_KEY"
 WS_INIT_TIMEOUT_SEC = 0.5
 AUDIO_SILENCE_THRESHOLD = 0.05
+TARGET_BUSY = 0.75
+MIN_SESSIONS = 2
+MAX_SESSIONS = 4
 
 valid_env: Callable[[str], str] = lambda provider_config_path: f"""
 LOG_LEVEL={LOG_LEVEL}
@@ -134,6 +137,13 @@ def test_config_load_valid_config(clean_os_environ: None, tmp_path: Path):
     # adding the variable would silently reclassify what counts as silence on
     # every existing deployment.
     assert config.audio_silence_threshold == 0.01
+    # Same again for the capacity estimator's manual override
+    # (PLAN-AdmissionControl.md §3): the shipped defaults must apply with none
+    # of the three set, or adding them would change every existing
+    # deployment's admitted capacity out from under it.
+    assert config.target_busy == 0.85
+    assert config.min_sessions == 1
+    assert config.max_sessions is None
 
     assert config.provider_config.num_workers == NUM_WORKERS
     assert len(config.provider_config.contexts) == 2
@@ -231,6 +241,41 @@ def test_config_loads_the_audio_silence_threshold_when_set(
 
     # Assert
     assert config.audio_silence_threshold == AUDIO_SILENCE_THRESHOLD
+
+
+def test_config_loads_the_capacity_estimator_overrides_when_set(
+    clean_os_environ: None, tmp_path: Path
+):
+    # pylint: disable=unused-argument
+    # Need to include clean_os_environ so that fixture is created
+    """
+    Test configured capacity estimator overrides are read
+    (PLAN-AdmissionControl.md §3)
+
+    All three are the manual override the plan calls out by name - headroom,
+    floor and operator pin - and none of them require touching the provider
+    config file to reach, unlike the compose-only knobs this subsystem has
+    already regretted shipping that way.
+    """
+    # Arrange
+    transcription_config_path = tmp_path / "transcription_config.json"
+    transcription_config_path.write_text(VALID_PROVIDER_CONFIG_JSON)
+
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text(
+        valid_env(str(transcription_config_path))
+        + f"TARGET_BUSY={TARGET_BUSY}\n"
+        + f"MIN_SESSIONS={MIN_SESSIONS}\n"
+        + f"MAX_SESSIONS={MAX_SESSIONS}\n"
+    )
+
+    # Act
+    config = Config(dotenv_path=str(dotenv_path))
+
+    # Assert
+    assert config.target_busy == TARGET_BUSY
+    assert config.min_sessions == MIN_SESSIONS
+    assert config.max_sessions == MAX_SESSIONS
 
 
 def test_config_rejects_a_host_id_that_could_forge_a_telemetry_key(

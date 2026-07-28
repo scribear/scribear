@@ -25,6 +25,7 @@ from src.shared.config import (
     TranscriptionProviderUID,
 )
 from src.shared.logger import ContextLogger, Logger
+from src.shared.utils.worker_pool import CapacityEstimator
 from src.webserver.create_webserver import create_webserver
 from src.webserver.features.telemetry import (
     RedisTelemetryPublisher,
@@ -35,6 +36,7 @@ from src.webserver.features.telemetry.telemetry_keys import (
     TRANSCRIPTION_HOST_TTL_MS,
     transcription_host_snapshot_key,
 )
+from src.webserver.shared.metrics import MetricsRegistry
 from src.webserver.shared.process_identity import create_process_identity
 from src.webserver.shared.provider_health_snapshot import (
     ProviderHealthSnapshotService,
@@ -80,6 +82,12 @@ def mock_config():
     mock.redis_url = REDIS_URL
     mock.transcription_host_id = HOST_ID
     mock.ws_init_timeout_sec = 1
+    # Real numbers, not a MagicMock: create_webserver feeds these straight
+    # into CapacityEstimator's ratchet, which does arithmetic on them the
+    # moment a worker leaves warm-up.
+    mock.target_busy = 0.85
+    mock.min_sessions = 1
+    mock.max_sessions = None
     mock.provider_config.num_workers = NUM_WORKERS
     mock.provider_config.contexts = []
     mock.provider_config.providers = {
@@ -115,12 +123,22 @@ async def publisher(mock_config: Config, mock_logger: Logger):
     """
     Create a publisher over a real provider registry and a real connection
     """
+    capacity_estimator = CapacityEstimator(
+        target_busy=mock_config.target_busy,
+        min_sessions=mock_config.min_sessions,
+        max_sessions=mock_config.max_sessions,
+    )
     registry = TranscriptionProviderRegistry(
-        mock_config, mock_logger, MagicMock()
+        mock_config, mock_logger, MagicMock(), capacity_estimator
     )
     instance = RedisTelemetryPublisher(
         create_telemetry_redis_client(REDIS_URL),
-        ProviderHealthSnapshotService(registry, create_process_identity()),
+        ProviderHealthSnapshotService(
+            registry,
+            create_process_identity(),
+            capacity_estimator,
+            MetricsRegistry(),
+        ),
         mock_logger,
         HOST_ID,
     )
