@@ -9,7 +9,14 @@ WORKDIR /app
 
 COPY . .
 
-RUN find . -type f ! -name "package*.json" -delete && \
+# Keep only what `npm ci` reads, so its layer is keyed on dependency changes
+# rather than on every source edit. Anything left off this list (a
+# .puppeteerrc.cjs, patch files, `file:` dep targets) is dropped silently and
+# will not apply to image builds. `! -type d` rather than `-type f` so that
+# symlinks are pruned too.
+RUN find . ! -type d \
+  ! -name "package.json" ! -name "package-lock.json" ! -name ".npmrc" \
+  -delete && \
   find . -empty -type d -delete
 
 FROM node:${NODE_VERSION} AS build-env

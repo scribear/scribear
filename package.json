@@ -67,6 +67,7 @@
     "protobufjs": "7.6.5",
     "shell-quote": "1.9.0"
   },
+  "//puppeteer": "Suppresses @axe-core/puppeteer's ~640MB Chrome download. This has to live here and not in .puppeteerrc.cjs or .npmrc - see the comment in .npmrc for why.",
   "puppeteer": {
     "skipDownload": true
   }
