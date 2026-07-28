@@ -10,6 +10,13 @@ inputs:
   dockerfile:
     description: "Path to the Dockerfile."
     required: true
+  target:
+    description: >
+      The Dockerfile stage to build. Empty means the default final stage - see
+      build-container for why this is needed now that one Dockerfile builds
+      every Node app under a per-app target.
+    required: false
+    default: ""
   github_token:
     description: "GITHUB_TOKEN used to read the GHCR build cache."
     required: true
@@ -54,6 +61,7 @@ runs:
       with:
         context: ${{ inputs.build_context }}
         file: ${{ inputs.dockerfile }}
+        target: ${{ inputs.target }}
         tags: ${{ inputs.image_name }}:test
         push: false
         load: true

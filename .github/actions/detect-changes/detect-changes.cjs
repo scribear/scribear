@@ -79,9 +79,15 @@ const nonWorkspaceDependencies = /** @type {Record<string, string[]>} */ ({
   'transcription_service': ['apps/node-server'],
 });
 
-// Global config files that trigger a full run across all workspaces
+// Global config files that trigger a full run across all workspaces.
+// Dockerfile and .npmrc are here because the root Dockerfile now builds every
+// Node app's image as a target of one file: a change to either the shared
+// build stages or the manifest npm reads from can affect any app's image, not
+// just the workspace whose source happened to change.
 const globalFiles = new Set([
   '.dockerignore',
+  '.npmrc',
+  'Dockerfile',
   'package.json',
   'tsconfig.base.json',
   'eslint.config.js',

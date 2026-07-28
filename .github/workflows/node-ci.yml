@@ -216,6 +216,7 @@ jobs:
           image_name: ${{ matrix.image_name }}
           build_context: ${{ matrix.build_context }}
           dockerfile: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
           build_args: ${{ steps.tags.outputs.build_args }}
           custom_tags: ${{ steps.tags.outputs.tags }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -278,7 +279,8 @@ jobs:
         with:
           image_name: scribear/session-manager
           build_context: .
-          dockerfile: apps/session-manager/Dockerfile
+          dockerfile: Dockerfile
+          target: session-manager
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prepare Transcription Service CPU Container
