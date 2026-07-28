@@ -33,6 +33,20 @@ export enum LatencyKind {
   IN_PROGRESS = 'inProgress',
 }
 
+/**
+ * Distinguishes *why* `transcriptionServiceConnected` is `false`, when known.
+ * `AT_CAPACITY` means the Transcription Service explicitly refused the
+ * connection (WebSocket close 1013, "try again later") rather than the
+ * connection dropping or the service crashing - see
+ * `PLAN-AdmissionControl.md` §4, "node-server must distinguish 'service
+ * refused' from 'service crashed'". Mirrors the local
+ * `TranscriptionServiceDisconnectReason` in node-server's
+ * `session-status.events.ts`; keep both in sync.
+ */
+export enum TranscriptionServiceDisconnectReason {
+  AT_CAPACITY = 'at-capacity',
+}
+
 const TRANSCRIPTION_STREAM_SCHEMA = {
   description:
     "Bidirectional WebSocket for a session's transcription stream. The session UID is carried in the URL so the L7 proxy can sticky-route every connection for a session to the same Node Server instance, where the orchestrator state for that session lives. After the socket opens, the client must send a single `auth` message carrying its session token; the server replies `authOk` once the token is verified against the URL's session UID, or closes 1008 on failure. Source-scoped clients then send raw audio as binary frames; clients with the receive-transcripts scope receive `transcript` messages as the upstream provider emits them. The server sends `sessionEnded` and closes 1000 when the session reaches its scheduled end.",
@@ -86,6 +100,12 @@ const TRANSCRIPTION_STREAM_SCHEMA = {
         Type.Union([Type.Boolean(), Type.Null()], {
           description:
             'Whether at least one connected source has its microphone active (unmuted). Null when no source has reported state yet. Absent when no source has reported and the publisher predates the field.',
+        }),
+      ),
+      transcriptionServiceDisconnectReason: Type.Optional(
+        Type.Enum(TranscriptionServiceDisconnectReason, {
+          description:
+            'Present only when transcriptionServiceConnected is false and the cause is known: today, "at-capacity" means the Transcription Service explicitly refused the connection (close 1013) rather than it dropping or crashing. Absent when connected, or when disconnected for an undistinguished reason, or when the publisher predates this field.',
         }),
       ),
     }),

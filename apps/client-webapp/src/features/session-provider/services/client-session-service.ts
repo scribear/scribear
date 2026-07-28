@@ -9,6 +9,7 @@ import { createNodeServerClient } from '@scribear/node-server-client';
 import {
   LatencyKind,
   type TRANSCRIPTION_STREAM_SCHEMA,
+  type TranscriptionServiceDisconnectReason,
   TranscriptionStreamClientMessageType,
   TranscriptionStreamServerMessageType,
 } from '@scribear/node-server-schema';
@@ -42,6 +43,12 @@ export interface SessionIdentity {
 export interface SessionStatusSnapshot {
   transcriptionServiceConnected: boolean;
   sourceDeviceConnected: boolean;
+  // Present only when `transcriptionServiceConnected` is `false` and the
+  // cause is known (today: the Transcription Service explicitly refused the
+  // connection for being at capacity - close 1013). Absent when connected,
+  // when disconnected for an undistinguished reason, or when the publisher
+  // predates this field. Drives the wording of the connection-status banner.
+  transcriptionServiceDisconnectReason?: TranscriptionServiceDisconnectReason;
 }
 
 /**
@@ -306,6 +313,16 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
           this.emit('sessionStatus', {
             transcriptionServiceConnected: msg.transcriptionServiceConnected,
             sourceDeviceConnected: msg.sourceDeviceConnected,
+            // Spread rather than assign directly: `exactOptionalPropertyTypes`
+            // forbids setting an optional property to an explicit `undefined`,
+            // and `msg.transcriptionServiceDisconnectReason` is `undefined`
+            // (not absent) whenever the server didn't send it.
+            ...(msg.transcriptionServiceDisconnectReason !== undefined
+              ? {
+                  transcriptionServiceDisconnectReason:
+                    msg.transcriptionServiceDisconnectReason,
+                }
+              : {}),
           });
           break;
         case TranscriptionStreamServerMessageType.SESSION_ENDED:
@@ -340,6 +357,18 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
       if (code === 1008) {
         this._sessionToken = null;
       }
+      // Note: 1013 ("at capacity") is NOT a code this socket ever receives -
+      // and TRANSCRIPTION_STREAM_SCHEMA's closeCodes (1000/1001/1006/1007/
+      // 1008/1011/1012) deliberately don't declare it, so `code === 1013`
+      // would be a type error here, not just a no-op. Admission control
+      // refuses the *upstream* link from node-server to the Transcription
+      // Service with 1013 (see TranscriptionServiceDisconnectReason); this
+      // client-facing socket stays open throughout, and node-server instead
+      // reports that refusal via the next SESSION_STATUS message's
+      // `transcriptionServiceDisconnectReason: 'at-capacity'`, which is what
+      // `deriveConnectionBanner` renders. So there is no distinct close-code
+      // branch to add here - this comment exists so a future reader doesn't
+      // go looking for one.
     });
 
     socket.on('error', (err) => {

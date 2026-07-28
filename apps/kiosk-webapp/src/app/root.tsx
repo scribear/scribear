@@ -7,7 +7,7 @@ import {
   selectIsHeaderHideEnabled,
   toggleHeaderHide,
 } from '@scribear/app-layout-store';
-import { AppLayout } from '@scribear/core-ui';
+import { AppLayout, ConnectionStatusBanner } from '@scribear/core-ui';
 import {
   activateMicrophone,
   deactivateMicrophone,
@@ -54,6 +54,7 @@ import {
 } from '@scribear/transcription-display-ui';
 
 import { KioskStatusPanel } from '#src/features/kiosk-provider/components/kiosk-status-panel';
+import { selectConnectionBanner } from '#src/features/kiosk-provider/stores/kiosk-slice';
 import { KioskSplitLayout } from '#src/features/kiosk-split-screen/components/kiosk-split-layout';
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
@@ -65,6 +66,12 @@ import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 export const Root = () => {
   const dispatch = useAppDispatch();
   const isHeaderHideEnabled = useAppSelector(selectIsHeaderHideEnabled);
+
+  // Connection status - surfaces the kiosk's own socket to node-server, and
+  // node-server's upstream link to the transcription service, dropping.
+  // Public-facing display: if this goes silently unindicated the audience
+  // reading captions has no way to know why they've stopped.
+  const connectionBanner = useAppSelector(selectConnectionBanner);
 
   // Theme
   const backgroundColor = useAppSelector(selectBackgroundColor);
@@ -179,6 +186,19 @@ export const Root = () => {
         microphoneServiceStatus={microphoneServiceStatus}
         activate={() => void dispatch(activateMicrophone())}
         deactivate={() => dispatch(deactivateMicrophone())}
+      />
+      {/* Mounted once at the top level, as a full-width bar fixed to the
+          viewport bottom, so it's visible regardless of which side of the
+          split (transcription display vs. status panel) the underlying
+          problem relates to. Its high z-index intentionally takes priority
+          over the transcription pane's JumpToBottomButton, which can sit at
+          the same visual bottom edge - during the connection problems this
+          banner reports, no new transcript content is arriving anyway, so
+          "jump to latest" has nothing new to jump to. */}
+      <ConnectionStatusBanner
+        open={connectionBanner.open}
+        severity={connectionBanner.open ? connectionBanner.severity : 'warning'}
+        message={connectionBanner.open ? connectionBanner.message : ''}
       />
       <KioskSplitLayout
         left={

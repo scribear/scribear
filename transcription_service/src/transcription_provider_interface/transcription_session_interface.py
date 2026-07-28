@@ -36,6 +36,41 @@ class TranscriptionSessionInterface(ABC, EventEmitter):
     session_uid: str | None = None
     room_uid: str | None = None
 
+    @property
+    def admission_worker_id(self) -> int | None:
+        """
+        Gets the pool worker this session's compute landed on, or None if the
+        session is not subject to local worker-pool capacity admission
+
+        Which worker a session lands on is decided by live load balancing at
+        `register_job` time (`WorkerPool._assign_process` picks the least
+        utilized worker owning every required context tag), so it is not
+        knowable before the session is constructed. That is why admission
+        control registers first and asks afterwards, and why the answer has to
+        come off the session object: the registry that decides admission never
+        sees the JobHandle.
+
+        None is a positive statement, not a missing implementation. It means
+        "this session's cost is not a claim on a local worker's ASR throughput,
+        so the per-worker capacity estimate does not describe it" - the shape
+        `PLAN-AdmissionControl.md` §5 already uses for a remote provider's
+        capacity, which is reported as "not applicable" rather than as a
+        fabricated number. Defaulting to None is also the safe direction under
+        this plan's stated posture: a provider added later is admitted rather
+        than refused until someone deliberately opts it in, and an
+        over-admission is visible and self-corrects while a wrong refusal is
+        invisible to everyone including us.
+
+        Concretely, of the three shipped providers only `whisper-streaming`
+        overrides this. `lumen_granite` is a remote-API provider whose capacity
+        question is upstream rate limits and network latency, explicitly out of
+        scope per §5/§7; `debug` does no ASR work at all. Both register jobs
+        with an empty context tag tuple, so the worker they land on is whichever
+        happened to be least utilized rather than a placement onto the model
+        that would serve them.
+        """
+        return None
+
     def start_session(self):
         """
         Called after a transcription session is created and event handlers are registered

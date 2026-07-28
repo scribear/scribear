@@ -17,19 +17,23 @@ from src.shared.config import (
 )
 from src.shared.logger import Logger
 from src.shared.utils.worker_pool import (
+    CapacityEstimator,
     ContextAssignment,
     JobObserver,
     WorkerPool,
     WorkerSnapshot,
 )
 from src.transcription_provider_interface import (
+    AT_CAPACITY_REASON,
     ProviderHealth,
     ProviderKind,
     ProviderStatus,
+    TranscriptionCapacityError,
     TranscriptionClientError,
     TranscriptionProviderInterface,
     TranscriptionSessionInterface,
 )
+from src.webserver.shared.metrics import MetricsRegistry
 
 
 @dataclass(frozen=True)
@@ -74,14 +78,35 @@ class TranscriptionProviderRegistry:
         config: Config,
         logger: Logger,
         job_observer: JobObserver | None = None,
+        capacity_estimator: CapacityEstimator | None = None,
+        metrics_registry: MetricsRegistry | None = None,
     ):
         """
         Args:
-            config          - Application config
-            logger          - Application logger
-            job_observer    - Optional callback invoked for every completed job
-                                execution, used to feed the metrics registry
+            config              - Application config
+            logger              - Application logger
+            job_observer        - Optional callback invoked for every completed
+                                    job execution, used to feed the metrics
+                                    registry
+            capacity_estimator  - Optional per-worker capacity estimator
+                                    (PLAN-AdmissionControl.md §3). When absent,
+                                    every session is admitted - the same
+                                    behaviour as before admission control
+                                    existed, which is what keeps every existing
+                                    test and every embedding of this class that
+                                    does not care about capacity working
+                                    unchanged.
+            metrics_registry    - Optional telemetry store, used only to count
+                                    capacity refusals. Optional for the same
+                                    reason: a refusal that cannot be counted is
+                                    still a correct refusal, and making the
+                                    counter mandatory would make admission
+                                    control impossible to construct without the
+                                    whole metrics stack.
         """
+        self._capacity_estimator = capacity_estimator
+        self._metrics_registry = metrics_registry
+
         contexts = self._load_contexts(config.provider_config.contexts)
 
         self._worker_pool = WorkerPool(
@@ -332,15 +357,142 @@ class TranscriptionProviderRegistry:
 
         Raises:
             TranscriptionClientError if provider doesn't exist
+            TranscriptionCapacityError if the worker the session was placed on
+                has no capacity for it
+
+        ADMISSION IS DECIDED AFTER CONSTRUCTION, ON PURPOSE
+        (PLAN-AdmissionControl.md §4). `admit()` is a per-worker question, and
+        which worker a session lands on is chosen by live load balancing inside
+        `register_job` - so there is nothing to ask *about* until the session
+        has registered. Building the session first and tearing it back down is
+        therefore not a shortcut around a missing pre-check; it is the only
+        order in which the question is well posed.
+
+        `end_session()` is the undo, rather than a bespoke rollback path,
+        because it is already exactly the teardown a session that never carried
+        audio needs: it deregisters the job (so the worker's live_job_count
+        drops immediately, leaving no phantom) and decrements the provider's
+        active-session count that this constructor just incremented. A second
+        path would be a second thing to keep in step with it.
         """
         if provider_key not in self._providers:
             self._invalid_provider_key_rejects += 1
             raise TranscriptionClientError("Invalid Provider Key")
 
         provider = self._providers[provider_key]
-        return provider.create_session(
+        session = provider.create_session(
             session_config, session_uid, room_uid, logger
         )
+
+        if self._admits(session):
+            return session
+
+        session.end_session()
+        if self._metrics_registry is not None:
+            self._metrics_registry.record_capacity_refusal(provider_key)
+        logger.warning(
+            "Refused session: worker at capacity",
+            context={
+                "provider_key": provider_key,
+                "worker_id": session.admission_worker_id,
+            },
+        )
+        raise TranscriptionCapacityError(AT_CAPACITY_REASON)
+
+    def _admits(self, session: TranscriptionSessionInterface) -> bool:
+        """
+        Whether a just-registered session may keep the worker slot it took
+
+        Args:
+            session - The session that has already registered its job
+
+        Returns:
+            True if the session should be allowed to proceed
+
+        Every gate here fails open, which is this plan's stated posture rather
+        than laziness: an over-admission is visible, counted and self-corrects,
+        while a wrong refusal is invisible and unrecoverable for that user.
+        Three of them are reached in normal operation:
+
+        1. No estimator configured - admission control is not wired up.
+        2. `admission_worker_id is None` - the session is not a claim on a local
+           worker's ASR throughput (`lumen_granite`, `debug`). See
+           TranscriptionSessionInterface.admission_worker_id for why that is a
+           statement rather than a gap.
+        3. The pool reports no such worker. A worker that vanished between
+           registration and this read is a pool fault, not a capacity fault,
+           and refusing the user for it would misattribute the outage.
+
+        CONCURRENCY. This runs to completion between `register_job` and the
+        caller's next await point - register, read, decide and (if refused)
+        deregister are all synchronous, on the one event loop thread the pool's
+        registration bookkeeping also runs on. Two sessions arriving together
+        are therefore serialized, and each sees the other's registration
+        reflected in `live_job_count` only if that registration actually
+        happened first. There is no window in which both read a pre-registration
+        count and both get admitted, nor one in which both count the other and
+        both get refused.
+
+        The `- 1` is what makes that true. `admit()` is specified as
+        `N == 0 or N + 1 <= N*` where N is the count *before* placing the new
+        session, but by the time this runs the session is already registered and
+        the pool's `live_job_count` includes it. Passing that count raw would
+        ask whether an N+2nd session fits and would refuse the first session on
+        an idle worker, since N would never read as 0.
+
+        TWO KNOWN LIMITATIONS, NAMED RATHER THAN GUARDED:
+
+        - A refusal is final for the *worker the pool chose*, and there is no
+          retry onto a different one. With `num_workers > 1`, routing picks by
+          rolling utilization, which a just-registered job has not yet moved -
+          so two sessions arriving back to back can both be routed to the same
+          worker and the second refused while another worker had room. Both
+          shipped provider_config templates set `num_workers: 1`, where this is
+          inert, and re-placement is a routing change nobody has asked for; it
+          becomes real the moment a deployment raises the worker count.
+        - `lumen_granite` sessions are never refused, but they are not free
+          either: their job holds the worker's single job slot for the duration
+          of a blocking upstream HTTP request, so they raise the measured busy
+          fraction and can therefore tighten the ceiling applied to whisper
+          sessions sharing that worker. Excluding them from *being* refused is
+          §5's deferral of remote-provider capacity; it is not a claim that they
+          cost a worker nothing.
+        """
+        if self._capacity_estimator is None:
+            return True
+
+        worker_id = session.admission_worker_id
+        if worker_id is None:
+            return True
+
+        live_job_count = self._live_job_count(worker_id)
+        if live_job_count is None:
+            return True
+
+        return self._capacity_estimator.admit(
+            worker_id, max(0, live_job_count - 1)
+        )
+
+    def _live_job_count(self, worker_id: int) -> int | None:
+        """
+        Gets one worker's live job count, or None if the pool has no such worker
+
+        Args:
+            worker_id   - Worker to look up
+
+        Returns:
+            Jobs currently registered to that worker, None if it is not in the
+            pool's snapshot
+
+        Read from the pool's own snapshot rather than tracked here, for the
+        reason CapacityEstimator.snapshot() gives for taking N as an argument:
+        WorkerSnapshot.live_job_count is the robust source, and a second copy
+        would eventually disagree with the first.
+        """
+        for snapshot in self._worker_pool.worker_snapshots():
+            if snapshot.worker_id == worker_id:
+                return snapshot.live_job_count
+        return None
 
     def shutdown(self):
         """

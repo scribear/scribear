@@ -45,6 +45,12 @@ def mock_config():
     # mock, which sends the lifespan into opening a Redis connection to a
     # nonsense URL and hangs startup.
     mock.redis_url = ""
+    # Real numbers, not a MagicMock: create_webserver feeds these straight
+    # into CapacityEstimator's ratchet, which does arithmetic on them the
+    # moment a worker leaves warm-up.
+    mock.target_busy = 0.85
+    mock.min_sessions = 1
+    mock.max_sessions = None
     mock.provider_config.num_workers = 2
     return mock
 

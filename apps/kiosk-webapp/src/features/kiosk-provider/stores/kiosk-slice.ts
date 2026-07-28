@@ -4,6 +4,8 @@ import {
   createSlice,
 } from '@reduxjs/toolkit';
 
+import type { ConnectionStatusSeverity } from '@scribear/core-ui';
+import { TranscriptionServiceDisconnectReason } from '@scribear/node-server-schema';
 import type { Session } from '@scribear/session-manager-schema';
 
 import type { RootState } from '#src/store/store';
@@ -61,6 +63,87 @@ export const selectActiveSession = (state: RootState) =>
 export const selectRegistrationError = (state: RootState) =>
   state.kiosk.registrationError;
 export const selectError = (state: RootState) => state.kiosk.error;
+
+/**
+ * Result of {@link deriveConnectionBanner}: either the banner should be
+ * hidden, or shown with a severity/message pair matching
+ * `ConnectionStatusBannerProps` (minus `open`, which the discriminant here
+ * already carries).
+ */
+export type ConnectionBannerState =
+  | { open: false }
+  | { open: true; severity: ConnectionStatusSeverity; message: string };
+
+/**
+ * Pure derivation of what the kiosk's `ConnectionStatusBanner` should show,
+ * given the two independent signals the kiosk tracks while a session is
+ * active: the kiosk's own socket to node-server (`connectionStatus`), and
+ * node-server's upstream link to the transcription service
+ * (`sessionStatus.transcriptionServiceConnected`).
+ *
+ * Priority: a broken `connectionStatus` explains everything else (no session
+ * data is flowing at all, regardless of what the last-known `sessionStatus`
+ * said), so it's checked first. Only once the kiosk's own socket is
+ * confirmed `CONNECTED` does a stale-but-still-informative
+ * `sessionStatus.transcriptionServiceConnected === false` matter.
+ *
+ * No session (`connectionStatus === null`) means there is nothing to report
+ * - the kiosk isn't participating in a session, so there's no connection to
+ * be lost. Every case here is a retrying/transient state (matching this
+ * feature's fail-open philosophy elsewhere), so severity is always
+ * `'warning'`, never `'error'`.
+ */
+export function deriveConnectionBanner(
+  connectionStatus: SessionConnectionStatus | null,
+  sessionStatus: SessionStatusSnapshot | null,
+): ConnectionBannerState {
+  if (
+    connectionStatus !== null &&
+    connectionStatus !== SessionConnectionStatus.CONNECTED
+  ) {
+    return {
+      open: true,
+      severity: 'warning',
+      message: 'Connection lost. Reconnecting…',
+    };
+  }
+
+  if (sessionStatus !== null && !sessionStatus.transcriptionServiceConnected) {
+    if (
+      sessionStatus.transcriptionServiceDisconnectReason ===
+      TranscriptionServiceDisconnectReason.AT_CAPACITY
+    ) {
+      return {
+        open: true,
+        severity: 'warning',
+        message:
+          'The live transcription service is at capacity. Retrying automatically…',
+      };
+    }
+    return {
+      open: true,
+      severity: 'warning',
+      message:
+        'Connection to the transcription service was lost. Reconnecting…',
+    };
+  }
+
+  return { open: false };
+}
+
+/**
+ * Selector wrapping {@link deriveConnectionBanner} over the active session's
+ * `connectionStatus`/`sessionStatus`. `null` for both when there is no
+ * active session, which `deriveConnectionBanner` treats as "nothing to
+ * report".
+ */
+export const selectConnectionBanner = (
+  state: RootState,
+): ConnectionBannerState =>
+  deriveConnectionBanner(
+    state.kiosk.activeSession?.connectionStatus ?? null,
+    state.kiosk.activeSession?.sessionStatus ?? null,
+  );
 
 export const kioskSlice = createSlice({
   name: 'kiosk',

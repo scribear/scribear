@@ -55,12 +55,27 @@ class WhisperStreamingProviderJob(
             SAMPLE_RATE, NUM_CHANNELS, TargetFormat.FLOAT_32
         )
 
-        # Make buffer 2 times larger than maximum to make forcing finalization of audio easier
+        # Make buffer 2 times larger than the hard cap to make forcing
+        # finalization of audio easier - this headroom is unchanged by the
+        # bounded-tail split below; it exists so a single oversized batch
+        # can still land before force-finalization has a chance to purge.
         self._max_buffer_samples = int(SAMPLE_RATE * config.max_buffer_len_sec)
         self._buffer = NPCircularBuffer(
             self._max_buffer_samples * 2, dtype=np.float32
         )
         self._buffer_offset_samples = 0
+
+        # Bounded tail: force-finalize purges the buffer back down to F
+        # seconds (was max_buffer_len_sec before the split); a pass hands
+        # Whisper only the oldest W seconds of whatever remains. Both are
+        # resolved to a concrete float by config validation
+        # (`WhisperStreamingProviderConfig`), which also guarantees F >= W.
+        self._force_finalize_samples = int(
+            SAMPLE_RATE * config.force_finalize_len_sec
+        )
+        self._max_transcribe_samples = int(
+            SAMPLE_RATE * config.max_transcribe_len_sec
+        )
 
         # Latency correlation: total samples ever appended (absolute stream
         # position) and a ledger mapping each source chunk to the sample span
@@ -148,9 +163,11 @@ class WhisperStreamingProviderJob(
         Audio the buffer has no room for is **dropped and counted**, never
         rejected. `NPCircularBuffer.append` returns a non-empty tail only when
         a single call carries more than the buffer's free space, and free
-        space at the start of a pass is always at least `max_buffer_len_sec`
-        (the buffer is sized at twice that and force-finalization purges back
-        down to it every pass). A batch is everything that arrived since the
+        space at the start of a pass is at least `max_buffer_len_sec` as long
+        as `force_finalize_len_sec` (F) does not exceed it - the buffer is
+        sized at twice `max_buffer_len_sec` and force-finalization purges
+        back down to F every pass, so free space is `2 * max_buffer_len_sec -
+        F`. A batch is everything that arrived since the
         worker last reached this job, so its size is `client_rate x
         scheduling_gap` - and the gap is the service's own, not the client's.
         A perfectly paced client therefore overruns this the moment the
@@ -402,8 +419,17 @@ class WhisperStreamingProviderJob(
         Returns:
             List of TranscriptionSegments
         """
-        # Silero VAD Model detection
-        buffer_samples = np.asarray(self._buffer.get())
+        # Silero VAD Model detection. Only the oldest W seconds
+        # (`max_transcribe_len_sec`) of whatever the buffer holds, front-
+        # anchored - not the newest. LocalAgree commits from the front, and
+        # finalization is what releases buffer space; a back-anchored window
+        # would never let the front converge and the tail would grow without
+        # bound. Under sustained backlog this bounds per-pass cost at W
+        # instead of the full (up to F-second) tail, at the cost of interim
+        # captions running behind by roughly (tail length - W).
+        buffer_samples = np.asarray(self._buffer.get())[
+            : self._max_transcribe_samples
+        ]
         if buffer_samples.size == 0:
             # No VAD ran this call at all - a distinct absence from "VAD ran
             # and found nothing", so the whole reading is None rather than a
@@ -623,8 +649,8 @@ class WhisperStreamingProviderJob(
         self._decode_audio(batch, log)
 
         forced_final = None
-        if len(self._buffer) > self._max_buffer_samples:
-            samples_to_purge = len(self._buffer) - self._max_buffer_samples
+        if len(self._buffer) > self._force_finalize_samples:
+            samples_to_purge = len(self._buffer) - self._force_finalize_samples
             end_time = (
                 self._buffer_offset_samples + samples_to_purge
             ) / SAMPLE_RATE

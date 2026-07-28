@@ -77,6 +77,13 @@ class TranscriptionStreamService(EventEmitter):
         error forwarders, and start the session. Raises
         TranscriptionClientError if the provider key is unknown; callers
         should treat that as a protocol-level (1007) close.
+
+        Also raises TranscriptionCapacityError when the registry refuses the
+        session because the worker it was placed on is at capacity
+        (PLAN-AdmissionControl.md §4) - a 1013 close, not a 1007 one. Nothing
+        is wired up when that happens: the registry has already torn the
+        session back down, and the two `on()` calls below are never reached, so
+        this service holds no session and `close()` has nothing to undo.
         """
         self._session = self._provider_registry.create_session(
             self._provider_key,

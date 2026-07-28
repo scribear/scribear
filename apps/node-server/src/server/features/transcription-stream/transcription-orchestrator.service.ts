@@ -27,6 +27,7 @@ import { SessionEndedChannel } from './events/session-ended.events.js';
 import {
   SessionStatusChannel,
   type SessionStatusMessage,
+  TranscriptionServiceDisconnectReason,
 } from './events/session-status.events.js';
 import { TranscriptChannel } from './events/transcript.events.js';
 
@@ -136,6 +137,18 @@ interface SessionState {
    */
   sourceMicStates: Map<number, boolean | undefined>;
   upstream: UpstreamClient;
+  /**
+   * Close code from the upstream's most recent `close` event, or `null` if it
+   * has never closed. Recorded so `_setStatus` can distinguish a capacity
+   * refusal (1013) from any other disconnect ("service crashed"-shaped
+   * disconnects included) - see `PLAN-AdmissionControl.md` §4. Stale values
+   * are harmless: `_setStatus` only consults this while
+   * `upstream.state !== 'OPEN'`, and it is overwritten on every subsequent
+   * close.
+   */
+  lastUpstreamCloseCode: number | null;
+  /** Close reason string paired with {@link lastUpstreamCloseCode}. */
+  lastUpstreamCloseReason: string | null;
   longPoll: SessionConfigPoll;
   audioUnsubscribe: () => void;
   /**
@@ -336,16 +349,33 @@ export class TranscriptionOrchestratorService {
    * never see redundant identical messages back-to-back.
    */
   private _setStatus(sessionUid: string, state: SessionState): void {
+    const connected = state.upstream.state === 'OPEN';
+    // Only meaningful while disconnected; a reconnect that reaches OPEN
+    // clears it implicitly via `connected`, without needing to reset the
+    // stored close code. See the field doc on `lastUpstreamCloseCode`.
+    //
+    // Omitted (not set to `undefined`) when not applicable:
+    // `exactOptionalPropertyTypes` treats an explicit `undefined` on an
+    // optional TypeBox-derived property as a type error, not "absent".
+    const disconnectReason =
+      !connected && state.lastUpstreamCloseCode === 1013
+        ? TranscriptionServiceDisconnectReason.AT_CAPACITY
+        : undefined;
     const next: SessionStatusMessage = {
-      transcriptionServiceConnected: state.upstream.state === 'OPEN',
+      transcriptionServiceConnected: connected,
       sourceDeviceConnected: state.sourceCount > 0,
       sourceMicrophoneActive: this._aggregateMicState(state),
+      ...(disconnectReason !== undefined && {
+        transcriptionServiceDisconnectReason: disconnectReason,
+      }),
     };
     if (
       next.transcriptionServiceConnected ===
         state.status.transcriptionServiceConnected &&
       next.sourceDeviceConnected === state.status.sourceDeviceConnected &&
-      next.sourceMicrophoneActive === state.status.sourceMicrophoneActive
+      next.sourceMicrophoneActive === state.status.sourceMicrophoneActive &&
+      next.transcriptionServiceDisconnectReason ===
+        state.status.transcriptionServiceDisconnectReason
     ) {
       return;
     }
@@ -545,6 +575,8 @@ export class TranscriptionOrchestratorService {
       audioFramesReceived: 0,
       sourceMicStates: new Map(),
       upstream,
+      lastUpstreamCloseCode: null,
+      lastUpstreamCloseReason: null,
       longPoll,
       audioUnsubscribe: () => {
         // Replaced below once the audio bus subscription is established.
@@ -596,6 +628,18 @@ export class TranscriptionOrchestratorService {
         { sessionUid, from, to },
         'upstream transcription state change',
       );
+      this._setStatus(sessionUid, state);
+    });
+    // Record the close code/reason so `_setStatus` can tell a capacity
+    // refusal (1013) apart from any other disconnect - see
+    // `PLAN-AdmissionControl.md` §4. This fires AFTER the `stateChange` this
+    // same close triggers (the client emits `close` last in `_handleClose`),
+    // so the `stateChange` listener's `_setStatus` call above still sees the
+    // previous close code; publish again here once the new one is recorded.
+    upstream.on('close', (code, reason) => {
+      if (this._sessions.get(sessionUid) !== state) return;
+      state.lastUpstreamCloseCode = code;
+      state.lastUpstreamCloseReason = reason;
       this._setStatus(sessionUid, state);
     });
 

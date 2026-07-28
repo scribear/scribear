@@ -73,6 +73,7 @@ function fakeProviderHealth(
     kind: 'local',
     status: 'ok',
     activeSessions: 0,
+    sessionsRefusedCapacityTotal: 0,
     model: 'base.en',
     modelLoaded: true,
     owningWorkers: [],
@@ -784,6 +785,35 @@ describe('FleetTelemetryService', () => {
       expect(
         snap.providers[0]?.hosts.map((entry) => entry.transcriptionHost),
       ).toEqual(['ts-a', 'ts-b']);
+    });
+
+    it('sums sessionsRefusedCapacityTotal for the same providerKey across hosts', async () => {
+      withHosts(
+        [
+          'ts-a',
+          {
+            whisper: fakeProviderHealth({
+              sessionsRefusedCapacityTotal: 2,
+            }),
+          },
+        ],
+        [
+          'ts-b',
+          {
+            whisper: fakeProviderHealth({
+              sessionsRefusedCapacityTotal: 3,
+            }),
+          },
+        ],
+      );
+
+      const snap = await h.service.snapshot();
+
+      expect(snap.providers).toHaveLength(1);
+      expect(snap.providers[0]).toMatchObject({
+        providerKey: 'whisper',
+        sessionsRefusedCapacityTotal: 5,
+      });
     });
 
     it('reports ok when at least one host is fully ok, not the worst status', async () => {

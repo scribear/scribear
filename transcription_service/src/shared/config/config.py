@@ -54,6 +54,17 @@ class EnvSchema(BaseModel):
     # "silent" means anything.
     AUDIO_SILENCE_THRESHOLD: float = 0.01
 
+    # Defaulted, reachable from `.env` on purpose (PLAN-AdmissionControl.md
+    # §3). This subsystem has a documented regret about tuning knobs that
+    # exist only as compose-file edits, never as `.env` values -
+    # `ALERT_RTF_P95` and its two siblings, a number a CPU deployment must
+    # currently discover for itself and hand-set with no `.env` path to do so.
+    # These three are the manual override the plan calls out by name, and are
+    # not repeating that mistake.
+    TARGET_BUSY: float = 0.85
+    MIN_SESSIONS: int = 1
+    MAX_SESSIONS: int | None = None
+
     PROVIDER_CONFIG_PATH: str
 
     @field_validator("TRANSCRIPTION_HOST_ID")
@@ -218,6 +229,43 @@ class Config:
         return self._audio_silence_threshold
 
     @property
+    def target_busy(self) -> float:
+        """
+        Headroom fraction the capacity estimator's ceiling aims at
+        (PLAN-AdmissionControl.md §3)
+
+        Dimensionless, and deliberately the same number on every device: the
+        hardware-specific part (per-session cost) is measured by the
+        estimator, not configured, so nothing here needs to differ between a
+        CPU box and a GPU box.
+        """
+        return self._target_busy
+
+    @property
+    def min_sessions(self) -> int:
+        """
+        Floor under the capacity estimator's ceiling (PLAN-AdmissionControl.md
+        §3)
+
+        Exists so a mis-measurement - a noisy or unlucky window - can never
+        take a worker's admitted capacity to zero.
+        """
+        return self._min_sessions
+
+    @property
+    def max_sessions(self) -> int | None:
+        """
+        Operator hard pin on a worker's session capacity
+        (PLAN-AdmissionControl.md §3)
+
+        None leaves the estimator auto-tuning, which is the shipped default.
+        Set, it disables auto-tuning entirely and the estimate is exactly this
+        number - an operator statement about the deployment, not a measurement
+        the estimator could ever second-guess.
+        """
+        return self._max_sessions
+
+    @property
     def ws_init_timeout_sec(self) -> float:
         """
         Seconds to wait for websocket to send initialization messages before closing if not sent
@@ -250,6 +298,9 @@ class Config:
         self._redis_url = env.REDIS_URL
         self._transcription_host_id = env.TRANSCRIPTION_HOST_ID
         self._audio_silence_threshold = env.AUDIO_SILENCE_THRESHOLD
+        self._target_busy = env.TARGET_BUSY
+        self._min_sessions = env.MIN_SESSIONS
+        self._max_sessions = env.MAX_SESSIONS
         self._ws_init_timeout_sec = env.WS_INIT_TIMEOUT_SEC
 
         with open(env.PROVIDER_CONFIG_PATH, "r", encoding="utf-8") as file:
