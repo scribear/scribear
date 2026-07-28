@@ -22,7 +22,7 @@ import {
   stageIngress,
   stageVad,
 } from '../dashboard/audio-fixtures';
-import { buildSession } from './fixtures';
+import { buildRoom, buildSession } from './fixtures';
 
 vi.mock('#src/lib/admin-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('#src/lib/admin-api')>();
@@ -31,6 +31,7 @@ vi.mock('#src/lib/admin-api', async (importOriginal) => {
     adminApi: {
       getSession: vi.fn(),
       getSessionJoinCode: vi.fn(),
+      getRoom: vi.fn(),
     },
   };
 });
@@ -67,6 +68,11 @@ describe('SessionDetailPage', () => {
     vi.resetAllMocks();
     // Neutral default so tests unrelated to the join-code section don't have
     // to stub it individually; overridden per-case below.
+    // The page reads the session's room for its timezone alone; default it
+    // to the browser's own zone so unrelated cases print unchanged times.
+    vi.mocked(adminApi.getRoom).mockResolvedValue(
+      buildRoom({ timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+    );
     vi.mocked(adminApi.getSessionJoinCode).mockResolvedValue({
       status: 'not-active',
       joinCode: null,

@@ -16,6 +16,7 @@ import Typography from '@mui/material/Typography';
 
 import { useNavigate } from 'react-router-dom';
 
+import { TimezoneNote } from '#src/components/timezone-note';
 import type { HealthReport } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
@@ -141,6 +142,7 @@ export const DashboardPage = () => {
       <Typography variant="h5" component="h1" sx={{ mb: 2 }}>
         Dashboard
       </Typography>
+      <TimezoneNote />
       {misconfigured && (
         <Alert severity="error" sx={{ mb: 2 }}>
           Admin backend misconfiguration — an operator must check the

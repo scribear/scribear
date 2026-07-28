@@ -1,4 +1,10 @@
-import { type SyntheticEvent, useEffect, useMemo, useState } from 'react';
+import {
+  type SyntheticEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import AddIcon from '@mui/icons-material/Add';
 import Alert from '@mui/material/Alert';
@@ -7,6 +13,7 @@ import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Checkbox from '@mui/material/Checkbox';
+import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -38,10 +45,12 @@ import { useNavigate, useParams } from 'react-router-dom';
 import type {
   AutoSessionWindow,
   Room,
+  Session,
   SessionSchedule,
 } from '@scribear/session-manager-schema';
 
 import { ConfirmDialog } from '#src/components/confirm-dialog';
+import { TimezoneNote } from '#src/components/timezone-note';
 import type {
   CreateAutoWindowBody,
   CreateOnDemandSessionBody,
@@ -54,6 +63,7 @@ import type {
 } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { formatInTimeZone } from '#src/lib/timezone';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 
@@ -81,21 +91,19 @@ const FREQUENCIES: readonly ScheduleFrequency[] = [
   'BIWEEKLY',
 ];
 const RANGE_DAYS = 90;
+// How far back the scheduling page looks. The session listing uses an overlap
+// predicate, so a session that started before page-load (e.g. an active
+// on-demand session) still appears. The schedule/window listing filters on
+// `active_start <= to`, so this primarily governs sessions.
+const LOOKBACK_DAYS = 7;
+// The scheduling page has no server-push; poll the session list so a session
+// created or started elsewhere (e.g. by the auto-session reconciler, or by
+// another operator) appears without a manual reload. Gated on tab visibility
+// in the effect below.
+const SESSION_POLL_MS = 15_000;
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback;
-}
-
-function formatInRoomTz(iso: string, timezone: string): string {
-  try {
-    return new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    }).format(new Date(iso));
-  } catch {
-    return new Date(iso).toLocaleString();
-  }
 }
 
 /** Converts a `datetime-local` input value to an ISO instant, or null if empty. */
@@ -966,10 +974,16 @@ export const RoomSchedulingPage = () => {
   // the range drift on every re-render (impure render, flagged by
   // react-hooks/purity and @eslint-react/purity).
   const [rangeFrom, rangeTo] = useMemo(() => {
-    const from = new Date();
-    const to = new Date(from.getTime() + RANGE_DAYS * 24 * 60 * 60 * 1000);
-    return [from.toISOString(), to.toISOString()];
+    const to = new Date();
+    const from = new Date(to.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+    const forward = new Date(to.getTime() + RANGE_DAYS * 24 * 60 * 60 * 1000);
+    return [from.toISOString(), forward.toISOString()];
   }, []);
+
+  // "now" for the active-session classification in the sessions table. Updated
+  // on the same cadence as the session poll below so the "active" chip stays
+  // current without an impure `Date.now()` during render.
+  const [now, setNow] = useState(() => Date.now());
 
   const {
     data: room,
@@ -1016,6 +1030,49 @@ export const RoomSchedulingPage = () => {
   );
   const windows = windowsData ?? [];
 
+  // Live session rows (SCHEDULED/ON_DEMAND/AUTO) overlapping the range. Unlike
+  // schedules and windows, these include on-demand and AUTO sessions, which
+  // have no parent schedule and were previously invisible on this page.
+  const {
+    data: sessionsData,
+    loading: sessionsLoading,
+    error: sessionsError,
+    reload: reloadSessions,
+  } = useAsyncData<Session[]>(
+    () =>
+      roomUid === undefined
+        ? Promise.resolve([])
+        : adminApi
+            .listSessions({ roomUid, from: rangeFrom, to: rangeTo })
+            .then((res) => res.items),
+    [roomUid],
+  );
+  const sessions = sessionsData ?? [];
+  // `useAsyncData` raises `loading` on every re-fetch, including the 15s poll
+  // below. Gating the table body on it directly would blank the rows to a
+  // spinner once per poll forever; only the first load has nothing to show.
+  // Same idiom as the page-level `loading && room === null` guard.
+  const sessionsInitialLoading = sessionsLoading && sessionsData === null;
+
+  // Poll the session list so a session created or started elsewhere (by the
+  // auto-session reconciler, or by another operator) appears without a manual
+  // reload. Paused when the tab is hidden to avoid hammering a backgrounded
+  // page. The schedule/window lists are slower-moving and reload on mutation.
+  useEffect(() => {
+    const poll = () => {
+      if (document.visibilityState === 'visible') {
+        reloadSessions();
+        setNow(Date.now());
+      }
+    };
+    const id = window.setInterval(poll, SESSION_POLL_MS);
+    document.addEventListener('visibilitychange', poll);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', poll);
+    };
+  }, [reloadSessions]);
+
   // Banner is derived from the room load; a misconfiguration raised by the
   // auto-session toggle surfaces as a toast instead (see handleToggleAuto).
   const misconfigured = isApiErrorCode(roomError, 'BACKEND_MISCONFIGURATION');
@@ -1051,6 +1108,24 @@ export const RoomSchedulingPage = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [windowsError]);
+  // Unlike the schedule/window loads, this one repeats every SESSION_POLL_MS,
+  // so a backend that stays down would raise a fresh error object — and a
+  // fresh toast — four times a minute for as long as the page is open. Toast
+  // only when the failure is new, and reset once a poll succeeds so a later
+  // outage is still reported.
+  const lastSessionsErrorRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (sessionsError === null) {
+      lastSessionsErrorRef.current = null;
+      return;
+    }
+    if (isApiErrorCode(sessionsError, 'BACKEND_MISCONFIGURATION')) return;
+    const message = errorMessage(sessionsError, 'Failed to load sessions.');
+    if (lastSessionsErrorRef.current === message) return;
+    lastSessionsErrorRef.current = message;
+    showError(message);
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
+  }, [sessionsError]);
 
   const handleToggleAuto = (_e: SyntheticEvent, checked: boolean) => {
     if (roomUid === undefined || room === null) return;
@@ -1143,16 +1218,7 @@ export const RoomSchedulingPage = () => {
       <Typography variant="h5" component="h1" gutterBottom>
         Scheduling — {room.name}
       </Typography>
-      <Typography
-        variant="body2"
-        sx={{
-          color: 'text.secondary',
-          mb: 2,
-        }}
-      >
-        All times below are shown in this room&apos;s timezone ({room.timezone}
-        ).
-      </Typography>
+      <TimezoneNote timezone={room.timezone} />
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Grid
@@ -1208,8 +1274,9 @@ export const RoomSchedulingPage = () => {
             }}
           >
             Showing occurrences between{' '}
-            {formatInRoomTz(rangeFrom, room.timezone)} and{' '}
-            {formatInRoomTz(rangeTo, room.timezone)} (next {RANGE_DAYS} days).
+            {formatInTimeZone(rangeFrom, room.timezone)} and{' '}
+            {formatInTimeZone(rangeTo, room.timezone)} (last {LOOKBACK_DAYS}{' '}
+            days and next {RANGE_DAYS} days).
           </Typography>
         </Box>
         <Button
@@ -1267,12 +1334,12 @@ export const RoomSchedulingPage = () => {
                     {s.localStartTime.slice(0, 5)}–{s.localEndTime.slice(0, 5)}
                   </TableCell>
                   <TableCell>
-                    {formatInRoomTz(s.activeStart, room.timezone)}
+                    {formatInTimeZone(s.activeStart, room.timezone)}
                   </TableCell>
                   <TableCell>
                     {s.activeEnd === null
                       ? 'Indefinite'
-                      : formatInRoomTz(s.activeEnd, room.timezone)}
+                      : formatInTimeZone(s.activeEnd, room.timezone)}
                   </TableCell>
                   <TableCell align="right">
                     <Stack
@@ -1327,8 +1394,9 @@ export const RoomSchedulingPage = () => {
             }}
           >
             Showing occurrences between{' '}
-            {formatInRoomTz(rangeFrom, room.timezone)} and{' '}
-            {formatInRoomTz(rangeTo, room.timezone)} (next {RANGE_DAYS} days).
+            {formatInTimeZone(rangeFrom, room.timezone)} and{' '}
+            {formatInTimeZone(rangeTo, room.timezone)} (last {LOOKBACK_DAYS}{' '}
+            days and next {RANGE_DAYS} days).
           </Typography>
         </Box>
         <Button
@@ -1383,12 +1451,12 @@ export const RoomSchedulingPage = () => {
                     {w.localStartTime.slice(0, 5)}–{w.localEndTime.slice(0, 5)}
                   </TableCell>
                   <TableCell>
-                    {formatInRoomTz(w.activeStart, room.timezone)}
+                    {formatInTimeZone(w.activeStart, room.timezone)}
                   </TableCell>
                   <TableCell>
                     {w.activeEnd === null
                       ? 'Indefinite'
-                      : formatInRoomTz(w.activeEnd, room.timezone)}
+                      : formatInTimeZone(w.activeEnd, room.timezone)}
                   </TableCell>
                   <TableCell align="right">
                     <Stack
@@ -1420,6 +1488,105 @@ export const RoomSchedulingPage = () => {
                   </TableCell>
                 </TableRow>
               ))
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          mb: 1,
+        }}
+      >
+        <Box>
+          <Typography variant="h6" component="h2">
+            Sessions
+          </Typography>
+          <Typography
+            variant="body2"
+            sx={{
+              color: 'text.secondary',
+            }}
+          >
+            Live session rows (scheduled, on-demand, and auto) overlapping the
+            last {LOOKBACK_DAYS} days and next {RANGE_DAYS} days.
+          </Typography>
+        </Box>
+      </Box>
+      <TableContainer component={Paper} sx={{ mb: 3 }}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell>Name</TableCell>
+              <TableCell>Type</TableCell>
+              <TableCell>Effective start</TableCell>
+              <TableCell>Effective end</TableCell>
+              <TableCell align="right">Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {sessionsInitialLoading ? (
+              <TableRow>
+                <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
+                  <CircularProgress size={28} aria-label="Loading sessions" />
+                </TableCell>
+              </TableRow>
+            ) : sessions.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
+                  <Typography
+                    sx={{
+                      color: 'text.secondary',
+                    }}
+                  >
+                    No sessions in this range.
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : (
+              sessions.map((s) => {
+                const isActive =
+                  new Date(s.effectiveStart).getTime() <= now &&
+                  (s.effectiveEnd === null ||
+                    new Date(s.effectiveEnd).getTime() > now);
+                return (
+                  <TableRow key={s.uid}>
+                    <TableCell>{s.name}</TableCell>
+                    <TableCell>
+                      <Stack
+                        direction="row"
+                        spacing={1}
+                        sx={{ alignItems: 'center' }}
+                      >
+                        <Chip size="small" label={s.type} variant="outlined" />
+                        {isActive && (
+                          <Chip size="small" label="active" color="success" />
+                        )}
+                      </Stack>
+                    </TableCell>
+                    <TableCell>
+                      {formatInTimeZone(s.effectiveStart, room.timezone)}
+                    </TableCell>
+                    <TableCell>
+                      {s.effectiveEnd === null
+                        ? 'Open-ended'
+                        : formatInTimeZone(s.effectiveEnd, room.timezone)}
+                    </TableCell>
+                    <TableCell align="right">
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          void navigate(`/sessions/${s.uid}`);
+                        }}
+                      >
+                        View
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
@@ -1471,6 +1638,7 @@ export const RoomSchedulingPage = () => {
           }}
           onCreated={(sessionUid) => {
             setOnDemandOpen(false);
+            reloadSessions();
             void navigate(`/sessions/${sessionUid}`);
           }}
         />

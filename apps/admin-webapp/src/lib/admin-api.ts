@@ -1066,6 +1066,18 @@ export class AdminApiClient {
       `/sessions/get/${encodeURIComponent(sessionUid)}`,
     );
   }
+  listSessions(query: TimeRangeQuery): Promise<{ items: Session[] }> {
+    return this._request(
+      'GET',
+      `/sessions/list${toQueryString(query as unknown as Record<string, QueryValue>)}`,
+    );
+  }
+  getActiveSession(roomUid: string): Promise<Session | null> {
+    return this._request(
+      'GET',
+      `/sessions/active/${encodeURIComponent(roomUid)}`,
+    );
+  }
   getSessionJoinCode(sessionUid: string): Promise<SessionJoinCodeStatus> {
     return this._request(
       'GET',

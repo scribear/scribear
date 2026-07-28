@@ -40,6 +40,25 @@ const SAMPLE_AUTO_WINDOW = {
   createdAt: '2026-01-01T00:00:00.000Z',
 };
 
+const SAMPLE_SESSION = {
+  uid: '55555555-5555-5555-5555-555555555555',
+  roomUid: ROOM_UID,
+  name: 'On-demand session',
+  type: 'ON_DEMAND',
+  scheduledSessionUid: null,
+  scheduledStartTime: '2026-08-01T09:00:00.000Z',
+  scheduledEndTime: '2026-08-01T10:00:00.000Z',
+  startOverride: null,
+  endOverride: null,
+  effectiveStart: '2026-08-01T09:00:00.000Z',
+  effectiveEnd: '2026-08-01T10:00:00.000Z',
+  joinCodeScopes: ['SEND_AUDIO'],
+  transcriptionProviderId: 'provider-1',
+  transcriptionStreamConfig: null,
+  sessionConfigVersion: 1,
+  createdAt: '2026-01-01T00:00:00.000Z',
+};
+
 const SAMPLE_ROOM = {
   uid: ROOM_UID,
   name: 'Room 101',
@@ -420,6 +439,135 @@ describe('Scheduling routes', () => {
       expect(res.json<{ error: { code: string } }>().error.code).toBe(
         'BACKEND_MISCONFIGURATION',
       );
+    });
+  });
+
+  describe('sessions/list', (it) => {
+    it('forwards the room and range upstream and injects the admin key', async () => {
+      // Arrange
+      sm.respondWith({ status: 200, body: { items: [SAMPLE_SESSION] } });
+      const { cookie } = await login(server.fastify);
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${BASE}/sessions/list`,
+        query: {
+          roomUid: ROOM_UID,
+          from: '2026-08-01T00:00:00.000Z',
+          to: '2026-11-01T00:00:00.000Z',
+        },
+        headers: { cookie },
+      });
+
+      // Assert — envelope
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        ok: true,
+        data: { items: [SAMPLE_SESSION] },
+      });
+      // Assert — upstream request
+      const upstream = sm.requests.find((r) =>
+        r.url.includes('/list-sessions'),
+      );
+      expect(upstream).toBeDefined();
+      expect(upstream?.headers['authorization']).toBe(
+        `Bearer ${TEST_ADMIN_KEY}`,
+      );
+      expect(upstream?.url).toContain(`roomUid=${ROOM_UID}`);
+    });
+
+    it('rejects an unauthenticated list with 401 and makes NO upstream call', async () => {
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${BASE}/sessions/list`,
+        query: { roomUid: ROOM_UID },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(401);
+      expect(sm.requests).toHaveLength(0);
+    });
+  });
+
+  describe('sessions/active/:roomUid', (it) => {
+    it('passes a null body through as "no active session", not as an error', async () => {
+      // Arrange — the upstream route answers 200 with a literal `null` body to
+      // keep "no session is active" distinct from "room not found" (404). A
+      // gateway that treated an empty payload as a failure would turn an idle
+      // room into an error banner.
+      sm.respondWith({ status: 200, body: null });
+      const { cookie } = await login(server.fastify);
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${BASE}/sessions/active/${ROOM_UID}`,
+        headers: { cookie },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true, data: null });
+    });
+
+    it('returns the active session and injects the admin key upstream', async () => {
+      // Arrange
+      sm.respondWith({ status: 200, body: SAMPLE_SESSION });
+      const { cookie } = await login(server.fastify);
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${BASE}/sessions/active/${ROOM_UID}`,
+        headers: { cookie },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true, data: SAMPLE_SESSION });
+      const upstream = sm.requests.find((r) =>
+        r.url.includes('/get-active-session/'),
+      );
+      expect(upstream).toBeDefined();
+      expect(upstream?.headers['authorization']).toBe(
+        `Bearer ${TEST_ADMIN_KEY}`,
+      );
+    });
+
+    it('passes an upstream ROOM_NOT_FOUND through as a 404 envelope', async () => {
+      // Arrange — distinct from the null body above: the room itself is gone.
+      sm.respondWith({
+        status: 404,
+        body: { code: 'ROOM_NOT_FOUND', message: 'nope' },
+      });
+      const { cookie } = await login(server.fastify);
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${BASE}/sessions/active/${ROOM_UID}`,
+        headers: { cookie },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(404);
+      const body = res.json<{ ok: boolean; error: { code: string } }>();
+      expect(body.ok).toBe(false);
+      expect(body.error.code).toBe('ROOM_NOT_FOUND');
+    });
+
+    it('rejects an unauthenticated read with 401 and makes NO upstream call', async () => {
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${BASE}/sessions/active/${ROOM_UID}`,
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(401);
+      expect(sm.requests).toHaveLength(0);
     });
   });
 });

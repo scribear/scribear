@@ -20,6 +20,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Select from '@mui/material/Select';
 import type { SelectChangeEvent } from '@mui/material/Select';
+import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
@@ -32,14 +33,16 @@ import Typography from '@mui/material/Typography';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { DEMO_ROOM_UID } from '@scribear/session-manager-schema';
-import type { Device, Room } from '@scribear/session-manager-schema';
+import type { Device, Room, Session } from '@scribear/session-manager-schema';
 
 import { ConfirmDialog } from '#src/components/confirm-dialog';
 import { NameWithUid } from '#src/components/name-with-uid';
+import { TimezoneNote } from '#src/components/timezone-note';
 import type { RoomDetail } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 import { useSettings } from '#src/lib/settings-context';
+import { formatInTimeZone } from '#src/lib/timezone';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 
@@ -296,6 +299,34 @@ export const RoomDetailPage = () => {
     [roomUid],
   );
 
+  // The room's currently-active session, if any. Fetched independently of the
+  // room detail so a failure here never blocks the page, and reloaded after
+  // ending the session early.
+  //
+  // `loading` and `error` are both consumed below: `data` is null before the
+  // first success AND after a failure, so rendering "no session is currently
+  // active" off `data === null` alone would state a falsehood while the fetch
+  // is still in flight, and would keep stating it if the fetch failed. This
+  // card exists to explain an ANOTHER_SESSION_ACTIVE conflict, so a silent
+  // wrong "nothing is running" is the one answer it must never give.
+  const {
+    data: activeSession,
+    loading: activeSessionLoading,
+    error: activeSessionError,
+    reload: reloadActiveSession,
+  } = useAsyncData<Session | null>(
+    () =>
+      roomUid === undefined
+        ? Promise.resolve(null)
+        : adminApi.getActiveSession(roomUid),
+    [roomUid],
+  );
+  // Only the first load is unknown-state; a failed poll/reload keeps showing
+  // the last known session rather than flipping the card to a spinner.
+  const activeSessionUnknown =
+    (activeSessionLoading || activeSessionError !== null) &&
+    activeSession === null;
+
   // Derived from the load error rather than stored as separate state.
   const misconfigured = isApiErrorCode(error, 'BACKEND_MISCONFIGURATION');
 
@@ -304,6 +335,8 @@ export const RoomDetailPage = () => {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [rowActionUid, setRowActionUid] = useState<string | null>(null);
+  const [endActiveSessionOpen, setEndActiveSessionOpen] = useState(false);
+  const [endingActiveSession, setEndingActiveSession] = useState(false);
 
   // Non-misconfiguration load failures are surfaced as a toast, once per error.
   useEffect(() => {
@@ -371,6 +404,28 @@ export const RoomDetailPage = () => {
       .finally(() => {
         setDeleting(false);
         setDeleteOpen(false);
+      });
+  };
+
+  const handleEndActiveSession = () => {
+    if (activeSession === null) return;
+    setEndingActiveSession(true);
+    adminApi
+      .endSessionEarly(activeSession.uid)
+      .then(() => {
+        showSuccess('Active session ended.');
+        reloadActiveSession();
+      })
+      .catch((err: unknown) => {
+        showError(
+          err instanceof ApiError
+            ? err.message
+            : 'Failed to end active session.',
+        );
+      })
+      .finally(() => {
+        setEndingActiveSession(false);
+        setEndActiveSessionOpen(false);
       });
   };
 
@@ -457,6 +512,7 @@ export const RoomDetailPage = () => {
           </Button>
         </Box>
       </Box>
+      <TimezoneNote timezone={room.timezone} />
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Grid container spacing={2}>
@@ -497,10 +553,104 @@ export const RoomDetailPage = () => {
                 Created
               </Typography>
               <Typography variant="body1">
-                {new Date(room.createdAt).toLocaleString()}
+                {formatInTimeZone(room.createdAt, room.timezone)}
               </Typography>
             </Grid>
           </Grid>
+        </CardContent>
+      </Card>
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              mb: 1,
+            }}
+          >
+            <Typography variant="h6" component="h2">
+              Active session
+            </Typography>
+            {activeSession !== null && (
+              <Chip
+                size="small"
+                label={activeSession.type}
+                color="success"
+                variant="outlined"
+              />
+            )}
+          </Box>
+          {activeSessionUnknown ? (
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ alignItems: 'center', color: 'text.secondary' }}
+            >
+              {activeSessionError === null && (
+                <CircularProgress
+                  size={16}
+                  aria-label="Loading active session"
+                />
+              )}
+              <Typography variant="body2">
+                {activeSessionError === null
+                  ? 'Checking for an active session…'
+                  : 'Could not check for an active session. A session may still be running.'}
+              </Typography>
+            </Stack>
+          ) : activeSession === null ? (
+            <Typography
+              variant="body2"
+              sx={{
+                color: 'text.secondary',
+              }}
+            >
+              No session is currently active in this room.
+            </Typography>
+          ) : (
+            <Stack spacing={1}>
+              <Typography variant="body1">{activeSession.name}</Typography>
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'text.secondary',
+                }}
+              >
+                Started{' '}
+                {formatInTimeZone(activeSession.effectiveStart, room.timezone)}
+                {activeSession.effectiveEnd === null
+                  ? ' · open-ended (no scheduled end)'
+                  : ` · ends ${formatInTimeZone(activeSession.effectiveEnd, room.timezone)}`}
+              </Typography>
+              <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => {
+                    void navigate(`/sessions/${activeSession.uid}`);
+                  }}
+                >
+                  View session
+                </Button>
+                {/* The demo room's permanently-active fixture session is not a
+                    real transcription session and must not be ended from here. */}
+                {!isDemoRoom && (
+                  <Button
+                    size="small"
+                    color="error"
+                    variant="outlined"
+                    disabled={endingActiveSession}
+                    onClick={() => {
+                      setEndActiveSessionOpen(true);
+                    }}
+                  >
+                    End early
+                  </Button>
+                )}
+              </Stack>
+            </Stack>
+          )}
         </CardContent>
       </Card>
       <Box
@@ -657,6 +807,18 @@ export const RoomDetailPage = () => {
         onConfirm={handleDelete}
         onClose={() => {
           setDeleteOpen(false);
+        }}
+      />
+      <ConfirmDialog
+        open={endActiveSessionOpen}
+        title="End active session"
+        message="This ends the currently-active session now, ahead of its scheduled end time."
+        confirmLabel="End early"
+        confirmColor="error"
+        loading={endingActiveSession}
+        onConfirm={handleEndActiveSession}
+        onClose={() => {
+          setEndActiveSessionOpen(false);
         }}
       />
     </Box>

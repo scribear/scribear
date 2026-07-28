@@ -16,6 +16,7 @@ import {
   DELETE_ROOM_SCHEMA,
   DELETE_SCHEDULE_SCHEMA,
   END_SESSION_EARLY_SCHEMA,
+  GET_ACTIVE_SESSION_SCHEMA,
   GET_AUTO_SESSION_WINDOW_SCHEMA,
   GET_DEVICE_SCHEMA,
   GET_ROOM_SCHEMA,
@@ -25,6 +26,7 @@ import {
   LIST_DEVICES_SCHEMA,
   LIST_ROOMS_SCHEMA,
   LIST_SCHEDULES_SCHEMA,
+  LIST_SESSIONS_SCHEMA,
   REGISTER_DEVICE_SCHEMA,
   REMOVE_DEVICE_FROM_ROOM_SCHEMA,
   REREGISTER_DEVICE_SCHEMA,
@@ -277,6 +279,24 @@ export class SessionManagerGatewayService {
 
   getSession(params: Static<(typeof GET_SESSION_SCHEMA)['params']>) {
     return this._client.scheduleManagement.getSession({
+      headers: this._authHeaders(),
+      params,
+    });
+  }
+
+  listSessions(
+    querystring: Static<(typeof LIST_SESSIONS_SCHEMA)['querystring']>,
+  ) {
+    return this._client.scheduleManagement.listSessions({
+      headers: this._authHeaders(),
+      querystring,
+    });
+  }
+
+  getActiveSession(
+    params: Static<(typeof GET_ACTIVE_SESSION_SCHEMA)['params']>,
+  ) {
+    return this._client.scheduleManagement.getActiveSession({
       headers: this._authHeaders(),
       params,
     });

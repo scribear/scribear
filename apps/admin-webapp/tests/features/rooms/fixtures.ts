@@ -1,6 +1,28 @@
-import type { Device, Room } from '@scribear/session-manager-schema';
+import type { Device, Room, Session } from '@scribear/session-manager-schema';
 
 import type { RoomDetail } from '#src/lib/admin-api';
+
+export function buildSession(overrides: Partial<Session> = {}): Session {
+  return {
+    uid: 'session-1',
+    roomUid: 'room-1',
+    name: 'Morning lecture',
+    type: 'ON_DEMAND',
+    scheduledSessionUid: null,
+    scheduledStartTime: '2026-01-01T10:00:00.000Z',
+    scheduledEndTime: '2026-01-01T11:00:00.000Z',
+    startOverride: null,
+    endOverride: null,
+    effectiveStart: '2026-01-01T10:00:00.000Z',
+    effectiveEnd: '2026-01-01T11:00:00.000Z',
+    joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS'],
+    transcriptionProviderId: 'whisper',
+    transcriptionStreamConfig: {},
+    sessionConfigVersion: 1,
+    createdAt: '2026-01-01T09:00:00.000Z',
+    ...overrides,
+  };
+}
 
 export function buildRoom(overrides: Partial<Room> = {}): Room {
   return {

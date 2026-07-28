@@ -24,6 +24,7 @@ import { ActivationCodeDisplay } from '#src/components/activation-code-display';
 import { ConfirmDialog } from '#src/components/confirm-dialog';
 import { KioskUrlInstructions } from '#src/components/kiosk-url-instructions';
 import { NameWithUid } from '#src/components/name-with-uid';
+import { TimezoneNote } from '#src/components/timezone-note';
 import type { ReregisterDeviceResult } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
@@ -265,6 +266,7 @@ export const DeviceDetailPage = () => {
       <Typography variant="h5" component="h1" gutterBottom>
         <NameWithUid name={device.name} uid={device.uid} showUid={showUuids} />
       </Typography>
+      <TimezoneNote />
       <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
         <Stack spacing={2}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

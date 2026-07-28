@@ -8,13 +8,19 @@ import { adminApi } from '#src/lib/admin-api';
 import { ApiError } from '#src/lib/api-error';
 
 import { renderWithProviders } from '../../utils/render-with-providers';
-import { buildRoomDetail, buildSchedule, buildWindow } from './fixtures';
+import {
+  buildRoomDetail,
+  buildSchedule,
+  buildSession,
+  buildWindow,
+} from './fixtures';
 
 vi.mock('#src/lib/admin-api', () => ({
   adminApi: {
     roomDetail: vi.fn(),
     listSchedules: vi.fn(),
     listAutoWindows: vi.fn(),
+    listSessions: vi.fn(),
     createSchedule: vi.fn(),
     updateSchedule: vi.fn(),
     createAutoWindow: vi.fn(),
@@ -22,6 +28,7 @@ vi.mock('#src/lib/admin-api', () => ({
     deleteSchedule: vi.fn(),
     deleteAutoWindow: vi.fn(),
     updateRoomScheduleConfig: vi.fn(),
+    createOnDemandSession: vi.fn(),
   },
 }));
 
@@ -40,6 +47,7 @@ function mockDefaultLoad(
   );
   vi.mocked(adminApi.listSchedules).mockResolvedValue({ items: schedules });
   vi.mocked(adminApi.listAutoWindows).mockResolvedValue({ items: windows });
+  vi.mocked(adminApi.listSessions).mockResolvedValue({ items: [] });
 }
 
 async function waitForLoad() {
@@ -305,6 +313,99 @@ describe('RoomSchedulingPage', () => {
       ).toBeInTheDocument();
       expect(
         screen.queryByText(/failed to update schedule/i),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  describe('sessions table', (it) => {
+    /** The Sessions table body, keyed off its own column header. */
+    function sessionsTable() {
+      const header = screen.getByRole('columnheader', {
+        name: 'Effective start',
+      });
+      const table = header.closest('table');
+      if (table === null) throw new Error('no sessions table found');
+      return table;
+    }
+
+    it('lists on-demand sessions, which have no parent schedule', async () => {
+      // Arrange - the gap this page had: a live ON_DEMAND row is invisible to
+      // listSchedules, so it never appeared before.
+      mockDefaultLoad();
+      vi.mocked(adminApi.listSessions).mockResolvedValue({
+        items: [buildSession({ name: 'Ad-hoc office hours' })],
+      });
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      expect(
+        within(sessionsTable()).getByText('Ad-hoc office hours'),
+      ).toBeInTheDocument();
+      expect(
+        within(sessionsTable()).getByText('ON_DEMAND'),
+      ).toBeInTheDocument();
+    });
+
+    it('marks an open-ended session that has already started as active', async () => {
+      // Arrange
+      mockDefaultLoad();
+      vi.mocked(adminApi.listSessions).mockResolvedValue({
+        items: [
+          buildSession({
+            name: 'Running now',
+            effectiveStart: '2020-01-01T00:00:00.000Z',
+            effectiveEnd: null,
+          }),
+        ],
+      });
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      const table = within(sessionsTable());
+      expect(table.getByText('active')).toBeInTheDocument();
+      expect(table.getByText('Open-ended')).toBeInTheDocument();
+    });
+
+    // `useAsyncData` raises `loading` on every re-fetch, so gating the table
+    // body on it directly would blank the rows to a spinner once per poll,
+    // every SESSION_POLL_MS, for as long as the page is open.
+    it('keeps the rows visible while a background poll is in flight', async () => {
+      // Arrange
+      mockDefaultLoad();
+      vi.mocked(adminApi.listSessions)
+        .mockResolvedValueOnce({
+          items: [buildSession({ name: 'Still here' })],
+        })
+        .mockReturnValueOnce(
+          new Promise(() => {
+            /* the poll's refetch never settles */
+          }),
+        );
+      renderPage();
+      await waitForLoad();
+      expect(
+        within(sessionsTable()).getByText('Still here'),
+      ).toBeInTheDocument();
+
+      // Act - the visibility handler is the poll's other trigger; jsdom
+      // reports the document as visible, so this runs the same code path.
+      fireEvent(document, new Event('visibilitychange'));
+
+      // Assert - the refetch is in flight and the row has not been replaced.
+      await waitFor(() => {
+        expect(vi.mocked(adminApi.listSessions)).toHaveBeenCalledTimes(2);
+      });
+      expect(
+        within(sessionsTable()).getByText('Still here'),
+      ).toBeInTheDocument();
+      expect(
+        within(sessionsTable()).queryByRole('progressbar'),
       ).not.toBeInTheDocument();
     });
   });

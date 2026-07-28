@@ -31,6 +31,7 @@ import { DEMO_SOURCE_DEVICE_UID } from '@scribear/session-manager-schema';
 import type { Device, Room } from '@scribear/session-manager-schema';
 
 import { NameWithUid } from '#src/components/name-with-uid';
+import { TimezoneNote } from '#src/components/timezone-note';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 import { useSettings } from '#src/lib/settings-context';
@@ -277,6 +278,7 @@ export const RoomsListPage = () => {
           New room
         </Button>
       </Box>
+      <TimezoneNote />
       {misconfigured && (
         <Alert severity="error" sx={{ mb: 2 }}>
           Admin backend misconfiguration — an operator must check the

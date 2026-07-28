@@ -5,11 +5,13 @@ import {
   DELETE_AUTO_SESSION_WINDOW_SCHEMA,
   DELETE_SCHEDULE_SCHEMA,
   END_SESSION_EARLY_SCHEMA,
+  GET_ACTIVE_SESSION_SCHEMA,
   GET_AUTO_SESSION_WINDOW_SCHEMA,
   GET_SCHEDULE_SCHEMA,
   GET_SESSION_SCHEMA,
   LIST_AUTO_SESSION_WINDOWS_SCHEMA,
   LIST_SCHEDULES_SCHEMA,
+  LIST_SESSIONS_SCHEMA,
   START_SESSION_EARLY_SCHEMA,
   UPDATE_AUTO_SESSION_WINDOW_SCHEMA,
   UPDATE_ROOM_SCHEDULE_CONFIG_SCHEMA,
@@ -110,6 +112,26 @@ export const GET_SESSION_INPUT = { params: GET_SESSION_SCHEMA.params };
 export const GET_SESSION_ROUTE = {
   method: 'GET' as const,
   url: `${P_SESSIONS}/get/:sessionUid`,
+};
+
+export const LIST_SESSIONS_INPUT = {
+  querystring: LIST_SESSIONS_SCHEMA.querystring,
+};
+export const LIST_SESSIONS_ROUTE = {
+  method: 'GET' as const,
+  url: `${P_SESSIONS}/list`,
+};
+
+// Keyed by room, but it reads a session, so it belongs under the sessions
+// prefix alongside `get/:sessionUid` — routing it under `/rooms` would make
+// the scheduling feature own a second copy of the rooms feature's own path
+// prefix, and would be the only REST-shaped URL among verb-noun siblings.
+export const GET_ACTIVE_SESSION_INPUT = {
+  params: GET_ACTIVE_SESSION_SCHEMA.params,
+};
+export const GET_ACTIVE_SESSION_ROUTE = {
+  method: 'GET' as const,
+  url: `${P_SESSIONS}/active/:roomUid`,
 };
 
 export const CREATE_ON_DEMAND_SESSION_INPUT = {
