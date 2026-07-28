@@ -17,6 +17,8 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from src.transcription_provider_interface import (
+    AT_CAPACITY_REASON,
+    TranscriptionCapacityError,
     TranscriptionClientError,
     TranscriptionResult,
     TranscriptionSequence,
@@ -566,6 +568,71 @@ async def test_controller_handles_transcription_client_errors(
     # Assert
     mock_close_method.assert_called_once_with(1007, error_msg)
     assert return_value is True
+
+
+@pytest.mark.asyncio
+async def test_controller_closes_1013_for_a_capacity_refusal(
+    controller: TranscriptionStreamController, mock_close_method: MagicMock
+):
+    """
+    Test a capacity refusal closes 1013 "Try Again Later", never 1007
+
+    1007 is "invalid frame payload data" - it tells the client it sent
+    something malformed. PR #171 removed exactly that misattribution for buffer
+    overflow, and routing a busy refusal through it would reintroduce the same
+    mistake wearing a new hat: the client did nothing wrong, the service has no
+    room right now, and those two need different client behaviour (give up
+    versus retry later).
+
+    The reason string is a wire contract, not a log line - the node server keys
+    "refused" apart from "crashed" off it (PLAN-AdmissionControl.md §4).
+    """
+    # Act
+    return_value = controller._handle_error(
+        TranscriptionCapacityError(AT_CAPACITY_REASON)
+    )
+
+    # Assert
+    mock_close_method.assert_called_once_with(1013, AT_CAPACITY_REASON)
+    assert return_value is True
+
+
+@pytest.mark.asyncio
+async def test_capacity_refusal_during_config_reaches_the_error_handler(
+    controller: TranscriptionStreamController,
+    mock_auth_service: MagicMock,
+    mock_provider_registry: MagicMock,
+    mock_close_method: MagicMock,
+):
+    """
+    Test a refusal raised from the CONFIG step closes the socket with 1013
+
+    The end-to-end path through the controller, not just the mapping in
+    isolation: the registry refuses inside `create_session`, the error travels
+    out of `_config` through `WebsocketHandler`'s receive loop, and the socket
+    closes 1013. Worth pinning separately because the controller sets
+    `self._service` only after `start()` returns - a refusal must leave the
+    connection with no service attached and must NOT fall through to the
+    generic 1011 "Internal Server Error", which would tell an operator the
+    service crashed.
+    """
+    # Arrange
+    mock_auth_service.is_authenticated.return_value = True
+    mock_provider_registry.create_session.side_effect = (
+        TranscriptionCapacityError(AT_CAPACITY_REASON)
+    )
+    await controller._handle_text_message(VALID_AUTH_MESSAGE)
+
+    # Act - the same path receive_messages() takes when a handler raises
+    try:
+        await controller._handle_text_message(VALID_CONFIG_MESSAGE)
+        assert False
+    except TranscriptionCapacityError as error:
+        assert controller._handle_error(error) is True
+
+    # Assert
+    mock_close_method.assert_called_once_with(1013, AT_CAPACITY_REASON)
+    assert controller._service is None
 
 
 @pytest.mark.asyncio

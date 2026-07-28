@@ -92,10 +92,12 @@ class MetricsController:
         Args:
             metrics_registry    - In-memory telemetry store
             provider_registry   - Owner of the worker pool and providers
-            capacity_estimator  - Shadow-mode per-worker capacity estimator
-                                    (PLAN-AdmissionControl.md §3); nothing
-                                    reads its admit() yet, this only reports
-                                    its snapshot()
+            capacity_estimator  - Per-worker capacity estimator
+                                    (PLAN-AdmissionControl.md §3). Read here
+                                    through snapshot() only; the enforcing
+                                    caller is TranscriptionProviderRegistry,
+                                    and this controller must stay side effect
+                                    free so a poll can never move a decision.
         """
         self._metrics = metrics_registry
         self._providers = provider_registry
@@ -189,6 +191,15 @@ class MetricsController:
                 # never reaches a job.
                 "decodeDropsTotal": _counter_series(
                     self._metrics.decode_drops_total
+                ),
+                # Sessions the admission check turned away
+                # (PLAN-AdmissionControl.md §4). Zero series is the healthy
+                # steady state, so this is one of the few counters here whose
+                # *absence* of movement is the signal; it is reported anyway
+                # because an operator asking "is anyone being refused" must be
+                # able to get "no" as an answer rather than silence.
+                "sessionsRefusedCapacityTotal": _counter_series(
+                    self._metrics.sessions_refused_capacity_total
                 ),
                 # Whisper's own hallucination-risk signals (B2.3). Firing is
                 # a rate to watch, not a fatal error - the transcript is

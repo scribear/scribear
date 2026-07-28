@@ -242,6 +242,9 @@ def test_reports_identity_and_empty_series_before_any_job(
     assert body["counters"]["temperatureFallbackTotal"] == []
     assert body["counters"]["repeatedSegmentDetectedTotal"] == []
     assert body["counters"]["asrDroppedPeriodsTotal"] == []
+    # An idle process has refused nobody, and an operator asking "is anyone
+    # being turned away" needs to be able to read "no" rather than silence.
+    assert body["counters"]["sessionsRefusedCapacityTotal"] == []
 
 
 @pytest.mark.asyncio

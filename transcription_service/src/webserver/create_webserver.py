@@ -51,10 +51,11 @@ def create_webserver(config: Config, logger: Logger):
     # restart, and a consumer can only correlate them if the uid matches.
     process_identity = create_process_identity()
     metrics_registry = MetricsRegistry(process_identity=process_identity)
-    # Shadow mode (PLAN-AdmissionControl.md §3): nothing in the live
-    # connection/admission path calls admit() yet. Constructed here, next to
-    # metrics_registry, because both are fed by the same job_observer below
-    # and both are threaded to metrics_router the same way.
+    # PLAN-AdmissionControl.md §3/§4. Constructed here, next to
+    # metrics_registry, because both are fed by the same job_observer below and
+    # both are threaded onward the same way - the estimator now reaching the
+    # provider registry (which enforces admission) as well as metrics_router
+    # (which reports its snapshot).
     capacity_estimator = CapacityEstimator(
         target_busy=config.target_busy,
         min_sessions=config.min_sessions,
@@ -65,13 +66,13 @@ def create_webserver(config: Config, logger: Logger):
         """
         Fans one completed job execution out to both consumers that need it:
         the metrics registry (what /metrics/status reports) and the capacity
-        estimator (shadow-mode only - nothing reads its admit() yet).
+        estimator (what decides whether the next session is admitted).
         """
         metrics_registry.record_job_execution(observation)
         capacity_estimator.record(observation)
 
     provider_registry = TranscriptionProviderRegistry(
-        config, logger, _observe_job
+        config, logger, _observe_job, capacity_estimator, metrics_registry
     )
     # One join, two consumers: the /providers/health route below and the
     # telemetry publisher started in the lifespan hook.

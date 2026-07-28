@@ -3,9 +3,10 @@ Per-worker capacity estimator (PLAN-AdmissionControl.md §3)
 
 Estimates how many concurrent sessions one worker can serve before it falls
 behind, from nothing but the stream of completed job executions the pool
-already reports to a JobObserver. Shadow mode: nothing in the live
-connection/admission path calls this yet, so the decision logic can be written
-and tested before it is ever allowed to refuse anyone.
+already reports to a JobObserver. Written and validated in shadow mode first,
+so the decision logic was exercised against real sweeps before it was ever
+allowed to refuse anyone; `admit()` is now consulted by
+TranscriptionProviderRegistry.create_session (PLAN-AdmissionControl.md §4).
 
 Why per worker and not pool-wide: a pool can run several providers/contexts
 across several workers, and one worker runs one job at a time, so N sessions
@@ -398,7 +399,8 @@ class CapacityEstimator:
     snapshot = estimator.snapshot(worker_id, worker.live_job_count)
     print(snapshot.estimated_capacity_sessions)  # N*, or None while unknown
 
-    # Shadow-mode decision - not yet wired to any refusal
+    # The admission decision. `live_job_count` must be N *before* the session
+    # being decided on is placed - see admit().
     if estimator.admit(worker_id, worker.live_job_count):
         ...
     ```
