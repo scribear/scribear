@@ -19,10 +19,11 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "dev": "vite",
-    "format": "prettier --check ./src",
-    "format:fix": "prettier --write ./src",
-    "lint": "eslint ./src",
-    "lint:fix": "eslint ./src --fix"
+    "format": "prettier --check ./src ./tests",
+    "format:fix": "prettier --write ./src ./tests",
+    "lint": "eslint ./src ./tests",
+    "lint:fix": "eslint ./src ./tests --fix",
+    "test:unit": "vitest run --project unit"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

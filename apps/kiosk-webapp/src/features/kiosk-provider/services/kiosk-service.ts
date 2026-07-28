@@ -17,6 +17,7 @@ import type {
 import { createNodeServerClient } from '@scribear/node-server-client';
 import {
   type TRANSCRIPTION_STREAM_SCHEMA,
+  type TranscriptionServiceDisconnectReason,
   TranscriptionStreamClientMessageType,
   TranscriptionStreamServerMessageType,
 } from '@scribear/node-server-schema';
@@ -78,6 +79,14 @@ export interface RoomInfo {
 export interface SessionStatusSnapshot {
   transcriptionServiceConnected: boolean;
   sourceDeviceConnected: boolean;
+  /**
+   * Present only when `transcriptionServiceConnected` is `false` and the
+   * cause is known - today, `AT_CAPACITY` means the Transcription Service
+   * explicitly refused the connection (close 1013) rather than it dropping
+   * or crashing. Absent when connected, or when disconnected for an
+   * undistinguished reason. Mirrors the wire field on `SESSION_STATUS`.
+   */
+  transcriptionServiceDisconnectReason?: TranscriptionServiceDisconnectReason;
 }
 
 /**
@@ -806,6 +815,15 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
           this.emit('sessionStatus', {
             transcriptionServiceConnected: msg.transcriptionServiceConnected,
             sourceDeviceConnected: msg.sourceDeviceConnected,
+            // Under `exactOptionalPropertyTypes`, an explicit `undefined`
+            // isn't interchangeable with an omitted key - spread it in only
+            // when the publisher actually sent it.
+            ...(msg.transcriptionServiceDisconnectReason !== undefined
+              ? {
+                  transcriptionServiceDisconnectReason:
+                    msg.transcriptionServiceDisconnectReason,
+                }
+              : {}),
           });
           break;
         case TranscriptionStreamServerMessageType.SESSION_ENDED:
@@ -833,6 +851,15 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
         void this._enterIdle();
       }
       // Other codes trigger automatic reconnection inside WebSocketClient.
+      // Note 1013 ("at capacity") never appears as `code` here - it is not
+      // even declared in this route's closeCodes (this socket is
+      // node-server<->kiosk; 1013 only ever closes node-server's own
+      // upstream link to the Transcription Service, a different schema/
+      // route entirely). That refusal reaches this app only indirectly, via
+      // `transcriptionServiceDisconnectReason` on the `SESSION_STATUS`
+      // message, consumed by `deriveConnectionBanner` - so no extra branch
+      // is needed on the socket itself.
+      // itself.
     });
 
     socket.on('error', (err) => {
