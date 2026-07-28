@@ -31,6 +31,7 @@ const LOCAL_PROVIDER = {
   kind: 'local',
   status: 'degraded',
   activeSessions: 5,
+  sessionsRefusedCapacityTotal: 2,
   model: null,
   modelLoaded: true,
   owningWorkers: [
@@ -59,6 +60,9 @@ const REMOTE_PROVIDER = {
   kind: 'remote',
   status: 'down',
   activeSessions: 1,
+  // Never subject to local admission control, so always 0 - the honest
+  // reading for a remote provider, not a gap.
+  sessionsRefusedCapacityTotal: 0,
   model: 'granite-speech',
   modelLoaded: null,
   owningWorkers: [],

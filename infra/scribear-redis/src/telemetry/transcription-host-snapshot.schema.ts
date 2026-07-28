@@ -89,6 +89,10 @@ export const PROVIDER_HEALTH_SCHEMA = Type.Object({
     Type.Literal('down'),
   ]),
   activeSessions: Type.Integer(),
+  sessionsRefusedCapacityTotal: Type.Integer({
+    description:
+      'Sessions refused at admission (PLAN-AdmissionControl.md §4) because the worker they landed on had no capacity for them - monotonic since process start, same caveat as invalidProviderKeyRejects. Always 0 for a remote provider: remote providers are never subject to local admission control, so this is the honest reading for lumen_granite and friends, not a gap.',
+  }),
   model: Type.Union([Type.String(), Type.Null()]),
   modelLoaded: Type.Union([Type.Boolean(), Type.Null()], {
     description:
