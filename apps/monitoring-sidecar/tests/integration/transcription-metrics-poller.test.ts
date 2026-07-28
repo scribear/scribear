@@ -413,6 +413,103 @@ describe('transcription-service metrics poller (B1.2 PR 5)', () => {
         0,
       );
     });
+
+    it('folds binary-before-auth and binary-before-config drops per provider', async () => {
+      // Arrange — the reconnect-loop fix's counters. Two providers, since a
+      // multi-provider deployment must not conflate one's drops with another's.
+      const { metrics, poller } = await createPoller();
+      service.setBody(
+        metricsBody({
+          counters: {
+            binaryDroppedBeforeAuthTotal: [
+              { labels: WHISPER, value: 2 },
+              { labels: LUMEN_GRANITE, value: 5 },
+            ],
+            binaryDroppedBeforeConfigTotal: [{ labels: WHISPER, value: 3 }],
+          },
+        }),
+      );
+
+      // Act
+      await poller.pollOnce();
+
+      // Assert
+      expect(metrics.asrBinaryDroppedBeforeAuthTotal.get(providerLabels)).toBe(
+        2,
+      );
+      expect(
+        metrics.asrBinaryDroppedBeforeAuthTotal.get({
+          service: SERVICE,
+          providerKey: 'lumen_granite',
+        }),
+      ).toBe(5);
+      expect(
+        metrics.asrBinaryDroppedBeforeConfigTotal.get(providerLabels),
+      ).toBe(3);
+    });
+
+    it('differences binary-before-auth and binary-before-config across polls', async () => {
+      // Arrange — these are lifetime totals like every other counter here, so
+      // only the delta between polls may land, not the reported figure itself.
+      const { metrics, poller } = await createPoller();
+      service.setBody(
+        metricsBody({
+          counters: {
+            binaryDroppedBeforeAuthTotal: [{ labels: WHISPER, value: 4 }],
+            binaryDroppedBeforeConfigTotal: [{ labels: WHISPER, value: 6 }],
+          },
+        }),
+      );
+      await poller.pollOnce();
+
+      // Act
+      service.setBody(
+        metricsBody({
+          counters: {
+            binaryDroppedBeforeAuthTotal: [{ labels: WHISPER, value: 9 }],
+            binaryDroppedBeforeConfigTotal: [{ labels: WHISPER, value: 8 }],
+          },
+        }),
+      );
+      await poller.pollOnce();
+
+      // Assert — the running total tracks the endpoint's own lifetime figure,
+      // which is only true if each poll folded a delta rather than re-adding
+      // the reported total (that bug would have left auth at 13, not 9).
+      expect(metrics.asrBinaryDroppedBeforeAuthTotal.get(providerLabels)).toBe(
+        9,
+      );
+      expect(
+        metrics.asrBinaryDroppedBeforeConfigTotal.get(providerLabels),
+      ).toBe(8);
+    });
+
+    it('polls a service too old to report binary-before-auth/config drops without failing', async () => {
+      // Arrange — both fields are optional precisely so that a
+      // transcription-service predating the reconnect-loop fix still produces
+      // a healthy poll instead of a `malformed` one that takes every
+      // transcription metric down with it. The default fixture body already
+      // omits both fields; this test asserts that omission is handled, not
+      // just unexercised.
+      const { metrics, poller, errors } = await createPoller();
+      service.setBody(
+        metricsBody({
+          counters: { bufferOverflowTotal: [{ labels: WHISPER, value: 1 }] },
+        }),
+      );
+
+      // Act
+      await poller.pollOnce();
+
+      // Assert — the poll succeeded, its other counters landed, and absence
+      // recorded no increment rather than a reported zero.
+      expect(errors).toEqual([]);
+      expect(metrics.asrBufferOverflowTotal.get(providerLabels)).toBe(1);
+      expect(metrics.asrBinaryDroppedBeforeAuthTotal.entries()).toHaveLength(0);
+      expect(metrics.asrBinaryDroppedBeforeConfigTotal.entries()).toHaveLength(
+        0,
+      );
+    });
   });
 
   describe('quantile gauges', (it) => {

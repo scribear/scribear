@@ -567,6 +567,35 @@ export class MetricsRegistry {
     'Transcription buffers that produced no speech, by kind.',
   );
 
+  /**
+   * Binary frames a source sent before its AUTH handshake completed, or before
+   * session configuration completed, respectively. The transcription-service
+   * counterpart of {@link nodeBinaryBeforeAuthDropsTotal} — the identical
+   * reconnect-loop fix applied on the other side of the same handshake, so a
+   * source that starts streaming too early is dropped and counted rather than
+   * closed 1008 and left to loop.
+   *
+   * Per provider, unlike the node-server counterpart: transcription-service
+   * multiplexes several providers behind one process, so a drop is only
+   * actionable once it is attributed to one of them.
+   *
+   * Optional on the wire: a transcription-service built before the
+   * reconnect-loop fix does not send `binaryDroppedBeforeAuthTotal` or
+   * `binaryDroppedBeforeConfigTotal` at all, and a rolling upgrade means the
+   * sidecar polls exactly that service. A poll that omits them records no
+   * increment that round rather than treating it as zero.
+   */
+  readonly asrBinaryDroppedBeforeAuthTotal = new Counter(
+    'scribear_asr_binary_dropped_before_auth_total',
+    'Binary frames dropped because a source began streaming before its AUTH handshake completed, by provider.',
+  );
+
+  /** See {@link asrBinaryDroppedBeforeAuthTotal}; the config-handshake half of the same fix. */
+  readonly asrBinaryDroppedBeforeConfigTotal = new Counter(
+    'scribear_asr_binary_dropped_before_config_total',
+    'Binary frames dropped because a source began streaming before session configuration completed, by provider.',
+  );
+
   // --- A3: probe-derived --------------------------------------------------
 
   /** 1 when the probe returned healthy, 0 otherwise. Labelled service/probe. */
@@ -709,6 +738,8 @@ export class MetricsRegistry {
       this.asrAudioDroppedBufferFullTotal,
       this.asrAudioDroppedBufferFullSecondsTotal,
       this.asrNoSpeechTotal,
+      this.asrBinaryDroppedBeforeAuthTotal,
+      this.asrBinaryDroppedBeforeConfigTotal,
       this.probeTransitionsTotal,
       this.canaryRunsTotal,
       this.canaryTranscriptsTotal,

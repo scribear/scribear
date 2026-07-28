@@ -129,6 +129,29 @@ export const TRANSCRIPTION_METRICS_BODY_SCHEMA = Type.Object({
     noWordsTotal: Type.Array(COUNTER_SERIES),
     decodeDropsTotal: Type.Array(COUNTER_SERIES),
     /**
+     * Binary frames dropped because they arrived before authentication
+     * completed, and before session configuration completed, respectively —
+     * the reconnect-loop fix on transcription-service's side of the same
+     * handshake node-server already applies (see
+     * `MetricsRegistry.nodeBinaryBeforeAuthDropsTotal`). Without it, a source
+     * that starts streaming before the handshake finishes used to have its
+     * socket closed 1008, and a source's auto-reconnect turns that into a
+     * loop: it re-authenticates, its first chunk again beats the ordering it
+     * just violated, and no audio is ever delivered. The frame is dropped
+     * instead and counted, so a client stuck in that pattern is still visible.
+     *
+     * Optional for the same reason as `audioDroppedBufferFullTotal`: a
+     * transcription-service predating this change does not send them, and
+     * during a rolling upgrade the sidecar polls exactly that service —
+     * requiring these fields would turn every transcription metric into a
+     * `malformed` poll for the duration of the upgrade. Absent means no drops
+     * are being reported, not zero; there is no fallback signal and no
+     * behaviour that differs between the two, so neither needs a support
+     * gauge.
+     */
+    binaryDroppedBeforeAuthTotal: Type.Optional(Type.Array(COUNTER_SERIES)),
+    binaryDroppedBeforeConfigTotal: Type.Optional(Type.Array(COUNTER_SERIES)),
+    /**
      * Job periods in which a job never ran, because the pass before it overran.
      *
      * The exact count of the failure the T1 rules are all circling: the worker
