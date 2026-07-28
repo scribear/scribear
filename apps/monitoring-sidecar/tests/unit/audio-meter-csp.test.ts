@@ -122,18 +122,13 @@ describe('audio-meter page CSP', (it) => {
   });
 
   it('serves the meter from admin-webapp, not from a second copy', () => {
-    // An exact-match location wins over the /admin/ prefix regardless of
-    // order, so the request must be sent to /audio-meter.html specifically -
-    // otherwise it arrives at admin-webapp as "/" and the SPA answers with
-    // index.html, which looks like a working page. The upstream host is a
-    // resolved variable (see the file's top-of-http `resolver` comment), so
-    // the path is pinned by an explicit `rewrite` instead of a literal
-    // `proxy_pass http://admin-webapp/audio-meter.html;` - proxy_pass can no
-    // longer do that substitution itself once the host isn't a literal name.
+    // An exact-match location wins over the /admin/ prefix regardless of order,
+    // so nginx replaces the whole matched URI — the upstream path has to be
+    // spelled out or the request arrives at admin-webapp as "/" and the SPA
+    // answers with index.html, which looks like a working page.
     const start = conf.indexOf(LOCATION);
     const block = conf.slice(start, conf.indexOf('\n        }', start));
 
-    expect(block).toContain('rewrite ^ /audio-meter.html break;');
-    expect(block).toMatch(/proxy_pass http:\/\/\$\w+;/);
+    expect(block).toContain('proxy_pass http://admin-webapp/audio-meter.html;');
   });
 });

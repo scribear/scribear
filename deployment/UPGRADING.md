@@ -34,10 +34,15 @@ exists to enforce. Concretely, that meant:
 - It recreates services in whatever order it happens to poll them, not the
   order `depends_on`/`service_healthy` would choose. Two services meant to
   ship together can sit version-skewed for a full poll interval.
-- Nothing tells `nginx` afterward. Its `upstream` blocks resolve a backend
-  container's hostname once, at nginx's own startup; when watchtower recreates
-  that container it gets a new address on the docker network, and nginx keeps
-  talking to the old one until something restarts it too.
+- Nothing tells `nginx` afterward. Its `upstream` blocks used to resolve a
+  backend container's hostname once, at nginx's own startup; when watchtower
+  recreated that container it got a new address on the docker network, and
+  nginx kept talking to the old one — possibly since reused by an unrelated
+  container — until something restarted it too. (`nginx.conf`'s upstreams now
+  resolve dynamically regardless, via `resolve`/`zone`, so this specific
+  failure mode is fixed independently of watchtower's removal — but the new
+  `scribear-nginx` image has to actually be pulled for that fix to take
+  effect; see the note below.)
 - It runs with the Docker socket mounted, permanently, for a background poll
   loop — root-equivalent on the host, which is exactly what the monitoring
   sidecar gave up in B1.2.
@@ -52,9 +57,18 @@ already had to do by hand — fetch the compose file this branch/tag tracks,
 `docker compose pull`, `docker compose up -d` — as one script meant to run on
 a timer instead of a long-lived container. Unlike watchtower, that third step
 *is* `docker compose up -d`, so it runs `db-migrate` and waits on
-`depends_on`/`service_healthy` exactly as a manual upgrade would; the script
-also restarts `nginx` afterward as a blunt guard against the stale-upstream
-problem above.
+`depends_on`/`service_healthy` exactly as a manual upgrade would. It also
+reloads `nginx` afterward, but that step is a belt-and-suspenders nicety now,
+not the fix: `nginx.conf`'s upstreams resolve backend addresses dynamically
+(`resolve`/`zone`) as of this release, so nginx self-corrects within a few
+seconds of any backend `up -d` recreates with no action needed at all — the
+reload just makes that immediate instead of waiting out the resolver's TTL.
+
+**That dynamic-resolver fix lives in the `scribear-nginx` image itself**, not
+in `compose.yml` or `.env` — an operator who pulls selectively (e.g.
+`docker compose pull session-manager admin-server`, skipping the rest) would
+miss it. `docker compose pull` with no arguments, which is what
+`deploy_latest.sh` runs, already covers it.
 
 Sample [systemd unit/timer](deploy/scribear-deploy@.service) and
 [crontab entry](deploy/crontab.sample) are in `deployment/deploy/` — pick
