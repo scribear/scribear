@@ -12,6 +12,43 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — opt-in Prometheus + Grafana dashboard (`compose.yml` v6)
+
+**No action needed unless you want it.** Purely additive: a new `monitoring`
+compose profile, off by default, same mechanism `autoupdate` already uses.
+`docker compose up -d` with no `COMPOSE_PROFILES` set starts exactly the same
+containers it did before this release.
+
+### What it adds
+
+Two new services, both gated behind `COMPOSE_PROFILES=monitoring`:
+Prometheus (scrapes `monitoring-sidecar:80/metrics`, the fleet's own
+aggregated Prometheus endpoint — nothing else, no new secrets) and Grafana
+(auto-provisioned datasource and a seed fleet-overview dashboard, zero manual
+UI configuration). See [`deployment/monitoring/README.md`](monitoring/README.md)
+for how to turn it on and reach it, and `PLAN-Grafana-Monitoring.md` in the
+repo root for the design rationale.
+
+To opt in, add four keys to `.env` (see `.env.example`):
+
+```dotenv
+COMPOSE_PROFILES=monitoring
+GRAFANA_BIND=127.0.0.1
+GRAFANA_PORT=3000
+GRAFANA_ADMIN_PASSWORD=<a real password, not CHANGEME>
+PROMETHEUS_RETENTION=15d
+```
+
+then `docker compose --profile monitoring up -d`. Prometheus is never
+host-published; Grafana defaults to loopback-only — reach it with
+`ssh -L 3000:localhost:3000 <host>`, or set `GRAFANA_BIND=0.0.0.0` yourself to
+open it to the LAN.
+
+To turn monitoring back off without touching the rest of the stack, use
+`docker compose stop prometheus grafana && docker compose rm -f prometheus
+grafana` — **not** `docker compose --profile monitoring down`, which tears
+down the entire stack (`down` is not scoped by `--profile` the way `up` is).
+
 ## Unreleased — the last three T1 alert thresholds are now tunable (`compose.yml` v5)
 
 **Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. Nothing

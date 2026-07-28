@@ -666,6 +666,65 @@ services:
       - backend
     restart: unless-stopped
 
+  # Metrics + dashboards for evaluators (see PLAN-Grafana-Monitoring.md).
+  #
+  # OFF BY DEFAULT, via the profile - same mechanism `autoupdate` uses below.
+  # Scrapes exactly one target: monitoring-sidecar's own /metrics, which
+  # already aggregates the whole fleet. Never scrapes node-server,
+  # transcription-service, session-manager or admin-server directly - those
+  # endpoints are auth-gated per-service, and handing Prometheus every
+  # service's key would be new secret-sprawl for no benefit the sidecar
+  # doesn't already provide.
+  #
+  # No `ports:` - Prometheus ships with no authentication of its own, so
+  # host-publishing it would be an open door on any box with a routable
+  # interface. Reachable only from other containers on `backend` (i.e. from
+  # `grafana`, below).
+  prometheus:
+    profiles:
+      - monitoring
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.55.1}
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}"
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # Dashboards on top of the Prometheus above. Datasource and the seed
+  # fleet-overview dashboard are both auto-provisioned from files mounted
+  # read-only below - a fresh `up` on this profile needs zero clicks in the
+  # Grafana UI beyond logging in (PLAN-Grafana-Monitoring.md invariant 4).
+  #
+  # Loopback-bound by default: Grafana has real auth (an admin password),
+  # unlike Prometheus above, but a staging box is often on a routable
+  # network, so the default stays conservative. Reach it via
+  # `ssh -L 3000:localhost:3000 <host>`, or set GRAFANA_BIND=0.0.0.0 to open
+  # it to the LAN as an explicit, deliberate choice.
+  grafana:
+    profiles:
+      - monitoring
+    image: ${GRAFANA_IMAGE:-grafana/grafana-oss:11.5.2}
+    ports:
+      - "${GRAFANA_BIND:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-CHANGEME}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - backend
+    restart: unless-stopped
+
   # Automatic image updates.
   #
   # Polls the registry and recreates any container whose tag now points at a
@@ -712,3 +771,5 @@ networks:
 
 volumes:
   postgres_data:
+  prometheus_data:
+  grafana_data:
