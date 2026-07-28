@@ -163,8 +163,15 @@ export class RoomManagementRepository {
   }
 
   /**
-   * Executes the chronological pagination path. Orders by `created_at` ascending,
-   * breaking ties by `uid` ascending. The cursor encodes `(createdAt, uid)`.
+   * Executes the chronological pagination path. Orders by `created_at`
+   * ascending, breaking ties by `uid` ascending. The cursor encodes
+   * `(createdAt, uid)`.
+   *
+   * The ordering key and the cursor predicate both truncate `created_at` to
+   * milliseconds and must stay in agreement - see the equivalent method in
+   * `device-management.repository.ts` for why ordering on the raw
+   * microsecond column while filtering on the truncated one duplicates rows
+   * across pages.
    */
   private async _listByCreatedAt(
     base: BaseRoomQuery,
@@ -173,22 +180,20 @@ export class RoomManagementRepository {
   ) {
     const cursor = rawCursor ? decodeCursor(rawCursor) : null;
     const createdAtCursor = cursor?.type === 'createdAt' ? cursor : null;
+    const orderKey = sql`date_trunc('milliseconds', created_at)`;
 
     if (createdAtCursor) {
       const ts = new Date(createdAtCursor.createdAt);
       base = base.where((eb) =>
         eb.or([
-          eb(sql`date_trunc('milliseconds', created_at)`, '>', ts),
-          eb.and([
-            eb(sql`date_trunc('milliseconds', created_at)`, '=', ts),
-            eb('uid', '>', createdAtCursor.uid),
-          ]),
+          eb(orderKey, '>', ts),
+          eb.and([eb(orderKey, '=', ts), eb('uid', '>', createdAtCursor.uid)]),
         ]),
       );
     }
 
     const rows = (await base
-      .orderBy('created_at', 'asc')
+      .orderBy(orderKey, 'asc')
       .orderBy('uid', 'asc')
       .limit(limit + 1)
       .execute()) as RoomRow[];

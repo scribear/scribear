@@ -195,8 +195,22 @@ export class DeviceManagementRepository {
   }
 
   /**
-   * Executes the chronological pagination path. Orders by `created_at` ascending,
-   * breaking ties by `uid` ascending. The cursor encodes `(createdAt, uid)`.
+   * Executes the chronological pagination path. Orders by `created_at`
+   * ascending, breaking ties by `uid` ascending. The cursor encodes
+   * `(createdAt, uid)`.
+   *
+   * Both the ordering key and the cursor predicate truncate `created_at` to
+   * milliseconds, and they have to agree. `created_at` is a `timestamptz`
+   * with microsecond resolution, but the cursor round-trips through a JS
+   * `Date` and an ISO-8601 string, neither of which can carry more than
+   * milliseconds - so the cursor can only ever name a millisecond. Ordering
+   * on the raw column while filtering on the truncated one lets the two
+   * disagree about which side of the cursor a row falls on: rows sharing a
+   * millisecond but differing in microseconds get ordered by their
+   * microseconds into page N, then re-selected by the `uid` tiebreak into
+   * page N+1, duplicating rows and inflating the page. Registering three
+   * rows inside one millisecond is enough to hit it, which is why the
+   * pagination tests were intermittently failing.
    */
   private async _listByCreatedAt(
     base: BaseDeviceQuery,
@@ -205,14 +219,15 @@ export class DeviceManagementRepository {
   ) {
     const cursor = rawCursor ? decodeCursor(rawCursor) : null;
     const createdAtCursor = cursor?.type === 'createdAt' ? cursor : null;
+    const orderKey = sql`date_trunc('milliseconds', devices.created_at)`;
 
     if (createdAtCursor) {
       const ts = new Date(createdAtCursor.createdAt);
       base = base.where((eb) =>
         eb.or([
-          eb(sql`date_trunc('milliseconds', devices.created_at)`, '>', ts),
+          eb(orderKey, '>', ts),
           eb.and([
-            eb(sql`date_trunc('milliseconds', devices.created_at)`, '=', ts),
+            eb(orderKey, '=', ts),
             eb('devices.uid', '>', createdAtCursor.uid),
           ]),
         ]),
@@ -220,7 +235,7 @@ export class DeviceManagementRepository {
     }
 
     const rows = (await base
-      .orderBy('devices.created_at', 'asc')
+      .orderBy(orderKey, 'asc')
       .orderBy('devices.uid', 'asc')
       .limit(limit + 1)
       .execute()) as DeviceRow[];
