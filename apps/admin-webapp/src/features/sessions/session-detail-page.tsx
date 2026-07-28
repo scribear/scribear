@@ -62,7 +62,12 @@ import {
   audioMeterAbsoluteUrl,
 } from '#src/lib/audio-meter-url';
 import { buildJoinUrl } from '#src/lib/join-url';
-import { sessionWindowState } from '#src/lib/session-rules';
+import {
+  canCancel,
+  canEndEarly,
+  canStartEarly,
+  sessionWindowState,
+} from '#src/lib/session-rules';
 import { formatInTimeZone } from '#src/lib/timezone';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
@@ -84,6 +89,11 @@ function formatDateTime(
   return timeZone === undefined
     ? new Date(iso).toLocaleString()
     : formatInTimeZone(iso, timeZone);
+}
+
+/** YYYY-MM-DD from an ISO instant, for the `?date=` calendar deep link. */
+function dateOnly(iso: string): string {
+  return iso.slice(0, 10);
 }
 
 interface FieldRowProps {
@@ -942,6 +952,8 @@ export const SessionDetailPage = () => {
   const [starting, setStarting] = useState(false);
   const [endConfirmOpen, setEndConfirmOpen] = useState(false);
   const [ending, setEnding] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   // Any load failure that isn't misconfiguration or not-found is surfaced as a
   // toast, once per error.
@@ -992,6 +1004,43 @@ export const SessionDetailPage = () => {
       });
   };
 
+  const handleCancel = () => {
+    if (sessionUid === undefined) return;
+    setCancelling(true);
+    adminApi
+      .cancelSession(sessionUid)
+      .then(() => {
+        showSuccess('Session canceled.', {
+          label: 'Undo',
+          onClick: () => {
+            adminApi
+              .uncancelSession(sessionUid)
+              .then(() => {
+                showSuccess('Cancellation undone.');
+                reload();
+              })
+              .catch((err: unknown) => {
+                if (isApiErrorCode(err, 'SLOT_NO_LONGER_AVAILABLE')) {
+                  showError(
+                    "Can't undo — another session now occupies this time.",
+                  );
+                } else {
+                  showError(errorMessage(err, 'Failed to undo cancellation.'));
+                }
+              });
+          },
+        });
+        reload();
+      })
+      .catch((err: unknown) => {
+        showError(errorMessage(err, 'Failed to cancel session.'));
+      })
+      .finally(() => {
+        setCancelling(false);
+        setCancelConfirmOpen(false);
+      });
+  };
+
   if (loading && session === null) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
@@ -1031,6 +1080,16 @@ export const SessionDetailPage = () => {
           color="primary"
           variant="outlined"
         />
+        {session.canceledAt !== null && (
+          <Chip size="small" label="Canceled" color="default" />
+        )}
+        <Link
+          component={RouterLink}
+          to={`/rooms/${session.roomUid}/calendar?date=${dateOnly(session.effectiveStart)}`}
+          sx={{ ml: 'auto' }}
+        >
+          View in calendar
+        </Link>
       </Box>
       <TimezoneNote timezone={timezone} />
       <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
@@ -1064,6 +1123,16 @@ export const SessionDetailPage = () => {
               {formatDateTime(session.effectiveEnd, timezone)}
             </Typography>
           </FieldRow>
+          {session.canceledAt !== null && (
+            <>
+              <Divider />
+              <FieldRow label="Canceled at">
+                <Typography>
+                  {formatDateTime(session.canceledAt, timezone)}
+                </Typography>
+              </FieldRow>
+            </>
+          )}
           <Divider />
           <FieldRow label="Join code scopes">
             <Stack direction="row" spacing={1}>
@@ -1163,23 +1232,38 @@ export const SessionDetailPage = () => {
       <AudioHealthSection session={session} />
 
       <Stack direction="row" spacing={2}>
-        <Button
-          variant="outlined"
-          onClick={() => {
-            setStartConfirmOpen(true);
-          }}
-        >
-          Start early
-        </Button>
-        <Button
-          variant="outlined"
-          color="error"
-          onClick={() => {
-            setEndConfirmOpen(true);
-          }}
-        >
-          End early
-        </Button>
+        {canStartEarly(session, new Date()) && (
+          <Button
+            variant="outlined"
+            onClick={() => {
+              setStartConfirmOpen(true);
+            }}
+          >
+            Start early
+          </Button>
+        )}
+        {canEndEarly(session, new Date()) && (
+          <Button
+            variant="outlined"
+            color="error"
+            onClick={() => {
+              setEndConfirmOpen(true);
+            }}
+          >
+            End early
+          </Button>
+        )}
+        {canCancel(session, new Date()) && (
+          <Button
+            variant="outlined"
+            color="error"
+            onClick={() => {
+              setCancelConfirmOpen(true);
+            }}
+          >
+            Cancel session
+          </Button>
+        )}
       </Stack>
       <ConfirmDialog
         open={startConfirmOpen}
@@ -1192,6 +1276,19 @@ export const SessionDetailPage = () => {
           setStartConfirmOpen(false);
         }}
       />
+      <ConfirmDialog
+        open={cancelConfirmOpen}
+        title="Cancel session"
+        message="This cancels this one occurrence. It does not affect the recurring schedule or any other occurrence. If a matching auto-session window covers this time, an auto-generated session may fill the gap. Editing or deleting the parent schedule later will also remove this cancellation."
+        confirmLabel="Cancel session"
+        confirmColor="error"
+        loading={cancelling}
+        onConfirm={handleCancel}
+        onClose={() => {
+          setCancelConfirmOpen(false);
+        }}
+      />
+
       <ConfirmDialog
         open={endConfirmOpen}
         title="End session early"

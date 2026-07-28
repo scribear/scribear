@@ -900,6 +900,134 @@ describe('Schedule Management Routes', () => {
     });
   });
 
+  describe('GET /list-sessions', (it) => {
+    async function createOnDemand(roomUid: string, name = 'Quick') {
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/create-on-demand-session`,
+        headers: { authorization: ADMIN_HEADER },
+        body: {
+          roomUid,
+          name,
+          joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS'],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+      });
+      return res.json<{ uid: string; name: string }>();
+    }
+
+    // On-demand sessions start "now", so the list window must span the
+    // actual current time rather than a fixed date (and stay well under the
+    // 31-day range cap).
+    const yesterdayIso = new Date(
+      Date.now() - 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const tomorrowIso = new Date(
+      Date.now() + 24 * 60 * 60 * 1000,
+    ).toISOString();
+
+    it('returns 401 without credentials', async () => {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${SCHEDULE_BASE}/list-sessions?from=2030-01-01T00:00:00.000Z&to=2030-01-02T00:00:00.000Z`,
+        headers: { authorization: 'Bearer wrong-key' },
+      });
+
+      expect(res.statusCode).toBe(401);
+    });
+
+    it('scopes to a single room via one roomUids entry', async () => {
+      // Arrange
+      const { roomUid: roomA } = await setupRoom('Room A');
+      const { roomUid: roomB } = await setupRoom('Room B');
+      await createOnDemand(roomA, 'In room A');
+      await createOnDemand(roomB, 'In room B');
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url:
+          `${SCHEDULE_BASE}/list-sessions?roomUids=${roomA}` +
+          `&from=${yesterdayIso}&to=${tomorrowIso}`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      const { items } = res.json<{ items: { name: string }[] }>();
+      expect(items.map((s) => s.name)).toEqual(['In room A']);
+    });
+
+    it('scopes to multiple rooms via repeated roomUids entries', async () => {
+      // Arrange
+      const { roomUid: roomA } = await setupRoom('Room A');
+      const { roomUid: roomB } = await setupRoom('Room B');
+      const { roomUid: roomC } = await setupRoom('Room C');
+      await createOnDemand(roomA, 'In room A');
+      await createOnDemand(roomB, 'In room B');
+      await createOnDemand(roomC, 'In room C');
+
+      // Act - repeated query key is how a browser/fetch serializes an array param.
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url:
+          `${SCHEDULE_BASE}/list-sessions?roomUids=${roomA}&roomUids=${roomB}` +
+          `&from=${yesterdayIso}&to=${tomorrowIso}`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      const { items } = res.json<{ items: { name: string }[] }>();
+      expect(items.map((s) => s.name).sort()).toEqual([
+        'In room A',
+        'In room B',
+      ]);
+    });
+
+    it('returns sessions across all rooms when roomUids is omitted', async () => {
+      // Arrange
+      const { roomUid: roomA } = await setupRoom('Room A');
+      const { roomUid: roomB } = await setupRoom('Room B');
+      await createOnDemand(roomA, 'In room A');
+      await createOnDemand(roomB, 'In room B');
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${SCHEDULE_BASE}/list-sessions?from=${yesterdayIso}&to=${tomorrowIso}`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      const { items } = res.json<{ items: { name: string }[] }>();
+      expect(items.map((s) => s.name).sort()).toEqual([
+        'In room A',
+        'In room B',
+      ]);
+    });
+
+    it('returns 422 RANGE_TOO_LARGE when the range exceeds 31 days', async () => {
+      // Arrange
+      const { roomUid } = await setupRoom();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url:
+          `${SCHEDULE_BASE}/list-sessions?roomUids=${roomUid}` +
+          `&from=2030-01-01T00:00:00.000Z&to=2030-03-01T00:00:00.000Z`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(422);
+      expect(res.json<{ code: string }>().code).toBe('RANGE_TOO_LARGE');
+    });
+  });
+
   describe('POST /create-on-demand-session', (it) => {
     function makeBody(roomUid: string, overrides: object = {}) {
       return {
@@ -1056,6 +1184,300 @@ describe('Schedule Management Routes', () => {
       // Assert
       expect(res.statusCode).toBe(404);
       expect(res.json<{ code: string }>().code).toBe('SESSION_NOT_FOUND');
+    });
+  });
+
+  /**
+   * Inserts a `SCHEDULED` session row backed by a real `session_schedules`
+   * row (required by the `sessions_type_fields_valid` check constraint).
+   */
+  async function insertScheduledSession(
+    roomUid: string,
+    startIso: string,
+    endIso: string,
+  ) {
+    const schedule = await dbContext.db
+      .insertInto('session_schedules')
+      .values({
+        room_uid: roomUid,
+        name: 'S',
+        active_start: new Date('2024-01-01T00:00:00Z'),
+        active_end: null,
+        anchor_start: new Date('2024-01-01T00:00:00Z'),
+        local_start_time: '09:00:00',
+        local_end_time: '10:00:00',
+        frequency: 'ONCE',
+        days_of_week: null,
+        transcription_provider_id: 'whisper',
+        transcription_stream_config: {},
+      })
+      .returning('uid')
+      .executeTakeFirstOrThrow();
+    const [row] = await dbContext.db
+      .insertInto('sessions')
+      .values({
+        room_uid: roomUid,
+        name: 'Scheduled',
+        type: 'SCHEDULED',
+        scheduled_session_uid: schedule.uid,
+        scheduled_start_time: new Date(startIso),
+        scheduled_end_time: new Date(endIso),
+        transcription_provider_id: 'whisper',
+        transcription_stream_config: {},
+      })
+      .returning('uid')
+      .execute();
+    return row!.uid;
+  }
+
+  describe('POST /cancel-session', (it) => {
+    it('returns 200 and cancels an upcoming SCHEDULED session', async () => {
+      // Arrange - future start, well within the exclusion tested elsewhere.
+      const { roomUid } = await setupRoom();
+      const start = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      const sessionUid = await insertScheduledSession(
+        roomUid,
+        start.toISOString(),
+        end.toISOString(),
+      );
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/cancel-session`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      expect(
+        res.json<{ uid: string; canceledAt: string | null }>(),
+      ).toMatchObject({
+        uid: sessionUid,
+        canceledAt: expect.any(String),
+      });
+    });
+
+    it('returns 404 when the session does not exist', async () => {
+      // Arrange / Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/cancel-session`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid: NULL_UUID },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(404);
+      expect(res.json<{ code: string }>().code).toBe('SESSION_NOT_FOUND');
+    });
+
+    it('returns 422 SESSION_NOT_SCHEDULED_TYPE for an ON_DEMAND session', async () => {
+      // Arrange
+      const { roomUid } = await setupRoom();
+      const create = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/create-on-demand-session`,
+        headers: { authorization: ADMIN_HEADER },
+        body: {
+          roomUid,
+          name: 'Quick',
+          joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS'],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+      });
+      const { uid: sessionUid } = create.json<{ uid: string }>();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/cancel-session`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(422);
+      expect(res.json<{ code: string }>().code).toBe(
+        'SESSION_NOT_SCHEDULED_TYPE',
+      );
+    });
+
+    it('returns 422 SESSION_ALREADY_CANCELED when the session is already canceled', async () => {
+      // Arrange
+      const { roomUid } = await setupRoom();
+      const start = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      const sessionUid = await insertScheduledSession(
+        roomUid,
+        start.toISOString(),
+        end.toISOString(),
+      );
+      await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/cancel-session`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid },
+      });
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/cancel-session`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(422);
+      expect(res.json<{ code: string }>().code).toBe(
+        'SESSION_ALREADY_CANCELED',
+      );
+    });
+
+    it('returns 422 SESSION_NOT_UPCOMING for a session that has already started', async () => {
+      // Arrange
+      const { roomUid } = await setupRoom();
+      const start = new Date(Date.now() - 60 * 60 * 1000);
+      const end = new Date(Date.now() + 60 * 60 * 1000);
+      const sessionUid = await insertScheduledSession(
+        roomUid,
+        start.toISOString(),
+        end.toISOString(),
+      );
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/cancel-session`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(422);
+      expect(res.json<{ code: string }>().code).toBe('SESSION_NOT_UPCOMING');
+    });
+  });
+
+  describe('POST /uncancel-session', (it) => {
+    it('returns 200 and clears canceledAt', async () => {
+      // Arrange
+      const { roomUid } = await setupRoom();
+      const start = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      const sessionUid = await insertScheduledSession(
+        roomUid,
+        start.toISOString(),
+        end.toISOString(),
+      );
+      await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/cancel-session`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid },
+      });
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/uncancel-session`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      expect(
+        res.json<{ uid: string; canceledAt: string | null }>(),
+      ).toMatchObject({ uid: sessionUid, canceledAt: null });
+    });
+
+    it('returns 404 when the session does not exist', async () => {
+      // Arrange / Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/uncancel-session`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid: NULL_UUID },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(404);
+      expect(res.json<{ code: string }>().code).toBe('SESSION_NOT_FOUND');
+    });
+
+    it('returns 422 SESSION_NOT_CANCELED for a session that was never canceled', async () => {
+      // Arrange
+      const { roomUid } = await setupRoom();
+      const start = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      const sessionUid = await insertScheduledSession(
+        roomUid,
+        start.toISOString(),
+        end.toISOString(),
+      );
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/uncancel-session`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(422);
+      expect(res.json<{ code: string }>().code).toBe('SESSION_NOT_CANCELED');
+    });
+
+    it('returns 409 SLOT_NO_LONGER_AVAILABLE when another session now occupies the freed slot', async () => {
+      // Arrange - cancel a SCHEDULED session, then create an on-demand
+      // session in the identical time range (permitted once the exclusion
+      // constraint's narrowed WHERE clause excludes the canceled row).
+      const { roomUid } = await setupRoom();
+      const start = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      const sessionUid = await insertScheduledSession(
+        roomUid,
+        start.toISOString(),
+        end.toISOString(),
+      );
+      await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/cancel-session`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid },
+      });
+      await dbContext.db
+        .insertInto('sessions')
+        .values({
+          room_uid: roomUid,
+          name: 'Replacement',
+          type: 'ON_DEMAND',
+          scheduled_start_time: start,
+          scheduled_end_time: end,
+          transcription_provider_id: 'whisper',
+          transcription_stream_config: {},
+        })
+        .execute();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/uncancel-session`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe(
+        'SLOT_NO_LONGER_AVAILABLE',
+      );
     });
   });
 

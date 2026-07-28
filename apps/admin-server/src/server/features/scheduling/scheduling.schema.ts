@@ -1,4 +1,5 @@
 import {
+  CANCEL_SESSION_SCHEMA,
   CREATE_AUTO_SESSION_WINDOW_SCHEMA,
   CREATE_ON_DEMAND_SESSION_SCHEMA,
   CREATE_SCHEDULE_SCHEMA,
@@ -13,6 +14,7 @@ import {
   LIST_SCHEDULES_SCHEMA,
   LIST_SESSIONS_SCHEMA,
   START_SESSION_EARLY_SCHEMA,
+  UNCANCEL_SESSION_SCHEMA,
   UPDATE_AUTO_SESSION_WINDOW_SCHEMA,
   UPDATE_ROOM_SCHEDULE_CONFIG_SCHEMA,
   UPDATE_SCHEDULE_SCHEMA,
@@ -165,4 +167,16 @@ export const GET_SESSION_JOIN_CODE_INPUT = {
 export const GET_SESSION_JOIN_CODE_ROUTE = {
   method: 'GET' as const,
   url: `${P_SESSIONS}/:sessionUid/join-code`,
+};
+
+export const CANCEL_SESSION_INPUT = { body: CANCEL_SESSION_SCHEMA.body };
+export const CANCEL_SESSION_ROUTE = {
+  method: 'POST' as const,
+  url: `${P_SESSIONS}/cancel`,
+};
+
+export const UNCANCEL_SESSION_INPUT = { body: UNCANCEL_SESSION_SCHEMA.body };
+export const UNCANCEL_SESSION_ROUTE = {
+  method: 'POST' as const,
+  url: `${P_SESSIONS}/uncancel`,
 };
