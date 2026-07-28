@@ -37,10 +37,12 @@ import type { Device, Room, Session } from '@scribear/session-manager-schema';
 
 import { ConfirmDialog } from '#src/components/confirm-dialog';
 import { NameWithUid } from '#src/components/name-with-uid';
+import { TimezoneNote } from '#src/components/timezone-note';
 import type { RoomDetail } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 import { useSettings } from '#src/lib/settings-context';
+import { formatInTimeZone } from '#src/lib/timezone';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 
@@ -510,6 +512,7 @@ export const RoomDetailPage = () => {
           </Button>
         </Box>
       </Box>
+      <TimezoneNote timezone={room.timezone} />
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Grid container spacing={2}>
@@ -550,7 +553,7 @@ export const RoomDetailPage = () => {
                 Created
               </Typography>
               <Typography variant="body1">
-                {new Date(room.createdAt).toLocaleString()}
+                {formatInTimeZone(room.createdAt, room.timezone)}
               </Typography>
             </Grid>
           </Grid>
@@ -615,10 +618,10 @@ export const RoomDetailPage = () => {
                 }}
               >
                 Started{' '}
-                {new Date(activeSession.effectiveStart).toLocaleString()}
+                {formatInTimeZone(activeSession.effectiveStart, room.timezone)}
                 {activeSession.effectiveEnd === null
                   ? ' · open-ended (no scheduled end)'
-                  : ` · ends ${new Date(activeSession.effectiveEnd).toLocaleString()}`}
+                  : ` · ends ${formatInTimeZone(activeSession.effectiveEnd, room.timezone)}`}
               </Typography>
               <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
                 <Button

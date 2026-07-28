@@ -33,6 +33,7 @@ import type { Device } from '@scribear/session-manager-schema';
 import { ActivationCodeDisplay } from '#src/components/activation-code-display';
 import { KioskUrlInstructions } from '#src/components/kiosk-url-instructions';
 import { NameWithUid } from '#src/components/name-with-uid';
+import { TimezoneNote } from '#src/components/timezone-note';
 import type { RegisterDeviceResult } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
@@ -233,6 +234,7 @@ export const DevicesListPage = () => {
         >
           Register device
         </Button>
+        <TimezoneNote />
       </Box>
       {misconfigured && (
         <Alert severity="error" sx={{ mb: 2 }}>

@@ -50,6 +50,7 @@ import type {
 } from '@scribear/session-manager-schema';
 
 import { ConfirmDialog } from '#src/components/confirm-dialog';
+import { TimezoneNote } from '#src/components/timezone-note';
 import type {
   CreateAutoWindowBody,
   CreateOnDemandSessionBody,
@@ -62,6 +63,7 @@ import type {
 } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { formatInTimeZone } from '#src/lib/timezone';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 
@@ -102,18 +104,6 @@ const SESSION_POLL_MS = 15_000;
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback;
-}
-
-function formatInRoomTz(iso: string, timezone: string): string {
-  try {
-    return new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    }).format(new Date(iso));
-  } catch {
-    return new Date(iso).toLocaleString();
-  }
 }
 
 /** Converts a `datetime-local` input value to an ISO instant, or null if empty. */
@@ -1228,16 +1218,7 @@ export const RoomSchedulingPage = () => {
       <Typography variant="h5" component="h1" gutterBottom>
         Scheduling — {room.name}
       </Typography>
-      <Typography
-        variant="body2"
-        sx={{
-          color: 'text.secondary',
-          mb: 2,
-        }}
-      >
-        All times below are shown in this room&apos;s timezone ({room.timezone}
-        ).
-      </Typography>
+      <TimezoneNote timezone={room.timezone} />
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Grid
@@ -1293,9 +1274,9 @@ export const RoomSchedulingPage = () => {
             }}
           >
             Showing occurrences between{' '}
-            {formatInRoomTz(rangeFrom, room.timezone)} and{' '}
-            {formatInRoomTz(rangeTo, room.timezone)} (last {LOOKBACK_DAYS} days
-            and next {RANGE_DAYS} days).
+            {formatInTimeZone(rangeFrom, room.timezone)} and{' '}
+            {formatInTimeZone(rangeTo, room.timezone)} (last {LOOKBACK_DAYS}{' '}
+            days and next {RANGE_DAYS} days).
           </Typography>
         </Box>
         <Button
@@ -1353,12 +1334,12 @@ export const RoomSchedulingPage = () => {
                     {s.localStartTime.slice(0, 5)}–{s.localEndTime.slice(0, 5)}
                   </TableCell>
                   <TableCell>
-                    {formatInRoomTz(s.activeStart, room.timezone)}
+                    {formatInTimeZone(s.activeStart, room.timezone)}
                   </TableCell>
                   <TableCell>
                     {s.activeEnd === null
                       ? 'Indefinite'
-                      : formatInRoomTz(s.activeEnd, room.timezone)}
+                      : formatInTimeZone(s.activeEnd, room.timezone)}
                   </TableCell>
                   <TableCell align="right">
                     <Stack
@@ -1413,9 +1394,9 @@ export const RoomSchedulingPage = () => {
             }}
           >
             Showing occurrences between{' '}
-            {formatInRoomTz(rangeFrom, room.timezone)} and{' '}
-            {formatInRoomTz(rangeTo, room.timezone)} (last {LOOKBACK_DAYS} days
-            and next {RANGE_DAYS} days).
+            {formatInTimeZone(rangeFrom, room.timezone)} and{' '}
+            {formatInTimeZone(rangeTo, room.timezone)} (last {LOOKBACK_DAYS}{' '}
+            days and next {RANGE_DAYS} days).
           </Typography>
         </Box>
         <Button
@@ -1470,12 +1451,12 @@ export const RoomSchedulingPage = () => {
                     {w.localStartTime.slice(0, 5)}–{w.localEndTime.slice(0, 5)}
                   </TableCell>
                   <TableCell>
-                    {formatInRoomTz(w.activeStart, room.timezone)}
+                    {formatInTimeZone(w.activeStart, room.timezone)}
                   </TableCell>
                   <TableCell>
                     {w.activeEnd === null
                       ? 'Indefinite'
-                      : formatInRoomTz(w.activeEnd, room.timezone)}
+                      : formatInTimeZone(w.activeEnd, room.timezone)}
                   </TableCell>
                   <TableCell align="right">
                     <Stack
@@ -1586,12 +1567,12 @@ export const RoomSchedulingPage = () => {
                       </Stack>
                     </TableCell>
                     <TableCell>
-                      {formatInRoomTz(s.effectiveStart, room.timezone)}
+                      {formatInTimeZone(s.effectiveStart, room.timezone)}
                     </TableCell>
                     <TableCell>
                       {s.effectiveEnd === null
                         ? 'Open-ended'
-                        : formatInRoomTz(s.effectiveEnd, room.timezone)}
+                        : formatInTimeZone(s.effectiveEnd, room.timezone)}
                     </TableCell>
                     <TableCell align="right">
                       <Button

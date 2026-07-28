@@ -1075,7 +1075,7 @@ export class AdminApiClient {
   getActiveSession(roomUid: string): Promise<Session | null> {
     return this._request(
       'GET',
-      `/rooms/${encodeURIComponent(roomUid)}/active-session`,
+      `/sessions/active/${encodeURIComponent(roomUid)}`,
     );
   }
   getSessionJoinCode(sessionUid: string): Promise<SessionJoinCodeStatus> {

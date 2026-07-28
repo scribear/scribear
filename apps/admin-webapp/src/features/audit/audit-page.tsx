@@ -18,6 +18,7 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 
+import { TimezoneNote } from '#src/components/timezone-note';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
@@ -85,6 +86,7 @@ export const AuditPage = () => {
           server&apos;s ADMIN_API_KEY.
         </Alert>
       )}
+      <TimezoneNote />
       <TableContainer component={Paper}>
         <Table size="small">
           <TableHead>

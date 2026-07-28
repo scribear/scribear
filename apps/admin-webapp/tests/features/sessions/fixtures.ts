@@ -1,4 +1,4 @@
-import type { Session } from '@scribear/session-manager-schema';
+import type { Room, Session } from '@scribear/session-manager-schema';
 
 export function buildSession(overrides: Partial<Session> = {}): Session {
   return {
@@ -18,6 +18,18 @@ export function buildSession(overrides: Partial<Session> = {}): Session {
     transcriptionStreamConfig: {},
     sessionConfigVersion: 1,
     createdAt: '2026-08-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function buildRoom(overrides: Partial<Room> = {}): Room {
+  return {
+    uid: 'room-1',
+    name: 'Room 101',
+    timezone: 'America/Chicago',
+    autoSessionEnabled: false,
+    roomScheduleVersion: 1,
+    createdAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
   };
 }

@@ -9,6 +9,7 @@ import { DEMO_ROOM_UID } from '@scribear/session-manager-schema';
 import { RoomDetailPage } from '#src/features/rooms/room-detail-page';
 import { adminApi } from '#src/lib/admin-api';
 import { ApiError } from '#src/lib/api-error';
+import { browserTimeZone, formatInTimeZone } from '#src/lib/timezone';
 
 import { renderWithProviders } from '../../utils/render-with-providers';
 import { buildDevice, buildRoomDetail, buildSession } from './fixtures';
@@ -149,6 +150,38 @@ describe('RoomDetailPage', () => {
       expect(
         screen.queryByText(/no session is currently active/i),
       ).not.toBeInTheDocument();
+    });
+
+    it("prints session times in the room's timezone, not the browser's", async () => {
+      // Arrange - the page declares the room's zone in its TimezoneNote, so
+      // every timestamp under it has to agree; printing the browser's reading
+      // of the same instant would make the note a lie and mislead anyone
+      // administering a room from elsewhere. The room zone is chosen against
+      // whatever zone this runner is in, so the assertion means the same
+      // thing on a developer's machine and in CI.
+      const browserZone = browserTimeZone();
+      const roomZone =
+        browserZone === 'Asia/Tokyo' ? 'Pacific/Honolulu' : 'Asia/Tokyo';
+      const start = '2026-07-01T15:30:00.000Z';
+      vi.mocked(adminApi.roomDetail).mockResolvedValue(
+        buildRoomDetail({ room: { timezone: roomZone } }),
+      );
+      vi.mocked(adminApi.getActiveSession).mockResolvedValue(
+        buildSession({ effectiveStart: start, effectiveEnd: null }),
+      );
+
+      // Act
+      const { container } = renderPage();
+      await waitForLoad();
+      await screen.findByText(/open-ended/i);
+
+      // Assert - the room's reading is printed, and the browser's is not.
+      expect(container.textContent).toContain(
+        formatInTimeZone(start, roomZone),
+      );
+      expect(container.textContent).not.toContain(
+        formatInTimeZone(start, browserZone),
+      );
     });
 
     it('hides End early for the demo room, whose fixture session is permanent', async () => {

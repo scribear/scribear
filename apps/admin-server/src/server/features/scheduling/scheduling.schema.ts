@@ -23,7 +23,6 @@ import { ADMIN_BASE_PATH } from '#src/server/base-path.js';
 const P_SCHEDULES = `${ADMIN_BASE_PATH}/schedules`;
 const P_AUTO_WINDOWS = `${ADMIN_BASE_PATH}/auto-windows`;
 const P_SESSIONS = `${ADMIN_BASE_PATH}/sessions`;
-const P_ROOMS = `${ADMIN_BASE_PATH}/rooms`;
 
 // Input validation reuses the exact Session Manager request shapes (body /
 // querystring / params) — NEVER the `authorization` header, which the BFF
@@ -123,12 +122,16 @@ export const LIST_SESSIONS_ROUTE = {
   url: `${P_SESSIONS}/list`,
 };
 
+// Keyed by room, but it reads a session, so it belongs under the sessions
+// prefix alongside `get/:sessionUid` — routing it under `/rooms` would make
+// the scheduling feature own a second copy of the rooms feature's own path
+// prefix, and would be the only REST-shaped URL among verb-noun siblings.
 export const GET_ACTIVE_SESSION_INPUT = {
   params: GET_ACTIVE_SESSION_SCHEMA.params,
 };
 export const GET_ACTIVE_SESSION_ROUTE = {
   method: 'GET' as const,
-  url: `${P_ROOMS}/:roomUid/active-session`,
+  url: `${P_SESSIONS}/active/:roomUid`,
 };
 
 export const CREATE_ON_DEMAND_SESSION_INPUT = {

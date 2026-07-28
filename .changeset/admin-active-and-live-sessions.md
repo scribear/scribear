@@ -35,3 +35,12 @@ demo room's permanently-active fixture session), and the scheduling page gains
 a Sessions table that polls every 15s while the tab is visible. Its range
 widened to the last 7 days so a session that started before page-load still
 appears.
+
+Every admin page that prints a timestamp now says which timezone it is
+printing in, in the same place and the same words, via a shared
+`TimezoneNote`. Room-scoped pages (room detail, scheduling, session detail)
+render times in the room's zone rather than the browser's, and when the two
+differ the note escalates to a red warning triangle naming both — the case
+where misreading a schedule has consequences. Pages showing deployment-wide
+times (audit, devices, dashboard, deployment check) state the browser's zone,
+which is the only one in play there.

@@ -25,11 +25,12 @@ import Typography from '@mui/material/Typography';
 
 import { Link as RouterLink, useParams } from 'react-router-dom';
 
-import type { Session } from '@scribear/session-manager-schema';
+import type { Room, Session } from '@scribear/session-manager-schema';
 
 import { ConfirmDialog } from '#src/components/confirm-dialog';
 import { CopyIconButton } from '#src/components/copy-icon-button';
 import { OpensInNewTab } from '#src/components/opens-in-new-tab';
+import { TimezoneNote } from '#src/components/timezone-note';
 import {
   AudioMeterBar,
   PEAK_CONVENTION,
@@ -62,6 +63,7 @@ import {
 } from '#src/lib/audio-meter-url';
 import { buildJoinUrl } from '#src/lib/join-url';
 import { sessionWindowState } from '#src/lib/session-rules';
+import { formatInTimeZone } from '#src/lib/timezone';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 
@@ -74,8 +76,14 @@ function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback;
 }
 
-function formatDateTime(iso: string | null): string {
-  return iso === null ? '—' : new Date(iso).toLocaleString();
+function formatDateTime(
+  iso: string | null,
+  timeZone: string | undefined,
+): string {
+  if (iso === null) return '—';
+  return timeZone === undefined
+    ? new Date(iso).toLocaleString()
+    : formatInTimeZone(iso, timeZone);
 }
 
 interface FieldRowProps {
@@ -887,6 +895,19 @@ export const SessionDetailPage = () => {
   const misconfigured = isApiErrorCode(error, 'BACKEND_MISCONFIGURATION');
   const notFound = error instanceof ApiError && error.status === 404;
 
+  // A session's times belong to its room's timezone, but the session payload
+  // carries only a roomUid — so the room is fetched for its zone alone. A
+  // failure falls back to the browser's zone, which the note then declares,
+  // rather than blanking the page.
+  const { data: room } = useAsyncData<Room | null>(
+    () =>
+      session === null
+        ? Promise.resolve(null)
+        : adminApi.getRoom(session.roomUid),
+    [session?.roomUid],
+  );
+  const timezone = room?.timezone;
+
   // Loaded independently of `session`: a failure here (or the session having
   // no join code yet) must not block the rest of the page, which already
   // renders fine from the primary load above.
@@ -1011,6 +1032,7 @@ export const SessionDetailPage = () => {
           variant="outlined"
         />
       </Box>
+      <TimezoneNote timezone={timezone} />
       <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
         <Stack spacing={2}>
           <FieldRow label="Room">
@@ -1021,20 +1043,26 @@ export const SessionDetailPage = () => {
           <Divider />
           <FieldRow label="Scheduled start">
             <Typography>
-              {formatDateTime(session.scheduledStartTime)}
+              {formatDateTime(session.scheduledStartTime, timezone)}
             </Typography>
           </FieldRow>
           <Divider />
           <FieldRow label="Scheduled end">
-            <Typography>{formatDateTime(session.scheduledEndTime)}</Typography>
+            <Typography>
+              {formatDateTime(session.scheduledEndTime, timezone)}
+            </Typography>
           </FieldRow>
           <Divider />
           <FieldRow label="Effective start">
-            <Typography>{formatDateTime(session.effectiveStart)}</Typography>
+            <Typography>
+              {formatDateTime(session.effectiveStart, timezone)}
+            </Typography>
           </FieldRow>
           <Divider />
           <FieldRow label="Effective end">
-            <Typography>{formatDateTime(session.effectiveEnd)}</Typography>
+            <Typography>
+              {formatDateTime(session.effectiveEnd, timezone)}
+            </Typography>
           </FieldRow>
           <Divider />
           <FieldRow label="Join code scopes">
@@ -1050,7 +1078,9 @@ export const SessionDetailPage = () => {
           </FieldRow>
           <Divider />
           <FieldRow label="Created">
-            <Typography>{formatDateTime(session.createdAt)}</Typography>
+            <Typography>
+              {formatDateTime(session.createdAt, timezone)}
+            </Typography>
           </FieldRow>
         </Stack>
       </Paper>

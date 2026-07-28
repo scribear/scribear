@@ -18,6 +18,7 @@ import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
+import { TimezoneNote } from '#src/components/timezone-note';
 import type {
   CheckSeverity,
   ConfigCheckReport,
@@ -256,6 +257,7 @@ export const ConfigCheckPage = () => {
           Re-run
         </Button>
       </Box>
+      <TimezoneNote />
       <Typography
         variant="body2"
         sx={{

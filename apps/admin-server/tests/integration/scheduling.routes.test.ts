@@ -491,7 +491,7 @@ describe('Scheduling routes', () => {
     });
   });
 
-  describe('rooms/:roomUid/active-session', (it) => {
+  describe('sessions/active/:roomUid', (it) => {
     it('passes a null body through as "no active session", not as an error', async () => {
       // Arrange — the upstream route answers 200 with a literal `null` body to
       // keep "no session is active" distinct from "room not found" (404). A
@@ -503,7 +503,7 @@ describe('Scheduling routes', () => {
       // Act
       const res = await server.fastify.inject({
         method: 'GET',
-        url: `${BASE}/rooms/${ROOM_UID}/active-session`,
+        url: `${BASE}/sessions/active/${ROOM_UID}`,
         headers: { cookie },
       });
 
@@ -520,7 +520,7 @@ describe('Scheduling routes', () => {
       // Act
       const res = await server.fastify.inject({
         method: 'GET',
-        url: `${BASE}/rooms/${ROOM_UID}/active-session`,
+        url: `${BASE}/sessions/active/${ROOM_UID}`,
         headers: { cookie },
       });
 
@@ -547,7 +547,7 @@ describe('Scheduling routes', () => {
       // Act
       const res = await server.fastify.inject({
         method: 'GET',
-        url: `${BASE}/rooms/${ROOM_UID}/active-session`,
+        url: `${BASE}/sessions/active/${ROOM_UID}`,
         headers: { cookie },
       });
 
@@ -562,7 +562,7 @@ describe('Scheduling routes', () => {
       // Act
       const res = await server.fastify.inject({
         method: 'GET',
-        url: `${BASE}/rooms/${ROOM_UID}/active-session`,
+        url: `${BASE}/sessions/active/${ROOM_UID}`,
       });
 
       // Assert

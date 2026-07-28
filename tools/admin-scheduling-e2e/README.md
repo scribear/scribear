@@ -63,7 +63,7 @@ present and passes once fixed.
 | `NO_ACTIVE_SESSION_IN_ROOM_VIEW` | PASS | Room detail page renders an "Active session" card. |
 | `ON_DEMAND_SESSION_NOT_ON_SCHEDULING_PAGE` | PASS | New "Sessions" table lists live rows. |
 | `ALREADY_RUNNING_WITH_NONE_VISIBLE` | PASS | The blocking session is visible in the sessions table. |
-| `NO_ADMIN_SESSION_LIST_ENDPOINT` | PASS | `GET /sessions/list` and `GET /rooms/:roomUid/active-session` exist. |
+| `NO_ADMIN_SESSION_LIST_ENDPOINT` | PASS | `GET /sessions/list` and `GET /sessions/active/:roomUid` exist. |
 | `SCHEDULE_BEYOND_90_DAY_WINDOW_INVISIBLE` | FAIL | Accepted limitation (see below). |
 | `NO_AUTO_REFRESH` | PASS | 15s session-list poll, visibility-gated. |
 
@@ -107,7 +107,7 @@ GET /api/session-manager/v1/schedule-management/get-active-session/:roomUid
   (`libs/clients/session-manager-client/`).
 - **admin BFF**: thin audited proxies at
   `GET /api/admin/v1/sessions/list` and
-  `GET /api/admin/v1/rooms/:roomUid/active-session`, following the existing
+  `GET /api/admin/v1/sessions/active/:roomUid`, following the existing
   gateway pattern.
 - **admin-webapp client**: `adminApi.listSessions()`, `adminApi.getActiveSession()`.
 
