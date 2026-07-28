@@ -28,8 +28,16 @@ export const VisualizerDrawer = ({
 }: VisualizerDrawerProps) => (
   <Drawer anchor="right" open={open} onClose={onClose}>
     <Stack sx={{ width: 240, p: 2 }} spacing={1}>
+      {/* `component="p"`, not a heading element: MUI maps the `subtitle1`
+          *variant* to an `<h6>` by default, and this is a shared component
+          rendered into host pages whose surrounding heading levels this
+          library cannot know. Emitting a fixed level would be a
+          heading-order violation in any host that does not happen to end at
+          `h5`. If a host ever needs this to be a real heading, it should be
+          promoted by passing the level in, not guessed here. */}
       <Typography
         variant="subtitle1"
+        component="p"
         sx={{
           fontWeight: 'bold',
         }}

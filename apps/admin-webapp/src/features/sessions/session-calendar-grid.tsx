@@ -77,8 +77,17 @@ export const SessionCalendarGrid = ({
           variant="outlined"
           sx={{ flex: '0 0 220px', position: 'relative', height: 600 }}
         >
+          {/* `component="p"` is load-bearing: MUI maps the `subtitle2`
+              *variant* to an `<h6>` element regardless of what the text is,
+              so without this a column label - a room name or an ISO date -
+              would enter the document outline at level 6, under a page whose
+              last heading is an `h2`. That skips four levels and fails axe's
+              heading-order rule. These are labels for the columns beside
+              them, not sections of the page, so the right fix is to keep the
+              type scale and drop the heading element. */}
           <Typography
             variant="subtitle2"
+            component="p"
             sx={{ p: 1, borderBottom: 1, borderColor: 'divider' }}
           >
             {col.label}
