@@ -101,6 +101,22 @@ export class MetricsRegistry {
     'Connections closed for not authenticating in time.',
   );
 
+  /**
+   * Binary audio frames a source sent before its AUTH handshake completed,
+   * dropped rather than closing the socket. Without this, a source that
+   * starts streaming before AUTH_OK would instead be closed 1008
+   * `binary-before-auth` and reconnect-loop, since each reconnect re-sends
+   * AUTH and the next first chunk again beats AUTH_OK.
+   *
+   * Optional on the wire (`STATUS_PROCESS_SCHEMA.summary.binaryBeforeAuthDropsTotal`
+   * predates this field on older node-server builds), so a poll that omits it
+   * simply records no increment that round rather than treating it as zero.
+   */
+  readonly nodeBinaryBeforeAuthDropsTotal = new Counter(
+    'scribear_node_binary_before_auth_drops_total',
+    'Binary frames dropped because a source began streaming before its AUTH handshake completed.',
+  );
+
   /** Source registrations that threw, closing the socket with 1011. */
   readonly nodeOrchestratorFailuresTotal = new Counter(
     'scribear_node_orchestrator_failures_total',
@@ -672,6 +688,7 @@ export class MetricsRegistry {
       this.nodeAuthFailuresTotal,
       this.nodeAuthSuccessTotal,
       this.nodeAuthTimeoutsTotal,
+      this.nodeBinaryBeforeAuthDropsTotal,
       this.nodeOrchestratorFailuresTotal,
       this.nodePendingChunkEvictionsTotal,
       this.nodeLatencySamplesTotal,

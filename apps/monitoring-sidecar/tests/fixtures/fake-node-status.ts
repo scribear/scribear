@@ -131,7 +131,12 @@ export function statusBody(
   overrides: Partial<
     Omit<FakeStatusBody, 'summary' | 'sessions' | 'secretPlaceholders'>
   > & {
-    summary?: Partial<typeof ZERO_SUMMARY>;
+    // Not in `ZERO_SUMMARY`: absent by default, matching a node-server that
+    // predates this field. A test opts in explicitly to exercise the
+    // present case.
+    summary?: Partial<typeof ZERO_SUMMARY> & {
+      binaryBeforeAuthDropsTotal?: number;
+    };
     sessions?: FakeSessionInput[];
     secretPlaceholders?: Partial<FakeSecretPlaceholders>;
   } = {},

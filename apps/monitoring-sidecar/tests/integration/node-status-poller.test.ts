@@ -85,6 +85,57 @@ describe('node-server status poller (B1.1 PR 4)', () => {
       ).toBe(8);
     });
 
+    it('folds binary-before-auth drops the same way as the other summary counters', async () => {
+      // Arrange
+      const { metrics, poller } = await createPoller();
+      node.setBody(statusBody({ summary: { binaryBeforeAuthDropsTotal: 5 } }));
+
+      // Act
+      await poller.pollOnce();
+      node.setBody(statusBody({ summary: { binaryBeforeAuthDropsTotal: 9 } }));
+      await poller.pollOnce();
+
+      // Assert - 9 total events seen, not 5 + 9
+      expect(
+        metrics.nodeBinaryBeforeAuthDropsTotal.get({ service: SERVICE }),
+      ).toBe(9);
+    });
+
+    it('does not throw or record a delta when an older node-server omits the field', async () => {
+      // Arrange - the field is optional on the wire for backward-compat with
+      // publishers that predate it, so a body that simply never mentions it
+      // must not be treated as reporting zero drops.
+      const { metrics, poller } = await createPoller();
+
+      // Act
+      const result = await poller.pollOnce();
+
+      // Assert - a counter with no series recorded reads as 0, same as any
+      // other counter never advanced; the point is that this poll neither
+      // threw nor recorded a spurious delta.
+      expect(result.ok).toBe(true);
+      expect(
+        metrics.nodeBinaryBeforeAuthDropsTotal.get({ service: SERVICE }),
+      ).toBe(0);
+    });
+
+    it('resumes recording once an upgraded node-server starts reporting it', async () => {
+      // Arrange - a poll that omits the field must leave a later poll free to
+      // pick up counting from whatever the endpoint reports next, rather than
+      // computing a delta against nothing.
+      const { metrics, poller } = await createPoller();
+      await poller.pollOnce();
+
+      // Act
+      node.setBody(statusBody({ summary: { binaryBeforeAuthDropsTotal: 3 } }));
+      await poller.pollOnce();
+
+      // Assert
+      expect(
+        metrics.nodeBinaryBeforeAuthDropsTotal.get({ service: SERVICE }),
+      ).toBe(3);
+    });
+
     it('keeps the rolling window meaningful for the alert rules', async () => {
       // Arrange
       const { metrics, poller } = await createPoller();
