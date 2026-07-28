@@ -391,6 +391,50 @@ def test_decode_drops_are_counted_per_provider():
     assert registry.decode_drops_total.get({"provider_key": "unknown"}) == 1
 
 
+def test_binary_dropped_before_auth_is_counted_per_provider():
+    """
+    Test binary frames dropped for arriving before auth are counted, labelled
+    by provider
+
+    The counter behind the transcription-stream controller's reconnect-loop
+    fix (mirrors node-server's `recordBinaryBeforeAuthDrop`): a frame this
+    early is dropped rather than closing the socket, so this is the only
+    trace it leaves.
+    """
+    # Arrange
+    registry = MetricsRegistry()
+
+    # Act
+    registry.record_binary_dropped_before_auth("whisper")
+    registry.record_binary_dropped_before_auth("whisper")
+    registry.record_binary_dropped_before_auth("")
+
+    # Assert
+    counter = registry.binary_dropped_before_auth_total
+    assert counter.get({"provider_key": "whisper"}) == 2
+    assert counter.get({"provider_key": "unknown"}) == 1
+
+
+def test_binary_dropped_before_config_is_counted_per_provider():
+    """
+    Test binary frames dropped for arriving before config are counted,
+    labelled by provider, and kept separate from the before-auth counter
+    """
+    # Arrange
+    registry = MetricsRegistry()
+
+    # Act
+    registry.record_binary_dropped_before_config("whisper")
+    registry.record_binary_dropped_before_config("whisper")
+    registry.record_binary_dropped_before_config("")
+
+    # Assert
+    counter = registry.binary_dropped_before_config_total
+    assert counter.get({"provider_key": "whisper"}) == 2
+    assert counter.get({"provider_key": "unknown"}) == 1
+    assert registry.binary_dropped_before_auth_total.total() == 0
+
+
 def test_capacity_refusals_are_counted_per_provider():
     """
     Test refused sessions are counted, labelled by the provider refused for

@@ -192,6 +192,17 @@ class MetricsController:
                 "decodeDropsTotal": _counter_series(
                     self._metrics.decode_drops_total
                 ),
+                # The reconnect-loop fix: a binary frame that outran auth or
+                # config is dropped rather than closing the socket 1008, which
+                # a source's auto-reconnect would otherwise turn into a loop
+                # that never delivers audio. Counted so a client stuck in that
+                # pattern is still visible to an operator.
+                "binaryDroppedBeforeAuthTotal": _counter_series(
+                    self._metrics.binary_dropped_before_auth_total
+                ),
+                "binaryDroppedBeforeConfigTotal": _counter_series(
+                    self._metrics.binary_dropped_before_config_total
+                ),
                 # Sessions the admission check turned away
                 # (PLAN-AdmissionControl.md §4). Zero series is the healthy
                 # steady state, so this is one of the few counters here whose
