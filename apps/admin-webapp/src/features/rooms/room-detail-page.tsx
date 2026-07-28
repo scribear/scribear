@@ -299,9 +299,18 @@ export const RoomDetailPage = () => {
 
   // The room's currently-active session, if any. Fetched independently of the
   // room detail so a failure here never blocks the page, and reloaded after
-  // mutations that may start/stop a session.
+  // ending the session early.
+  //
+  // `loading` and `error` are both consumed below: `data` is null before the
+  // first success AND after a failure, so rendering "no session is currently
+  // active" off `data === null` alone would state a falsehood while the fetch
+  // is still in flight, and would keep stating it if the fetch failed. This
+  // card exists to explain an ANOTHER_SESSION_ACTIVE conflict, so a silent
+  // wrong "nothing is running" is the one answer it must never give.
   const {
     data: activeSession,
+    loading: activeSessionLoading,
+    error: activeSessionError,
     reload: reloadActiveSession,
   } = useAsyncData<Session | null>(
     () =>
@@ -310,6 +319,11 @@ export const RoomDetailPage = () => {
         : adminApi.getActiveSession(roomUid),
     [roomUid],
   );
+  // Only the first load is unknown-state; a failed poll/reload keeps showing
+  // the last known session rather than flipping the card to a spinner.
+  const activeSessionUnknown =
+    (activeSessionLoading || activeSessionError !== null) &&
+    activeSession === null;
 
   // Derived from the load error rather than stored as separate state.
   const misconfigured = isApiErrorCode(error, 'BACKEND_MISCONFIGURATION');
@@ -564,7 +578,25 @@ export const RoomDetailPage = () => {
               />
             )}
           </Box>
-          {activeSession === null ? (
+          {activeSessionUnknown ? (
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ alignItems: 'center', color: 'text.secondary' }}
+            >
+              {activeSessionError === null && (
+                <CircularProgress
+                  size={16}
+                  aria-label="Loading active session"
+                />
+              )}
+              <Typography variant="body2">
+                {activeSessionError === null
+                  ? 'Checking for an active session…'
+                  : 'Could not check for an active session. A session may still be running.'}
+              </Typography>
+            </Stack>
+          ) : activeSession === null ? (
             <Typography
               variant="body2"
               sx={{

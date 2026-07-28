@@ -52,7 +52,6 @@
  *      The scheduling page has no poll/interval. A session created server-side
  *      after page load never appears until the page is reloaded manually.
  */
-import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import puppeteer from 'puppeteer-core';
 

@@ -11,7 +11,7 @@ import { adminApi } from '#src/lib/admin-api';
 import { ApiError } from '#src/lib/api-error';
 
 import { renderWithProviders } from '../../utils/render-with-providers';
-import { buildDevice, buildRoomDetail } from './fixtures';
+import { buildDevice, buildRoomDetail, buildSession } from './fixtures';
 
 vi.mock('#src/lib/admin-api', () => ({
   adminApi: {
@@ -63,6 +63,114 @@ describe('RoomDetailPage', () => {
 
       // Assert
       expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    });
+  });
+
+  describe('active session card', (it) => {
+    // The card exists to explain an ANOTHER_SESSION_ACTIVE conflict, so the
+    // one answer it must never give is a confident "nothing is running" when
+    // it does not actually know. `useAsyncData` reports `data: null` both
+    // before the first success and after a failure, so "no active session"
+    // has to be distinguished from "not yet known".
+    it('does not claim the room is idle while the lookup is still in flight', async () => {
+      // Arrange
+      vi.mocked(adminApi.roomDetail).mockResolvedValue(buildRoomDetail());
+      vi.mocked(adminApi.getActiveSession).mockReturnValue(
+        new Promise(() => {
+          /* never resolves */
+        }),
+      );
+
+      // Act
+      renderPage();
+      await screen.findByText('Active session');
+
+      // Assert
+      expect(
+        screen.queryByText(/no session is currently active/i),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByText(/checking for an active session/i),
+      ).toBeInTheDocument();
+    });
+
+    it('does not claim the room is idle when the lookup failed', async () => {
+      // Arrange
+      vi.mocked(adminApi.roomDetail).mockResolvedValue(buildRoomDetail());
+      vi.mocked(adminApi.getActiveSession).mockRejectedValue(
+        new ApiError('NETWORK', 'Could not reach the admin server.', 0),
+      );
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      expect(
+        screen.queryByText(/no session is currently active/i),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByText(/could not check for an active session/i),
+      ).toBeInTheDocument();
+    });
+
+    it('reports an idle room only once the lookup succeeded with no session', async () => {
+      // Arrange
+      vi.mocked(adminApi.roomDetail).mockResolvedValue(buildRoomDetail());
+      vi.mocked(adminApi.getActiveSession).mockResolvedValue(null);
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      expect(
+        await screen.findByText(/no session is currently active/i),
+      ).toBeInTheDocument();
+    });
+
+    it('renders the active session with an End early action', async () => {
+      // Arrange
+      vi.mocked(adminApi.roomDetail).mockResolvedValue(buildRoomDetail());
+      vi.mocked(adminApi.getActiveSession).mockResolvedValue(
+        buildSession({ name: 'Morning lecture', type: 'ON_DEMAND' }),
+      );
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      expect(await screen.findByText('Morning lecture')).toBeInTheDocument();
+      expect(screen.getByText('ON_DEMAND')).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'End early' }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(/no session is currently active/i),
+      ).not.toBeInTheDocument();
+    });
+
+    it('hides End early for the demo room, whose fixture session is permanent', async () => {
+      // Arrange
+      vi.mocked(adminApi.roomDetail).mockResolvedValue(
+        buildRoomDetail({ room: { uid: DEMO_ROOM_UID } }),
+      );
+      vi.mocked(adminApi.getActiveSession).mockResolvedValue(
+        buildSession({ roomUid: DEMO_ROOM_UID }),
+      );
+
+      // Act
+      renderPage(<RoomDetailPage />, DEMO_ROOM_UID);
+      await waitForLoad();
+
+      // Assert - viewing stays available, ending does not.
+      expect(
+        await screen.findByRole('button', { name: 'View session' }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'End early' }),
+      ).not.toBeInTheDocument();
     });
   });
 

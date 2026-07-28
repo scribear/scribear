@@ -839,6 +839,99 @@ describe('ScheduleManagementService', () => {
     });
   });
 
+  describe('findActiveSession', (it) => {
+    // A room with no active session and a room that does not exist are two
+    // different answers: the first is a `null` 200, the second a 404. Callers
+    // (the admin console's "Active session" card) render them differently.
+    async function insertSession(
+      roomUid: string,
+      name: string,
+      start: string,
+      end: string | null,
+    ) {
+      await dbContext.db
+        .insertInto('sessions')
+        .values({
+          room_uid: roomUid,
+          name,
+          type: 'ON_DEMAND',
+          scheduled_start_time: new Date(start),
+          scheduled_end_time: end === null ? null : new Date(end),
+          transcription_provider_id: 'whisper',
+          transcription_stream_config: {},
+        })
+        .execute();
+    }
+
+    it('returns the session covering `now`', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom('UTC');
+      await insertSession(
+        roomUid,
+        'Running',
+        '2024-06-01T10:00:00Z',
+        '2024-06-01T11:00:00Z',
+      );
+
+      // Act
+      const found = await service.findActiveSession(
+        roomUid,
+        new Date('2024-06-01T10:30:00Z'),
+      );
+
+      // Assert
+      expect(found).not.toBe('ROOM_NOT_FOUND');
+      expect(
+        (found as Exclude<typeof found, 'ROOM_NOT_FOUND'>)?.name,
+      ).toBe('Running');
+    });
+
+    it('treats an open-ended session as active with no end bound', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom('UTC');
+      await insertSession(roomUid, 'Open', '2024-06-01T10:00:00Z', null);
+
+      // Act — far past the point any bounded session would have ended.
+      const found = await service.findActiveSession(
+        roomUid,
+        new Date('2024-06-05T00:00:00Z'),
+      );
+
+      // Assert
+      expect(
+        (found as Exclude<typeof found, 'ROOM_NOT_FOUND'>)?.name,
+      ).toBe('Open');
+    });
+
+    it('returns null for an existing room with nothing running', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom('UTC');
+      await insertSession(
+        roomUid,
+        'Finished',
+        '2024-06-01T10:00:00Z',
+        '2024-06-01T11:00:00Z',
+      );
+
+      // Act
+      const found = await service.findActiveSession(
+        roomUid,
+        new Date('2024-06-01T12:00:00Z'),
+      );
+
+      // Assert — null, NOT 'ROOM_NOT_FOUND'.
+      expect(found).toBeNull();
+    });
+
+    it('returns ROOM_NOT_FOUND when the room does not exist', async () => {
+      const result = await service.findActiveSession(
+        NULL_UUID,
+        new Date('2024-06-01T12:00:00Z'),
+      );
+      expect(result).toBe('ROOM_NOT_FOUND');
+    });
+  });
+
   describe('createSchedule - INVALID_ACTIVE_START precondition', (it) => {
     it('rejects when activeStart equals now', async () => {
       // Arrange

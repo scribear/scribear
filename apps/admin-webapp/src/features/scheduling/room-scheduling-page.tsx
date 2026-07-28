@@ -1,4 +1,10 @@
-import { type SyntheticEvent, useEffect, useMemo, useState } from 'react';
+import {
+  type SyntheticEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import AddIcon from '@mui/icons-material/Add';
 import Alert from '@mui/material/Alert';
@@ -980,9 +986,7 @@ export const RoomSchedulingPage = () => {
   const [rangeFrom, rangeTo] = useMemo(() => {
     const to = new Date();
     const from = new Date(to.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
-    const forward = new Date(
-      to.getTime() + RANGE_DAYS * 24 * 60 * 60 * 1000,
-    );
+    const forward = new Date(to.getTime() + RANGE_DAYS * 24 * 60 * 60 * 1000);
     return [from.toISOString(), forward.toISOString()];
   }, []);
 
@@ -1054,6 +1058,11 @@ export const RoomSchedulingPage = () => {
     [roomUid],
   );
   const sessions = sessionsData ?? [];
+  // `useAsyncData` raises `loading` on every re-fetch, including the 15s poll
+  // below. Gating the table body on it directly would blank the rows to a
+  // spinner once per poll forever; only the first load has nothing to show.
+  // Same idiom as the page-level `loading && room === null` guard.
+  const sessionsInitialLoading = sessionsLoading && sessionsData === null;
 
   // Poll the session list so a session created or started elsewhere (by the
   // auto-session reconciler, or by another operator) appears without a manual
@@ -1109,13 +1118,22 @@ export const RoomSchedulingPage = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [windowsError]);
+  // Unlike the schedule/window loads, this one repeats every SESSION_POLL_MS,
+  // so a backend that stays down would raise a fresh error object — and a
+  // fresh toast — four times a minute for as long as the page is open. Toast
+  // only when the failure is new, and reset once a poll succeeds so a later
+  // outage is still reported.
+  const lastSessionsErrorRef = useRef<string | null>(null);
   useEffect(() => {
-    if (
-      sessionsError !== null &&
-      !isApiErrorCode(sessionsError, 'BACKEND_MISCONFIGURATION')
-    ) {
-      showError(errorMessage(sessionsError, 'Failed to load sessions.'));
+    if (sessionsError === null) {
+      lastSessionsErrorRef.current = null;
+      return;
     }
+    if (isApiErrorCode(sessionsError, 'BACKEND_MISCONFIGURATION')) return;
+    const message = errorMessage(sessionsError, 'Failed to load sessions.');
+    if (lastSessionsErrorRef.current === message) return;
+    lastSessionsErrorRef.current = message;
+    showError(message);
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [sessionsError]);
 
@@ -1276,7 +1294,8 @@ export const RoomSchedulingPage = () => {
           >
             Showing occurrences between{' '}
             {formatInRoomTz(rangeFrom, room.timezone)} and{' '}
-            {formatInRoomTz(rangeTo, room.timezone)} (next {RANGE_DAYS} days).
+            {formatInRoomTz(rangeTo, room.timezone)} (last {LOOKBACK_DAYS} days
+            and next {RANGE_DAYS} days).
           </Typography>
         </Box>
         <Button
@@ -1395,7 +1414,8 @@ export const RoomSchedulingPage = () => {
           >
             Showing occurrences between{' '}
             {formatInRoomTz(rangeFrom, room.timezone)} and{' '}
-            {formatInRoomTz(rangeTo, room.timezone)} (next {RANGE_DAYS} days).
+            {formatInRoomTz(rangeTo, room.timezone)} (last {LOOKBACK_DAYS} days
+            and next {RANGE_DAYS} days).
           </Typography>
         </Box>
         <Button
@@ -1526,13 +1546,10 @@ export const RoomSchedulingPage = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {sessionsLoading ? (
+            {sessionsInitialLoading ? (
               <TableRow>
                 <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
-                  <CircularProgress
-                    size={28}
-                    aria-label="Loading sessions"
-                  />
+                  <CircularProgress size={28} aria-label="Loading sessions" />
                 </TableCell>
               </TableRow>
             ) : sessions.length === 0 ? (
@@ -1557,14 +1574,14 @@ export const RoomSchedulingPage = () => {
                   <TableRow key={s.uid}>
                     <TableCell>{s.name}</TableCell>
                     <TableCell>
-                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                      <Stack
+                        direction="row"
+                        spacing={1}
+                        sx={{ alignItems: 'center' }}
+                      >
                         <Chip size="small" label={s.type} variant="outlined" />
                         {isActive && (
-                          <Chip
-                            size="small"
-                            label="active"
-                            color="success"
-                          />
+                          <Chip size="small" label="active" color="success" />
                         )}
                       </Stack>
                     </TableCell>

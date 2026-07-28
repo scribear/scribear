@@ -29,13 +29,15 @@ const LIST_SESSIONS_SCHEMA = {
     from: Type.Optional(
       Type.String({
         format: 'date-time',
-        description: 'Exclude sessions whose effective end is before this time.',
+        description:
+          'Exclude sessions whose effective end is before this time.',
       }),
     ),
     to: Type.Optional(
       Type.String({
         format: 'date-time',
-        description: 'Exclude sessions whose effective start is at or after this time.',
+        description:
+          'Exclude sessions whose effective start is at or after this time.',
       }),
     ),
   }),

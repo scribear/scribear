@@ -156,20 +156,14 @@ export function scheduleManagementRouter(fastify: BaseFastifyInstance) {
     ...LIST_SESSIONS_ROUTE,
     schema: LIST_SESSIONS_SCHEMA,
     preHandler: adminApiKeyHook,
-    handler: resolveHandler(
-      'scheduleManagementController',
-      'listSessions',
-    ),
+    handler: resolveHandler('scheduleManagementController', 'listSessions'),
   });
 
   fastify.route({
     ...GET_ACTIVE_SESSION_ROUTE,
     schema: GET_ACTIVE_SESSION_SCHEMA,
     preHandler: adminApiKeyHook,
-    handler: resolveHandler(
-      'scheduleManagementController',
-      'getActiveSession',
-    ),
+    handler: resolveHandler('scheduleManagementController', 'getActiveSession'),
   });
 
   fastify.route({

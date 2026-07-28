@@ -1066,9 +1066,7 @@ export class AdminApiClient {
       `/sessions/get/${encodeURIComponent(sessionUid)}`,
     );
   }
-  listSessions(
-    query: TimeRangeQuery,
-  ): Promise<{ items: Session[] }> {
+  listSessions(query: TimeRangeQuery): Promise<{ items: Session[] }> {
     return this._request(
       'GET',
       `/sessions/list${toQueryString(query as unknown as Record<string, QueryValue>)}`,
