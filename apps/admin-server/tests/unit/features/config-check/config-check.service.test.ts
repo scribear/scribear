@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, vi } from 'vitest';
 
 import {
   LATEST_MIGRATION,
@@ -12,6 +12,16 @@ import {
   evaluateStaticChecks,
   resolveEnvironment,
 } from '#src/server/features/config-check/config-check.service.js';
+
+/**
+ * The sidecar is a core service with no compose profile, unlike Grafana/
+ * Prometheus, so — unlike `grafanaBaseUrl`/`prometheusBaseUrl` below — `CLEAN`
+ * gives it a real (test) URL rather than leaving it unset. The top-level
+ * `beforeEach` near the bottom of this file stubs every test's `fetch` to
+ * answer it cleanly by default, so `_checkSecretPlaceholders` fires no
+ * findings for a test that does not care about it.
+ */
+const SIDECAR_TEST_URL = 'http://monitoring-sidecar.test';
 
 /** A deployment with nothing wrong with it. Each test spoils one thing. */
 const CLEAN: ConfigCheckConfig = {
@@ -30,6 +40,7 @@ const CLEAN: ConfigCheckConfig = {
   // profile. `monitoringService` below turns it on with its own overrides.
   grafanaBaseUrl: '',
   prometheusBaseUrl: '',
+  monitoringSidecarBaseUrl: SIDECAR_TEST_URL,
   azureTenantId: 'tenant-1',
   azureClientId: 'client-1',
   azureClientSecret: '0b4e8d2a7f16c395',
@@ -162,6 +173,7 @@ async function healthIds(components: HealthComponentLike[]): Promise<string[]> {
 
 const PROMETHEUS_TEST_URL = 'http://prometheus.test';
 const GRAFANA_TEST_URL = 'http://grafana.test';
+const CONFIG_AUDIT_URL = `${SIDECAR_TEST_URL}/api/monitoring/v1/config-audit`;
 
 /** One stubbed HTTP answer, or a network failure, keyed by URL prefix. */
 type ProbeAnswers = Record<
@@ -170,9 +182,30 @@ type ProbeAnswers = Record<
 >;
 
 /**
- * Everything reachable and healthy: both healthy endpoints answer, the
- * sidecar scrape target is up, and the default password is rejected. Each
- * monitoring test overrides exactly the one answer it cares about.
+ * node-server reports every secret fine — the default `/config-audit` answer
+ * everywhere except the `secret placeholders` describe below, which overrides
+ * it to explore every other shape.
+ */
+const CONFIG_AUDIT_HEALTHY: { status: number; body: unknown } = {
+  status: 200,
+  body: {
+    nodeServer: {
+      status: 'ok',
+      secretPlaceholders: {
+        sessionTokenSigningKeyIsPlaceholder: false,
+        sessionManagerServiceApiKeyIsPlaceholder: false,
+        nodeServerServiceApiKeyIsPlaceholder: false,
+        transcriptionServiceApiKeyIsPlaceholder: false,
+      },
+    },
+  },
+};
+
+/**
+ * Everything reachable and healthy: both monitoring endpoints answer, the
+ * sidecar scrape target is up, the default Grafana password is rejected, and
+ * node-server's secret audit comes back clean. Each monitoring test overrides
+ * exactly the one answer it cares about.
  */
 const MONITORING_HEALTHY: ProbeAnswers = {
   [`${PROMETHEUS_TEST_URL}/-/healthy`]: { status: 200 },
@@ -189,6 +222,7 @@ const MONITORING_HEALTHY: ProbeAnswers = {
   // else. Rejected here, since the "healthy" baseline models a deployment
   // that already changed the default password.
   [`${GRAFANA_TEST_URL}/api/org`]: { status: 401 },
+  [CONFIG_AUDIT_URL]: CONFIG_AUDIT_HEALTHY,
 };
 
 function stubProbes(answers: ProbeAnswers) {
@@ -206,6 +240,24 @@ function stubProbes(answers: ProbeAnswers) {
     );
   });
 }
+
+/**
+ * Every `.check()`-calling test needs a `/config-audit` answer regardless of
+ * whether it cares about Phase 2 secrets — `_checkSecretPlaceholders` is
+ * unconditional, unlike the Grafana/Prometheus probes above, since the
+ * sidecar is a core service rather than behind the optional `monitoring`
+ * profile. This keeps `dbService`/`healthService`-based tests hermetic
+ * without every one of them having to know that. Tests that care about this
+ * check (or about Grafana/Prometheus) call `stubProbes` themselves, which
+ * replaces this default outright.
+ */
+beforeEach(() => {
+  stubProbes({ [CONFIG_AUDIT_URL]: CONFIG_AUDIT_HEALTHY });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 /**
  * A `ConfigCheckService` with both monitoring base URLs wired to the stubbed
@@ -1071,5 +1123,146 @@ describe('the monitoring probes', () => {
         false,
       );
     });
+  });
+});
+
+describe('secret placeholders (PLAN-ConfigCheck-Coverage Phase 2)', (it) => {
+  it('reports nothing when node-server says every secret is fine', async () => {
+    // Arrange - the top-level `beforeEach` already stubs this cleanly;
+    // asserted explicitly here as the baseline the rest of this block spoils.
+    const found = await monitoringIds();
+
+    expect(found.some((id) => id.endsWith('-placeholder'))).toBe(false);
+  });
+
+  it.each([
+    [
+      'sessionTokenSigningKeyIsPlaceholder',
+      'jwt-secret-placeholder',
+      'JWT_SECRET',
+    ],
+    [
+      'sessionManagerServiceApiKeyIsPlaceholder',
+      'node-server-key-placeholder',
+      'NODE_SERVER_KEY',
+    ],
+    [
+      'nodeServerServiceApiKeyIsPlaceholder',
+      'node-server-service-key-placeholder',
+      'NODE_SERVER_SERVICE_KEY',
+    ],
+    [
+      'transcriptionServiceApiKeyIsPlaceholder',
+      'transcription-api-key-placeholder',
+      'TRANSCRIPTION_API_KEY',
+    ],
+  ] as const)(
+    'flags %s as %s, critical in production',
+    async (field, expectedId, variable) => {
+      stubProbes({
+        [CONFIG_AUDIT_URL]: {
+          status: 200,
+          body: {
+            nodeServer: {
+              status: 'ok',
+              secretPlaceholders: {
+                sessionTokenSigningKeyIsPlaceholder: false,
+                sessionManagerServiceApiKeyIsPlaceholder: false,
+                nodeServerServiceApiKeyIsPlaceholder: false,
+                transcriptionServiceApiKeyIsPlaceholder: false,
+                [field]: true,
+              },
+            },
+          },
+        },
+      });
+
+      const report = await monitoringService().check();
+      const found = report.findings.find((f) => f.id === expectedId);
+
+      expect(found).toBeTruthy();
+      expect(found?.severity).toBe('critical');
+      expect(found?.title).toContain(variable);
+      // Never a value, only ever the variable name and a classification.
+      expect(found?.detail).not.toMatch(/[A-Za-z0-9+/]{16,}/);
+    },
+  );
+
+  it('is only advisory in development, unlike a real deployment secret', async () => {
+    stubProbes({
+      [CONFIG_AUDIT_URL]: {
+        status: 200,
+        body: {
+          nodeServer: {
+            status: 'ok',
+            secretPlaceholders: {
+              sessionTokenSigningKeyIsPlaceholder: true,
+              sessionManagerServiceApiKeyIsPlaceholder: false,
+              nodeServerServiceApiKeyIsPlaceholder: false,
+              transcriptionServiceApiKeyIsPlaceholder: false,
+            },
+          },
+        },
+      },
+    });
+
+    const report = await monitoringService({
+      declaredEnv: 'development',
+    }).check();
+    const found = report.findings.find(
+      (f) => f.id === 'jwt-secret-placeholder',
+    );
+
+    expect(found?.severity).toBe('advisory');
+    expect(found?.productionSeverity).toBe('critical');
+  });
+
+  it('reports unavailable, not silence, when the sidecar cannot be reached', async () => {
+    stubProbes({ [CONFIG_AUDIT_URL]: 'network-error' });
+
+    const found = await monitoringIds();
+
+    expect(found).toContain('secret-placeholder-audit-unavailable');
+  });
+
+  it('reports unavailable when the sidecar answers with a body Config Check cannot parse', async () => {
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve(new Response('not json at all', { status: 200 })),
+    );
+
+    const found = await monitoringIds();
+
+    expect(found).toContain('secret-placeholder-audit-unavailable');
+  });
+
+  it.each(['disabled', 'unauthorized', 'not-yet-polled'] as const)(
+    'reports unavailable, not a clean bill of health, when node-server status is %s',
+    async (reason) => {
+      stubProbes({
+        [CONFIG_AUDIT_URL]: {
+          status: 200,
+          body: { nodeServer: { status: 'unavailable', reason } },
+        },
+      });
+
+      const found = await monitoringIds();
+
+      expect(found).toContain('secret-placeholder-audit-unavailable');
+      expect(found.some((id) => id.endsWith('-placeholder'))).toBe(false);
+    },
+  );
+
+  it('is only a warning, never critical, when the audit itself is unavailable', async () => {
+    // A missing report is a sidecar/network problem, not proof of a bad
+    // secret - it must not read as worse than "cannot currently check".
+    stubProbes({ [CONFIG_AUDIT_URL]: 'network-error' });
+
+    const report = await monitoringService().check();
+    const found = report.findings.find(
+      (f) => f.id === 'secret-placeholder-audit-unavailable',
+    );
+
+    expect(found?.severity).toBe('warning');
+    expect(found?.productionSeverity).toBe('warning');
   });
 });

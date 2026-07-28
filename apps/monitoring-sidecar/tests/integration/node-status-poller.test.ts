@@ -553,6 +553,85 @@ describe('node-server status poller (B1.1 PR 4)', () => {
     });
   });
 
+  describe('secret placeholders (PLAN-ConfigCheck-Coverage Phase 2)', (it) => {
+    it('is null before any successful poll', async () => {
+      // Arrange - an unauthorized poll never reaches `_apply`, so there is
+      // nothing to classify yet.
+      const { poller } = await createPoller('wrong-key');
+
+      // Act
+      await poller.pollOnce();
+
+      // Assert
+      expect(poller.secretPlaceholders).toBeNull();
+    });
+
+    it('relays the classification node-server reports, unmodified', async () => {
+      // Arrange - the poller must not recompute this from anything of its
+      // own; node-server is the only side that ever sees the real secrets.
+      const { poller } = await createPoller();
+      node.setBody(
+        statusBody({
+          secretPlaceholders: {
+            transcriptionServiceApiKeyIsPlaceholder: true,
+          },
+        }),
+      );
+
+      // Act
+      await poller.pollOnce();
+
+      // Assert
+      expect(poller.secretPlaceholders).toStrictEqual({
+        sessionTokenSigningKeyIsPlaceholder: false,
+        sessionManagerServiceApiKeyIsPlaceholder: false,
+        nodeServerServiceApiKeyIsPlaceholder: false,
+        transcriptionServiceApiKeyIsPlaceholder: true,
+      });
+    });
+
+    it('keeps the last known classification when a later poll fails', async () => {
+      // Arrange - a gauge left behind is the existing convention for a
+      // transient outage (see "reports a server error without losing prior
+      // counter values" above); the endpoint controller, not the poller, is
+      // what decides whether to still call this current.
+      const { poller } = await createPoller();
+      node.setBody(
+        statusBody({
+          secretPlaceholders: { nodeServerServiceApiKeyIsPlaceholder: true },
+        }),
+      );
+      await poller.pollOnce();
+
+      // Act
+      node.setFailure(500);
+      await poller.pollOnce();
+
+      // Assert
+      expect(
+        poller.secretPlaceholders?.nodeServerServiceApiKeyIsPlaceholder,
+      ).toBe(true);
+    });
+  });
+
+  describe('enabled', (it) => {
+    it('is true when constructed with an API key', async () => {
+      // Act
+      const { poller } = await createPoller();
+
+      // Assert
+      expect(poller.enabled).toBe(true);
+    });
+
+    it('is false when constructed with no API key', async () => {
+      // Act
+      const { poller } = await createPoller('');
+
+      // Assert
+      expect(poller.enabled).toBe(false);
+    });
+  });
+
   describe('disabled', (it) => {
     it('never polls when no service API key is configured', async () => {
       // Arrange - failing closed keeps a default deployment from 401-ing

@@ -53,6 +53,7 @@ function registerDependencies(
     ),
     telemetryPublisherConfig: asValue(config.telemetryPublisherConfig),
     demoRoomConfig: asValue(config.demoRoomConfig),
+    secretPlaceholders: asValue(config.secretPlaceholders),
 
     // Shared services
     serviceAuthService: asClass(ServiceAuthService, {

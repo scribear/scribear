@@ -337,6 +337,7 @@ export class AppConfig {
       testAudioServiceKey: this._env.TEST_AUDIO_SERVICE_KEY,
       grafanaBaseUrl: this._env.ADMIN_GRAFANA_BASE_URL,
       prometheusBaseUrl: this._env.ADMIN_PROMETHEUS_BASE_URL,
+      monitoringSidecarBaseUrl: this._env.MONITORING_SIDECAR_BASE_URL,
       azureTenantId: this._env.AZURE_TENANT_ID,
       azureClientId: this._env.AZURE_CLIENT_ID,
       azureClientSecret: this._env.AZURE_CLIENT_SECRET,

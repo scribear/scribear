@@ -65,6 +65,12 @@ interface StatusBody {
     latency: LatencySeriesBody[];
   }[];
   sessionsTruncated: boolean;
+  secretPlaceholders: {
+    sessionTokenSigningKeyIsPlaceholder: boolean;
+    sessionManagerServiceApiKeyIsPlaceholder: boolean;
+    nodeServerServiceApiKeyIsPlaceholder: boolean;
+    transcriptionServiceApiKeyIsPlaceholder: boolean;
+  };
 }
 
 function signToken(payload: SessionTokenPayload): string {
@@ -238,6 +244,24 @@ describe('Status Routes', () => {
       expect(Date.parse(second.generatedAt)).toBeGreaterThanOrEqual(
         Date.parse(first.processStartedAt),
       );
+    });
+  });
+
+  describe('secret placeholders (PLAN-ConfigCheck-Coverage Phase 2)', (it) => {
+    it('reports classifications sourced from AppConfig, not recomputed here', async () => {
+      // Act - the test fixture's own secrets (use-server.ts) contain no
+      // CHANGEME marker, so every classification should read false; this
+      // guards the wiring from AppConfig through StatusController, not the
+      // classification logic itself, which app-config.test.ts covers.
+      const body = await statusBody();
+
+      // Assert
+      expect(body.secretPlaceholders).toStrictEqual({
+        sessionTokenSigningKeyIsPlaceholder: false,
+        sessionManagerServiceApiKeyIsPlaceholder: false,
+        nodeServerServiceApiKeyIsPlaceholder: false,
+        transcriptionServiceApiKeyIsPlaceholder: false,
+      });
     });
   });
 

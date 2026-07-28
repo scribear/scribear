@@ -3,6 +3,7 @@ import { type AwilixContainer, Lifetime, asClass, asValue } from 'awilix';
 import { DeviceAuthClient } from '@scribear/test-audio-source';
 
 import { AudioMeterController } from '#src/server/features/audio-meter/audio-meter.controller.js';
+import { ConfigAuditController } from '#src/server/features/config-audit/config-audit.controller.js';
 import { MetricsController } from '#src/server/features/metrics/metrics.controller.js';
 import { LivenessController } from '#src/server/features/probes/liveness.controller.js';
 import { ReadinessController } from '#src/server/features/probes/readiness.controller.js';
@@ -82,6 +83,9 @@ function registerDependencies(
       lifetime: Lifetime.SCOPED,
     }),
     metricsController: asClass(MetricsController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    configAuditController: asClass(ConfigAuditController, {
       lifetime: Lifetime.SCOPED,
     }),
     // The one controller registered as an instance: it holds a single

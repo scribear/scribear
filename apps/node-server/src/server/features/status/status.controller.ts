@@ -19,9 +19,14 @@ import type { AppDependencies } from '#src/server/dependency-injection/app-depen
  */
 export class StatusController {
   private _snapshots: AppDependencies['statusSnapshotService'];
+  private _secretPlaceholders: AppDependencies['secretPlaceholders'];
 
-  constructor(statusSnapshotService: AppDependencies['statusSnapshotService']) {
+  constructor(
+    statusSnapshotService: AppDependencies['statusSnapshotService'],
+    secretPlaceholders: AppDependencies['secretPlaceholders'],
+  ) {
     this._snapshots = statusSnapshotService;
+    this._secretPlaceholders = secretPlaceholders;
   }
 
   status(
@@ -35,6 +40,7 @@ export class StatusController {
       ...this._snapshots.process(),
       sessions,
       sessionsTruncated: truncated,
+      secretPlaceholders: this._secretPlaceholders,
     });
   }
 }

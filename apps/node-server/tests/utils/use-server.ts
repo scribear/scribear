@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, inject } from 'vitest';
 
 import { LogLevel } from '@scribear/base-fastify-server';
+import type { SecretPlaceholders } from '@scribear/node-server-schema';
 
 import type {
   AppConfig,
@@ -38,6 +39,7 @@ export interface TestAppConfigOverrides {
   transcriptionServiceClientConfig?: Partial<TranscriptionServiceClientConfig>;
   telemetryPublisherConfig?: Partial<TelemetryPublisherConfig>;
   demoRoomConfig?: Partial<DemoRoomConfig>;
+  secretPlaceholders?: Partial<SecretPlaceholders>;
 }
 
 /**
@@ -99,6 +101,16 @@ export function buildTestAppConfig(
       enabled: false,
       sessionUid: DEFAULT_DEMO_SESSION_UID,
       ...overrides.demoRoomConfig,
+    },
+    // None of the fixture's own secrets contain the CHANGEME marker, so the
+    // default here is "nothing is a placeholder" - tests that want to assert
+    // the opposite override individual fields.
+    secretPlaceholders: {
+      sessionTokenSigningKeyIsPlaceholder: false,
+      sessionManagerServiceApiKeyIsPlaceholder: false,
+      nodeServerServiceApiKeyIsPlaceholder: false,
+      transcriptionServiceApiKeyIsPlaceholder: false,
+      ...overrides.secretPlaceholders,
     },
   } as unknown as AppConfig;
 }

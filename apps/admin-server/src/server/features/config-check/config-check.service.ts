@@ -81,6 +81,31 @@ const DOC = {
   monitoring: `${WIKI}/Deployment#monitoring`,
 } as const;
 
+/**
+ * The shape of `GET /api/monitoring/v1/config-audit` on the monitoring
+ * sidecar (PLAN-ConfigCheck-Coverage Phase 2). Restated here rather than
+ * imported — the sidecar has no schema package other services depend on
+ * (unlike node-server/session-manager/transcription-service), the same
+ * reasoning `_prometheusIsScrapingSidecar`'s local `TargetsResponse`
+ * interface already follows for Prometheus's API.
+ */
+interface ConfigAuditResponse {
+  nodeServer:
+    | {
+        status: 'ok';
+        secretPlaceholders: {
+          sessionTokenSigningKeyIsPlaceholder: boolean;
+          sessionManagerServiceApiKeyIsPlaceholder: boolean;
+          nodeServerServiceApiKeyIsPlaceholder: boolean;
+          transcriptionServiceApiKeyIsPlaceholder: boolean;
+        };
+      }
+    | {
+        status: 'unavailable';
+        reason: string;
+      };
+}
+
 export interface ConfigCheckReport {
   environment: DeploymentEnv;
   /**
@@ -129,6 +154,18 @@ export interface ConfigCheckConfig {
   grafanaBaseUrl: string;
   /** Base URL of Prometheus, reached only over the backend network. Empty unless the `monitoring` compose profile is on. */
   prometheusBaseUrl: string;
+  /**
+   * Base URL of the monitoring sidecar, reached only over the backend
+   * network. Unlike `grafanaBaseUrl`/`prometheusBaseUrl` this is never empty
+   * in practice — the sidecar is a core service with no compose profile —
+   * used to read `/api/monitoring/v1/config-audit` (PLAN-ConfigCheck-Coverage
+   * Phase 2): node-server's self-reported classification of whether
+   * JWT_SECRET/NODE_SERVER_KEY/NODE_SERVER_SERVICE_KEY/TRANSCRIPTION_API_KEY
+   * are still placeholders, relayed through the sidecar because it already
+   * holds the key node-server's status endpoint requires and admin-server
+   * never needs to.
+   */
+  monitoringSidecarBaseUrl: string;
   azureTenantId: string;
   azureClientId: string;
   azureClientSecret: string;
@@ -586,12 +623,14 @@ export class ConfigCheckService {
     const { environment, environmentSource, declaredButInvalid } =
       resolveEnvironment(this._config);
 
-    const [telemetry, services, database, monitoring] = await Promise.all([
-      this._checkTelemetryBackplane(environment),
-      this._checkServiceReachability(environment),
-      this._checkDatabase(environment),
-      this._checkMonitoring(environment),
-    ]);
+    const [telemetry, services, database, monitoring, secretPlaceholders] =
+      await Promise.all([
+        this._checkTelemetryBackplane(environment),
+        this._checkServiceReachability(environment),
+        this._checkDatabase(environment),
+        this._checkMonitoring(environment),
+        this._checkSecretPlaceholders(environment),
+      ]);
 
     const findings = [
       ...evaluateStaticChecks(this._config, environment, declaredButInvalid),
@@ -599,6 +638,7 @@ export class ConfigCheckService {
       ...telemetry,
       ...services,
       ...monitoring,
+      ...secretPlaceholders,
     ];
 
     const summary: Record<CheckSeverity, number> = {
@@ -908,6 +948,145 @@ export class ConfigCheckService {
     }
 
     return findings;
+  }
+
+  /**
+   * Reads node-server's self-reported classification of the four secrets
+   * admin-server has no way to see directly — JWT_SECRET, NODE_SERVER_KEY,
+   * NODE_SERVER_SERVICE_KEY, TRANSCRIPTION_API_KEY (PLAN-ConfigCheck-Coverage
+   * Phase 2) — relayed through the monitoring sidecar's
+   * `/api/monitoring/v1/config-audit`, which already holds the key
+   * node-server's status endpoint requires. admin-server never receives (and
+   * does not need) any of these four secrets themselves — the same "probe,
+   * don't acquire" discipline `_checkGrafana`'s password check already
+   * follows.
+   *
+   * Unlike the Grafana/Prometheus checks above, this is never gated on an
+   * optional profile: the sidecar is a core service, and all four secrets are
+   * live in every deployment regardless of whether `monitoring` is on.
+   */
+  private async _checkSecretPlaceholders(
+    env: DeploymentEnv,
+  ): Promise<ConfigFinding[]> {
+    const response = await this._probe(
+      `${this._config.monitoringSidecarBaseUrl}/api/monitoring/v1/config-audit`,
+    );
+
+    const unavailable = (detail: string): ConfigFinding[] => [
+      finding(
+        {
+          id: 'secret-placeholder-audit-unavailable',
+          category: 'secrets',
+          title: 'Could not check node-server-held secrets for placeholders',
+          detail,
+          // Verified live: a placeholder NODE_SERVER_SERVICE_KEY produces
+          // exactly this finding, never `node-server-service-key-placeholder`
+          // — node-server's ServiceAuthService refuses to construct at all
+          // once its own inbound key contains CHANGEME (fails closed by
+          // design, so a misconfigured deployment fails loudly rather than
+          // serving telemetry to anyone), which means /status itself 500s
+          // before it can ever self-report on that specific key. Named here
+          // so an operator does not have to discover it by reading logs.
+          remediation:
+            "Check that monitoring-sidecar is running and reachable at monitoring-sidecar:80, and that its NODE_SERVER_SERVICE_API_KEY matches node-server's. If node-server is otherwise healthy, this can also mean NODE_SERVER_SERVICE_KEY itself is still the deployment/.env.example placeholder — node-server refuses to serve /status at all in that case, which this check cannot distinguish from an unrelated outage.",
+          docUrl: DOC.deployment,
+        },
+        { development: 'advisory', staging: 'warning', production: 'warning' },
+        env,
+      ),
+    ];
+
+    if (!response?.ok) {
+      return unavailable(
+        `monitoring-sidecar's /api/monitoring/v1/config-audit did not answer within ${String(this._config.upstreamTimeoutMs)}ms. JWT_SECRET, NODE_SERVER_KEY, NODE_SERVER_SERVICE_KEY and TRANSCRIPTION_API_KEY could not be checked.`,
+      );
+    }
+
+    // One try/catch around parsing *and* reading the body: a malformed JSON
+    // payload and a 200 whose shape does not match `ConfigAuditResponse` (an
+    // older or newer sidecar) are the same "cannot currently vouch for this"
+    // case from a caller's point of view, and neither may throw uncaught out
+    // of a `Promise.all` member — that would 500 the whole report over one
+    // check that has its own dedicated unavailable state to report instead.
+    let body: ConfigAuditResponse;
+    try {
+      const parsed: unknown = await response.json();
+      if (
+        typeof parsed !== 'object' ||
+        parsed === null ||
+        !('nodeServer' in parsed)
+      ) {
+        throw new Error('unexpected /config-audit body shape');
+      }
+      body = parsed as ConfigAuditResponse;
+    } catch {
+      return unavailable(
+        "monitoring-sidecar's /api/monitoring/v1/config-audit answered with a body Config Check could not parse.",
+      );
+    }
+
+    if (body.nodeServer.status !== 'ok') {
+      return unavailable(
+        `monitoring-sidecar reports node-server status "${body.nodeServer.reason}" — JWT_SECRET, NODE_SERVER_KEY, NODE_SERVER_SERVICE_KEY and TRANSCRIPTION_API_KEY could not be checked.`,
+      );
+    }
+
+    const sp = body.nodeServer.secretPlaceholders;
+    const checks: {
+      id: string;
+      flagged: boolean;
+      variable: string;
+      consequence: string;
+    }[] = [
+      {
+        id: 'jwt-secret-placeholder',
+        flagged: sp.sessionTokenSigningKeyIsPlaceholder,
+        variable: 'JWT_SECRET',
+        consequence: 'Every session token is forgeable.',
+      },
+      {
+        id: 'node-server-key-placeholder',
+        flagged: sp.sessionManagerServiceApiKeyIsPlaceholder,
+        variable: 'NODE_SERVER_KEY',
+        consequence:
+          'The shared service-to-service key between node-server and session-manager is public.',
+      },
+      {
+        id: 'node-server-service-key-placeholder',
+        flagged: sp.nodeServerServiceApiKeyIsPlaceholder,
+        variable: 'NODE_SERVER_SERVICE_KEY',
+        consequence:
+          "The key guarding node-server's own status endpoint — the one this very check reads through the sidecar — is public.",
+      },
+      {
+        id: 'transcription-api-key-placeholder',
+        flagged: sp.transcriptionServiceApiKeyIsPlaceholder,
+        variable: 'TRANSCRIPTION_API_KEY',
+        consequence:
+          'The shared key between node-server and transcription-service is public.',
+      },
+    ];
+
+    return checks
+      .filter((c) => c.flagged)
+      .map((c) =>
+        finding(
+          {
+            id: c.id,
+            category: 'secrets',
+            title: `${c.variable} is still the example placeholder`,
+            detail: `node-server reports ${c.variable} is still deployment/.env.example's CHANGEME placeholder. ${c.consequence}`,
+            remediation: `Set ${c.variable} in deployment/.env to a high-entropy secret and recreate node-server (and session-manager/transcription-service, which also hold it) — see deployment/UPGRADING.md.`,
+            docUrl: DOC.deployment,
+          },
+          {
+            development: 'advisory',
+            staging: 'critical',
+            production: 'critical',
+          },
+          env,
+        ),
+      );
   }
 
   /**

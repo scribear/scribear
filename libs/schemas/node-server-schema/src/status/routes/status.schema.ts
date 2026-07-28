@@ -267,6 +267,45 @@ export const STATUS_PROCESS_SCHEMA = Type.Object({
 /** This process's own telemetry. @see {@link STATUS_PROCESS_SCHEMA} */
 export type StatusProcess = Static<typeof STATUS_PROCESS_SCHEMA>;
 
+/**
+ * Whether each secret this process holds is still the
+ * `deployment/.env.example` `CHANGEME` placeholder — never the value itself,
+ * matching the discipline `describeSecret()` already applies on the Admin
+ * Server (PLAN-ConfigCheck-Coverage Phase 2).
+ *
+ * A sibling of `sessions`/`sessionsTruncated` on the route response rather
+ * than a member of {@link STATUS_PROCESS_SCHEMA}: that schema's properties
+ * are spread into the Redis fleet-snapshot schema
+ * (`infra/scribear-redis/src/telemetry/node-snapshot.schema.ts`), and this
+ * classification has exactly one consumer (Config Check, via the monitoring
+ * sidecar) that has no business fanning out to the fleet-telemetry path.
+ *
+ * Named after this process's own env vars, not the deployment `.env` names
+ * that alias them — the Admin Server side of Phase 2 does that translation,
+ * since it is the one that already speaks in `.env.example` terms.
+ */
+export const SECRET_PLACEHOLDERS_SCHEMA = Type.Object({
+  sessionTokenSigningKeyIsPlaceholder: Type.Boolean({
+    description:
+      'True if SESSION_TOKEN_SIGNING_KEY (deployment JWT_SECRET) is still the deployment/.env.example placeholder. Every session token would be forgeable.',
+  }),
+  sessionManagerServiceApiKeyIsPlaceholder: Type.Boolean({
+    description:
+      'True if SESSION_MANAGER_SERVICE_API_KEY (deployment NODE_SERVER_KEY) is still the deployment/.env.example placeholder. The outbound key this process presents to Session Manager would be public.',
+  }),
+  nodeServerServiceApiKeyIsPlaceholder: Type.Boolean({
+    description:
+      'True if NODE_SERVER_SERVICE_API_KEY (deployment NODE_SERVER_SERVICE_KEY, the key that guards this very endpoint) is still the deployment/.env.example placeholder.',
+  }),
+  transcriptionServiceApiKeyIsPlaceholder: Type.Boolean({
+    description:
+      'True if TRANSCRIPTION_SERVICE_API_KEY (deployment TRANSCRIPTION_API_KEY) is still the deployment/.env.example placeholder. The shared key this process and Transcription Service present to each other would be public.',
+  }),
+});
+
+/** @see {@link SECRET_PLACEHOLDERS_SCHEMA} */
+export type SecretPlaceholders = Static<typeof SECRET_PLACEHOLDERS_SCHEMA>;
+
 const STATUS_SCHEMA = {
   description:
     'Operational telemetry for this Node Server process: connection, session and upstream counters that are otherwise only inferable from log text. Counters are monotonic since process start and are never reset - consumers difference successive reads to obtain rates, and must compare `processUid` first, because a restart returns every counter to zero and would otherwise read as a large negative rate. Intended for internal observability consumers (Monitoring Sidecar, Admin Server) on the cluster-internal network; it must not be exposed through the public reverse proxy.',
@@ -295,6 +334,7 @@ const STATUS_SCHEMA = {
         sessionsTruncated: Type.Boolean({
           description: `True when more than ${String(STATUS_MAX_SESSIONS)} sessions were active and \`sessions\` lists only the first ${String(STATUS_MAX_SESSIONS)}. \`summary.activeSessionCount\` is always the real total.`,
         }),
+        secretPlaceholders: SECRET_PLACEHOLDERS_SCHEMA,
       },
       { description: 'Telemetry snapshot for this process.' },
     ),

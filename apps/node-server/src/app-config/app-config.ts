@@ -4,6 +4,7 @@ import { Type } from 'typebox';
 import type { Static } from 'typebox';
 
 import { LogLevel } from '@scribear/base-fastify-server';
+import type { SecretPlaceholders } from '@scribear/node-server-schema';
 
 import { DEFAULT_DEMO_SESSION_UID } from '#src/server/features/demo-room/demo-room.constants.js';
 import type { ServiceAuthConfig } from '#src/server/shared/services/service-auth.service.js';
@@ -59,6 +60,19 @@ export interface DemoRoomConfig {
   enabled: boolean;
   /** Session UID captions are published for; matches the seeded session. */
   sessionUid: string;
+}
+
+/**
+ * Matches the `deployment/.env.example` stub marker as a substring — the same
+ * check `config-check.service.ts` on the Admin Server makes of its own
+ * secrets. Duplicated rather than shared: this codebase restates rather than
+ * shares this kind of check across services (see e.g. transcription-service's
+ * Python side restating the status schema rather than importing it), and it
+ * is three lines.
+ */
+const PLACEHOLDER_MARKER = 'CHANGEME';
+function isPlaceholder(value: string): boolean {
+  return value.toUpperCase().includes(PLACEHOLDER_MARKER);
 }
 
 export interface TelemetryPublisherConfig {
@@ -121,6 +135,29 @@ export class AppConfig {
     return {
       baseUrl: this._env.TRANSCRIPTION_SERVICE_BASE_URL,
       apiKey: this._env.TRANSCRIPTION_SERVICE_API_KEY,
+    };
+  }
+
+  /**
+   * Classifies each secret this process holds without ever exposing its
+   * value (PLAN-ConfigCheck-Coverage Phase 2) — reported on `GET /status`,
+   * the endpoint the monitoring sidecar already polls, and from there relayed
+   * to Config Check on the Admin Server.
+   */
+  get secretPlaceholders(): SecretPlaceholders {
+    return {
+      sessionTokenSigningKeyIsPlaceholder: isPlaceholder(
+        this._env.SESSION_TOKEN_SIGNING_KEY,
+      ),
+      sessionManagerServiceApiKeyIsPlaceholder: isPlaceholder(
+        this._env.SESSION_MANAGER_SERVICE_API_KEY,
+      ),
+      nodeServerServiceApiKeyIsPlaceholder: isPlaceholder(
+        this._env.NODE_SERVER_SERVICE_API_KEY,
+      ),
+      transcriptionServiceApiKeyIsPlaceholder: isPlaceholder(
+        this._env.TRANSCRIPTION_SERVICE_API_KEY,
+      ),
     };
   }
 
