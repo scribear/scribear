@@ -6,7 +6,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.shared.utils.worker_pool import ActiveJob, WorkerSnapshot
+from src.shared.utils.worker_pool import (
+    ActiveJob,
+    CapacityEstimator,
+    WorkerSnapshot,
+)
 from src.transcription_provider_interface import (
     ProviderHealth,
     ProviderKind,
@@ -41,16 +45,30 @@ WORKER = WorkerSnapshot(
 )
 
 
-def _snapshots(report: ProvidersHealthReport) -> ProviderHealthSnapshotService:
+def _snapshots(
+    report: ProvidersHealthReport,
+    capacity_estimator: CapacityEstimator | None = None,
+) -> ProviderHealthSnapshotService:
     """
     Builds a snapshot service over a registry returning the given report
 
     Args:
-        report  - Report the mocked registry should return
+        report              - Report the mocked registry should return
+        capacity_estimator  - Estimator to merge in; defaults to one that has
+                                never recorded anything, so estimated capacity
+                                reads as "not measured yet" (None) unless a
+                                test wants otherwise
     """
     registry = MagicMock(spec=TranscriptionProviderRegistry)
     registry.providers_health = AsyncMock(return_value=report)
-    return ProviderHealthSnapshotService(registry, IDENTITY)
+    return ProviderHealthSnapshotService(
+        registry,
+        IDENTITY,
+        capacity_estimator
+        or CapacityEstimator(
+            target_busy=0.85, min_sessions=1, max_sessions=None
+        ),
+    )
 
 
 def _report(*entries: ProviderHealthEntry) -> ProvidersHealthReport:
@@ -99,6 +117,9 @@ async def test_serializes_envelope_as_camel_case():
                 {"jobId": 5, "sessionUid": "session-1", "roomUid": "room-1"},
                 {"jobId": 6, "sessionUid": None, "roomUid": None},
             ],
+            # No job has been recorded against this estimator, so the worker
+            # reads "not measured yet" rather than a fabricated number.
+            "estimatedCapacitySessions": None,
         }
     ]
 
@@ -209,6 +230,47 @@ async def test_serializes_owning_workers_like_pool_workers():
     assert body["providers"]["whisper"]["owningWorkers"] == body["workers"]
     assert body["providers"]["whisper"]["modelLoaded"] is True
     assert body["providers"]["whisper"]["activeSessions"] == 5
+
+
+@pytest.mark.asyncio
+async def test_merges_estimated_capacity_onto_workers_and_owning_workers():
+    """
+    Test N* (PLAN-AdmissionControl.md §5) lands on both worker lists
+
+    Identical to how MetricsController.status() layers this onto
+    /metrics/status's `workers[]` - here it must additionally reach each
+    provider's `owningWorkers[]`, which /metrics/status has no equivalent of.
+    A pinned `max_sessions` is used rather than feeding the estimator real job
+    observations, so the estimate is deterministic without depending on the
+    ratchet's warm-up behavior, which is covered elsewhere.
+    """
+    # Arrange
+    estimator = CapacityEstimator(
+        target_busy=0.85, min_sessions=1, max_sessions=5
+    )
+    snapshots = _snapshots(
+        _report(
+            ProviderHealthEntry(
+                provider_key="whisper",
+                provider_uid="whisper-streaming",
+                health=ProviderHealth(
+                    kind=ProviderKind.LOCAL,
+                    status=ProviderStatus.OK,
+                    active_sessions=3,
+                    owning_workers=[WORKER],
+                ),
+            )
+        ),
+        estimator,
+    )
+
+    # Act
+    body = await snapshots.snapshot()
+
+    # Assert
+    assert body["workers"][0]["estimatedCapacitySessions"] == 5
+    owning_workers = body["providers"]["whisper"]["owningWorkers"]
+    assert owning_workers[0]["estimatedCapacitySessions"] == 5
 
 
 @pytest.mark.asyncio

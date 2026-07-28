@@ -40,7 +40,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.shared.logger import Logger
-from src.shared.utils.worker_pool import ActiveJob, WorkerSnapshot
+from src.shared.utils.worker_pool import (
+    ActiveJob,
+    CapacityEstimator,
+    WorkerSnapshot,
+)
 from src.transcription_provider_interface import (
     ProviderHealth,
     ProviderKind,
@@ -88,6 +92,17 @@ HOST_ID = "crosscheck-host"
 IDENTITY = ProcessIdentity(
     process_uid="11111111-2222-3333-4444-555555555555",
     process_started_at="2026-07-20T12:00:00+00:00",
+)
+
+# A `max_sessions` pin rather than a freshly-built, never-recorded-to
+# estimator: the latter would put `estimatedCapacitySessions` at `null` on
+# every worker, and by this file's own logic ("an empty array satisfies any
+# element type at all") a null trivially satisfies
+# `Type.Union([Type.Integer(), Type.Null()])` no matter what the non-null
+# variant declares. Only a concrete integer on the wire exercises the
+# `Type.Integer()` half of that union.
+CAPACITY_ESTIMATOR = CapacityEstimator(
+    target_busy=0.85, min_sessions=1, max_sessions=4
 )
 
 # Every field that a debug-only host leaves empty is non-empty here, and
@@ -232,7 +247,7 @@ def published_fixture() -> dict[str, Any]:
 
     publisher = RedisTelemetryPublisher(
         redis,
-        ProviderHealthSnapshotService(registry, IDENTITY),
+        ProviderHealthSnapshotService(registry, IDENTITY, CAPACITY_ESTIMATOR),
         MagicMock(spec=Logger),
         HOST_ID,
     )

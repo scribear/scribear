@@ -25,6 +25,7 @@ from src.shared.config import (
     TranscriptionProviderUID,
 )
 from src.shared.logger import ContextLogger, Logger
+from src.shared.utils.worker_pool import CapacityEstimator
 from src.webserver.create_webserver import create_webserver
 from src.webserver.features.telemetry import (
     RedisTelemetryPublisher,
@@ -121,12 +122,19 @@ async def publisher(mock_config: Config, mock_logger: Logger):
     """
     Create a publisher over a real provider registry and a real connection
     """
+    capacity_estimator = CapacityEstimator(
+        target_busy=mock_config.target_busy,
+        min_sessions=mock_config.min_sessions,
+        max_sessions=mock_config.max_sessions,
+    )
     registry = TranscriptionProviderRegistry(
-        mock_config, mock_logger, MagicMock()
+        mock_config, mock_logger, MagicMock(), capacity_estimator
     )
     instance = RedisTelemetryPublisher(
         create_telemetry_redis_client(REDIS_URL),
-        ProviderHealthSnapshotService(registry, create_process_identity()),
+        ProviderHealthSnapshotService(
+            registry, create_process_identity(), capacity_estimator
+        ),
         mock_logger,
         HOST_ID,
     )
