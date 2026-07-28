@@ -95,10 +95,12 @@ export const AUDIO_STATUS_COLOR: Record<AudioStatus, StatusColor> = {
  * later per-room baseline work (D3 of PLAN-AUDIOVIZ) has one place to replace.
  *
  * The clipping threshold (1 % of samples) and the silence flag come straight
- * from the publisher's `AudioLevelStats`. `rmsDbfsHigh` (-6 dBFS) is the
- * standalone meter's default peak-zone crit boundary (`audio-meter.html`'s
- * "Peak zones" control); `rmsDbfsLow` (-50 dBFS) is *not* from the standalone
- * meter — it sits between its -60 dBFS floor and its -40 dBFS scale step, i.e.
+ * from the publisher's `AudioLevelStats`. `rmsDbfsHigh` (-6 dBFS) is an RMS
+ * threshold in this dashboard's own system — it is not tied to the standalone
+ * meter's peak-zone default (`audio-meter.html`'s "Peak zones" control), which
+ * applies to a different quantity (held peak, not RMS) and defaults
+ * elsewhere; `rmsDbfsLow` (-50 dBFS) is *not* from the standalone meter — it
+ * sits between its -60 dBFS floor and its -40 dBFS scale step, i.e.
  * low enough that a working room mic never reads there. The SNR threshold
  * (10 dB) is the point below which speech intelligibility degrades measurably.
  * These are first-cut constants, not tuned values — see
