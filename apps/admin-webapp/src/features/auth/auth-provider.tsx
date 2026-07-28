@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { AuthConfig, Identity } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
+import { ApiError } from '#src/lib/api-error';
 
 import { AuthContext, type AuthStatus } from './auth-context';
 
@@ -15,6 +16,7 @@ export const AuthProvider = ({ children }: React.PropsWithChildren) => {
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [config, setConfig] = useState<AuthConfig | null>(null);
+  const [configError, setConfigError] = useState<string | null>(null);
 
   useEffect(() => {
     // Object flag (not a plain boolean) so its mutation in the cleanup closure
@@ -28,7 +30,22 @@ export const AuthProvider = ({ children }: React.PropsWithChildren) => {
     });
 
     void (async () => {
-      const cfg = await adminApi.getAuthConfig().catch(() => null);
+      const cfg = await adminApi.getAuthConfig().catch((err: unknown) => {
+        // Logged, not swallowed: a failure here used to leave the login page
+        // rendering its title and nothing else - no form, no warning, no
+        // error - with no signal anywhere that it was a fetch failure rather
+        // than "nothing configured". console.error at minimum makes it show
+        // up in exactly the browser console an operator already has open.
+        console.error('Failed to load /auth/config', err);
+        if (alive.current) {
+          setConfigError(
+            err instanceof ApiError
+              ? err.message
+              : 'Could not reach the admin server.',
+          );
+        }
+        return null;
+      });
       if (alive.current && cfg) setConfig(cfg);
 
       try {
@@ -65,8 +82,8 @@ export const AuthProvider = ({ children }: React.PropsWithChildren) => {
   }, []);
 
   const value = useMemo(
-    () => ({ status, identity, config, login, logout }),
-    [status, identity, config, login, logout],
+    () => ({ status, identity, config, configError, login, logout }),
+    [status, identity, config, configError, login, logout],
   );
 
   return <AuthContext value={value}>{children}</AuthContext>;

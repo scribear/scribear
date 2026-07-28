@@ -15,7 +15,7 @@ import { useAuth } from '#src/features/auth/auth-context';
 import { ApiError } from '#src/lib/api-error';
 
 export const LoginPage = () => {
-  const { status, config, login } = useAuth();
+  const { status, config, configError, login } = useAuth();
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -74,6 +74,13 @@ export const LoginPage = () => {
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {error}
+            </Alert>
+          )}
+
+          {configError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              Couldn&apos;t reach the admin server ({configError}). Try
+              reloading, or contact an operator if this continues.
             </Alert>
           )}
 
