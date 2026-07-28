@@ -10,6 +10,15 @@ inputs:
   dockerfile:
     description: "Path to the Dockerfile."
     required: true
+  target:
+    description: >
+      The Dockerfile stage to build. Empty means the default final stage -
+      needed for the three infra Dockerfiles (scribear-db, scribear-nginx,
+      scribear-redis), which have no named final stage to target, and by any
+      other single-image Dockerfile that predates the consolidated root
+      Dockerfile's per-app targets.
+    required: false
+    default: ""
   platforms:
     description: >
       Single platform to build for (e.g. "linux/amd64" or "linux/arm64"). Must
@@ -207,6 +216,7 @@ runs:
         push: ${{ steps.eligibility.outputs.can_push == 'true' && steps.resolved-tags.outputs.has_tags == 'true' }}
         context: ${{ inputs.build_context }}
         file: ${{ inputs.dockerfile }}
+        target: ${{ inputs.target }}
         platforms: ${{ inputs.platforms }}
         build-args: ${{ inputs.build_args }}
         tags: ${{ steps.meta.outputs.tags }}
@@ -230,6 +240,7 @@ runs:
       with:
         context: ${{ inputs.build_context }}
         file: ${{ inputs.dockerfile }}
+        target: ${{ inputs.target }}
         platforms: ${{ inputs.platforms }}
         build-args: ${{ inputs.build_args }}
         outputs: type=image,name=ghcr.io/${{ inputs.image_name }},push-by-digest=true,name-canonical=true,push=${{ steps.eligibility.outputs.can_push == 'true' && steps.resolved-tags.outputs.has_tags == 'true' }}

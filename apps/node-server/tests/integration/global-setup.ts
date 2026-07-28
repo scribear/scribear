@@ -16,7 +16,11 @@ import { getMigrator } from '@scribear/scribear-db';
 const TESTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(TESTS_DIR, '../../../..');
 const DB_DOCKERFILE_DIR = path.join(REPO_ROOT, 'infra/scribear-db');
-const SESSION_MANAGER_DOCKERFILE = 'apps/session-manager/Dockerfile';
+// The Session Manager image is one target of the root Dockerfile now, not a
+// Dockerfile of its own, so building it takes the repo root as context plus
+// the target name rather than a per-app Dockerfile path.
+const ROOT_DOCKERFILE = 'Dockerfile';
+const SESSION_MANAGER_TARGET = 'session-manager';
 const TRANSCRIPTION_SERVICE_CONTEXT = path.join(
   REPO_ROOT,
   'transcription_service',
@@ -114,10 +118,8 @@ export async function setup({
   const sessionManagerImage =
     sessionManagerImageEnv != null
       ? new GenericContainer(sessionManagerImageEnv)
-      : await GenericContainer.fromDockerfile(
-          REPO_ROOT,
-          SESSION_MANAGER_DOCKERFILE,
-        )
+      : await GenericContainer.fromDockerfile(REPO_ROOT, ROOT_DOCKERFILE)
+          .withTarget(SESSION_MANAGER_TARGET)
           .withCache(true)
           .build();
 

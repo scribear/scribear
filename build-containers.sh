@@ -105,20 +105,20 @@ PY
 )"
 fi
 
-build_image "$ROOT/apps/node-server"       -f "$ROOT/apps/node-server/Dockerfile"       "$ROOT" -t "scribear/node-server:$TAG"
-build_image "$ROOT/apps/session-manager"    -f "$ROOT/apps/session-manager/Dockerfile"    "$ROOT" -t "scribear/session-manager:$TAG"
-build_image "$ROOT/apps/client-webapp"      -f "$ROOT/apps/client-webapp/Dockerfile"      "$ROOT" -t "scribear/client-webapp:$TAG"
-build_image "$ROOT/apps/standalone-webapp"  -f "$ROOT/apps/standalone-webapp/Dockerfile"  "$ROOT" -t "scribear/standalone-webapp:$TAG"
-build_image "$ROOT/apps/kiosk-webapp"       -f "$ROOT/apps/kiosk-webapp/Dockerfile"       "$ROOT" -t "scribear/kiosk-webapp:$TAG"
-build_image "$ROOT/apps/admin-webapp"       -f "$ROOT/apps/admin-webapp/Dockerfile"       "$ROOT" -t "scribear/admin-webapp:$TAG"
-build_image "$ROOT/apps/admin-server"       -f "$ROOT/apps/admin-server/Dockerfile"       "$ROOT" -t "scribear/admin-server:$TAG"
-build_image "$ROOT/apps/monitoring-sidecar" -f "$ROOT/apps/monitoring-sidecar/Dockerfile" "$ROOT" -t "scribear/monitoring-sidecar:$TAG"
+build_image "$ROOT/apps/node-server"        -f "$ROOT/Dockerfile" --target node-server        "$ROOT" -t "scribear/node-server:$TAG"
+build_image "$ROOT/apps/session-manager"    -f "$ROOT/Dockerfile" --target session-manager    "$ROOT" -t "scribear/session-manager:$TAG"
+build_image "$ROOT/apps/client-webapp"      -f "$ROOT/Dockerfile" --target client-webapp      "$ROOT" -t "scribear/client-webapp:$TAG"
+build_image "$ROOT/apps/standalone-webapp"  -f "$ROOT/Dockerfile" --target standalone-webapp  "$ROOT" -t "scribear/standalone-webapp:$TAG"
+build_image "$ROOT/apps/kiosk-webapp"       -f "$ROOT/Dockerfile" --target kiosk-webapp       "$ROOT" -t "scribear/kiosk-webapp:$TAG"
+build_image "$ROOT/apps/admin-webapp"       -f "$ROOT/Dockerfile" --target admin-webapp       "$ROOT" -t "scribear/admin-webapp:$TAG"
+build_image "$ROOT/apps/admin-server"       -f "$ROOT/Dockerfile" --target admin-server       "$ROOT" -t "scribear/admin-server:$TAG"
+build_image "$ROOT/apps/monitoring-sidecar" -f "$ROOT/Dockerfile" --target monitoring-sidecar "$ROOT" -t "scribear/monitoring-sidecar:$TAG"
 # Off by default in compose (the `testaudio` profile), but still built: an
 # operator who switches the profile on must not also have to build an image.
 # Note this one reaches the network during its build, to fetch the public-domain
 # longform clip; it falls back to the committed fixtures and still succeeds when
 # it cannot.
-build_image "$ROOT/apps/test-audio-generator" -f "$ROOT/apps/test-audio-generator/Dockerfile" "$ROOT" -t "scribear/test-audio-generator:$TAG"
+build_image "$ROOT/apps/test-audio-generator" -f "$ROOT/Dockerfile" --target test-audio-generator "$ROOT" -t "scribear/test-audio-generator:$TAG"
 
 # scribear-db and scribear-redis are the two images with no build provenance:
 # Postgres and Redis have no HTTP surface to report it on, so the admin
