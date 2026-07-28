@@ -13,6 +13,8 @@ import {
   DELETE_SCHEDULE_SCHEMA,
   END_SESSION_EARLY_ROUTE,
   END_SESSION_EARLY_SCHEMA,
+  GET_ACTIVE_SESSION_ROUTE,
+  GET_ACTIVE_SESSION_SCHEMA,
   GET_AUTO_SESSION_WINDOW_ROUTE,
   GET_AUTO_SESSION_WINDOW_SCHEMA,
   GET_SCHEDULE_ROUTE,
@@ -23,6 +25,8 @@ import {
   LIST_AUTO_SESSION_WINDOWS_SCHEMA,
   LIST_SCHEDULES_ROUTE,
   LIST_SCHEDULES_SCHEMA,
+  LIST_SESSIONS_ROUTE,
+  LIST_SESSIONS_SCHEMA,
   MY_SCHEDULE_ROUTE,
   MY_SCHEDULE_SCHEMA,
   SESSION_CONFIG_STREAM_ROUTE,
@@ -104,6 +108,16 @@ function createScheduleManagementClient(baseUrl: string) {
     getSession: createEndpointClient(
       GET_SESSION_SCHEMA,
       GET_SESSION_ROUTE,
+      baseUrl,
+    ),
+    listSessions: createEndpointClient(
+      LIST_SESSIONS_SCHEMA,
+      LIST_SESSIONS_ROUTE,
+      baseUrl,
+    ),
+    getActiveSession: createEndpointClient(
+      GET_ACTIVE_SESSION_SCHEMA,
+      GET_ACTIVE_SESSION_ROUTE,
       baseUrl,
     ),
     createOnDemandSession: createEndpointClient(

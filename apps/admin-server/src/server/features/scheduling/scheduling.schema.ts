@@ -5,11 +5,13 @@ import {
   DELETE_AUTO_SESSION_WINDOW_SCHEMA,
   DELETE_SCHEDULE_SCHEMA,
   END_SESSION_EARLY_SCHEMA,
+  GET_ACTIVE_SESSION_SCHEMA,
   GET_AUTO_SESSION_WINDOW_SCHEMA,
   GET_SCHEDULE_SCHEMA,
   GET_SESSION_SCHEMA,
   LIST_AUTO_SESSION_WINDOWS_SCHEMA,
   LIST_SCHEDULES_SCHEMA,
+  LIST_SESSIONS_SCHEMA,
   START_SESSION_EARLY_SCHEMA,
   UPDATE_AUTO_SESSION_WINDOW_SCHEMA,
   UPDATE_ROOM_SCHEDULE_CONFIG_SCHEMA,
@@ -21,6 +23,7 @@ import { ADMIN_BASE_PATH } from '#src/server/base-path.js';
 const P_SCHEDULES = `${ADMIN_BASE_PATH}/schedules`;
 const P_AUTO_WINDOWS = `${ADMIN_BASE_PATH}/auto-windows`;
 const P_SESSIONS = `${ADMIN_BASE_PATH}/sessions`;
+const P_ROOMS = `${ADMIN_BASE_PATH}/rooms`;
 
 // Input validation reuses the exact Session Manager request shapes (body /
 // querystring / params) — NEVER the `authorization` header, which the BFF
@@ -110,6 +113,22 @@ export const GET_SESSION_INPUT = { params: GET_SESSION_SCHEMA.params };
 export const GET_SESSION_ROUTE = {
   method: 'GET' as const,
   url: `${P_SESSIONS}/get/:sessionUid`,
+};
+
+export const LIST_SESSIONS_INPUT = {
+  querystring: LIST_SESSIONS_SCHEMA.querystring,
+};
+export const LIST_SESSIONS_ROUTE = {
+  method: 'GET' as const,
+  url: `${P_SESSIONS}/list`,
+};
+
+export const GET_ACTIVE_SESSION_INPUT = {
+  params: GET_ACTIVE_SESSION_SCHEMA.params,
+};
+export const GET_ACTIVE_SESSION_ROUTE = {
+  method: 'GET' as const,
+  url: `${P_ROOMS}/:roomUid/active-session`,
 };
 
 export const CREATE_ON_DEMAND_SESSION_INPUT = {

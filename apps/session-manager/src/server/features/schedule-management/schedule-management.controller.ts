@@ -11,11 +11,13 @@ import {
   DELETE_AUTO_SESSION_WINDOW_SCHEMA,
   DELETE_SCHEDULE_SCHEMA,
   END_SESSION_EARLY_SCHEMA,
+  GET_ACTIVE_SESSION_SCHEMA,
   GET_AUTO_SESSION_WINDOW_SCHEMA,
   GET_SCHEDULE_SCHEMA,
   GET_SESSION_SCHEMA,
   LIST_AUTO_SESSION_WINDOWS_SCHEMA,
   LIST_SCHEDULES_SCHEMA,
+  LIST_SESSIONS_SCHEMA,
   MY_SCHEDULE_SCHEMA,
   SESSION_CONFIG_STREAM_SCHEMA,
   START_SESSION_EARLY_SCHEMA,
@@ -378,6 +380,44 @@ export class ScheduleManagementController {
       throw HttpError.notFound('SESSION_NOT_FOUND', 'Session not found.');
 
     res.code(200).send(this._mapSession(result));
+  }
+
+  async listSessions(
+    req: BaseFastifyRequest<typeof LIST_SESSIONS_SCHEMA>,
+    res: BaseFastifyReply<typeof LIST_SESSIONS_SCHEMA>,
+  ) {
+    const { roomUid, from, to } = req.query;
+    const now = new Date();
+
+    const result = await this._scheduleService.listSessionsForRoomInRange(
+      roomUid,
+      {
+        from: from !== undefined ? new Date(from) : new Date(0),
+        to:
+          to !== undefined
+            ? new Date(to)
+            : new Date(now.getTime() + 365 * MS_PER_DAY),
+      },
+    );
+
+    if (result === 'ROOM_NOT_FOUND')
+      throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
+
+    res.code(200).send({ items: result.map((s) => this._mapSession(s)) });
+  }
+
+  async getActiveSession(
+    req: BaseFastifyRequest<typeof GET_ACTIVE_SESSION_SCHEMA>,
+    res: BaseFastifyReply<typeof GET_ACTIVE_SESSION_SCHEMA>,
+  ) {
+    const { roomUid } = req.params;
+    const now = new Date();
+
+    const result = await this._scheduleService.findActiveSession(roomUid, now);
+    if (result === 'ROOM_NOT_FOUND')
+      throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
+
+    res.code(200).send(result ? this._mapSession(result) : null);
   }
 
   async createOnDemandSession(

@@ -16,6 +16,8 @@ import { buildDevice, buildRoomDetail } from './fixtures';
 vi.mock('#src/lib/admin-api', () => ({
   adminApi: {
     roomDetail: vi.fn(),
+    getActiveSession: vi.fn(),
+    endSessionEarly: vi.fn(),
   },
 }));
 
@@ -42,6 +44,9 @@ async function waitForLoad() {
 describe('RoomDetailPage', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    // Default: no active session. Individual tests override as needed.
+    vi.mocked(adminApi.getActiveSession).mockResolvedValue(null);
+    vi.mocked(adminApi.endSessionEarly).mockResolvedValue(null);
   });
 
   describe('loading', (it) => {

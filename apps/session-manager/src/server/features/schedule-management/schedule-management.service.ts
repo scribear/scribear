@@ -769,15 +769,39 @@ export class ScheduleManagementService {
   }
 
   /**
+   * Fetches the room's currently-active session (effective start ≤ now and
+   * effective end > now or null), of any type, or `null` if none is active.
+   * @param roomUid The room to query.
+   * @param now Instant against which "active" is evaluated.
+   * @returns The active session, `null` if none is active, or `'ROOM_NOT_FOUND'`.
+   */
+  async findActiveSession(
+    roomUid: string,
+    now: Date,
+  ): Promise<Session | null | 'ROOM_NOT_FOUND'> {
+    const exists = await this._repo.roomExists(this._repo.db, roomUid);
+    if (!exists) return 'ROOM_NOT_FOUND' as const;
+    const session = await this._repo.findActiveSession(
+      this._repo.db,
+      roomUid,
+      now,
+    );
+    return session ?? null;
+  }
+
+  /**
    * Lists sessions in the room whose effective interval overlaps
    * `[range.from, range.to)`, ordered by effective start ascending.
    * @param roomUid The room to query.
    * @param range Time range to test for overlap.
+   * @returns The matching sessions, or `'ROOM_NOT_FOUND'` if the room does not exist.
    */
   async listSessionsForRoomInRange(
     roomUid: string,
     range: { from: Date; to: Date },
-  ): Promise<Session[]> {
+  ): Promise<Session[] | 'ROOM_NOT_FOUND'> {
+    const exists = await this._repo.roomExists(this._repo.db, roomUid);
+    if (!exists) return 'ROOM_NOT_FOUND' as const;
     return this._repo.listSessionsForRoomInRange(this._repo.db, roomUid, range);
   }
 

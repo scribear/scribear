@@ -19,6 +19,8 @@ import {
   DELETE_SCHEDULE_ROUTE,
   END_SESSION_EARLY_INPUT,
   END_SESSION_EARLY_ROUTE,
+  GET_ACTIVE_SESSION_INPUT,
+  GET_ACTIVE_SESSION_ROUTE,
   GET_AUTO_SESSION_WINDOW_INPUT,
   GET_AUTO_SESSION_WINDOW_ROUTE,
   GET_SCHEDULE_INPUT,
@@ -31,6 +33,8 @@ import {
   LIST_AUTO_SESSION_WINDOWS_ROUTE,
   LIST_SCHEDULES_INPUT,
   LIST_SCHEDULES_ROUTE,
+  LIST_SESSIONS_INPUT,
+  LIST_SESSIONS_ROUTE,
   START_SESSION_EARLY_INPUT,
   START_SESSION_EARLY_ROUTE,
   UPDATE_AUTO_SESSION_WINDOW_INPUT,
@@ -84,6 +88,20 @@ export function schedulingRouter(fastify: BaseFastifyInstance) {
     schema: GET_SESSION_INPUT,
     preHandler: readGuards,
     handler: resolveHandler('schedulingController', 'getSession'),
+  });
+
+  fastify.route({
+    ...LIST_SESSIONS_ROUTE,
+    schema: LIST_SESSIONS_INPUT,
+    preHandler: readGuards,
+    handler: resolveHandler('schedulingController', 'listSessions'),
+  });
+
+  fastify.route({
+    ...GET_ACTIVE_SESSION_ROUTE,
+    schema: GET_ACTIVE_SESSION_INPUT,
+    preHandler: readGuards,
+    handler: resolveHandler('schedulingController', 'getActiveSession'),
   });
 
   fastify.route({

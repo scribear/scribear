@@ -13,12 +13,14 @@ import type {
   DELETE_AUTO_SESSION_WINDOW_INPUT,
   DELETE_SCHEDULE_INPUT,
   END_SESSION_EARLY_INPUT,
+  GET_ACTIVE_SESSION_INPUT,
   GET_AUTO_SESSION_WINDOW_INPUT,
   GET_SCHEDULE_INPUT,
   GET_SESSION_INPUT,
   GET_SESSION_JOIN_CODE_INPUT,
   LIST_AUTO_SESSION_WINDOWS_INPUT,
   LIST_SCHEDULES_INPUT,
+  LIST_SESSIONS_INPUT,
   START_SESSION_EARLY_INPUT,
   UPDATE_AUTO_SESSION_WINDOW_INPUT,
   UPDATE_ROOM_SCHEDULE_CONFIG_INPUT,
@@ -88,6 +90,28 @@ export class SchedulingController {
     res: BaseFastifyReply,
   ) {
     this._gateway.respond(req, res, await this._gateway.getSession(req.params));
+  }
+
+  async listSessions(
+    req: BaseFastifyRequest<typeof LIST_SESSIONS_INPUT>,
+    res: BaseFastifyReply,
+  ) {
+    this._gateway.respond(
+      req,
+      res,
+      await this._gateway.listSessions(req.query),
+    );
+  }
+
+  async getActiveSession(
+    req: BaseFastifyRequest<typeof GET_ACTIVE_SESSION_INPUT>,
+    res: BaseFastifyReply,
+  ) {
+    this._gateway.respond(
+      req,
+      res,
+      await this._gateway.getActiveSession(req.params),
+    );
   }
 
   async getSessionJoinCode(

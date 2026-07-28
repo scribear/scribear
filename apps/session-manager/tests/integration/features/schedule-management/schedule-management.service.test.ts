@@ -825,7 +825,17 @@ describe('ScheduleManagementService', () => {
       });
 
       // Assert
-      expect(found.map((s) => s.name)).toEqual(['In-range']);
+      expect(found).not.toBe('ROOM_NOT_FOUND');
+      const sessions = found as Exclude<typeof found, 'ROOM_NOT_FOUND'>;
+      expect(sessions.map((s) => s.name)).toEqual(['In-range']);
+    });
+
+    it('returns ROOM_NOT_FOUND when the room does not exist', async () => {
+      const result = await service.listSessionsForRoomInRange(NULL_UUID, {
+        from: new Date('2024-06-01T09:00:00Z'),
+        to: new Date('2024-06-01T13:00:00Z'),
+      });
+      expect(result).toBe('ROOM_NOT_FOUND');
     });
   });
 

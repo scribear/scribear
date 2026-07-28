@@ -20,6 +20,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Select from '@mui/material/Select';
 import type { SelectChangeEvent } from '@mui/material/Select';
+import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
@@ -32,7 +33,7 @@ import Typography from '@mui/material/Typography';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { DEMO_ROOM_UID } from '@scribear/session-manager-schema';
-import type { Device, Room } from '@scribear/session-manager-schema';
+import type { Device, Room, Session } from '@scribear/session-manager-schema';
 
 import { ConfirmDialog } from '#src/components/confirm-dialog';
 import { NameWithUid } from '#src/components/name-with-uid';
@@ -296,6 +297,20 @@ export const RoomDetailPage = () => {
     [roomUid],
   );
 
+  // The room's currently-active session, if any. Fetched independently of the
+  // room detail so a failure here never blocks the page, and reloaded after
+  // mutations that may start/stop a session.
+  const {
+    data: activeSession,
+    reload: reloadActiveSession,
+  } = useAsyncData<Session | null>(
+    () =>
+      roomUid === undefined
+        ? Promise.resolve(null)
+        : adminApi.getActiveSession(roomUid),
+    [roomUid],
+  );
+
   // Derived from the load error rather than stored as separate state.
   const misconfigured = isApiErrorCode(error, 'BACKEND_MISCONFIGURATION');
 
@@ -304,6 +319,8 @@ export const RoomDetailPage = () => {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [rowActionUid, setRowActionUid] = useState<string | null>(null);
+  const [endActiveSessionOpen, setEndActiveSessionOpen] = useState(false);
+  const [endingActiveSession, setEndingActiveSession] = useState(false);
 
   // Non-misconfiguration load failures are surfaced as a toast, once per error.
   useEffect(() => {
@@ -371,6 +388,28 @@ export const RoomDetailPage = () => {
       .finally(() => {
         setDeleting(false);
         setDeleteOpen(false);
+      });
+  };
+
+  const handleEndActiveSession = () => {
+    if (activeSession === null) return;
+    setEndingActiveSession(true);
+    adminApi
+      .endSessionEarly(activeSession.uid)
+      .then(() => {
+        showSuccess('Active session ended.');
+        reloadActiveSession();
+      })
+      .catch((err: unknown) => {
+        showError(
+          err instanceof ApiError
+            ? err.message
+            : 'Failed to end active session.',
+        );
+      })
+      .finally(() => {
+        setEndingActiveSession(false);
+        setEndActiveSessionOpen(false);
       });
   };
 
@@ -501,6 +540,82 @@ export const RoomDetailPage = () => {
               </Typography>
             </Grid>
           </Grid>
+        </CardContent>
+      </Card>
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              mb: 1,
+            }}
+          >
+            <Typography variant="h6" component="h2">
+              Active session
+            </Typography>
+            {activeSession !== null && (
+              <Chip
+                size="small"
+                label={activeSession.type}
+                color="success"
+                variant="outlined"
+              />
+            )}
+          </Box>
+          {activeSession === null ? (
+            <Typography
+              variant="body2"
+              sx={{
+                color: 'text.secondary',
+              }}
+            >
+              No session is currently active in this room.
+            </Typography>
+          ) : (
+            <Stack spacing={1}>
+              <Typography variant="body1">{activeSession.name}</Typography>
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'text.secondary',
+                }}
+              >
+                Started{' '}
+                {new Date(activeSession.effectiveStart).toLocaleString()}
+                {activeSession.effectiveEnd === null
+                  ? ' · open-ended (no scheduled end)'
+                  : ` · ends ${new Date(activeSession.effectiveEnd).toLocaleString()}`}
+              </Typography>
+              <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => {
+                    void navigate(`/sessions/${activeSession.uid}`);
+                  }}
+                >
+                  View session
+                </Button>
+                {/* The demo room's permanently-active fixture session is not a
+                    real transcription session and must not be ended from here. */}
+                {!isDemoRoom && (
+                  <Button
+                    size="small"
+                    color="error"
+                    variant="outlined"
+                    disabled={endingActiveSession}
+                    onClick={() => {
+                      setEndActiveSessionOpen(true);
+                    }}
+                  >
+                    End early
+                  </Button>
+                )}
+              </Stack>
+            </Stack>
+          )}
         </CardContent>
       </Card>
       <Box
@@ -657,6 +772,18 @@ export const RoomDetailPage = () => {
         onConfirm={handleDelete}
         onClose={() => {
           setDeleteOpen(false);
+        }}
+      />
+      <ConfirmDialog
+        open={endActiveSessionOpen}
+        title="End active session"
+        message="This ends the currently-active session now, ahead of its scheduled end time."
+        confirmLabel="End early"
+        confirmColor="error"
+        loading={endingActiveSession}
+        onConfirm={handleEndActiveSession}
+        onClose={() => {
+          setEndActiveSessionOpen(false);
         }}
       />
     </Box>

@@ -15,6 +15,7 @@ vi.mock('#src/lib/admin-api', () => ({
     roomDetail: vi.fn(),
     listSchedules: vi.fn(),
     listAutoWindows: vi.fn(),
+    listSessions: vi.fn(),
     createSchedule: vi.fn(),
     updateSchedule: vi.fn(),
     createAutoWindow: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock('#src/lib/admin-api', () => ({
     deleteSchedule: vi.fn(),
     deleteAutoWindow: vi.fn(),
     updateRoomScheduleConfig: vi.fn(),
+    createOnDemandSession: vi.fn(),
   },
 }));
 
@@ -40,6 +42,7 @@ function mockDefaultLoad(
   );
   vi.mocked(adminApi.listSchedules).mockResolvedValue({ items: schedules });
   vi.mocked(adminApi.listAutoWindows).mockResolvedValue({ items: windows });
+  vi.mocked(adminApi.listSessions).mockResolvedValue({ items: [] });
 }
 
 async function waitForLoad() {
