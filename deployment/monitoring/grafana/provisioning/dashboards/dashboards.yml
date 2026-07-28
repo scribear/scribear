@@ -1,0 +1,18 @@
+# Points Grafana at the mounted dashboards directory (compose.yml mounts
+# ../dashboards to /var/lib/grafana/dashboards) so every JSON file there loads
+# automatically on startup - no "Import dashboard" click, ever, for the
+# bundled setup. A second dashboard (e.g. GPU-specific, see
+# PLAN-Grafana-Monitoring.md §10) is a sibling JSON file in that directory,
+# not a change here.
+apiVersion: 1
+
+providers:
+  - name: scribear
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

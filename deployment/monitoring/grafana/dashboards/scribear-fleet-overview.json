@@ -1,0 +1,265 @@
+{
+  "uid": "scribear-fleet-overview",
+  "title": "ScribeAR Fleet Overview",
+  "description": "Seed dashboard for the opt-in `monitoring` compose profile (PLAN-Grafana-Monitoring.md). Sourced entirely from monitoring-sidecar's /metrics. Portable: swap the Prometheus variable above to point this at your own Prometheus.",
+  "tags": ["scribear"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "label": "Prometheus",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "refresh": 1,
+        "regex": ""
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Fleet up/down",
+      "description": "scribear_service_status_up (last status poll succeeded) and scribear_probe_up (liveness/readiness) for every polled service. The first thing an evaluator wants: is everything alive.",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "scribear_service_status_up",
+          "legendFormat": "{{service}} status poll",
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "scribear_probe_up",
+          "legendFormat": "{{service}} {{probe}}",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN" }, "1": { "text": "UP" } } }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "Active sessions",
+      "description": "scribear_node_active_sessions - sessions with a live upstream transcription connection. Load, at a glance.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 6, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "scribear_node_active_sessions",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "min": 0, "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "RTF (real-time factor, p95)",
+      "description": "scribear_asr_rtf{quantile=\"p95\"} - execution seconds per second of ingested audio, by provider. The core \"is transcription keeping up\" number; 1.0 = saturated.",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 6, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "scribear_asr_rtf{quantile=\"p95\"}",
+          "legendFormat": "{{providerKey}} p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "thresholdsStyle": { "mode": "line" }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Worker health",
+      "description": "scribear_asr_worker_alive (per worker process, 1=running) against scribear_asr_workers (configured count). Distinguishes \"degraded\" (some alive) from \"down\" (none alive).",
+      "type": "timeseries",
+      "gridPos": { "x": 16, "y": 6, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(scribear_asr_worker_alive)",
+          "legendFormat": "workers alive"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "scribear_asr_workers",
+          "legendFormat": "workers configured"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "min": 0, "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Dropped periods / buffer overflow",
+      "description": "rate(scribear_asr_dropped_periods_total) and rate(scribear_asr_buffer_overflow_total), by provider. The two counters that mean captions were actually lost, not just delayed.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 14, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "rate(scribear_asr_dropped_periods_total[5m])",
+          "legendFormat": "{{providerKey}} dropped periods/s"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "rate(scribear_asr_buffer_overflow_total[5m])",
+          "legendFormat": "{{providerKey}} buffer overflow/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "min": 0, "custom": { "drawStyle": "bars", "fillOpacity": 30 } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "WebSocket close codes",
+      "description": "scribear_ws_close_total, summed by close code. A spike in 1013 today is the only indirect signal of admission-control refusals until the sidecar re-exports sessions_refused_capacity_total directly (PLAN-Grafana-Monitoring.md §7).",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 14, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum by (code) (rate(scribear_ws_close_total[5m]))",
+          "legendFormat": "code {{code}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "min": 0, "custom": { "drawStyle": "bars", "fillOpacity": 30, "stacking": { "mode": "normal" } } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "title": "Canary",
+      "description": "scribear_canary_up - whether the last synthetic end-to-end probe delivered captions. Held at 1 when idle (no canary room configured), so this is not a false outage signal on a box with no canary set up.",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 22, "w": 6, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "scribear_canary_up",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NOT CONFIGURED",
+          "mappings": [
+            { "type": "special", "options": { "match": "null+nan", "result": { "text": "NOT CONFIGURED", "color": "text" } } },
+            { "type": "value", "options": { "0": { "text": "FAILING" }, "1": { "text": "OK" } } }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "red", "value": 0 },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "title": "Canary time to first transcript (p95)",
+      "description": "histogram_quantile(0.95, scribear_canary_time_to_first_transcript_ms) - delay from the canary's first audio frame to its first transcript. End-to-end synthetic check, not just component-level probes.",
+      "type": "timeseries",
+      "gridPos": { "x": 6, "y": 22, "w": 18, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(scribear_canary_time_to_first_transcript_ms_bucket[30m])))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "min": 0, "unit": "ms", "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      }
+    }
+  ]
+}
