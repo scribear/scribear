@@ -129,6 +129,7 @@ export interface SessionRefreshTokens {
 }
 
 export interface Sessions {
+  canceled_at: Timestamp | null;
   created_at: Generated<Timestamp>;
   end_override: Timestamp | null;
   join_code_scopes: Generated<ArrayType<SessionScope>>;

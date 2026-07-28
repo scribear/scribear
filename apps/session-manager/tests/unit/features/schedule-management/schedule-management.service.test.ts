@@ -88,6 +88,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     scheduledEndTime: END_A,
     startOverride: null,
     endOverride: null,
+    canceledAt: null,
     joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS'],
     transcriptionProviderId: 'whisper',
     transcriptionStreamConfig: {},

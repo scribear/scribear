@@ -12,6 +12,7 @@ import * as m00000008Sessions from './migrations/00000008-sessions.js';
 import * as m00000009SessionRefreshTokens from './migrations/00000009-session-refresh-tokens.js';
 import * as m00000010SessionJoinCodes from './migrations/00000010-session-join-codes.js';
 import * as m00000011DeviceLastSeen from './migrations/00000011-device-last-seen.js';
+import * as m00000012SessionsCanceledAt from './migrations/00000012-sessions-canceled-at.js';
 
 /**
  * Every migration, keyed by the name kysely records in `kysely_migration`.
@@ -48,6 +49,7 @@ export const MIGRATIONS: Record<string, Migration> = {
   '00000009-session-refresh-tokens': m00000009SessionRefreshTokens,
   '00000010-session-join-codes': m00000010SessionJoinCodes,
   '00000011-device-last-seen': m00000011DeviceLastSeen,
+  '00000012-sessions-canceled-at': m00000012SessionsCanceledAt,
 };
 
 /**

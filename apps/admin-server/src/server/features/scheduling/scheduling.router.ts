@@ -7,6 +7,8 @@ import { requireSessionHook } from '#src/server/shared/hooks/require-session.hoo
 import { ROLE_READ_WRITE } from '#src/server/shared/types/identity.js';
 
 import {
+  CANCEL_SESSION_INPUT,
+  CANCEL_SESSION_ROUTE,
   CREATE_AUTO_SESSION_WINDOW_INPUT,
   CREATE_AUTO_SESSION_WINDOW_ROUTE,
   CREATE_ON_DEMAND_SESSION_INPUT,
@@ -37,6 +39,8 @@ import {
   LIST_SESSIONS_ROUTE,
   START_SESSION_EARLY_INPUT,
   START_SESSION_EARLY_ROUTE,
+  UNCANCEL_SESSION_INPUT,
+  UNCANCEL_SESSION_ROUTE,
   UPDATE_AUTO_SESSION_WINDOW_INPUT,
   UPDATE_AUTO_SESSION_WINDOW_ROUTE,
   UPDATE_ROOM_SCHEDULE_CONFIG_INPUT,
@@ -179,5 +183,19 @@ export function schedulingRouter(fastify: BaseFastifyInstance) {
     schema: END_SESSION_EARLY_INPUT,
     preHandler: writeGuards,
     handler: resolveHandler('schedulingController', 'endSessionEarly'),
+  });
+
+  fastify.route({
+    ...CANCEL_SESSION_ROUTE,
+    schema: CANCEL_SESSION_INPUT,
+    preHandler: writeGuards,
+    handler: resolveHandler('schedulingController', 'cancelSession'),
+  });
+
+  fastify.route({
+    ...UNCANCEL_SESSION_ROUTE,
+    schema: UNCANCEL_SESSION_INPUT,
+    preHandler: writeGuards,
+    handler: resolveHandler('schedulingController', 'uncancelSession'),
   });
 }

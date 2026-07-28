@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { axe } from 'jest-axe';
 import { Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, vi } from 'vitest';
@@ -32,6 +32,10 @@ vi.mock('#src/lib/admin-api', async (importOriginal) => {
       getSession: vi.fn(),
       getSessionJoinCode: vi.fn(),
       getRoom: vi.fn(),
+      startSessionEarly: vi.fn(),
+      endSessionEarly: vi.fn(),
+      cancelSession: vi.fn(),
+      uncancelSession: vi.fn(),
     },
   };
 });
@@ -47,6 +51,16 @@ vi.mock('#src/features/dashboard/use-fleet', () => ({
 }));
 
 const SESSION_UID = 'session-1';
+const HOUR_MS = 60 * 60 * 1000;
+
+/** Relative to "now" so cancel/start-early gating tests keep passing however
+ *  far in the future this suite is run. */
+function futureIso(hours: number): string {
+  return new Date(Date.now() + hours * HOUR_MS).toISOString();
+}
+function pastIso(hours: number): string {
+  return new Date(Date.now() - hours * HOUR_MS).toISOString();
+}
 
 function renderPage(ui: ReactElement = <SessionDetailPage />) {
   return renderWithProviders(
@@ -244,6 +258,189 @@ describe('SessionDetailPage', () => {
       ).toHaveLength(2);
     });
   });
+
+  describe('cancel button gating', (it) => {
+    it('hides the Cancel button for an AUTO session', async () => {
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({
+          type: 'AUTO',
+          scheduledStartTime: futureIso(1),
+          effectiveStart: futureIso(1),
+        }),
+      );
+      renderPage();
+      await waitForLoad();
+      expect(
+        screen.queryByRole('button', { name: 'Cancel session' }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('hides the Cancel button for an ON_DEMAND session', async () => {
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({
+          type: 'ON_DEMAND',
+          scheduledStartTime: futureIso(1),
+          effectiveStart: futureIso(1),
+        }),
+      );
+      renderPage();
+      await waitForLoad();
+      expect(
+        screen.queryByRole('button', { name: 'Cancel session' }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('hides the Cancel button once the session has already started', async () => {
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({
+          scheduledStartTime: pastIso(1),
+          effectiveStart: pastIso(1),
+        }),
+      );
+      renderPage();
+      await waitForLoad();
+      expect(
+        screen.queryByRole('button', { name: 'Cancel session' }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('shows the Cancel button for an eligible upcoming SCHEDULED session', async () => {
+      vi.mocked(adminApi.getSession).mockResolvedValue(
+        buildSession({
+          scheduledStartTime: futureIso(1),
+          effectiveStart: futureIso(1),
+        }),
+      );
+      renderPage();
+      await waitForLoad();
+      expect(
+        screen.getByRole('button', { name: 'Cancel session' }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  describe('cancel flow', (it) => {
+    it('cancels the session, shows a success toast with Undo, and reloads', async () => {
+      const session = buildSession({
+        scheduledStartTime: futureIso(1),
+        effectiveStart: futureIso(1),
+      });
+      vi.mocked(adminApi.getSession).mockResolvedValue(session);
+      vi.mocked(adminApi.cancelSession).mockResolvedValue(null);
+      renderPage();
+      await waitForLoad();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel session' }));
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.click(
+        within(dialog).getByRole('button', { name: 'Cancel session' }),
+      );
+
+      await waitFor(() => {
+        expect(adminApi.cancelSession).toHaveBeenCalledWith(session.uid);
+      });
+      await screen.findByText('Session canceled.');
+      // The ConfirmDialog is still mid-close-transition (and its Modal marks
+      // background content aria-hidden) right after this resolves; wait for
+      // it to fully unmount before querying by role.
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+      expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
+      // A successful cancel re-fetches the session.
+      await waitFor(() => {
+        expect(adminApi.getSession).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    it('surfaces a cancel failure via an error toast', async () => {
+      const session = buildSession({
+        scheduledStartTime: futureIso(1),
+        effectiveStart: futureIso(1),
+      });
+      vi.mocked(adminApi.getSession).mockResolvedValue(session);
+      vi.mocked(adminApi.cancelSession).mockRejectedValue(
+        new ApiError(
+          'SESSION_NOT_UPCOMING',
+          'Only upcoming sessions can be canceled.',
+          422,
+        ),
+      );
+      renderPage();
+      await waitForLoad();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel session' }));
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.click(
+        within(dialog).getByRole('button', { name: 'Cancel session' }),
+      );
+
+      await screen.findByText('Only upcoming sessions can be canceled.');
+    });
+
+    it('undoing a cancellation calls uncancelSession and reloads', async () => {
+      const session = buildSession({
+        scheduledStartTime: futureIso(1),
+        effectiveStart: futureIso(1),
+      });
+      vi.mocked(adminApi.getSession).mockResolvedValue(session);
+      vi.mocked(adminApi.cancelSession).mockResolvedValue(null);
+      vi.mocked(adminApi.uncancelSession).mockResolvedValue(null);
+      renderPage();
+      await waitForLoad();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel session' }));
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.click(
+        within(dialog).getByRole('button', { name: 'Cancel session' }),
+      );
+      await screen.findByText('Session canceled.');
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+
+      await waitFor(() => {
+        expect(adminApi.uncancelSession).toHaveBeenCalledWith(session.uid);
+      });
+      await screen.findByText('Cancellation undone.');
+      await waitFor(() => {
+        expect(adminApi.getSession).toHaveBeenCalledTimes(3);
+      });
+    });
+
+    it('maps SLOT_NO_LONGER_AVAILABLE on undo to a friendly message', async () => {
+      const session = buildSession({
+        scheduledStartTime: futureIso(1),
+        effectiveStart: futureIso(1),
+      });
+      vi.mocked(adminApi.getSession).mockResolvedValue(session);
+      vi.mocked(adminApi.cancelSession).mockResolvedValue(null);
+      vi.mocked(adminApi.uncancelSession).mockRejectedValue(
+        new ApiError('SLOT_NO_LONGER_AVAILABLE', 'conflict', 409),
+      );
+      renderPage();
+      await waitForLoad();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel session' }));
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.click(
+        within(dialog).getByRole('button', { name: 'Cancel session' }),
+      );
+      await screen.findByText('Session canceled.');
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+
+      await screen.findByText(
+        "Can't undo — another session now occupies this time.",
+      );
+    });
+  });
+
   describe('audio health', (it) => {
     // A `Session` here is a *scheduled* record: this page is reachable for a
     // class that ended last term and for one starting next week. Live audio

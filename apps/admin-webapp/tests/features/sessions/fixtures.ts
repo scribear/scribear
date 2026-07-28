@@ -11,6 +11,7 @@ export function buildSession(overrides: Partial<Session> = {}): Session {
     scheduledEndTime: '2026-08-01T14:50:00.000Z',
     startOverride: null,
     endOverride: null,
+    canceledAt: null,
     effectiveStart: '2026-08-01T14:00:00.000Z',
     effectiveEnd: '2026-08-01T14:50:00.000Z',
     joinCodeScopes: ['SEND_AUDIO', 'RECEIVE_TRANSCRIPTIONS'],

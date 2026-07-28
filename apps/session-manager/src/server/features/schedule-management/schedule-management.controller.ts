@@ -5,6 +5,7 @@ import {
 } from '@scribear/base-fastify-server';
 import type { Json } from '@scribear/scribear-db';
 import {
+  CANCEL_SESSION_SCHEMA,
   CREATE_AUTO_SESSION_WINDOW_SCHEMA,
   CREATE_ON_DEMAND_SESSION_SCHEMA,
   CREATE_SCHEDULE_SCHEMA,
@@ -21,6 +22,7 @@ import {
   MY_SCHEDULE_SCHEMA,
   SESSION_CONFIG_STREAM_SCHEMA,
   START_SESSION_EARLY_SCHEMA,
+  UNCANCEL_SESSION_SCHEMA,
   UPDATE_AUTO_SESSION_WINDOW_SCHEMA,
   UPDATE_ROOM_SCHEDULE_CONFIG_SCHEMA,
   UPDATE_SCHEDULE_SCHEMA,
@@ -386,22 +388,42 @@ export class ScheduleManagementController {
     req: BaseFastifyRequest<typeof LIST_SESSIONS_SCHEMA>,
     res: BaseFastifyReply<typeof LIST_SESSIONS_SCHEMA>,
   ) {
-    const { roomUid, from, to } = req.query;
-    const now = new Date();
+    const roomUids =
+      req.query.roomUids === undefined
+        ? null
+        : Array.isArray(req.query.roomUids)
+          ? req.query.roomUids
+          : [req.query.roomUids];
 
-    const result = await this._scheduleService.listSessionsForRoomInRange(
-      roomUid,
-      {
-        from: from !== undefined ? new Date(from) : new Date(0),
-        to:
-          to !== undefined
-            ? new Date(to)
-            : new Date(now.getTime() + 365 * MS_PER_DAY),
-      },
-    );
+    // When roomUids is supplied, 404 if any of them don't exist — the natural
+    // generalization of the single-room list's ROOM_NOT_FOUND. Not reachable
+    // for the all-rooms query (roomUids === null): there is no specific room
+    // to fail to find. `listSessionsInRange` itself has no existence check
+    // (it's a plain `room_uid IN (...)` filter), so this is an explicit
+    // existence check ahead of the range query rather than something the
+    // service already gave us for free.
+    if (roomUids !== null) {
+      const rooms = await Promise.all(
+        roomUids.map((uid) => this._roomService.getRoom(uid)),
+      );
+      const missingRoomUids = roomUids.filter(
+        (_, i) => rooms[i] === 'ROOM_NOT_FOUND',
+      );
+      if (missingRoomUids.length > 0)
+        throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.', {
+          roomUids: missingRoomUids,
+        });
+    }
 
-    if (result === 'ROOM_NOT_FOUND')
-      throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
+    const result = await this._scheduleService.listSessionsInRange(roomUids, {
+      from: new Date(req.query.from),
+      to: new Date(req.query.to),
+    });
+    if (result === 'RANGE_TOO_LARGE')
+      throw HttpError.unprocessable(
+        'RANGE_TOO_LARGE',
+        'Date range must be 31 days or less.',
+      );
 
     res.code(200).send({ items: result.map((s) => this._mapSession(s)) });
   }
@@ -492,6 +514,61 @@ export class ScheduleManagementController {
       throw HttpError.unprocessable(
         'SESSION_NOT_ACTIVE',
         'Session is not currently active.',
+      );
+
+    res.code(200).send(this._mapSession(result));
+  }
+
+  async cancelSession(
+    req: BaseFastifyRequest<typeof CANCEL_SESSION_SCHEMA>,
+    res: BaseFastifyReply<typeof CANCEL_SESSION_SCHEMA>,
+  ) {
+    const result = await this._scheduleService.cancelSession(
+      req.body.sessionUid,
+      new Date(),
+    );
+
+    if (result === 'NOT_FOUND')
+      throw HttpError.notFound('SESSION_NOT_FOUND', 'Session not found.');
+    if (result === 'SESSION_NOT_SCHEDULED_TYPE')
+      throw HttpError.unprocessable(
+        'SESSION_NOT_SCHEDULED_TYPE',
+        'Only SCHEDULED sessions can be canceled.',
+      );
+    if (result === 'SESSION_ALREADY_CANCELED')
+      throw HttpError.unprocessable(
+        'SESSION_ALREADY_CANCELED',
+        'Session is already canceled.',
+      );
+    if (result === 'SESSION_NOT_UPCOMING')
+      throw HttpError.unprocessable(
+        'SESSION_NOT_UPCOMING',
+        'Only upcoming sessions can be canceled.',
+      );
+
+    res.code(200).send(this._mapSession(result));
+  }
+
+  async uncancelSession(
+    req: BaseFastifyRequest<typeof UNCANCEL_SESSION_SCHEMA>,
+    res: BaseFastifyReply<typeof UNCANCEL_SESSION_SCHEMA>,
+  ) {
+    const result = await this._scheduleService.uncancelSession(
+      req.body.sessionUid,
+      new Date(),
+    );
+
+    if (result === 'NOT_FOUND')
+      throw HttpError.notFound('SESSION_NOT_FOUND', 'Session not found.');
+    if (result === 'SESSION_NOT_CANCELED')
+      throw HttpError.unprocessable(
+        'SESSION_NOT_CANCELED',
+        'Session is not canceled.',
+      );
+    if (result === 'SLOT_NO_LONGER_AVAILABLE')
+      throw HttpError.conflict(
+        'SLOT_NO_LONGER_AVAILABLE',
+        'Another session now occupies this time range.',
       );
 
     res.code(200).send(this._mapSession(result));
@@ -669,6 +746,7 @@ export class ScheduleManagementController {
       scheduledEndTime: s.scheduledEndTime?.toISOString() ?? null,
       startOverride: s.startOverride?.toISOString() ?? null,
       endOverride: s.endOverride?.toISOString() ?? null,
+      canceledAt: s.canceledAt?.toISOString() ?? null,
       effectiveStart: s.effectiveStart.toISOString(),
       effectiveEnd: s.effectiveEnd?.toISOString() ?? null,
       createdAt: s.createdAt.toISOString(),

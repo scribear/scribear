@@ -1,9 +1,13 @@
 import { useCallback, useMemo, useState } from 'react';
 
+import CloseIcon from '@mui/icons-material/Close';
 import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
 import Snackbar from '@mui/material/Snackbar';
 
 import {
+  type ToastAction,
   type ToastApi,
   ToastContext,
   type ToastSeverity,
@@ -13,26 +17,34 @@ interface ToastState {
   open: boolean;
   message: string;
   severity: ToastSeverity;
+  action: ToastAction | undefined;
 }
 
 /**
  * Snackbar host + `useToast()` provider. One toast at a time; auto-hides.
+ * A success toast may carry an action (e.g. "Undo") — it disappears with
+ * the toast itself, either on auto-hide or once a later toast replaces it,
+ * so there's no separate state to track for "is the action still available".
  */
 export const ToastProvider = ({ children }: React.PropsWithChildren) => {
   const [state, setState] = useState<ToastState>({
     open: false,
     message: '',
     severity: 'info',
+    action: undefined,
   });
 
-  const show = useCallback((message: string, severity: ToastSeverity) => {
-    setState({ open: true, message, severity });
-  }, []);
+  const show = useCallback(
+    (message: string, severity: ToastSeverity, action?: ToastAction) => {
+      setState({ open: true, message, severity, action });
+    },
+    [],
+  );
 
   const api = useMemo<ToastApi>(
     () => ({
-      showSuccess: (m) => {
-        show(m, 'success');
+      showSuccess: (m, action) => {
+        show(m, 'success', action);
       },
       showError: (m) => {
         show(m, 'error');
@@ -61,6 +73,30 @@ export const ToastProvider = ({ children }: React.PropsWithChildren) => {
           severity={state.severity}
           variant="filled"
           onClose={handleClose}
+          action={
+            state.action && (
+              <>
+                <Button
+                  color="inherit"
+                  size="small"
+                  onClick={() => {
+                    state.action?.onClick();
+                    handleClose();
+                  }}
+                >
+                  {state.action.label}
+                </Button>
+                <IconButton
+                  color="inherit"
+                  size="small"
+                  onClick={handleClose}
+                  aria-label="Close"
+                >
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </>
+            )
+          }
           sx={{
             width: '100%',
             // MUI's default filled-variant text color (white) on these two

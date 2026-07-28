@@ -13,7 +13,9 @@ import { KioskWizardPage } from '#src/features/kiosk-setup/kiosk-wizard-page';
 import { RoomDetailPage } from '#src/features/rooms/room-detail-page';
 import { RoomsListPage } from '#src/features/rooms/rooms-list-page';
 import { RoomSchedulingPage } from '#src/features/scheduling/room-scheduling-page';
+import { RoomCalendarPage } from '#src/features/sessions/room-calendar-page';
 import { SessionDetailPage } from '#src/features/sessions/session-detail-page';
+import { SessionsOverviewPage } from '#src/features/sessions/sessions-overview-page';
 import { TestAudioPage } from '#src/features/test-audio/test-audio-page';
 
 export const AppRoutes = () => (
@@ -28,8 +30,10 @@ export const AppRoutes = () => (
           path="/rooms/:roomUid/scheduling"
           element={<RoomSchedulingPage />}
         />
+        <Route path="/rooms/:roomUid/calendar" element={<RoomCalendarPage />} />
         <Route path="/devices" element={<DevicesListPage />} />
         <Route path="/devices/:deviceUid" element={<DeviceDetailPage />} />
+        <Route path="/sessions" element={<SessionsOverviewPage />} />
         <Route path="/sessions/:sessionUid" element={<SessionDetailPage />} />
         <Route path="/kiosk-setup" element={<KioskWizardPage />} />
         <Route path="/test-audio" element={<TestAudioPage />} />

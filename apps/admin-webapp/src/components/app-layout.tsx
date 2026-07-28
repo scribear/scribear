@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import DevicesIcon from '@mui/icons-material/Devices';
 import FactCheckIcon from '@mui/icons-material/FactCheck';
 import GraphicEqIcon from '@mui/icons-material/GraphicEq';
@@ -64,6 +65,7 @@ type NavItem = InternalNavItem | ExternalNavItem;
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', to: '/', icon: <SpaceDashboardIcon /> },
   { label: 'Rooms', to: '/rooms', icon: <MeetingRoomIcon /> },
+  { label: 'Sessions', to: '/sessions', icon: <CalendarMonthIcon /> },
   { label: 'Devices', to: '/devices', icon: <DevicesIcon /> },
   { label: 'Set up a kiosk', to: '/kiosk-setup', icon: <TabletIcon /> },
   { label: 'Test audio', to: '/test-audio', icon: <ScienceIcon /> },

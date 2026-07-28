@@ -33,6 +33,14 @@ export const SESSION_SCHEMA = Type.Object(
       Type.String({ format: 'date-time' }),
       Type.Null(),
     ]),
+    canceledAt: Type.Union([
+      Type.String({
+        format: 'date-time',
+        description:
+          'Set when this occurrence was individually canceled. Only ever set on SCHEDULED sessions.',
+      }),
+      Type.Null(),
+    ]),
 
     effectiveStart: Type.String({
       format: 'date-time',
