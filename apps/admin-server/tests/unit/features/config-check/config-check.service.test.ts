@@ -1235,6 +1235,106 @@ describe('secret placeholders (PLAN-ConfigCheck-Coverage Phase 2)', (it) => {
     expect(found).toContain('secret-placeholder-audit-unavailable');
   });
 
+  // Valid JSON of the wrong shape is the version-skew case - an older or
+  // newer sidecar answering 200 - and is the failure mode that matters most,
+  // because both bad outcomes are silent: a missing `secretPlaceholders`
+  // throws inside `check()`'s `Promise.all` and 500s the whole report, and a
+  // present-but-empty one reads every flag as `undefined` and reports a
+  // malformed sidecar as a clean deployment. Neither is invalid JSON, so the
+  // test above never covered them.
+  it.each([
+    ['`nodeServer` is missing entirely', {}],
+    ['`nodeServer` is not an object', { nodeServer: 'ok' }],
+    [
+      '`status` is ok but `secretPlaceholders` is missing',
+      { nodeServer: { status: 'ok' } },
+    ],
+    [
+      '`secretPlaceholders` is present but empty',
+      { nodeServer: { status: 'ok', secretPlaceholders: {} } },
+    ],
+    [
+      '`secretPlaceholders` is missing one field',
+      {
+        nodeServer: {
+          status: 'ok',
+          secretPlaceholders: {
+            sessionTokenSigningKeyIsPlaceholder: false,
+            sessionManagerServiceApiKeyIsPlaceholder: false,
+            nodeServerServiceApiKeyIsPlaceholder: false,
+          },
+        },
+      },
+    ],
+    [
+      '`status` is unavailable but `reason` is missing',
+      { nodeServer: { status: 'unavailable' } },
+    ],
+  ])(
+    'reports unavailable, and never crashes the report, when %s',
+    async (_label, body) => {
+      stubProbes({ [CONFIG_AUDIT_URL]: { status: 200, body } });
+
+      const report = await monitoringService().check();
+      const found = report.findings.map((f) => f.id);
+
+      expect(found).toContain('secret-placeholder-audit-unavailable');
+      expect(found.some((id) => id.endsWith('-placeholder'))).toBe(false);
+    },
+  );
+
+  it('accepts a body carrying fields this build does not know about', async () => {
+    // The other half of version skew: a *newer* sidecar adding a field must
+    // not read as unavailable, or upgrading the sidecar first would blind
+    // Config Check until admin-server caught up.
+    stubProbes({
+      [CONFIG_AUDIT_URL]: {
+        status: 200,
+        body: {
+          nodeServer: {
+            status: 'ok',
+            somethingNew: 42,
+            secretPlaceholders: {
+              sessionTokenSigningKeyIsPlaceholder: true,
+              sessionManagerServiceApiKeyIsPlaceholder: false,
+              nodeServerServiceApiKeyIsPlaceholder: false,
+              transcriptionServiceApiKeyIsPlaceholder: false,
+              someFutureKeyIsPlaceholder: false,
+            },
+          },
+        },
+      },
+    });
+
+    const found = await monitoringIds();
+
+    expect(found).toContain('jwt-secret-placeholder');
+    expect(found).not.toContain('secret-placeholder-audit-unavailable');
+  });
+
+  it('says the sidecar answered with an error, not that it timed out, on a non-2xx', async () => {
+    stubProbes({ [CONFIG_AUDIT_URL]: { status: 503 } });
+
+    const report = await monitoringService().check();
+    const found = report.findings.find(
+      (f) => f.id === 'secret-placeholder-audit-unavailable',
+    );
+
+    expect(found?.detail).toContain('answered HTTP 503');
+    expect(found?.detail).not.toContain('did not answer');
+  });
+
+  it('says it timed out when the sidecar does not answer at all', async () => {
+    stubProbes({ [CONFIG_AUDIT_URL]: 'network-error' });
+
+    const report = await monitoringService().check();
+    const found = report.findings.find(
+      (f) => f.id === 'secret-placeholder-audit-unavailable',
+    );
+
+    expect(found?.detail).toContain('did not answer within');
+  });
+
   it.each(['disabled', 'unauthorized', 'not-yet-polled'] as const)(
     'reports unavailable, not a clean bill of health, when node-server status is %s',
     async (reason) => {

@@ -1,3 +1,7 @@
+import { Type } from 'typebox';
+import type { Static } from 'typebox';
+import { Value } from 'typebox/value';
+
 import {
   LATEST_MIGRATION,
   MIGRATION_TABLE,
@@ -88,23 +92,33 @@ const DOC = {
  * (unlike node-server/session-manager/transcription-service), the same
  * reasoning `_prometheusIsScrapingSidecar`'s local `TargetsResponse`
  * interface already follows for Prometheus's API.
+ *
+ * A runtime schema rather than a bare `interface` + cast, because this body
+ * crosses a version boundary: an older or newer sidecar can answer 200 with a
+ * shape this build does not know, and every field below is dereferenced
+ * unconditionally afterwards. `Value.Check` is what
+ * `NodeStatusPollerService._parseBody` already does one hop upstream for the
+ * same reason.
  */
-interface ConfigAuditResponse {
-  nodeServer:
-    | {
-        status: 'ok';
-        secretPlaceholders: {
-          sessionTokenSigningKeyIsPlaceholder: boolean;
-          sessionManagerServiceApiKeyIsPlaceholder: boolean;
-          nodeServerServiceApiKeyIsPlaceholder: boolean;
-          transcriptionServiceApiKeyIsPlaceholder: boolean;
-        };
-      }
-    | {
-        status: 'unavailable';
-        reason: string;
-      };
-}
+const CONFIG_AUDIT_RESPONSE_SCHEMA = Type.Object({
+  nodeServer: Type.Union([
+    Type.Object({
+      status: Type.Literal('ok'),
+      secretPlaceholders: Type.Object({
+        sessionTokenSigningKeyIsPlaceholder: Type.Boolean(),
+        sessionManagerServiceApiKeyIsPlaceholder: Type.Boolean(),
+        nodeServerServiceApiKeyIsPlaceholder: Type.Boolean(),
+        transcriptionServiceApiKeyIsPlaceholder: Type.Boolean(),
+      }),
+    }),
+    Type.Object({
+      status: Type.Literal('unavailable'),
+      reason: Type.String(),
+    }),
+  ]),
+});
+
+type ConfigAuditResponse = Static<typeof CONFIG_AUDIT_RESPONSE_SCHEMA>;
 
 export interface ConfigCheckReport {
   environment: DeploymentEnv;
@@ -560,6 +574,24 @@ export function evaluateStaticChecks(
   return findings;
 }
 
+/**
+ * Why a `_probe` call did not produce a usable answer, as a clause to drop
+ * into a finding's detail.
+ *
+ * Worth spelling out rather than assuming a timeout: `_probe` returns `null`
+ * for both an abort at `upstreamTimeoutMs` and an immediate connection/DNS
+ * failure — indistinguishable from its `catch`, hence the deliberately
+ * unspecific "did not answer" — but a non-`null` response that failed
+ * `.ok` is a service that answered promptly with an error status, which
+ * "did not answer within Nms" would describe simply wrongly, sending an
+ * operator looking for a network problem that isn't there.
+ */
+function probeFailure(response: Response | null, timeoutMs: number): string {
+  return response === null
+    ? `did not answer within ${String(timeoutMs)}ms`
+    : `answered HTTP ${String(response.status)}`;
+}
+
 /** True when the URL has a non-empty password component. */
 function redisUrlHasPassword(rawUrl: string): boolean {
   try {
@@ -814,7 +846,7 @@ export class ConfigCheckService {
             id: 'monitoring-prometheus-unreachable',
             category: 'monitoring',
             title: 'Prometheus is configured but unreachable',
-            detail: `ADMIN_PROMETHEUS_BASE_URL is set and /-/healthy did not answer within ${String(this._config.upstreamTimeoutMs)}ms. The monitoring compose profile may not be running.`,
+            detail: `ADMIN_PROMETHEUS_BASE_URL is set and /-/healthy ${probeFailure(health, this._config.upstreamTimeoutMs)}. The monitoring compose profile may not be running.`,
             remediation:
               'Check that COMPOSE_PROFILES includes monitoring in deployment/.env and that the prometheus container is up.',
             docUrl: DOC.monitoring,
@@ -903,7 +935,7 @@ export class ConfigCheckService {
             id: 'monitoring-grafana-unreachable',
             category: 'monitoring',
             title: 'Grafana is configured but unreachable',
-            detail: `ADMIN_GRAFANA_BASE_URL is set and /api/health did not answer within ${String(this._config.upstreamTimeoutMs)}ms. The monitoring compose profile may not be running.`,
+            detail: `ADMIN_GRAFANA_BASE_URL is set and /api/health ${probeFailure(health, this._config.upstreamTimeoutMs)}. The monitoring compose profile may not be running.`,
             remediation:
               'Check that COMPOSE_PROFILES includes monitoring in deployment/.env and that the grafana container is up.',
             docUrl: DOC.monitoring,
@@ -998,32 +1030,36 @@ export class ConfigCheckService {
 
     if (!response?.ok) {
       return unavailable(
-        `monitoring-sidecar's /api/monitoring/v1/config-audit did not answer within ${String(this._config.upstreamTimeoutMs)}ms. JWT_SECRET, NODE_SERVER_KEY, NODE_SERVER_SERVICE_KEY and TRANSCRIPTION_API_KEY could not be checked.`,
+        `monitoring-sidecar's /api/monitoring/v1/config-audit ${probeFailure(response, this._config.upstreamTimeoutMs)}. JWT_SECRET, NODE_SERVER_KEY, NODE_SERVER_SERVICE_KEY and TRANSCRIPTION_API_KEY could not be checked.`,
       );
     }
 
-    // One try/catch around parsing *and* reading the body: a malformed JSON
-    // payload and a 200 whose shape does not match `ConfigAuditResponse` (an
-    // older or newer sidecar) are the same "cannot currently vouch for this"
-    // case from a caller's point of view, and neither may throw uncaught out
-    // of a `Promise.all` member — that would 500 the whole report over one
-    // check that has its own dedicated unavailable state to report instead.
-    let body: ConfigAuditResponse;
+    // Parsing and shape-validating are both failures of the same kind from a
+    // caller's point of view — "the sidecar cannot currently vouch for this" —
+    // and neither may throw uncaught out of a `Promise.all` member, which
+    // would 500 the whole report over one check that has its own dedicated
+    // unavailable state to report instead. The shape check is `Value.Check`
+    // over the whole body rather than a `'nodeServer' in parsed` guard: the
+    // fields below are dereferenced unconditionally, so a partial match (a
+    // `nodeServer` with no `secretPlaceholders`, or a `secretPlaceholders`
+    // with no fields) would otherwise either throw here or, worse, read every
+    // flag as `undefined` and report a malformed sidecar as a clean deployment.
+    let parsed: unknown;
     try {
-      const parsed: unknown = await response.json();
-      if (
-        typeof parsed !== 'object' ||
-        parsed === null ||
-        !('nodeServer' in parsed)
-      ) {
-        throw new Error('unexpected /config-audit body shape');
-      }
-      body = parsed as ConfigAuditResponse;
+      parsed = await response.json();
     } catch {
       return unavailable(
         "monitoring-sidecar's /api/monitoring/v1/config-audit answered with a body Config Check could not parse.",
       );
     }
+
+    if (!Value.Check(CONFIG_AUDIT_RESPONSE_SCHEMA, parsed)) {
+      return unavailable(
+        "monitoring-sidecar's /api/monitoring/v1/config-audit answered with a body Config Check does not recognize — the sidecar may be a different version than admin-server. JWT_SECRET, NODE_SERVER_KEY, NODE_SERVER_SERVICE_KEY and TRANSCRIPTION_API_KEY could not be checked.",
+      );
+    }
+
+    const body: ConfigAuditResponse = parsed;
 
     if (body.nodeServer.status !== 'ok') {
       return unavailable(
