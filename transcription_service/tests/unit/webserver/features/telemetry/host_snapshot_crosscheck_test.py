@@ -51,6 +51,7 @@ from src.transcription_provider_interface import (
     ProviderStatus,
 )
 from src.webserver.features.telemetry import RedisTelemetryPublisher
+from src.webserver.shared.metrics import MetricsRegistry
 from src.webserver.shared.process_identity import ProcessIdentity
 from src.webserver.shared.provider_health_snapshot import (
     ProviderHealthSnapshotService,
@@ -245,9 +246,19 @@ def published_fixture() -> dict[str, Any]:
     redis = MagicMock()
     redis.pipeline = MagicMock(return_value=pipeline)
 
+    # A refusal recorded against one provider only, so the manifest exercises
+    # both the nonzero case and the "never refused" zero case a `remote` or
+    # never-refused provider reports - the same reason REPORT itself carries
+    # one provider of each kind.
+    metrics_registry = MetricsRegistry()
+    for _ in range(3):
+        metrics_registry.record_capacity_refusal("whisper")
+
     publisher = RedisTelemetryPublisher(
         redis,
-        ProviderHealthSnapshotService(registry, IDENTITY, CAPACITY_ESTIMATOR),
+        ProviderHealthSnapshotService(
+            registry, IDENTITY, CAPACITY_ESTIMATOR, metrics_registry
+        ),
         MagicMock(spec=Logger),
         HOST_ID,
     )

@@ -36,6 +36,7 @@ from src.webserver.features.telemetry.telemetry_keys import (
     TRANSCRIPTION_HOST_TTL_MS,
     transcription_host_snapshot_key,
 )
+from src.webserver.shared.metrics import MetricsRegistry
 from src.webserver.shared.process_identity import create_process_identity
 from src.webserver.shared.provider_health_snapshot import (
     ProviderHealthSnapshotService,
@@ -133,7 +134,10 @@ async def publisher(mock_config: Config, mock_logger: Logger):
     instance = RedisTelemetryPublisher(
         create_telemetry_redis_client(REDIS_URL),
         ProviderHealthSnapshotService(
-            registry, create_process_identity(), capacity_estimator
+            registry,
+            create_process_identity(),
+            capacity_estimator,
+            MetricsRegistry(),
         ),
         mock_logger,
         HOST_ID,

@@ -7,6 +7,7 @@ from typing import Any
 
 from src.shared.utils.worker_pool import CapacityEstimator, WorkerSnapshot
 from src.transcription_provider_interface import ProviderHealth
+from src.webserver.shared.metrics import MetricsRegistry
 from src.webserver.shared.process_identity import ProcessIdentity
 from src.webserver.shared.transcription_provider_registry import (
     ProviderHealthEntry,
@@ -46,7 +47,10 @@ def _worker(
 
 
 def _health(
-    health: ProviderHealth, capacity_estimator: CapacityEstimator
+    health: ProviderHealth,
+    capacity_estimator: CapacityEstimator,
+    provider_key: str,
+    metrics_registry: MetricsRegistry,
 ) -> dict[str, Any]:
     """
     Serializes one provider's health
@@ -55,6 +59,11 @@ def _health(
         health              - Provider health snapshot
         capacity_estimator  - Per-worker capacity estimator, merged onto each
                                 owning worker (PLAN-AdmissionControl.md §5)
+        provider_key         - Configured key this provider is registered
+                                under, used to look up its refusal count
+        metrics_registry     - Process-wide metrics store, read here for
+                                `sessions_refused_capacity_total`
+                                (PLAN-AdmissionControl.md §4)
 
     Returns:
         JSON-ready health entry
@@ -69,6 +78,11 @@ def _health(
         "kind": health.kind.value,
         "status": health.status.value,
         "activeSessions": health.active_sessions,
+        "sessionsRefusedCapacityTotal": int(
+            metrics_registry.sessions_refused_capacity_total.get(
+                {"provider_key": provider_key}
+            )
+        ),
         "model": health.model,
         "modelLoaded": health.model_loaded,
         "owningWorkers": [
@@ -83,7 +97,9 @@ def _health(
 
 
 def _provider(
-    entry: ProviderHealthEntry, capacity_estimator: CapacityEstimator
+    entry: ProviderHealthEntry,
+    capacity_estimator: CapacityEstimator,
+    metrics_registry: MetricsRegistry,
 ) -> dict[str, Any]:
     """
     Serializes one provider entry, health plus configured identity
@@ -93,13 +109,20 @@ def _provider(
                                 identity
         capacity_estimator  - Per-worker capacity estimator, forwarded to
                                 _health()
+        metrics_registry     - Process-wide metrics store, forwarded to
+                                _health()
 
     Returns:
         JSON-ready provider entry
     """
     return {
         "providerUid": entry.provider_uid,
-        **_health(entry.health, capacity_estimator),
+        **_health(
+            entry.health,
+            capacity_estimator,
+            entry.provider_key,
+            metrics_registry,
+        ),
     }
 
 
@@ -124,6 +147,7 @@ class ProviderHealthSnapshotService:
         provider_registry: TranscriptionProviderRegistry,
         process_identity: ProcessIdentity,
         capacity_estimator: CapacityEstimator,
+        metrics_registry: MetricsRegistry,
     ):
         """
         Args:
@@ -139,10 +163,24 @@ class ProviderHealthSnapshotService:
                                     a decision. create_webserver.py always
                                     constructs one, so this is required rather
                                     than optional.
+            metrics_registry     - Process-wide metrics store
+                                    (PLAN-AdmissionControl.md §4). Threaded
+                                    through for the same reason as
+                                    capacity_estimator above: both
+                                    `/providers/health` and the Redis
+                                    publisher need
+                                    `sessionsRefusedCapacityTotal` reported
+                                    next to `activeSessions`, and this service
+                                    is the one join both consumers share.
+                                    Read here through snapshot() only, so this
+                                    stays side effect free the same way.
+                                    create_webserver.py always constructs one,
+                                    so this is required rather than optional.
         """
         self._providers = provider_registry
         self._process_identity = process_identity
         self._capacity_estimator = capacity_estimator
+        self._metrics_registry = metrics_registry
 
     async def snapshot(self) -> dict[str, Any]:
         """
@@ -154,6 +192,11 @@ class ProviderHealthSnapshotService:
         returns it to zero and would otherwise read as a large negative rate.
         The uid is the same one /metrics/status reports, so a consumer reading
         both can correlate them.
+
+        Each provider's `sessionsRefusedCapacityTotal` carries the identical
+        caveat: it too is monotonic since process start and resets to zero on
+        restart, so a consumer must compare `processUid` before differencing it
+        across polls, exactly as for `invalidProviderKeyRejects` above.
         """
         report = await self._providers.providers_health()
 
@@ -171,7 +214,9 @@ class ProviderHealthSnapshotService:
             # never re-cased - the same treatment /metrics/status gives label
             # keys.
             "providers": {
-                entry.provider_key: _provider(entry, self._capacity_estimator)
+                entry.provider_key: _provider(
+                    entry, self._capacity_estimator, self._metrics_registry
+                )
                 for entry in report.providers
             },
         }

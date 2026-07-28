@@ -77,7 +77,10 @@ def create_webserver(config: Config, logger: Logger):
     # One join, two consumers: the /providers/health route below and the
     # telemetry publisher started in the lifespan hook.
     provider_health_snapshots = ProviderHealthSnapshotService(
-        provider_registry, process_identity, capacity_estimator
+        provider_registry,
+        process_identity,
+        capacity_estimator,
+        metrics_registry,
     )
 
     # Process-singleton, shared by every /transcription_stream connection -
