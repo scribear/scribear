@@ -73,6 +73,6 @@ that the app is accessible. Full coverage requires:
    settings drawer, and re-scan.
 3. **Manual review** — keyboard-only walkthrough and a screen-reader pass
    (NVDA/VoiceOver + a braille display for the live-caption region). See the
-   `PLAN-WCAG-Frontends.md` planning doc for the full checklist and the
-   live-caption ARIA design, and the **Accessibility (WCAG 2.1 AA)** wiki page
-   for day-to-day dev guidance.
+   `archived-plans/2026-07-24-02-PLAN-WCAG-Frontends.md` planning doc for the
+   full checklist and the live-caption ARIA design, and the **Accessibility
+   (WCAG 2.1 AA)** wiki page for day-to-day dev guidance.

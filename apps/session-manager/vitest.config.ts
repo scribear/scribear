@@ -17,12 +17,14 @@ export default mergeConfig(
         // B4: type-only module (AppDependencies interface + declare module) — no
         //     runtime code beyond a side-effect import.
         // B5: trivial transport/wiring — single fastify.route call exercised by
-        //     integration. See PLAN-MORE-TESTCOVERAGE.md §B5.
+        //     integration. See
+        //     archived-plans/2026-07-25-01-PLAN-MORE-TESTCOVERAGE.md §B5.
         //
         // Additional low-risk files: thin transport controllers, routers, and
-        // data-access repositories that are integration-covered by design
-        // (real Postgres testcontainer). Excluding from coverage so the unit
-        // report stops flagging them as ❌; see PLAN-MORE-TESTCOVERAGE.md §B5/§B6.
+        // data-access repositories that are integration-covered by design (real
+        // Postgres testcontainer). Excluding from coverage so the unit report
+        // stops flagging them as ❌; see
+        // archived-plans/2026-07-25-01-PLAN-MORE-TESTCOVERAGE.md §B5/§B6.
         exclude: [
           'src/index.ts',
           'src/migrate.ts',

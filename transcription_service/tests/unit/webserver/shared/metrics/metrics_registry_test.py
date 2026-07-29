@@ -439,8 +439,9 @@ def test_capacity_refusals_are_counted_per_provider():
     """
     Test refused sessions are counted, labelled by the provider refused for
 
-    The counter behind PLAN-AdmissionControl.md §4's operator visibility. A
-    refusal leaves no other trace on this service: no job is registered for
+    The counter behind archived-plans/2026-07-27-02-PLAN-AdmissionControl.md
+    §4's operator visibility. A refusal leaves no other trace on this
+    service: no job is registered for
     long enough to report anything, and on the wire it is a closed socket -
     which is indistinguishable from a client that hung up. Labelled per
     provider because a host serving a local model and a remote one needs to

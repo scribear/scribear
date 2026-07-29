@@ -13,10 +13,11 @@ import type {
 
 /**
  * `SessionSnapshot.roomUid` is opaque telemetry, not a link to room-management
- * data (`PLAN-fleet-and-testaudio.md` §B.4's `RoomTelemetry` grouping predates
- * the real B1.7 schema and doesn't exist on the wire). The grid below is
- * therefore still session-centric: one card per `sessionUid`, not per room -
- * `roomUid` is surfaced and searchable on the card, not used to group it.
+ * data (`archived-plans/2026-07-19-03-PLAN-fleet-and-testaudio.md` §B.4's
+ * `RoomTelemetry` grouping predates the real B1.7 schema and doesn't exist on
+ * the wire). The grid below is therefore still session-centric: one card per
+ * `sessionUid`, not per room - `roomUid` is surfaced and searchable on the
+ * card, not used to group it.
  */
 export type FleetStatus = 'good' | 'warn' | 'crit' | 'idle';
 
@@ -104,7 +105,7 @@ export const AUDIO_STATUS_COLOR: Record<AudioStatus, StatusColor> = {
  * low enough that a working room mic never reads there. The SNR threshold
  * (10 dB) is the point below which speech intelligibility degrades measurably.
  * These are first-cut constants, not tuned values — see
- * PLAN-MONITORING-DASHBOARD.md §59 on per-room baselines.
+ * 2026-07-19-01-PLAN-MONITORING-DASHBOARD.md §59 on per-room baselines.
  */
 export const AUDIO_THRESHOLDS = {
   /**
@@ -598,7 +599,8 @@ export function useFilteredSessions(
   ]);
 }
 
-// ---- Provider capacity (PLAN-AdmissionControl.md §5) ----
+// ---- Provider capacity
+// (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §5) ----
 
 export type CapacityStatus = 'good' | 'warn' | 'crit' | 'unknown';
 
@@ -617,11 +619,12 @@ export const CAPACITY_STATUS_COLOR: Record<CapacityStatus, StatusColor> = {
 /**
  * `live / estimated` at or above this ratio is `warn` ("near the ceiling").
  * Deliberately the estimator's own `TARGET_BUSY` default
- * (`transcription_service`'s `CapacityEstimator`, PLAN-AdmissionControl.md
- * §3): N* is already sized so that admitting up to it keeps busy fraction
- * near `TARGET_BUSY`, so a live count approaching N* is the UI's own signal
- * that the worker is approaching the same headroom boundary the estimator
- * was tuned around — not a second, independently-chosen number.
+ * (`transcription_service`'s `CapacityEstimator`,
+ * archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §3): N* is already
+ * sized so that admitting up to it keeps busy fraction near `TARGET_BUSY`, so a
+ * live count approaching N* is the UI's own signal that the worker is
+ * approaching the same headroom boundary the estimator was tuned around — not a
+ * second, independently-chosen number.
  */
 export const CAPACITY_WARN_RATIO = 0.85;
 
@@ -632,11 +635,11 @@ export const CAPACITY_WARN_RATIO = 0.85;
 export interface ProviderCapacity {
   /**
    * `false` for a non-`local` provider (`remote`, `debug`, `unknown`) — a
-   * remote API's capacity question is upstream rate limits, not a local
-   * worker pool (PLAN-AdmissionControl.md §5), and is explicitly out of scope
-   * for this readout. Taken from the first reporting host's `kind`: a
-   * `providerKey` names one implementation, so every host reporting it is
-   * expected to agree.
+   * remote API's capacity question is upstream rate limits, not a local worker
+   * pool (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §5), and is
+   * explicitly out of scope for this readout. Taken from the first reporting
+   * host's `kind`: a `providerKey` names one implementation, so every host
+   * reporting it is expected to agree.
    */
   applicable: boolean;
   /** Current session count, summed across every host serving this provider. */
@@ -683,9 +686,9 @@ export function deriveProviderCapacity(
  * `unknown` when capacity has not been measured yet (never a fabricated
  * `good`/`crit`); `crit` only when live sessions exceed the estimate, which
  * `CapacityEstimator.admit()` should never let happen — rendered anyway
- * (PLAN-AdmissionControl.md §5: "render sanely if it does") rather than
- * assumed impossible on a UI that must survive its own assumptions being
- * wrong.
+ * (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §5: "render sanely if
+ * it does") rather than assumed impossible on a UI that must survive its own
+ * assumptions being wrong.
  */
 export function deriveCapacityStatus(
   capacity: ProviderCapacity,

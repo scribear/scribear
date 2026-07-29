@@ -142,8 +142,9 @@ class TranscriptionStreamController(WebsocketHandler):
         TranscriptionStreamService once auth has completed and a config has
         not yet been received.
 
-        This is also the capacity-admission point (PLAN-AdmissionControl.md
-        §4): `service.start()` below reaches the registry, which registers the
+        This is also the capacity-admission point
+        (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4):
+        `service.start()` below reaches the registry, which registers the
         session's job, checks the worker it actually landed on and raises
         `TranscriptionCapacityError` if that worker is full. The refusal
         propagates out of here to `_handle_error`, which maps it to a 1013
@@ -371,7 +372,7 @@ class TranscriptionStreamController(WebsocketHandler):
         # for the service being busy. 1013 ("Try Again Later") is the IANA
         # registry's code for exactly this, and the reason string is what lets
         # the node server report "refused" rather than "crashed"
-        # (PLAN-AdmissionControl.md §4).
+        # (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4).
         if isinstance(error, TranscriptionCapacityError):
             self.close(1013, error.message)
             return True

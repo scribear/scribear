@@ -600,7 +600,8 @@ async def test_controller_closes_1013_for_a_capacity_refusal(
     versus retry later).
 
     The reason string is a wire contract, not a log line - the node server keys
-    "refused" apart from "crashed" off it (PLAN-AdmissionControl.md §4).
+    "refused" apart from "crashed" off it
+    (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4).
     """
     # Act
     return_value = controller._handle_error(

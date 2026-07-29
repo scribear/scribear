@@ -233,9 +233,10 @@ def test_reports_pool_wide_context(test_client: TestClient):
     assert len(body["workers"]) == NUM_WORKERS
     assert all(worker["alive"] for worker in body["workers"])
     assert {worker["workerId"] for worker in body["workers"]} == {0, 1}
-    # PLAN-AdmissionControl.md §5: a freshly-started worker has recorded no
-    # job executions yet, so this reads "not measured", never a fabricated
-    # zero - the same warm-up default /metrics/status reports.
+    # archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §5: a
+    # freshly-started worker has recorded no job executions yet, so this
+    # reads "not measured", never a fabricated zero - the same warm-up
+    # default /metrics/status reports.
     assert all(
         worker["estimatedCapacitySessions"] is None
         for worker in body["workers"]

@@ -30,7 +30,7 @@ export class MetricsRegistry {
   //
   // Log inference was lossy by construction: it depended on the log level, on
   // the collector being attached for the whole window, and on nothing rotating
-  // out. See PLAN-B1.1-node-server-status.md §5.
+  // out. See archived-plans/2026-07-20-01-PLAN-B1.1-node-server-status.md §5.
 
   /**
    * SAFP frames rejected by the decoder. Rising on the node side means the

@@ -537,7 +537,8 @@ describe('formatClippingPct', (it) => {
   });
 });
 
-// ---- Provider capacity (PLAN-AdmissionControl.md §5) ----
+// ---- Provider capacity
+// (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §5) ----
 
 function buildWorker(
   overrides: Partial<TranscriptionWorker> = {},

@@ -603,9 +603,9 @@ describe('TranscriptionOrchestratorService', () => {
     });
   });
 
-  // PLAN-AdmissionControl.md §4: node-server must distinguish "service
-  // refused" (capacity) from "service crashed" instead of collapsing both
-  // into the same `transcriptionServiceConnected: false`.
+  // archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4: node-server must
+  // distinguish "service refused" (capacity) from "service crashed" instead of
+  // collapsing both into the same `transcriptionServiceConnected: false`.
   describe('close-code disconnect reason (AdmissionControl §4)', (it) => {
     it('reports "at-capacity" after the upstream closes with 1013', async () => {
       // Arrange

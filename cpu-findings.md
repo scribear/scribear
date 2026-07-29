@@ -185,4 +185,4 @@ work per period. The CPU fix removed the waste *around* the inference; this is
 about the amount of inference asked for.
 
 Options, costs and a recommendation are in
-`~/scribear2/NEXTSTEPS-CPU-Whisper.md`.
+`~/scribear2/archived-plans/2026-07-26-02-NEXTSTEPS-CPU-Whisper.md`.

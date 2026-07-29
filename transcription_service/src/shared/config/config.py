@@ -54,13 +54,13 @@ class EnvSchema(BaseModel):
     # "silent" means anything.
     AUDIO_SILENCE_THRESHOLD: float = 0.01
 
-    # Defaulted, reachable from `.env` on purpose (PLAN-AdmissionControl.md
-    # §3). This subsystem has a documented regret about tuning knobs that
-    # exist only as compose-file edits, never as `.env` values -
-    # `ALERT_RTF_P95` and its two siblings, a number a CPU deployment must
-    # currently discover for itself and hand-set with no `.env` path to do so.
-    # These three are the manual override the plan calls out by name, and are
-    # not repeating that mistake.
+    # Defaulted, reachable from `.env` on purpose
+    # (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §3). This subsystem
+    # has a documented regret about tuning knobs that exist only as compose-file
+    # edits, never as `.env` values - `ALERT_RTF_P95` and its two siblings, a
+    # number a CPU deployment must currently discover for itself and hand-set
+    # with no `.env` path to do so. These three are the manual override the plan
+    # calls out by name, and are not repeating that mistake.
     TARGET_BUSY: float = 0.85
     MIN_SESSIONS: int = 1
     MAX_SESSIONS: int | None = None
@@ -232,7 +232,7 @@ class Config:
     def target_busy(self) -> float:
         """
         Headroom fraction the capacity estimator's ceiling aims at
-        (PLAN-AdmissionControl.md §3)
+        (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §3)
 
         Dimensionless, and deliberately the same number on every device: the
         hardware-specific part (per-session cost) is measured by the
@@ -244,8 +244,8 @@ class Config:
     @property
     def min_sessions(self) -> int:
         """
-        Floor under the capacity estimator's ceiling (PLAN-AdmissionControl.md
-        §3)
+        Floor under the capacity estimator's ceiling
+        (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §3)
 
         Exists so a mis-measurement - a noisy or unlucky window - can never
         take a worker's admitted capacity to zero.
@@ -256,7 +256,7 @@ class Config:
     def max_sessions(self) -> int | None:
         """
         Operator hard pin on a worker's session capacity
-        (PLAN-AdmissionControl.md §3)
+        (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §3)
 
         None leaves the estimator auto-tuning, which is the shipped default.
         Set, it disables auto-tuning entirely and the estimate is exactly this

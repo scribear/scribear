@@ -299,7 +299,8 @@ async def test_serializes_owning_workers_like_pool_workers():
 @pytest.mark.asyncio
 async def test_merges_estimated_capacity_onto_workers_and_owning_workers():
     """
-    Test N* (PLAN-AdmissionControl.md §5) lands on both worker lists
+    Test N* (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §5) lands
+    on both worker lists
 
     Identical to how MetricsController.status() layers this onto
     /metrics/status's `workers[]` - here it must additionally reach each

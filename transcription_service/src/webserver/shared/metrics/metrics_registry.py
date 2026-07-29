@@ -173,7 +173,8 @@ class MetricsRegistry:
             "Binary frames dropped because they arrived before session "
             "configuration completed, by provider",
         )
-        # The refusal half of admission control (PLAN-AdmissionControl.md §4).
+        # The refusal half of admission control
+        # (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4).
         # Counted here rather than left to the close-code statistics because a
         # refusal is otherwise indistinguishable from a client that hung up:
         # both end as a closed socket with no transcript, and only one of them

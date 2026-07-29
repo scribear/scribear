@@ -38,8 +38,8 @@ export enum LatencyKind {
  * `AT_CAPACITY` means the Transcription Service explicitly refused the
  * connection (WebSocket close 1013, "try again later") rather than the
  * connection dropping or the service crashing - see
- * `PLAN-AdmissionControl.md` §4, "node-server must distinguish 'service
- * refused' from 'service crashed'". Mirrors the local
+ * `archived-plans/2026-07-27-02-PLAN-AdmissionControl.md` §4, "node-server must
+ * distinguish 'service refused' from 'service crashed'". Mirrors the local
  * `TranscriptionServiceDisconnectReason` in node-server's
  * `session-status.events.ts`; keep both in sync.
  */

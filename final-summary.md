@@ -5,8 +5,10 @@ live rebuilt stack. Wiki updated and published. `explore/apple-silicon` pushed
 separately as findings only, no PR.
 
 Detail lives in `cpu-findings.md` (the investigation),
-`~/scribear2/LESSONSLEARNED-CPU-Whisper.md` (surprises and out-of-scope findings),
-and `~/scribear2/NEXTSTEPS-CPU-Whisper.md` (what is left, with the open decisions).
+`~/scribear2/archived-plans/2026-07-26-02-LESSONSLEARNED-CPU-Whisper.md`
+(surprises and out-of-scope findings), and
+`~/scribear2/archived-plans/2026-07-26-02-NEXTSTEPS-CPU-Whisper.md` (what is
+left, with the open decisions).
 
 ---
 

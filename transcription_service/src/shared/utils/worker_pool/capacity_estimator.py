@@ -1,12 +1,14 @@
 """
-Per-worker capacity estimator (PLAN-AdmissionControl.md §3)
+Per-worker capacity estimator
+(archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §3)
 
 Estimates how many concurrent sessions one worker can serve before it falls
 behind, from nothing but the stream of completed job executions the pool
 already reports to a JobObserver. Written and validated in shadow mode first,
 so the decision logic was exercised against real sweeps before it was ever
 allowed to refuse anyone; `admit()` is now consulted by
-TranscriptionProviderRegistry.create_session (PLAN-AdmissionControl.md §4).
+TranscriptionProviderRegistry.create_session
+(archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4).
 
 Why per worker and not pool-wide: a pool can run several providers/contexts
 across several workers, and one worker runs one job at a time, so N sessions
@@ -40,8 +42,10 @@ it is meant to detect:
   It only advances on windows the gates accepted, so a worker that is
   degraded from its very first session never leaves warm-up, reports `None`
   forever, and therefore admits unconditionally forever. That is not
-  hypothetical: `LESSONSLEARNED-AdmissionControl.md` measured 52.9% drop
-  share at a *single* session on CPU with `vad_detector: true` - above
+  hypothetical:
+  `archived-plans/2026-07-27-02-LESSONSLEARNED-AdmissionControl.md` measured
+  52.9% drop share at a *single* session on CPU with `vad_detector: true` -
+  above
   ELEVATED_DROP_SHARE before a second session ever arrives. The plan's stated
   posture (an over-admission is visible and self-corrects; a wrong refusal is
   invisible) says permissive is the right default here, and substituting

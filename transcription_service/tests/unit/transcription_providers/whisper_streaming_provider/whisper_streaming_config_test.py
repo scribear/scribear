@@ -1,6 +1,7 @@
 """
 Unit tests for WhisperStreamingProviderConfig's bounded-tail split
-(`PLAN-AdmissionControl.md` §2): `force_finalize_len_sec` (F) and
+(`archived-plans/2026-07-27-02-PLAN-AdmissionControl.md` §2):
+`force_finalize_len_sec` (F) and
 `max_transcribe_len_sec` (W) default to `max_buffer_len_sec` when unset, F
 must be >= W, and `job_period_ms` must not exceed `max_buffer_len_sec` in
 milliseconds.
