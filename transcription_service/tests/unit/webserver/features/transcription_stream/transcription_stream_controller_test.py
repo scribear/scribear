@@ -294,33 +294,44 @@ async def test_controller_handles_valid_audio_chunk(
 
 
 @pytest.mark.asyncio
-async def test_controller_rejects_valid_audio_chunk_message_before_authentication(
+async def test_controller_drops_audio_chunk_message_before_authentication(
     controller: TranscriptionStreamController,
     mock_provider_registry: MagicMock,
     mock_close_method: MagicMock,
 ):
     """
-    Test that controller rejects valid audio chunk sent before auth message
+    Test that a binary frame sent before auth is dropped and counted rather
+    than closing the socket
+
+    Closing here would let a source's auto-reconnect loop forever: it
+    re-sends AUTH, its first chunk again beats AUTH_OK, and no audio is ever
+    delivered. Dropping keeps the socket alive to finish auth instead.
     """
     # Arrange / Act
     await controller._handle_binary_message(AUDIO_CHUNK)
 
     # Assert
     mock_provider_registry.create_session.assert_not_called()
-    mock_close_method.assert_called_once_with(
-        1008, "Audio chunk before authentication"
+    mock_close_method.assert_not_called()
+    assert (
+        controller._metrics_registry.binary_dropped_before_auth_total.get(
+            {"provider_key": PROVIDER_UID}
+        )
+        == 1
     )
 
 
 @pytest.mark.asyncio
-async def test_controller_rejects_valid_audio_chunk_message_before_configuration(
+async def test_controller_drops_audio_chunk_message_before_configuration(
     controller: TranscriptionStreamController,
     mock_auth_service: MagicMock,
     mock_provider_registry: MagicMock,
     mock_close_method: MagicMock,
 ):
     """
-    Test that controller rejects valid audio chunk sent before config message
+    Test that a binary frame sent before config is dropped and counted rather
+    than closing the socket, for the same reconnect-loop reason as the
+    before-authentication case above
     """
     # Arrange
     mock_auth_service.is_authenticated.return_value = True
@@ -331,8 +342,12 @@ async def test_controller_rejects_valid_audio_chunk_message_before_configuration
 
     # Assert
     mock_provider_registry.create_session.assert_not_called()
-    mock_close_method.assert_called_once_with(
-        1008, "Audio chunk before configuration"
+    mock_close_method.assert_not_called()
+    assert (
+        controller._metrics_registry.binary_dropped_before_config_total.get(
+            {"provider_key": PROVIDER_UID}
+        )
+        == 1
     )
 
 
@@ -585,7 +600,8 @@ async def test_controller_closes_1013_for_a_capacity_refusal(
     versus retry later).
 
     The reason string is a wire contract, not a log line - the node server keys
-    "refused" apart from "crashed" off it (PLAN-AdmissionControl.md §4).
+    "refused" apart from "crashed" off it
+    (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4).
     """
     # Act
     return_value = controller._handle_error(

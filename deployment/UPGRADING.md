@@ -126,8 +126,9 @@ Prometheus (scrapes `monitoring-sidecar:80/metrics`, the fleet's own
 aggregated Prometheus endpoint — nothing else, no new secrets) and Grafana
 (auto-provisioned datasource and a seed fleet-overview dashboard, zero manual
 UI configuration). See [`deployment/monitoring/README.md`](monitoring/README.md)
-for how to turn it on and reach it, and `PLAN-Grafana-Monitoring.md` in the
-repo root for the design rationale.
+for how to turn it on and reach it, and
+`archived-plans/2026-07-28-01-PLAN-Grafana-Monitoring.md` (outside this repo,
+in `~/scribear2/`) for the design rationale.
 
 To opt in, add four keys to `.env` (see `.env.example`):
 

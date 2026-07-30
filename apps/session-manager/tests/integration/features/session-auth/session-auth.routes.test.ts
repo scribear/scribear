@@ -59,7 +59,10 @@ describe('Session Auth Routes', () => {
     return { deviceUid, token };
   }
 
-  async function createRoomWithSource(sourceDeviceUid: string) {
+  async function createRoomWithSource(
+    sourceDeviceUid: string,
+    autoSessionEnabled = false,
+  ) {
     const res = await server.fastify.inject({
       method: 'POST',
       url: `${ROOM_BASE}/create-room`,
@@ -67,11 +70,46 @@ describe('Session Auth Routes', () => {
       body: {
         name: 'Test Room',
         timezone: 'America/New_York',
-        autoSessionEnabled: false,
+        autoSessionEnabled,
         sourceDeviceUids: [sourceDeviceUid],
       },
     });
     return res.json<{ uid: string }>().uid;
+  }
+
+  /**
+   * Gives a room an auto-session window that is open right now: every day of
+   * the week, all day, active since 2020.
+   *
+   * Every other fixture in this file uses `autoSessionEnabled: false`, which
+   * short-circuits the auto-session reconciler before it does anything - so
+   * none of them exercise the interaction between a standing on-demand
+   * session and a materialized AUTO slot. That gap is not hypothetical: a 500
+   * that broke on-demand sessions in *every* auto-enabled room once survived
+   * the entire integration suite, because no fixture was ever live at the
+   * moment the suite ran.
+   */
+  async function enableLiveAutoSessionWindow(roomUid: string) {
+    const res = await server.fastify.inject({
+      method: 'POST',
+      url: `${SCHEDULE_BASE}/create-auto-session-window`,
+      headers: { authorization: ADMIN_HEADER },
+      body: {
+        roomUid,
+        localStartTime: '00:00:00',
+        localEndTime: '23:59:59',
+        daysOfWeek: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'],
+        activeStart: '2020-01-01T00:00:00.000Z',
+        activeEnd: null,
+        joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS'],
+        transcriptionProviderId: 'whisper',
+        transcriptionStreamConfig: {},
+      },
+    });
+    // Asserted, not assumed: a fixture that quietly 400s would leave the room
+    // with no live window at all, and every test built on it would pass while
+    // exercising precisely the path it was written to cover.
+    expect(res.statusCode).toBe(201);
   }
 
   async function addDeviceToRoom(roomUid: string, deviceUid: string) {
@@ -597,6 +635,35 @@ describe('Session Auth Routes', () => {
       }>();
       expect(body.sessionToken).toEqual(expect.any(String));
       expect(body.sessionTokenExpiresAt).toEqual(expect.any(String));
+      expect(body.scopes.sort()).toStrictEqual(
+        ['SEND_AUDIO', 'RECEIVE_TRANSCRIPTIONS'].sort(),
+      );
+    });
+
+    it('grants the source device its scopes in a room whose auto-session window is live now', async () => {
+      // Arrange - the same happy path as above, but in a room that has
+      // auto-sessions enabled *and* a window open at this moment, so the
+      // auto-session reconciler actually runs against a standing on-demand
+      // session rather than short-circuiting. Every other fixture here is
+      // auto-disabled, which is how a 500 on this exact combination once
+      // survived the whole suite.
+      const source = await setupActivatedDevice('Source Device');
+      const roomUid = await createRoomWithSource(source.deviceUid, true);
+      await enableLiveAutoSessionWindow(roomUid);
+      const sessionUid = await createOnDemandSession(roomUid);
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/exchange-device-token`,
+        headers: { cookie: `DEVICE_TOKEN=${source.token}` },
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      const body = res.json<{ sessionToken: string; scopes: string[] }>();
+      expect(body.sessionToken).toEqual(expect.any(String));
       expect(body.scopes.sort()).toStrictEqual(
         ['SEND_AUDIO', 'RECEIVE_TRANSCRIPTIONS'].sort(),
       );

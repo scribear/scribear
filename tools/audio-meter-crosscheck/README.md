@@ -1,6 +1,7 @@
 # Audio meter cross-check fixtures
 
-`PLAN-AUDIOVIZ.md` §9 asks for one gate above all others:
+`archived-plans/2026-07-24-04-PLAN-AUDIOVIZ.md` §9 asks for one gate above
+all others:
 
 > drive a session with a known WAV through a real stack and confirm the
 > dashboard's dBFS agrees with the standalone meter fed the same file to within a
@@ -48,7 +49,7 @@ measurement points (`stages[]`, each with its own `levels`, `vad` and cumulative
 `audioSeconds`), and the dashboard renders the **headline stage** — the
 lowest-depth stage that reports levels, because that is the measurement closest
 to the source and therefore the one that answers "is the room's audio reaching
-us" (`PLAN-AUDIOVIZ.md` §12.6).
+us" (`archived-plans/2026-07-24-04-PLAN-AUDIOVIZ.md` §12.6).
 
 Carrying a number faithfully is therefore no longer sufficient: the render path
 also has to pick the right one out of several. So the render leg now asserts, in
@@ -105,7 +106,8 @@ digit. The `limitedTones` fixtures pin the positive case and both sides of the
 threshold, because a rule that only stops false alarms would be just as wrong as
 one that only catches them.
 
-This was a producer change, which `PLAN-AUDIOVIZ.md` §11 put out of scope. It was
+This was a producer change, which
+`archived-plans/2026-07-24-04-PLAN-AUDIOVIZ.md` §11 put out of scope. It was
 brought into scope deliberately once the gate showed the dashboard was lying
 about real rooms.
 
@@ -187,8 +189,9 @@ and none of them expressible against a table of expected DSP values:
   the reader's business, and the mirrors here are hand-written on purpose.
 
 Closing the browser hop needs a compose-level harness that scrapes the rendered
-dashboard. It remains tracked as outstanding in `NEXTSTEPS-AUDIOVIZ.md`, and the
-render leg is already unit covered, which is why the browser was judged the least
+dashboard. It remains tracked as outstanding in
+`archived-plans/2026-07-24-04-NEXTSTEPS-AUDIOVIZ.md`, and the render leg is
+already unit covered, which is why the browser was judged the least
 valuable rung.
 
 ## Running the live-stack leg

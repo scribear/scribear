@@ -138,9 +138,9 @@ def test_config_load_valid_config(clean_os_environ: None, tmp_path: Path):
     # every existing deployment.
     assert config.audio_silence_threshold == 0.01
     # Same again for the capacity estimator's manual override
-    # (PLAN-AdmissionControl.md §3): the shipped defaults must apply with none
-    # of the three set, or adding them would change every existing
-    # deployment's admitted capacity out from under it.
+    # (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §3): the shipped
+    # defaults must apply with none of the three set, or adding them would
+    # change every existing deployment's admitted capacity out from under it.
     assert config.target_busy == 0.85
     assert config.min_sessions == 1
     assert config.max_sessions is None
@@ -250,7 +250,7 @@ def test_config_loads_the_capacity_estimator_overrides_when_set(
     # Need to include clean_os_environ so that fixture is created
     """
     Test configured capacity estimator overrides are read
-    (PLAN-AdmissionControl.md §3)
+    (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §3)
 
     All three are the manual override the plan calls out by name - headroom,
     floor and operator pin - and none of them require touching the provider

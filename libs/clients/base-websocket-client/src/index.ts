@@ -5,6 +5,7 @@ export type {
   ConnectionState,
   BackoffOptions,
   SendQueueOverflow,
+  SendQueueDrops,
   ConnectParams,
   WebSocketClientOptions,
   WebSocketClientEvents,

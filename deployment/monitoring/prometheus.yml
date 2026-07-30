@@ -3,8 +3,8 @@
 # Exactly one target: monitoring-sidecar, which already aggregates the whole
 # fleet's status into a single unauthenticated Prometheus text endpoint (it is
 # backend-network-only, so "unauthenticated" is safe here - see
-# PLAN-Grafana-Monitoring.md §2 for why every other service's authed endpoint
-# is deliberately NOT scraped directly).
+# archived-plans/2026-07-28-01-PLAN-Grafana-Monitoring.md §2 for why every
+# other service's authed endpoint is deliberately NOT scraped directly).
 global:
   scrape_interval: 15s
 

@@ -116,6 +116,17 @@ export class NodeStatusPollerService extends AbsoluteStatusPoller<NodeStatusBody
       { service },
       s.authTimeoutsTotal,
     );
+    // Optional on the wire: absent from a node-server that predates the
+    // counter. Skipping the advance entirely (rather than defaulting to 0)
+    // means a mixed-version fleet neither throws nor silently zeroes a delta
+    // against whatever this series last held.
+    if (s.binaryBeforeAuthDropsTotal !== undefined) {
+      this._advance(
+        this._metrics.nodeBinaryBeforeAuthDropsTotal,
+        { service },
+        s.binaryBeforeAuthDropsTotal,
+      );
+    }
     this._advance(
       this._metrics.nodeOrchestratorFailuresTotal,
       { service },

@@ -4,8 +4,9 @@ Defines Error classes used by TranscriptionProviders
 
 # WebSocket close reason a capacity refusal is sent with, stated once here
 # rather than at the point of the close. The node server keys "refused" apart
-# from "crashed" off this exact string (PLAN-AdmissionControl.md §4), so it is a
-# wire contract, not a log message - two literals would drift.
+# from "crashed" off this exact string
+# (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4), so it is a wire
+# contract, not a log message - two literals would drift.
 AT_CAPACITY_REASON = "at-capacity"
 
 
@@ -27,7 +28,7 @@ class TranscriptionClientError(Exception):
 class TranscriptionCapacityError(Exception):
     """
     Represents a session refused because the worker it was placed on has no
-    capacity for it (PLAN-AdmissionControl.md §4)
+    capacity for it (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4)
 
     Deliberately NOT a subclass of TranscriptionClientError, and deliberately
     not routed through it. TranscriptionClientError closes the socket with

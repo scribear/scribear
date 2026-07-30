@@ -21,8 +21,9 @@ interface TranscriptionServiceClient {
  * every consumer of this client gets the same deliberate policy rather than
  * inheriting `WebSocketClient`'s bare defaults by accident.
  *
- * Per `PLAN-AdmissionControl.md` §4: close 1013 ("try again later") is how
- * the transcription service now refuses a session for being at capacity.
+ * Per `archived-plans/2026-07-27-02-PLAN-AdmissionControl.md` §4: close 1013
+ * ("try again later") is how the transcription service now refuses a session
+ * for being at capacity.
  * 1013 is deliberately NOT added to `normalCloseCodes` - capacity is
  * transient (it frees up as other sessions end), so the right behavior is to
  * keep retrying, not give up. But "keep retrying forever" needs a policy

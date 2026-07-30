@@ -40,7 +40,8 @@ def metrics_router(
         metrics_registry        - In-memory telemetry store
         provider_registry       - Owner of the worker pool and providers
         capacity_estimator      - Shadow-mode per-worker capacity estimator
-                                    (PLAN-AdmissionControl.md §3)
+                                    (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md
+                                    §3)
 
     Returns:
         FastAPI router

@@ -8,8 +8,8 @@
  * it is cheaper than adapting a library.
  *
  * Nothing is persisted. Restarting the sidecar zeroes every metric; that is an
- * accepted trade (see PLAN-MONITORING-DASHBOARD.md §9 item 1 — "in-memory only,
- * live snapshot", trends deferred).
+ * accepted trade (see 2026-07-19-01-PLAN-MONITORING-DASHBOARD.md §9 item 1 —
+ * "in-memory only, live snapshot", trends deferred).
  */
 
 /** Label set attached to a single metric series. */

@@ -33,18 +33,19 @@ export interface CapacityMeterBarProps {
 
 /**
  * Live-sessions-vs-estimated-ceiling meter, one provider's "N / N*"
- * (PLAN-AdmissionControl.md §5).
+ * (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §5).
  *
  * Follows `AudioMeterBar`'s pattern rather than reusing it: that component's
  * range is a fixed -60..0 dBFS with audio-specific tick marks, which would
  * have to be force-fit to represent a session count against a ceiling that
  * moves as the estimator re-measures it. This is a plain 0..N* bar instead.
  *
- * `capacity.applicable === false` (a non-`local` provider, e.g. `lumen_granite`)
- * renders "not applicable" text and no bar at all — a capacity ceiling is a
- * local-worker-pool question, and a remote API's real constraint (upstream
- * rate limits) is a different, deferred one; showing a bar here would invite
- * reading it as a real number (PLAN-AdmissionControl.md §5: "leave a clear
+ * `capacity.applicable === false` (a non-`local` provider, e.g.
+ * `lumen_granite`) renders "not applicable" text and no bar at all — a capacity
+ * ceiling is a local-worker-pool question, and a remote API's real constraint
+ * (upstream rate limits) is a different, deferred one; showing a bar here would
+ * invite reading it as a real number
+ * (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §5: "leave a clear
  * gap... rather than a fake number").
  *
  * The numeric "N / N*" is always rendered as visible text beside the bar —

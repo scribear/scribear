@@ -126,6 +126,31 @@ describe('SessionCalendarGrid', () => {
     expect(region).toHaveFocus();
   });
 
+  it('renders column labels as text, not as headings', () => {
+    // MUI maps the `subtitle2` variant to an `<h6>` element unless
+    // `component` says otherwise, so an unadorned column label would enter
+    // the document outline four levels below the host page's last `h2` and
+    // fail axe's heading-order rule. The labels are labels; the grid
+    // contributes no headings at all.
+    render(
+      <SessionCalendarGrid
+        columns={[
+          { key: 'room-a', label: 'Room A' },
+          { key: 'room-b', label: 'Room B' },
+        ]}
+        sessions={[]}
+        getColumnKeyForSession={(s) => s.roomUid}
+        onSessionClick={() => {
+          /* noop */
+        }}
+        showUuids={false}
+      />,
+    );
+
+    expect(screen.getByText('Room A')).toBeInTheDocument();
+    expect(screen.queryAllByRole('heading')).toHaveLength(0);
+  });
+
   it('shows the session uid when showUuids is true', () => {
     const session = makeSession({ uid: 'sess-visible-uid' });
 

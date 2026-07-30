@@ -200,10 +200,10 @@ def test_reports_workers_and_capacity(test_client: TestClient):
         assert worker["totalJobsRegistered"] == 0
         assert worker["contextIds"] == []
         assert worker["activeJobs"] == []
-        # The capacity estimator's warm-up default (PLAN-AdmissionControl.md
-        # §3): nothing has called record() yet in a freshly-started test
-        # client, so every worker reads "not measured", never a fabricated
-        # zero.
+        # The capacity estimator's warm-up default
+        # (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §3): nothing
+        # has called record() yet in a freshly-started test client, so every
+        # worker reads "not measured", never a fabricated zero.
         assert worker["estimatedCapacitySessions"] is None
 
 

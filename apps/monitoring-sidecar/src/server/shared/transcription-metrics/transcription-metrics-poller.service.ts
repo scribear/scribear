@@ -216,6 +216,23 @@ export class TranscriptionMetricsPollerService extends AbsoluteStatusPoller<Tran
       );
     }
 
+    // Optional on the wire (the reconnect-loop fix predates these on older
+    // transcription-service builds), so a service too old to send them simply
+    // reports no drops rather than failing the whole poll — same shape as the
+    // buffer-full pair above, and for the same reason.
+    if (c.binaryDroppedBeforeAuthTotal !== undefined) {
+      this._foldProvider(
+        c.binaryDroppedBeforeAuthTotal,
+        this._metrics.asrBinaryDroppedBeforeAuthTotal,
+      );
+    }
+    if (c.binaryDroppedBeforeConfigTotal !== undefined) {
+      this._foldProvider(
+        c.binaryDroppedBeforeConfigTotal,
+        this._metrics.asrBinaryDroppedBeforeConfigTotal,
+      );
+    }
+
     // Dropped periods, and whether they are being reported at all.
     //
     // The support gauge is not redundant with the counter. A healthy service

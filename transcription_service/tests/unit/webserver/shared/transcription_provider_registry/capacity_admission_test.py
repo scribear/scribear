@@ -1,6 +1,6 @@
 """
 Unit tests for capacity admission in TranscriptionProviderRegistry
-(PLAN-AdmissionControl.md §4/§6)
+(archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4/§6)
 
 These cover the half of admission control that decides and refuses. The
 estimator that supplies N* has its own suite
@@ -249,9 +249,11 @@ def registry(
     """
     Registry pinned to one session per worker
 
-    One is the ceiling this branch's own live CPU sweep measured on the shipped
-    default config (LESSONSLEARNED-AdmissionControl.md), so it is the realistic
-    setting to build the refusal tests on rather than an arbitrarily tiny one.
+    One is the ceiling this branch's own live CPU sweep measured on the
+    shipped default config
+    (archived-plans/2026-07-27-02-LESSONSLEARNED-AdmissionControl.md), so it
+    is the realistic setting to build the refusal tests on rather than an
+    arbitrarily tiny one.
     """
     return make_registry(
         mock_config, mock_logger, pinned_estimator(1), metrics_registry

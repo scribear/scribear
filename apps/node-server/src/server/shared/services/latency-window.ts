@@ -9,8 +9,8 @@
  *
  * Raw samples are retained rather than Prometheus-style bucket counts because
  * the dashboard's latency panels are specified in terms of exact percentiles
- * (PLAN-MONITORING-DASHBOARD.md §7 B1.4), and buckets would only give
- * interpolated ones. The summary shape deliberately matches the histogram
+ * (2026-07-19-01-PLAN-MONITORING-DASHBOARD.md §7 B1.4), and buckets would only
+ * give interpolated ones. The summary shape deliberately matches the histogram
  * series transcription-service reports from `GET /metrics/status`, so the two
  * services' latency panels can share a renderer.
  *
