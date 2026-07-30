@@ -418,9 +418,9 @@ describe('ScheduleStep', () => {
 
     it('still fires onCreated when createAutoWindow succeeds but the master-switch update fails', async () => {
       // Arrange: documents current behavior per
-      // PLAN-Future-todo-wizard-tests.md 1e — the window itself was created,
-      // so onCreated firing is treated here as the intended outcome even
-      // though the master-switch enable failed.
+      // archived-plans/2026-07-23-02-PLAN-Future-todo-wizard-tests.md 1e — the
+      // window itself was created, so onCreated firing is treated here as the
+      // intended outcome even though the master-switch enable failed.
       mockDefaultLoad({ autoSessionEnabled: false });
       const onCreated = vi.fn();
       renderWithProviders(

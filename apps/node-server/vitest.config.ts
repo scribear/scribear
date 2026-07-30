@@ -19,9 +19,10 @@ export default mergeConfig(
         // B1: dev-only swagger plugin — two register calls, no production impact.
         // B4: type-only module (AppDependencies interface + declare module) — no
         //     runtime code beyond a side-effect import.
-        // B5: trivial transport/wiring — one-line registrations and {status:'ok'}
-        //     handlers exercised by integration. Unit tests would be pure
-        //     coverage-chasing; see PLAN-MORE-TESTCOVERAGE.md §B5.
+        // B5: trivial transport/wiring — one-line registrations and
+        //     {status:'ok'} handlers exercised by integration. Unit tests would
+        //     be pure coverage-chasing; see
+        //     archived-plans/2026-07-25-01-PLAN-MORE-TESTCOVERAGE.md §B5.
         //
         // Additional low-risk files: thin transport controllers and routers
         // that delegate to unit-tested services. Integration-covered by design.

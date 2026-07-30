@@ -11,7 +11,7 @@
  *
  * These are SPAs, so the scan waits for the React root to render before
  * running axe. Automated tools catch ~30-40% of WCAG issues; pair this with
- * the manual review in PLAN-WCAG-Frontends.md.
+ * the manual review in archived-plans/2026-07-24-02-PLAN-WCAG-Frontends.md.
  */
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

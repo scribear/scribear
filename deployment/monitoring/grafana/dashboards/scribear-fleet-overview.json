@@ -1,7 +1,7 @@
 {
   "uid": "scribear-fleet-overview",
   "title": "ScribeAR Fleet Overview",
-  "description": "Seed dashboard for the opt-in `monitoring` compose profile (PLAN-Grafana-Monitoring.md). Sourced entirely from monitoring-sidecar's /metrics. Portable: swap the Prometheus variable above to point this at your own Prometheus.",
+  "description": "Seed dashboard for the opt-in `monitoring` compose profile (archived-plans/2026-07-28-01-PLAN-Grafana-Monitoring.md). Sourced entirely from monitoring-sidecar's /metrics. Portable: swap the Prometheus variable above to point this at your own Prometheus.",
   "tags": ["scribear"],
   "timezone": "browser",
   "schemaVersion": 39,
@@ -182,7 +182,7 @@
     {
       "id": 6,
       "title": "WebSocket close codes",
-      "description": "scribear_ws_close_total, summed by close code. A spike in 1013 today is the only indirect signal of admission-control refusals until the sidecar re-exports sessions_refused_capacity_total directly (PLAN-Grafana-Monitoring.md §7).",
+      "description": "scribear_ws_close_total, summed by close code. A spike in 1013 today is the only indirect signal of admission-control refusals until the sidecar re-exports sessions_refused_capacity_total directly (archived-plans/2026-07-28-01-PLAN-Grafana-Monitoring.md §7).",
       "type": "timeseries",
       "gridPos": { "x": 12, "y": 14, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },

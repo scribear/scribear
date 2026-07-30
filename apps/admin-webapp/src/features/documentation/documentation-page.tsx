@@ -84,7 +84,7 @@ const DOC_LINKS: DocLink[] = [
 export const DocumentationPage = () => {
   return (
     <Box>
-      <Typography variant="h5" gutterBottom>
+      <Typography variant="h5" component="h1" gutterBottom>
         Documentation
       </Typography>
       <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
@@ -111,7 +111,17 @@ export const DocumentationPage = () => {
                     sx={{ alignItems: 'center', mb: 1 }}
                   >
                     {link.icon}
-                    <Typography variant="subtitle1" sx={{ flexGrow: 1 }}>
+                    {/* `component="h2"`: MUI would map the `subtitle1`
+                        variant to an `<h6>`, which under this page's `h1`
+                        skips four levels. Each card is a real subsection
+                        directly under the page title - and headings are how
+                        a screen-reader user moves between the cards - so h2
+                        is both valid and the correct semantics. */}
+                    <Typography
+                      variant="subtitle1"
+                      component="h2"
+                      sx={{ flexGrow: 1 }}
+                    >
                       {link.title}
                     </Typography>
                     <OpenInNewIcon fontSize="small" color="action" />

@@ -25,7 +25,8 @@ def _worker(
     Args:
         snapshot            - Point-in-time view of a worker
         capacity_estimator  - Per-worker capacity estimator
-                                (PLAN-AdmissionControl.md §3/§5)
+                                (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md
+                                §3/§5)
 
     Returns:
         JSON-ready worker entry
@@ -58,12 +59,15 @@ def _health(
     Args:
         health              - Provider health snapshot
         capacity_estimator  - Per-worker capacity estimator, merged onto each
-                                owning worker (PLAN-AdmissionControl.md §5)
+                                owning worker
+                                (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md
+                                §5)
         provider_key         - Configured key this provider is registered
                                 under, used to look up its refusal count
         metrics_registry     - Process-wide metrics store, read here for
                                 `sessions_refused_capacity_total`
-                                (PLAN-AdmissionControl.md §4)
+                                (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md
+                                §4)
 
     Returns:
         JSON-ready health entry
@@ -156,20 +160,19 @@ class ProviderHealthSnapshotService:
                                     consumers can tell a restart from a
                                     counter decrease
             capacity_estimator  - Per-worker capacity estimator
-                                    (PLAN-AdmissionControl.md §3). Read here
-                                    through snapshot() only, same as
-                                    MetricsController - this service must stay
-                                    side effect free so a poll can never move
-                                    a decision. create_webserver.py always
+                                    (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md
+                                    §3). Read here through snapshot() only, same
+                                    as MetricsController - this service must
+                                    stay side effect free so a poll can never
+                                    move a decision. create_webserver.py always
                                     constructs one, so this is required rather
                                     than optional.
             metrics_registry     - Process-wide metrics store
-                                    (PLAN-AdmissionControl.md §4). Threaded
-                                    through for the same reason as
+                                    (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md
+                                    §4). Threaded through for the same reason as
                                     capacity_estimator above: both
-                                    `/providers/health` and the Redis
-                                    publisher need
-                                    `sessionsRefusedCapacityTotal` reported
+                                    `/providers/health` and the Redis publisher
+                                    need `sessionsRefusedCapacityTotal` reported
                                     next to `activeSessions`, and this service
                                     is the one join both consumers share.
                                     Read here through snapshot() only, so this

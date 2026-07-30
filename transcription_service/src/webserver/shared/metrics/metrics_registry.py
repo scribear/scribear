@@ -156,7 +156,25 @@ class MetricsRegistry:
             "decode_drops_total",
             "Audio frames dropped because they failed to decode, by provider",
         )
-        # The refusal half of admission control (PLAN-AdmissionControl.md §4).
+        # The reconnect-loop fix (mirrors node-server's recordBinaryBeforeAuthDrop):
+        # a binary frame that arrives before auth or before config used to close
+        # the socket 1008, which a source's auto-reconnect turns into an
+        # infinite loop - it re-authenticates, its first chunk again beats the
+        # ordering it just violated, and no audio is ever delivered. Counted
+        # rather than silently discarded so a client stuck in that pattern is
+        # still visible to an operator.
+        self.binary_dropped_before_auth_total = Counter(
+            "binary_dropped_before_auth_total",
+            "Binary frames dropped because they arrived before authentication "
+            "completed, by provider",
+        )
+        self.binary_dropped_before_config_total = Counter(
+            "binary_dropped_before_config_total",
+            "Binary frames dropped because they arrived before session "
+            "configuration completed, by provider",
+        )
+        # The refusal half of admission control
+        # (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4).
         # Counted here rather than left to the close-code statistics because a
         # refusal is otherwise indistinguishable from a client that hung up:
         # both end as a closed socket with no transcript, and only one of them
@@ -258,6 +276,36 @@ class MetricsRegistry:
             provider_key    - Provider the connection was opened against
         """
         self.decode_drops_total.inc(
+            {"provider_key": provider_key or UNLABELED_PROVIDER}
+        )
+
+    def record_binary_dropped_before_auth(self, provider_key: str) -> None:
+        """
+        Counts one binary frame dropped because it arrived before
+        authentication completed
+
+        Recorded in the FastAPI process, like `record_decode_drop`: there is
+        no session yet for the frame to reach.
+
+        Args:
+            provider_key    - Provider the connection was opened against
+        """
+        self.binary_dropped_before_auth_total.inc(
+            {"provider_key": provider_key or UNLABELED_PROVIDER}
+        )
+
+    def record_binary_dropped_before_config(self, provider_key: str) -> None:
+        """
+        Counts one binary frame dropped because it arrived before session
+        configuration completed
+
+        Recorded in the FastAPI process, like `record_decode_drop`: there is
+        no session yet for the frame to reach.
+
+        Args:
+            provider_key    - Provider the connection was opened against
+        """
+        self.binary_dropped_before_config_total.inc(
             {"provider_key": provider_key or UNLABELED_PROVIDER}
         )
 

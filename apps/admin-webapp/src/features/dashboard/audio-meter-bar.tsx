@@ -14,8 +14,10 @@ const METER_MAX_DB = 0;
 
 /**
  * Zone tick positions on the bar, in dBFS. The "hot" tick at -6 dBFS matches
- * `AUDIO_THRESHOLDS.rmsDbfsHigh` and the standalone meter's crit boundary; the
- * "low" tick at -50 dBFS matches `AUDIO_THRESHOLDS.rmsDbfsLow`.
+ * `AUDIO_THRESHOLDS.rmsDbfsHigh`, an RMS threshold specific to this
+ * dashboard (not tied to the standalone meter's peak-zone default, which is a
+ * different quantity and can default independently); the "low" tick at
+ * -50 dBFS matches `AUDIO_THRESHOLDS.rmsDbfsLow`.
  */
 const TICK_HOT_DB = -6;
 const TICK_LOW_DB = -50;

@@ -51,8 +51,9 @@ def create_webserver(config: Config, logger: Logger):
     # restart, and a consumer can only correlate them if the uid matches.
     process_identity = create_process_identity()
     metrics_registry = MetricsRegistry(process_identity=process_identity)
-    # PLAN-AdmissionControl.md §3/§4. Constructed here, next to
-    # metrics_registry, because both are fed by the same job_observer below and
+    # archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §3/§4. Constructed
+    # here, next to metrics_registry, because both are fed by the same
+    # job_observer below and
     # both are threaded onward the same way - the estimator now reaching the
     # provider registry (which enforces admission) as well as metrics_router
     # (which reports its snapshot).

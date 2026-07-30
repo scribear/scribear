@@ -3,8 +3,9 @@
  * devices, and their standing sessions.
  *
  * These exist so that the synthetic audio sources described in
- * `PLAN-TestAudioDevices.md` need no hand provisioning at all. The Session
- * Manager seeds every row below under a **fixed uid** when
+ * `archived-plans/2026-07-27-01-PLAN-TestAudioDevices.md` need no hand
+ * provisioning at all. The Session Manager seeds every row below under a
+ * **fixed uid** when
  * `TEST_AUDIO_DEVICE_SECRET` is set (`TestAudioRoomsSeeder`), and the generator
  * derives its own credentials from the same secret and the same uids
  * ({@link deriveTestAudioDeviceToken}). Neither side is ever told a value the

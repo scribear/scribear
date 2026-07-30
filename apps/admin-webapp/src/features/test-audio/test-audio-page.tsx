@@ -12,7 +12,8 @@ import { GoodSourceCard } from './good-source-card';
 import { useTestAudio } from './use-test-audio';
 
 /**
- * Operator test-audio devices (`PLAN-TestAudioDevices.md` §4).
+ * Operator test-audio devices
+ * (`archived-plans/2026-07-27-01-PLAN-TestAudioDevices.md` §4).
  *
  * Two synthetic sources pointed at their own rooms, parameterized live: one
  * plays good speech at a level you choose, the other reproduces every audio

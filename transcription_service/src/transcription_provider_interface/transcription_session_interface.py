@@ -53,8 +53,9 @@ class TranscriptionSessionInterface(ABC, EventEmitter):
         None is a positive statement, not a missing implementation. It means
         "this session's cost is not a claim on a local worker's ASR throughput,
         so the per-worker capacity estimate does not describe it" - the shape
-        `PLAN-AdmissionControl.md` §5 already uses for a remote provider's
-        capacity, which is reported as "not applicable" rather than as a
+        `archived-plans/2026-07-27-02-PLAN-AdmissionControl.md` §5
+        already uses for a remote provider's capacity, which is reported as
+        "not applicable" rather than as a
         fabricated number. Defaulting to None is also the safe direction under
         this plan's stated posture: a provider added later is admitted rather
         than refused until someone deliberately opts it in, and an

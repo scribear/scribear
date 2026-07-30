@@ -6,9 +6,10 @@ Derives the two operator test-audio devices' credentials and runs them.
 - **`fault`** — one knob per audio fault the stack claims to report, all
   independently settable, all defaulting to zero.
 
-An operator drives both from the admin console's Test Audio page, which talks to
-admin-server's test-audio BFF, which proxies here. The contract is
-`PLAN-TestAudioDevices.md`; §2 is this service's API.
+An operator drives both from the admin console's Test Audio page, which
+talks to admin-server's test-audio BFF, which proxies here. The contract is
+`archived-plans/2026-07-27-01-PLAN-TestAudioDevices.md`; §2 is this
+service's API.
 
 ---
 

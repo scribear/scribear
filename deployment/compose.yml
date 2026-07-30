@@ -676,7 +676,8 @@ services:
       - backend
     restart: unless-stopped
 
-  # Metrics + dashboards for evaluators (see PLAN-Grafana-Monitoring.md).
+  # Metrics + dashboards for evaluators (see
+  # archived-plans/2026-07-28-01-PLAN-Grafana-Monitoring.md).
   #
   # OFF BY DEFAULT, via the profile - same mechanism `autoupdate` uses below.
   # Scrapes exactly one target: monitoring-sidecar's own /metrics, which
@@ -708,7 +709,8 @@ services:
   # Dashboards on top of the Prometheus above. Datasource and the seed
   # fleet-overview dashboard are both auto-provisioned from files mounted
   # read-only below - a fresh `up` on this profile needs zero clicks in the
-  # Grafana UI beyond logging in (PLAN-Grafana-Monitoring.md invariant 4).
+  # Grafana UI beyond logging in
+  # (archived-plans/2026-07-28-01-PLAN-Grafana-Monitoring.md invariant 4).
   #
   # Loopback-bound by default: Grafana has real auth (an admin password),
   # unlike Prometheus above, but a staging box is often on a routable

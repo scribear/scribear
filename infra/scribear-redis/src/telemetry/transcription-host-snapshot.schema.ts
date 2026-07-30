@@ -57,7 +57,7 @@ export const TRANSCRIPTION_WORKER_SCHEMA = Type.Object({
   }),
   estimatedCapacitySessions: Type.Union([Type.Integer(), Type.Null()], {
     description:
-      'N* (PLAN-AdmissionControl.md §3/§5): the current auto-tuned session ceiling for this worker, or the operator-pinned `max_sessions` when set. Always present, never absent, because the publisher always has an estimator to ask - but null while the worker is still warming up (too few clean measurement windows yet) or has never had a clean window. Null means "not measured yet", never zero or unlimited - do not render it as either.',
+      'N* (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §3/§5): the current auto-tuned session ceiling for this worker, or the operator-pinned `max_sessions` when set. Always present, never absent, because the publisher always has an estimator to ask - but null while the worker is still warming up (too few clean measurement windows yet) or has never had a clean window. Null means "not measured yet", never zero or unlimited - do not render it as either.',
   }),
 });
 
@@ -91,7 +91,7 @@ export const PROVIDER_HEALTH_SCHEMA = Type.Object({
   activeSessions: Type.Integer(),
   sessionsRefusedCapacityTotal: Type.Integer({
     description:
-      'Sessions refused at admission (PLAN-AdmissionControl.md §4) because the worker they landed on had no capacity for them - monotonic since process start, same caveat as invalidProviderKeyRejects. Always 0 for a remote provider: remote providers are never subject to local admission control, so this is the honest reading for lumen_granite and friends, not a gap.',
+      'Sessions refused at admission (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4) because the worker they landed on had no capacity for them - monotonic since process start, same caveat as invalidProviderKeyRejects. Always 0 for a remote provider: remote providers are never subject to local admission control, so this is the honest reading for lumen_granite and friends, not a gap.',
   }),
   model: Type.Union([Type.String(), Type.Null()]),
   modelLoaded: Type.Union([Type.Boolean(), Type.Null()], {

@@ -73,8 +73,8 @@ const AUDIO_STATUS_ORDER: AudioStatus[] = ['crit', 'warn', 'unknown', 'good'];
 
 /**
  * Audio conventions the roll-up must label on the surface
- * (PLAN-MONITORING-DASHBOARD.md §60), matching the standalone page's wording
- * (`audio-meter.html`'s "Plain: -3.01 dBFS" reference option).
+ * (2026-07-19-01-PLAN-MONITORING-DASHBOARD.md §60), matching the standalone
+ * page's wording (`audio-meter.html`'s "Plain: -3.01 dBFS" reference option).
  *
  * A plain JS string, not a JSX string attribute: JSX attribute literals do not
  * process `\u`/`\n` escapes, so writing this inline renders them verbatim.
@@ -125,11 +125,11 @@ const ProviderStatusRow = ({ providers }: { providers: MergedProvider[] }) => {
 };
 
 /**
- * Per-provider capacity readout: live sessions against the estimator's
- * current ceiling (PLAN-AdmissionControl.md §5). One row per provider, same
- * bar/text pattern as the session cards' audio strip — a bar is drawn only
- * for a `local` provider; a `remote` one (`lumen_granite`) shows "not
- * applicable" rather than a fabricated number, since its real capacity
+ * Per-provider capacity readout: live sessions against the estimator's current
+ * ceiling (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §5). One row
+ * per provider, same bar/text pattern as the session cards' audio strip — a bar
+ * is drawn only for a `local` provider; a `remote` one (`lumen_granite`) shows
+ * "not applicable" rather than a fabricated number, since its real capacity
  * question is upstream rate limits, not a local worker pool.
  *
  * Each row also carries `sessionsRefusedCapacityTotal` — sessions this
@@ -576,7 +576,8 @@ const SessionCard = ({
  * Fleet audio roll-up: a stat row an operator scans first — sessions silent /
  * clipping / no-telemetry / OK. When `sessionAudio` is empty across the board,
  * this is where the "pipeline metering unavailable — use the standalone meter"
- * state and the Phase-0 link live (PLAN-MONITORING-DASHBOARD.md §6.238).
+ * state and the Phase-0 link live (2026-07-19-01-PLAN-MONITORING-DASHBOARD.md
+ * §6.238).
  */
 const FleetAudioRollup = ({
   sessions,
@@ -669,8 +670,9 @@ const FleetAudioRollup = ({
 
 /**
  * Live fleet view for the dashboard: a provider status row plus a
- * filter/sort/status grid of every active session (`PLAN-fleet-and-testaudio.md`
- * §B.4, adapted to session-centric telemetry — see `fleet-status.ts`).
+ * filter/sort/status grid of every active session
+ * (`archived-plans/2026-07-19-03-PLAN-fleet-and-testaudio.md` §B.4, adapted to
+ * session-centric telemetry — see `fleet-status.ts`).
  */
 export const FleetPanel = () => {
   const { snapshot, sessionEvents, connected, available } = useFleet();

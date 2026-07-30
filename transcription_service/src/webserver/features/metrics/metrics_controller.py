@@ -93,11 +93,12 @@ class MetricsController:
             metrics_registry    - In-memory telemetry store
             provider_registry   - Owner of the worker pool and providers
             capacity_estimator  - Per-worker capacity estimator
-                                    (PLAN-AdmissionControl.md §3). Read here
-                                    through snapshot() only; the enforcing
-                                    caller is TranscriptionProviderRegistry,
-                                    and this controller must stay side effect
-                                    free so a poll can never move a decision.
+                                    (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md
+                                    §3). Read here through snapshot() only; the
+                                    enforcing caller is
+                                    TranscriptionProviderRegistry, and this
+                                    controller must stay side effect free so a
+                                    poll can never move a decision.
         """
         self._metrics = metrics_registry
         self._providers = provider_registry
@@ -192,12 +193,24 @@ class MetricsController:
                 "decodeDropsTotal": _counter_series(
                     self._metrics.decode_drops_total
                 ),
+                # The reconnect-loop fix: a binary frame that outran auth or
+                # config is dropped rather than closing the socket 1008, which
+                # a source's auto-reconnect would otherwise turn into a loop
+                # that never delivers audio. Counted so a client stuck in that
+                # pattern is still visible to an operator.
+                "binaryDroppedBeforeAuthTotal": _counter_series(
+                    self._metrics.binary_dropped_before_auth_total
+                ),
+                "binaryDroppedBeforeConfigTotal": _counter_series(
+                    self._metrics.binary_dropped_before_config_total
+                ),
                 # Sessions the admission check turned away
-                # (PLAN-AdmissionControl.md §4). Zero series is the healthy
-                # steady state, so this is one of the few counters here whose
-                # *absence* of movement is the signal; it is reported anyway
-                # because an operator asking "is anyone being refused" must be
-                # able to get "no" as an answer rather than silence.
+                # (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4).
+                # Zero series is the healthy steady state, so this is one of the
+                # few counters here whose *absence* of movement is the signal; it
+                # is reported anyway because an operator asking "is anyone being
+                # refused" must be able to get "no" as an answer rather than
+                # silence.
                 "sessionsRefusedCapacityTotal": _counter_series(
                     self._metrics.sessions_refused_capacity_total
                 ),

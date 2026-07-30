@@ -4,7 +4,8 @@ Unit tests for AudioMeter
 Fixtures are synthesized with numpy rather than committed as binary WAV
 files - a sine tone at a known dBFS, a full-scale square wave, silence, and
 uniform noise are all cheap to generate on the fly and keep tolerances
-parametrizable, per PLAN-B2.1-B2.3-audio-quality-telemetry.md §1.3.
+parametrizable, per
+archived-plans/2026-07-22-01-PLAN-B2.1-B2.3-audio-quality-telemetry.md §1.3.
 """
 
 # pylint: disable=protected-access
@@ -392,7 +393,8 @@ class TestRollingWindowPurge:
 class TestCpuBudget:
     """
     Provisional budget, not independently validated - see
-    PLAN-B2.1-B2.3-audio-quality-telemetry.md §4 open question 1.
+    archived-plans/2026-07-22-01-PLAN-B2.1-B2.3-audio-quality-telemetry.md §4
+    open question 1.
     """
 
     def test_append_and_snapshot_complete_within_budget(self):

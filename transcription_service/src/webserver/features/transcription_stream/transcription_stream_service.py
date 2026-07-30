@@ -80,7 +80,8 @@ class TranscriptionStreamService(EventEmitter):
 
         Also raises TranscriptionCapacityError when the registry refuses the
         session because the worker it was placed on is at capacity
-        (PLAN-AdmissionControl.md §4) - a 1013 close, not a 1007 one. Nothing
+        (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4) - a 1013
+        close, not a 1007 one. Nothing
         is wired up when that happens: the registry has already torn the
         session back down, and the two `on()` calls below are never reached, so
         this service holds no session and `close()` has nothing to undo.
