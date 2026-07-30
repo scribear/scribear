@@ -191,11 +191,14 @@ describe('level measurement', (it) => {
     const readings = core.read();
 
     // Assert — the zone boundaries are peak thresholds (§4.1), and this tone's
-    // peak is 3.01 dB above its RMS, so a -18 dBFS *RMS* alignment tone sits
-    // just inside the amber band. That is the convention, not a rounding error:
-    // the boundary guards headroom, which peak defines.
+    // peak is 3.01 dB above its RMS, so a -18 dBFS *RMS* alignment tone peaks
+    // at -15.01 dBFS — below the -12 dBFS warn boundary used by the default
+    // "speech headroom" zones. A correctly-levelled alignment tone therefore
+    // reads 'good', which is the point of picking peak-based defaults that
+    // don't mistake a healthy signal for a hot one.
     expect(Math.abs(readings.rmsDb - -18)).toBeLessThan(TOLERANCE_DB);
     expect(Math.abs(readings.heldPeakDb - -15.01)).toBeLessThan(TOLERANCE_DB);
+    expect(readings.zone).toBe('good');
   });
 
   it('classifies a hot signal as warning and a near-clipping one as critical', () => {
@@ -204,11 +207,12 @@ describe('level measurement', (it) => {
     const hot = newCore();
 
     // Act
-    feed(warm, 2, sine(amplitudeForRmsDb(-12), 1000));
-    feed(hot, 2, sine(amplitudeForRmsDb(-3), 1000));
+    feed(warm, 2, sine(amplitudeForRmsDb(-10), 1000));
+    feed(hot, 2, sine(amplitudeForRmsDb(-5), 1000));
 
-    // Assert — the boundaries are peak-based, so a -12 dBFS RMS sine (peak
-    // -9 dBFS) is amber and a -3 dBFS RMS sine (peak 0 dBFS) is red.
+    // Assert — the boundaries are peak-based (default -12/-3 dBFS), so a
+    // -10 dBFS RMS sine (peak ~-7 dBFS, inside the band) is amber and a
+    // -5 dBFS RMS sine (peak ~-2 dBFS, past the critical boundary) is red.
     expect(warm.read().zone).toBe('warning');
     expect(hot.read().zone).toBe('critical');
   });

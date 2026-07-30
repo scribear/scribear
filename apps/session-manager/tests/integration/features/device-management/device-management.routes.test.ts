@@ -243,6 +243,74 @@ describe('Device Management Routes', () => {
       expect(secondBody.items).toHaveLength(1);
       expect(secondBody.nextCursor).toBeNull();
     });
+
+    it('does not repeat a row when rows share a millisecond', async () => {
+      // Arrange - `created_at` is a `timestamptz` and keeps microseconds, but
+      // the cursor round-trips through a JS `Date` and an ISO-8601 string, so
+      // it can only name a millisecond. These three rows share one
+      // millisecond and differ only below it, and their uids are ordered
+      // against their microseconds on purpose: uid(A) sorts after uid(B),
+      // which is the case that used to duplicate A onto page two when the
+      // query ordered on the raw column but filtered on the truncated one.
+      // Registering three devices back to back lands in one millisecond often
+      // enough that the test above failed roughly two runs in eight; this one
+      // forces the collision instead of waiting for it.
+      await dbContext.db.deleteFrom('rooms').execute();
+      await dbContext.db.deleteFrom('devices').execute();
+
+      const uidB = '00000000-0000-4000-8000-000000000001';
+      const uidC = '00000000-0000-4000-8000-000000000002';
+      const uidA = '00000000-0000-4000-8000-000000000003';
+      await dbContext.db
+        .insertInto('devices')
+        .values(
+          [
+            { uid: uidA, name: 'Device A', micros: '000100' },
+            { uid: uidB, name: 'Device B', micros: '000200' },
+            { uid: uidC, name: 'Device C', micros: '000300' },
+          ].map(({ uid, name, micros }) => ({
+            uid,
+            name,
+            created_at: `2026-01-01T00:00:00.${micros}Z`,
+            // devices_active_has_hash: a pending device carries an
+            // activation code and expiry and no hash.
+            activation_code: `code-${uid}`,
+            expiry: '2030-01-01T00:00:00.000Z',
+          })),
+        )
+        .execute();
+
+      // Act - walk both pages
+      const firstRes = await server.fastify.inject({
+        method: 'GET',
+        url: `${BASE}/list-devices?limit=2`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+      const firstBody = firstRes.json<{
+        items: { uid: string }[];
+        nextCursor: string | null;
+      }>();
+      const secondRes = await server.fastify.inject({
+        method: 'GET',
+        url: `${BASE}/list-devices?limit=2&cursor=${firstBody.nextCursor!}`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+      const secondBody = secondRes.json<{
+        items: { uid: string }[];
+        nextCursor: string | null;
+      }>();
+
+      // Assert - every row is returned exactly once across the two pages
+      expect(firstRes.statusCode).toBe(200);
+      expect(secondRes.statusCode).toBe(200);
+      expect(firstBody.items).toHaveLength(2);
+      expect(secondBody.items).toHaveLength(1);
+      expect(secondBody.nextCursor).toBeNull();
+
+      const seen = [...firstBody.items, ...secondBody.items].map((d) => d.uid);
+      expect(new Set(seen).size).toBe(3);
+      expect([...seen].sort()).toEqual([uidB, uidC, uidA].sort());
+    });
   });
 
   describe('GET /get-device/:deviceUid', (it) => {

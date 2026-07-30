@@ -21,7 +21,7 @@ const NULL_UUID = '00000000-0000-0000-0000-000000000000';
 
 describe('Room Management Routes', () => {
   const server = useServer();
-  useDb(['rooms', 'devices']);
+  const dbContext = useDb(['rooms', 'devices']);
 
   async function registerDevice(name = 'Test Device') {
     const res = await server.fastify.inject({
@@ -281,6 +281,66 @@ describe('Room Management Routes', () => {
       }>();
       expect(secondBody.items).toHaveLength(1);
       expect(secondBody.nextCursor).toBeNull();
+    });
+
+    it('does not repeat a row when rows share a millisecond', async () => {
+      // Arrange - the cursor can only name a millisecond (it round-trips
+      // through a JS `Date` and an ISO-8601 string), while `created_at` keeps
+      // microseconds. These three rooms share a millisecond and differ only
+      // below it, with uid(A) deliberately sorting after uid(B) - the case
+      // that duplicated a row across pages while the query ordered on the raw
+      // column but filtered on the truncated one. See the same test in
+      // `device-management.routes.test.ts`.
+      const uidB = '00000000-0000-4000-9000-000000000001';
+      const uidC = '00000000-0000-4000-9000-000000000002';
+      const uidA = '00000000-0000-4000-9000-000000000003';
+      await dbContext.db
+        .insertInto('rooms')
+        .values(
+          [
+            { uid: uidA, name: 'Room A', micros: '000100' },
+            { uid: uidB, name: 'Room B', micros: '000200' },
+            { uid: uidC, name: 'Room C', micros: '000300' },
+          ].map(({ uid, name, micros }) => ({
+            uid,
+            name,
+            timezone: 'UTC',
+            auto_session_enabled: false,
+            created_at: `2026-01-01T00:00:00.${micros}Z`,
+          })),
+        )
+        .execute();
+
+      // Act - walk both pages
+      const firstRes = await server.fastify.inject({
+        method: 'GET',
+        url: `${ROOM_BASE}/list-rooms?limit=2`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+      const firstBody = firstRes.json<{
+        items: { uid: string }[];
+        nextCursor: string | null;
+      }>();
+      const secondRes = await server.fastify.inject({
+        method: 'GET',
+        url: `${ROOM_BASE}/list-rooms?limit=2&cursor=${firstBody.nextCursor!}`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+      const secondBody = secondRes.json<{
+        items: { uid: string }[];
+        nextCursor: string | null;
+      }>();
+
+      // Assert - every row is returned exactly once across the two pages
+      expect(firstRes.statusCode).toBe(200);
+      expect(secondRes.statusCode).toBe(200);
+      expect(firstBody.items).toHaveLength(2);
+      expect(secondBody.items).toHaveLength(1);
+      expect(secondBody.nextCursor).toBeNull();
+
+      const seen = [...firstBody.items, ...secondBody.items].map((r) => r.uid);
+      expect(new Set(seen).size).toBe(3);
+      expect([...seen].sort()).toEqual([uidB, uidC, uidA].sort());
     });
   });
 

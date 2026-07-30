@@ -1,5 +1,6 @@
 """
-Unit tests for CapacityEstimator (PLAN-AdmissionControl.md §3/§6)
+Unit tests for CapacityEstimator
+(archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §3/§6)
 
 Every test drives the estimator with synthetic JobExecutionObservations
 carrying explicit timestamps, so the sliding window is exercised without a

@@ -1,5 +1,6 @@
 """
-Unit tests for the bounded-tail split (`PLAN-AdmissionControl.md` §2):
+Unit tests for the bounded-tail split
+(`archived-plans/2026-07-27-02-PLAN-AdmissionControl.md` §2):
 `_transcribe_audio` hands Whisper only the oldest `max_transcribe_len_sec`
 (W) seconds of the buffer, front-anchored, and force-finalization still
 purges the buffer back down to `force_finalize_len_sec` (F) - independently

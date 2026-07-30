@@ -113,7 +113,17 @@ const FindingCard = ({
         <Box sx={{ color: `${meta?.color ?? 'info'}.main`, mt: '2px' }}>
           {meta?.icon}
         </Box>
-        <Typography variant="subtitle1" sx={{ flexGrow: 1, fontWeight: 600 }}>
+        {/* `component="h2"`: MUI maps the `subtitle1` variant to an `<h6>`,
+            which under this page's `h1` skips four levels. The severity
+            groups above are `Divider`/`Chip` decoration rather than
+            headings, so each finding is the first subsection level under the
+            page title - and heading navigation is how a screen-reader user
+            walks the findings list. */}
+        <Typography
+          variant="subtitle1"
+          component="h2"
+          sx={{ flexGrow: 1, fontWeight: 600 }}
+        >
           {finding.title}
         </Typography>
         {escalatesInProduction && (
@@ -240,7 +250,7 @@ export const ConfigCheckPage = () => {
           flexWrap: 'wrap',
         }}
       >
-        <Typography variant="h5" sx={{ flexGrow: 1 }}>
+        <Typography variant="h5" component="h1" sx={{ flexGrow: 1 }}>
           Deployment Check
         </Typography>
         <Chip
@@ -352,7 +362,10 @@ export const ConfigCheckPage = () => {
           critical misconfigurations would bury the thing that needs acting on.
           The intro paragraph points here so a reader knows it exists. */}
       <Divider sx={{ mt: 4, mb: 2 }} />
-      <Typography variant="h6" sx={{ mb: 0.5 }}>
+      {/* `component="h2"` for the same reason as the finding titles: the
+          `h6` variant would skip four levels under the page `h1`, and this
+          is a peer section of the findings list, not a sub-part of one. */}
+      <Typography variant="h6" component="h2" sx={{ mb: 0.5 }}>
         Deployed versions
       </Typography>
       <Typography

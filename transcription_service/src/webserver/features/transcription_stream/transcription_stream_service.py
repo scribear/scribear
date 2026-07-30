@@ -90,7 +90,8 @@ class TranscriptionStreamService(EventEmitter):
         here, synchronously, but a session's job (and therefore the worker it
         would occupy) is no longer registered at construction. It registers on
         the session's own first `handle_audio_chunk`, which is also where a
-        capacity refusal now surfaces (PLAN-AdmissionControl.md §4; see
+        capacity refusal now surfaces
+        (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4; see
         handle_audio_chunk below and TranscriptionSessionInterface for why).
         """
         self._session = self._provider_registry.create_session(

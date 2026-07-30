@@ -8,7 +8,7 @@ import type {
 
 /**
  * Ranges, defaults and captions for the two synthetic sources
- * (`PLAN-TestAudioDevices.md` §2.1 and §2.2).
+ * (`archived-plans/2026-07-27-01-PLAN-TestAudioDevices.md` §2.1 and §2.2).
  *
  * The captions are the point of this file. §2.2 was a table of claims about what
  * each fault was *expected* to show up as, and the plan was explicit that the
@@ -21,8 +21,9 @@ import type {
  * taken against a live GPU stack (`cuda128`, RTX 5070 Ti, `faster-whisper`
  * `turbo`, one device at a time, 120 s per knob) — the raw numbers, the exact
  * alert text and the baseline they are differences from are in
- * `MEASURED-TestAudio-Faults.md`. Four of the nine original claims were wrong or
- * half right, and those captions now say what actually happens instead. Two
+ * `archived-plans/2026-07-27-01-MEASURED-TestAudio-Faults.md`. Four of the nine
+ * original claims were wrong or half right, and those captions now say what
+ * actually happens instead. Two
  * things a reader should carry: the numbers are hardware-dependent where the
  * caption says so, and a knob whose caption says "nothing moves" is reporting a
  * measured absence, not an untested guess. `speedup` was additionally measured
@@ -92,8 +93,9 @@ export interface FaultKnob {
   /** Appended to the value in the accessible value text and the readout. */
   unit: string;
   /** What turning this knob up **was measured to do**, named concretely enough
-   *  to go and look at. See `MEASURED-TestAudio-Faults.md` for the run each
-   *  number comes from. */
+   *  to go and look at. See
+   *  `archived-plans/2026-07-27-01-MEASURED-TestAudio-Faults.md` for the run
+   *  each number comes from. */
   caption: string;
 }
 

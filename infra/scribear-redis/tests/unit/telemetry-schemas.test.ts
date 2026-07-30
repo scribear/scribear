@@ -153,8 +153,8 @@ describe('transcription worker schema', () => {
   it('should accept a null estimatedCapacitySessions', () => {
     // "Not measured yet" (warm-up) - the estimator always has an answer to
     // give, but not always a real one, so this field is always present and
-    // sometimes null rather than sometimes absent (PLAN-AdmissionControl.md
-    // §5).
+    // sometimes null rather than sometimes absent
+    // (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §5).
     //
     // Assert
     expect(

@@ -4,8 +4,9 @@ An opt-in, zero-click fleet-health dashboard for anyone evaluating ScribeAR on
 their own staging box. `docker compose --profile monitoring up -d` and a
 working Grafana dashboard — sessions, RTF, dropped periods, worker health,
 canary status — is already there, sourced from metrics the stack already
-produces. See `PLAN-Grafana-Monitoring.md` in the repo root for the full
-design rationale; this file is the operator-facing "how do I use it" doc.
+produces. See `archived-plans/2026-07-28-01-PLAN-Grafana-Monitoring.md`
+(outside this repo, in `~/scribear2/`) for the full design rationale; this
+file is the operator-facing "how do I use it" doc.
 
 **Not a production-grade, long-retention, HA monitoring stack.** This is an
 evaluation/staging quick-win. Outgrow it by pointing Prometheus at your own
@@ -68,8 +69,9 @@ deployment_grafana_data` additionally drops their data for a clean slate.
 ## Pointing your own Grafana at this Prometheus
 
 Prometheus is backend-network-only by design (it ships with no
-authentication of its own — see `PLAN-Grafana-Monitoring.md §2`), so an
-external Grafana cannot reach it as-is. Two honest options, no third:
+authentication of its own — see
+`archived-plans/2026-07-28-01-PLAN-Grafana-Monitoring.md §2`), so an external
+Grafana cannot reach it as-is. Two honest options, no third:
 
 1. **Run your Grafana inside this compose network** (e.g. as another service
    in a `compose.override.yml` on the `backend` network) and point it at
@@ -114,4 +116,4 @@ dashboard cannot show a capacity-ceiling-vs-live-sessions panel the way
 `admin-webapp`'s `CapacityMeterBar` does. `scribear_ws_close_total` broken
 out by close code (see the "WebSocket close codes" panel) gives an indirect
 signal today — a spike in code `1013` — until that gap is closed. See
-`PLAN-Grafana-Monitoring.md §7`.
+`archived-plans/2026-07-28-01-PLAN-Grafana-Monitoring.md §7`.

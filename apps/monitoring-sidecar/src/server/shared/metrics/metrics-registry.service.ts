@@ -30,7 +30,7 @@ export class MetricsRegistry {
   //
   // Log inference was lossy by construction: it depended on the log level, on
   // the collector being attached for the whole window, and on nothing rotating
-  // out. See PLAN-B1.1-node-server-status.md §5.
+  // out. See archived-plans/2026-07-20-01-PLAN-B1.1-node-server-status.md §5.
 
   /**
    * SAFP frames rejected by the decoder. Rising on the node side means the
@@ -99,6 +99,22 @@ export class MetricsRegistry {
   readonly nodeAuthTimeoutsTotal = new Counter(
     'scribear_node_auth_timeouts_total',
     'Connections closed for not authenticating in time.',
+  );
+
+  /**
+   * Binary audio frames a source sent before its AUTH handshake completed,
+   * dropped rather than closing the socket. Without this, a source that
+   * starts streaming before AUTH_OK would instead be closed 1008
+   * `binary-before-auth` and reconnect-loop, since each reconnect re-sends
+   * AUTH and the next first chunk again beats AUTH_OK.
+   *
+   * Optional on the wire (`STATUS_PROCESS_SCHEMA.summary.binaryBeforeAuthDropsTotal`
+   * predates this field on older node-server builds), so a poll that omits it
+   * simply records no increment that round rather than treating it as zero.
+   */
+  readonly nodeBinaryBeforeAuthDropsTotal = new Counter(
+    'scribear_node_binary_before_auth_drops_total',
+    'Binary frames dropped because a source began streaming before its AUTH handshake completed.',
   );
 
   /** Source registrations that threw, closing the socket with 1011. */
@@ -551,6 +567,35 @@ export class MetricsRegistry {
     'Transcription buffers that produced no speech, by kind.',
   );
 
+  /**
+   * Binary frames a source sent before its AUTH handshake completed, or before
+   * session configuration completed, respectively. The transcription-service
+   * counterpart of {@link nodeBinaryBeforeAuthDropsTotal} — the identical
+   * reconnect-loop fix applied on the other side of the same handshake, so a
+   * source that starts streaming too early is dropped and counted rather than
+   * closed 1008 and left to loop.
+   *
+   * Per provider, unlike the node-server counterpart: transcription-service
+   * multiplexes several providers behind one process, so a drop is only
+   * actionable once it is attributed to one of them.
+   *
+   * Optional on the wire: a transcription-service built before the
+   * reconnect-loop fix does not send `binaryDroppedBeforeAuthTotal` or
+   * `binaryDroppedBeforeConfigTotal` at all, and a rolling upgrade means the
+   * sidecar polls exactly that service. A poll that omits them records no
+   * increment that round rather than treating it as zero.
+   */
+  readonly asrBinaryDroppedBeforeAuthTotal = new Counter(
+    'scribear_asr_binary_dropped_before_auth_total',
+    'Binary frames dropped because a source began streaming before its AUTH handshake completed, by provider.',
+  );
+
+  /** See {@link asrBinaryDroppedBeforeAuthTotal}; the config-handshake half of the same fix. */
+  readonly asrBinaryDroppedBeforeConfigTotal = new Counter(
+    'scribear_asr_binary_dropped_before_config_total',
+    'Binary frames dropped because a source began streaming before session configuration completed, by provider.',
+  );
+
   // --- A3: probe-derived --------------------------------------------------
 
   /** 1 when the probe returned healthy, 0 otherwise. Labelled service/probe. */
@@ -672,6 +717,7 @@ export class MetricsRegistry {
       this.nodeAuthFailuresTotal,
       this.nodeAuthSuccessTotal,
       this.nodeAuthTimeoutsTotal,
+      this.nodeBinaryBeforeAuthDropsTotal,
       this.nodeOrchestratorFailuresTotal,
       this.nodePendingChunkEvictionsTotal,
       this.nodeLatencySamplesTotal,
@@ -692,6 +738,8 @@ export class MetricsRegistry {
       this.asrAudioDroppedBufferFullTotal,
       this.asrAudioDroppedBufferFullSecondsTotal,
       this.asrNoSpeechTotal,
+      this.asrBinaryDroppedBeforeAuthTotal,
+      this.asrBinaryDroppedBeforeConfigTotal,
       this.probeTransitionsTotal,
       this.canaryRunsTotal,
       this.canaryTranscriptsTotal,

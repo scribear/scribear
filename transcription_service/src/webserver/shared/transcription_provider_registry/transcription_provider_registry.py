@@ -89,13 +89,13 @@ class TranscriptionProviderRegistry:
                                     job execution, used to feed the metrics
                                     registry
             capacity_estimator  - Optional per-worker capacity estimator
-                                    (PLAN-AdmissionControl.md §3). When absent,
-                                    every session is admitted - the same
-                                    behaviour as before admission control
-                                    existed, which is what keeps every existing
-                                    test and every embedding of this class that
-                                    does not care about capacity working
-                                    unchanged.
+                                    (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md
+                                    §3). When absent, every session is admitted
+                                    - the same behaviour as before admission
+                                    control existed, which is what keeps every
+                                    existing test and every embedding of this
+                                    class that does not care about capacity
+                                    working unchanged.
             metrics_registry    - Optional telemetry store, used only to count
                                     capacity refusals. Optional for the same
                                     reason: a refusal that cannot be counted is

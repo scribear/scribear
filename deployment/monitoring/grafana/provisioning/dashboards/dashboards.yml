@@ -2,8 +2,8 @@
 # ../dashboards to /var/lib/grafana/dashboards) so every JSON file there loads
 # automatically on startup - no "Import dashboard" click, ever, for the
 # bundled setup. A second dashboard (e.g. GPU-specific, see
-# PLAN-Grafana-Monitoring.md §10) is a sibling JSON file in that directory,
-# not a change here.
+# archived-plans/2026-07-28-01-PLAN-Grafana-Monitoring.md §10) is a sibling
+# JSON file in that directory, not a change here.
 apiVersion: 1
 
 providers:

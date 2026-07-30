@@ -57,7 +57,8 @@ class TranscriptionSessionInterface(ABC, EventEmitter):
         None is also a positive statement once a job does exist, not only a
         "not yet" state. It means "this session's cost is not a claim on a
         local worker's ASR throughput, so the per-worker capacity estimate
-        does not describe it" - the shape `PLAN-AdmissionControl.md` §5 already
+        does not describe it" - the shape
+        `archived-plans/2026-07-27-02-PLAN-AdmissionControl.md` §5 already
         uses for a remote provider's capacity, which is reported as "not
         applicable" rather than as a fabricated number. Defaulting to None is
         also the safe direction under this plan's stated posture: a provider

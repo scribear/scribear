@@ -1,6 +1,6 @@
 """
 Cross-provider tests for `TranscriptionSessionInterface.admission_worker_id`
-(PLAN-AdmissionControl.md §4/§5)
+(archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4/§5)
 
 This is the one property that decides which providers capacity admission
 applies to, so it is pinned here against all three shipped providers at once

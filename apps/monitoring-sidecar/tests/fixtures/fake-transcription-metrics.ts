@@ -77,6 +77,11 @@ export function histogramSeries(
  * `asrDroppedPeriodsTotal` is deliberately **not** here, so the default body is
  * the older-service shape that omits it — the case the tail alert's p99 fallback
  * exists for. A test that wants the counter reported passes it explicitly.
+ *
+ * `binaryDroppedBeforeAuthTotal` / `binaryDroppedBeforeConfigTotal` are
+ * likewise absent by default, for the same reason: they predate this change
+ * on an older transcription-service, and the default body should model that
+ * service rather than one that already sends everything.
  */
 const EMPTY_COUNTERS = {
   jobsCompletedTotal: [],

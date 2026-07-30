@@ -142,10 +142,10 @@ class TranscriptionStreamController(WebsocketHandler):
         TranscriptionStreamService once auth has completed and a config has
         not yet been received.
 
-        Capacity admission (PLAN-AdmissionControl.md §4) no longer happens
-        here: a session's worker-pool job registers on its own first audio
-        chunk, not at construction, so there is nothing to ask about yet.
-        `TranscriptionCapacityError` instead surfaces from
+        Capacity admission (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md
+        §4) no longer happens here: a session's worker-pool job registers on
+        its own first audio chunk, not at construction, so there is nothing to
+        ask about yet. `TranscriptionCapacityError` instead surfaces from
         `_handle_binary_message` below, and is mapped to a 1013 close by the
         same `_handle_error` this method's own errors go through - deliberately
         not the WebSocket handshake, which is unconditional before anything
@@ -277,16 +277,44 @@ class TranscriptionStreamController(WebsocketHandler):
         """
         Treat any binary client message as a SAFP-framed chunk of source
         audio. Auth and config are enforced before the frame is decoded so an
-        unauthenticated peer is rejected regardless of framing; a malformed
-        frame from an authenticated peer is dropped (the node server already
-        validated the CRC, so this is defense in depth).
+        out-of-order frame never reaches a session; a malformed frame from an
+        authenticated, configured peer is dropped separately below (the node
+        server already validated the CRC, so this is defense in depth).
+
+        A frame that arrives before auth, or before config, is dropped and
+        counted rather than closing the socket - mirroring the fix already
+        applied on the node-server side (see
+        `transcription-stream.controller.ts`'s `socket.on('message', ...)`
+        handler). Closing here turns a recoverable client bug into a silent
+        reconnect loop: a source that starts streaming before AUTH_OK (or
+        before its CONFIG has been processed) would be closed 1008, the
+        client's auto-reconnect immediately re-sends AUTH, its first chunk
+        again beats AUTH_OK, and the cycle repeats forever with no audio ever
+        delivered and nothing naming the cause. The frame is worthless here
+        regardless - there is no session yet to hand it to - so dropping it is
+        strictly the better failure mode: the socket stays open long enough to
+        finish auth/config, after which audio flows normally. The init-timeout
+        watchdog (`_init_timeout`) still closes a socket that never completes
+        the handshake at all.
         """
         if not self._is_authenticated:
-            self.close(1008, "Audio chunk before authentication")
+            self._metrics_registry.record_binary_dropped_before_auth(
+                self._provider_key
+            )
+            self._logger.debug(
+                "Dropping binary frame received before authentication",
+                context={"provider_key": self._provider_key},
+            )
             return
 
         if self._service is None:
-            self.close(1008, "Audio chunk before configuration")
+            self._metrics_registry.record_binary_dropped_before_config(
+                self._provider_key
+            )
+            self._logger.debug(
+                "Dropping binary frame received before configuration",
+                context={"provider_key": self._provider_key},
+            )
             return
 
         try:
@@ -344,7 +372,7 @@ class TranscriptionStreamController(WebsocketHandler):
         # for the service being busy. 1013 ("Try Again Later") is the IANA
         # registry's code for exactly this, and the reason string is what lets
         # the node server report "refused" rather than "crashed"
-        # (PLAN-AdmissionControl.md §4).
+        # (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4).
         if isinstance(error, TranscriptionCapacityError):
             self.close(1013, error.message)
             return True

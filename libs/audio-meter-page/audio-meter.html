@@ -514,9 +514,9 @@
           <div>
             <label for="zones">Peak zones (green ≤ / red &gt;), dBFS</label>
             <select id="zones">
-              <option value="-18,-6" selected>-18 / -6 (EBU alignment)</option>
+              <option value="-18,-6">-18 / -6 (EBU alignment)</option>
               <option value="-20,-6">-20 / -6 (SMPTE alignment)</option>
-              <option value="-12,-3">-12 / -3 (speech headroom)</option>
+              <option value="-12,-3" selected>-12 / -3 (speech headroom)</option>
             </select>
           </div>
           <div>
@@ -594,8 +594,17 @@
            */
           rmsReferenceOffsetDb: 0,
           loudnessTargetLufs: -23,
-          peakWarnDb: -18,
-          peakCriticalDb: -6,
+          /**
+           * These are PEAK thresholds, applied to the held sample peak, not
+           * RMS. EBU/SMPTE alignment levels (-18/-20 dBFS) are RMS
+           * conventions: a sine at -18 dBFS RMS peaks at -15.01 dBFS, 3 dB
+           * above that boundary, so a healthy, correctly-levelled speech
+           * signal would render amber. -12/-3 ("speech headroom") guards
+           * headroom against the actual peak instead and is the right
+           * default for a lecture-room speech meter.
+           */
+          peakWarnDb: -12,
+          peakCriticalDb: -3,
         };
 
         var DB_FLOOR = -120;
@@ -1105,8 +1114,10 @@
       const options = {
         rmsReferenceOffsetDb: 0,
         loudnessTargetLufs: -23,
-        peakWarnDb: -18,
-        peakCriticalDb: -6,
+        // Peak vs. RMS alignment-level rationale: see DEFAULTS in the
+        // meter-dsp script above.
+        peakWarnDb: -12,
+        peakCriticalDb: -3,
         silenceThresholdDb: -60,
       };
 

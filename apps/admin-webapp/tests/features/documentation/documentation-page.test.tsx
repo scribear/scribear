@@ -59,6 +59,22 @@ describe('DocumentationPage', (it) => {
     }
   });
 
+  it('gives the page an h1 and each card an h2 (SC 1.3.1, heading-order)', () => {
+    renderWithProviders(<DocumentationPage />);
+
+    // The page title carries the `h5` type scale but must be the `h1`, the
+    // way every other page in this console does it. The card titles use the
+    // `subtitle1` variant, which MUI maps to an `<h6>` element by default —
+    // four levels below the page title, which axe reports as heading-order.
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Documentation' }),
+    ).toBeInTheDocument();
+    expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
+    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(
+      EXPECTED_LINKS.length,
+    );
+  });
+
   it('announces that the cards open a new tab (SC 3.2.5)', () => {
     renderWithProviders(<DocumentationPage />);
 

@@ -141,7 +141,8 @@ interface SessionState {
    * Close code from the upstream's most recent `close` event, or `null` if it
    * has never closed. Recorded so `_setStatus` can distinguish a capacity
    * refusal (1013) from any other disconnect ("service crashed"-shaped
-   * disconnects included) - see `PLAN-AdmissionControl.md` §4. Stale values
+   * disconnects included) - see
+   * `archived-plans/2026-07-27-02-PLAN-AdmissionControl.md` §4. Stale values
    * are harmless: `_setStatus` only consults this while
    * `upstream.state !== 'OPEN'`, and it is overwritten on every subsequent
    * close.
@@ -632,7 +633,8 @@ export class TranscriptionOrchestratorService {
     });
     // Record the close code/reason so `_setStatus` can tell a capacity
     // refusal (1013) apart from any other disconnect - see
-    // `PLAN-AdmissionControl.md` §4. This fires AFTER the `stateChange` this
+    // `archived-plans/2026-07-27-02-PLAN-AdmissionControl.md` §4. This fires
+    // AFTER the `stateChange` this
     // same close triggers (the client emits `close` last in `_handleClose`),
     // so the `stateChange` listener's `_setStatus` call above still sees the
     // previous close code; publish again here once the new one is recorded.
