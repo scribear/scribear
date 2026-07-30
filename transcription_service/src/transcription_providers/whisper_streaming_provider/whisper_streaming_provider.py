@@ -2,6 +2,9 @@
 Defines FasterWhisperStreamingProvider
 """
 
+# The provider/session wiring necessarily mirrors the other providers.
+# pylint: disable=duplicate-code
+
 from dataclasses import asdict
 
 from src.shared.logger import Logger
@@ -68,28 +71,20 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
             self.session_uid = session_uid
             self.room_uid = room_uid
 
-            self._job = provider.worker_pool.register_job(
-                (
-                    self._provider.config.whisper_context_tag,
-                    self._provider.config.silero_context_tag,
-                ),
-                self._provider.config.job_period_ms,
-                WhisperStreamingProviderJob(self._provider.config),
-                self._provider.provider_key,
-                session_uid=self.session_uid,
-                room_uid=self.room_uid,
-            )
-            self._job.on(self._job.JobResultEvent, self._handle_job_result)
+            # Not registered here - see _ensure_job. An idle client that never
+            # sends audio must never take a worker's job slot, which is also
+            # why admission_worker_id below has to tolerate self._job being
+            # None.
+            self._job = None
 
-            # Last, so a registration that raises above never counts a session
-            # that did not open.
             self._provider.session_started()
 
         @property
         def admission_worker_id(self) -> int | None:
             """
             The worker this session's transcription job was actually assigned
-            to, read off the handle register_job returned
+            to, read off the handle register_job returned - or None if no job
+            has been registered yet
 
             Read from the JobHandle rather than recomputed, because the pool's
             choice is made from live utilization at registration time and any
@@ -97,8 +92,13 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
             already been made. This is the only shipped provider that overrides
             it: local ASR compute on a pool worker is exactly what the capacity
             estimator measures.
+
+            None before the first audio chunk is exactly the same "not a
+            capacity claim yet" statement the base class makes for a provider
+            excluded outright - see
+            TranscriptionSessionInterface.admission_worker_id.
             """
-            return self._job.worker_id
+            return self._job.worker_id if self._job is not None else None
 
         def _handle_job_result(
             self, result: JobSuccess[TranscriptionResult] | JobException
@@ -125,14 +125,63 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
             )
             self.emit(self.TranscriptionResultEvent, result.value)
 
+        def _ensure_job(self) -> None:
+            """
+            Registers this session's worker-pool job on the first real audio
+            chunk, not at construction
+
+            Deferred so an idle client - configured but never streaming - never
+            takes a worker's job slot, and so never counts toward that
+            worker's live_job_count for capacity admission
+            (PLAN-AdmissionControl.md §4). `check_admission` is called
+            immediately after registering, before any data is queued to the
+            job, so a refusal can undo the registration and raise before this
+            chunk is ever processed - the same "build then undo" shape
+            admission used at construction time, just relocated to where
+            registration itself now happens.
+
+            A `register_job` that raises (context tags misconfigured, per
+            `describe_health`'s "routed here dies at register_job") now
+            surfaces on the first audio chunk instead of at CONFIG time; the
+            readiness probe and per-provider health already report that
+            misconfiguration independently, so a client still finds out, just
+            not until it would have needed the worker anyway.
+            """
+            if self._job is not None:
+                return
+
+            self._job = self._provider.worker_pool.register_job(
+                (
+                    self._provider.config.whisper_context_tag,
+                    self._provider.config.silero_context_tag,
+                ),
+                self._provider.config.job_period_ms,
+                WhisperStreamingProviderJob(self._provider.config),
+                self._provider.provider_key,
+                session_uid=self.session_uid,
+                room_uid=self.room_uid,
+            )
+            self._job.on(self._job.JobResultEvent, self._handle_job_result)
+
+            try:
+                self._provider.check_admission(
+                    self.admission_worker_id, self._log
+                )
+            except BaseException:
+                self._job.deregister()
+                self._job = None
+                raise
+
         def handle_audio_chunk(self, chunk_id: str, chunk: bytes):
+            self._ensure_job()
             self._job.queue_data(
                 [AudioChunkPayload(chunk_id=chunk_id, audio_bytes=chunk)]
             )
 
         def end_session(self):
             super().end_session()
-            self._job.deregister()
+            if self._job is not None:
+                self._job.deregister()
             self._provider.session_ended()
 
     def __init__(

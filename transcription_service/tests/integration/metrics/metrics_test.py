@@ -4,6 +4,7 @@ Integration tests for the /metrics/status endpoint
 
 import asyncio
 import logging
+from os import path
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,6 +17,7 @@ from src.shared.config import (
     TranscriptionProviderUID,
 )
 from src.shared.logger import ContextLogger, Logger
+from src.shared.utils.audio_frame_protocol import encode_audio_frame
 from src.transcription_providers.debug_provider.debug_provider import (
     DEBUG_JOB_PERIOD_MS,
 )
@@ -24,6 +26,18 @@ from src.webserver.create_webserver import create_webserver
 API_KEY = "TEST_KEY"
 METRICS_API_KEY = "TEST_METRICS_KEY"
 TIMEOUT_SEC = 1
+
+AUDIO_DIR = path.normpath(
+    path.join(
+        __file__,
+        "..",
+        "..",
+        "..",
+        "..",
+        "..",
+        "test_audio_files/musical_chords",
+    )
+)
 
 # Two real worker processes are spawned per test using these fixtures, which
 # is well past the global 1s pytest timeout.
@@ -256,10 +270,17 @@ async def test_records_a_real_job_execution(test_client: TestClient):
     in a spawned worker process, its result crosses the result queue, the
     worker pool hook folds it into the registry, and the endpoint reports it -
     labelled with the provider key the session was opened against.
+
+    Job registration is deferred to the session's first audio chunk (an idle
+    session never takes a worker's job slot at all), so one is sent here -
+    config alone no longer registers anything for the sleep below to catch a
+    pass of.
     """
     # Arrange
     headers = {"authorization": f"Bearer {METRICS_API_KEY}"}
     labels = {"provider_key": "debug"}
+    with open(path.join(AUDIO_DIR, "mono_f64le.wav"), "rb") as f:
+        chunk = f.read()
 
     # Act
     with test_client.websocket_connect(
@@ -269,9 +290,11 @@ async def test_records_a_real_job_execution(test_client: TestClient):
         websocket.send_json(
             {
                 "type": "config",
-                "config": {"sample_rate": 16000, "num_channels": 1},
+                # Matches mono_f64le.wav's actual sample rate.
+                "config": {"sample_rate": 48000, "num_channels": 1},
             }
         )
+        websocket.send_bytes(encode_audio_frame("chunk-1", chunk))
         # The debug job's period is 1000ms, so one full period plus slack
         await asyncio.sleep(1.5)
 

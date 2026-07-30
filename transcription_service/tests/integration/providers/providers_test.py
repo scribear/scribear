@@ -3,6 +3,7 @@ Integration tests for the /providers/health endpoint
 """
 
 import logging
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,6 +17,7 @@ from src.shared.config import (
     TranscriptionProviderUID,
 )
 from src.shared.logger import ContextLogger, Logger
+from src.shared.utils.audio_frame_protocol import encode_audio_frame
 from src.webserver.create_webserver import create_webserver
 
 API_KEY = "TEST_KEY"
@@ -116,6 +118,31 @@ def _health(client: TestClient):
     )
     assert response.status_code == 200
     return response.json()
+
+
+def _health_once_active(client: TestClient, timeout_sec: float = 5.0):
+    """
+    Polls /providers/health until a worker reports an active job, or gives up
+
+    A synchronous TestClient send only guarantees a message has been handed to
+    the app's receive queue, not that the app has finished acting on it - job
+    registration happens moments later, on the app's own event loop thread. A
+    single immediate read would be racy; this polls briefly instead of relying
+    on a fixed sleep being long enough on a slower machine.
+
+    Args:
+        client       - Test client to read through
+        timeout_sec  - How long to keep polling before giving up and returning
+                        whatever the last read was
+    """
+    deadline = time.monotonic() + timeout_sec
+    body = _health(client)
+    while time.monotonic() < deadline:
+        if any(worker["activeJobs"] for worker in body["workers"]):
+            return body
+        time.sleep(0.05)
+        body = _health(client)
+    return body
 
 
 def test_rejects_request_with_no_credential(test_client: TestClient):
@@ -302,6 +329,14 @@ def test_reports_active_job_correlated_to_session_and_room_uid(
     worker holding its job - the correlation an operator needs to trace a
     saturated worker back to the session/room causing it (B1.7 follow-up,
     part 2 of 2)
+
+    Job registration is deferred to the session's first audio chunk (an idle
+    session never takes a worker's job slot at all), so one is sent here
+    before reading health - config alone no longer registers anything.
+    Registration itself is synchronous with handling that chunk (decoding it
+    is not), so the content does not need to be real audio here - only that
+    /providers/health, polled below, was not read before the server had a
+    chance to process the frame.
     """
     # Act
     with test_client.websocket_connect(
@@ -317,11 +352,12 @@ def test_reports_active_job_correlated_to_session_and_room_uid(
             }
         )
         # start_session() emits synchronously within config handling, so
-        # receiving it proves the session (and its job registration) exists
-        # server-side before the health read below.
+        # receiving it proves the session exists server-side before the audio
+        # chunk below registers its job.
         websocket.receive_json()
+        websocket.send_bytes(encode_audio_frame("chunk-1", b"not-real-audio"))
 
-        body = _health(test_client)
+        body = _health_once_active(test_client)
 
     # Assert
     active_jobs = [

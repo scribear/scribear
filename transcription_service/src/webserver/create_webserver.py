@@ -71,14 +71,8 @@ def create_webserver(config: Config, logger: Logger):
         metrics_registry.record_job_execution(observation)
         capacity_estimator.record(observation)
 
-    # Admission enforcement disabled for now: idle (audio-less) connections
-    # register a job and count toward a worker's live_job_count the same as
-    # an active one, so N can cross the ratcheted ceiling from connection
-    # count alone. `capacity_estimator` is still wired into `_observe_job`
-    # below and into /metrics/status + /providers/health, so estimation stays
-    # live in shadow mode - only the refusal in `create_session` is off.
     provider_registry = TranscriptionProviderRegistry(
-        config, logger, _observe_job, None, metrics_registry
+        config, logger, _observe_job, capacity_estimator, metrics_registry
     )
     # One join, two consumers: the /providers/health route below and the
     # telemetry publisher started in the lifespan hook.

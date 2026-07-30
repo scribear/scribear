@@ -181,6 +181,82 @@ def test_handle_audio_chunk_is_no_op_before_start(
     # Assert - no exception raised, no session call attempted (no session yet).
 
 
+def test_handle_audio_chunk_reraises_a_session_error(
+    service: TranscriptionStreamService, fake_session: FakeSession
+):
+    """
+    An error raised by the underlying session (e.g. TranscriptionCapacityError
+    on the first chunk that registers its job) propagates out of
+    handle_audio_chunk rather than being swallowed - the controller relies on
+    this to map it to the right close code.
+    """
+    # Arrange
+    service.start()
+    fake_session.handle_audio_chunk.side_effect = TranscriptionClientError(
+        "at capacity"
+    )
+
+    # Act / Assert
+    with pytest.raises(TranscriptionClientError):
+        service.handle_audio_chunk("chunk-1", b"\x01")
+
+
+def test_handle_audio_chunk_stops_retrying_after_a_session_error(
+    service: TranscriptionStreamService, fake_session: FakeSession
+):
+    """
+    Once a chunk has raised, later chunks are dropped instead of being
+    retried against the same session
+
+    A capacity refusal closes the socket asynchronously, so more chunks can
+    arrive before that close lands. Without this latch each one would retry
+    registration against the same full worker and log another refusal for a
+    connection that is already on its way out.
+    """
+    # Arrange
+    service.start()
+    fake_session.handle_audio_chunk.side_effect = TranscriptionClientError(
+        "at capacity"
+    )
+    with pytest.raises(TranscriptionClientError):
+        service.handle_audio_chunk("chunk-1", b"\x01")
+
+    # Act
+    fake_session.handle_audio_chunk.side_effect = None
+    service.handle_audio_chunk("chunk-2", b"\x02")
+
+    # Assert - the second chunk never reached the session
+    fake_session.handle_audio_chunk.assert_called_once_with("chunk-1", b"\x01")
+
+
+def test_close_still_ends_the_session_after_a_chunk_error(
+    service: TranscriptionStreamService, fake_session: FakeSession
+):
+    """
+    A session that raised out of handle_audio_chunk is still torn down by
+    close(), so its provider's active-session count is not leaked
+
+    The chunk-error latch is deliberately a separate flag from `_closed`:
+    `close()` checks `_closed` to decide whether it still has teardown to do,
+    and end_session() is what balances the session_started() its constructor
+    already ran. If a chunk error had set `_closed` instead, this would never
+    run and the provider would carry that session as active forever.
+    """
+    # Arrange
+    service.start()
+    fake_session.handle_audio_chunk.side_effect = TranscriptionClientError(
+        "at capacity"
+    )
+    with pytest.raises(TranscriptionClientError):
+        service.handle_audio_chunk("chunk-1", b"\x01")
+
+    # Act
+    service.close()
+
+    # Assert
+    fake_session.end_session.assert_called_once()
+
+
 def test_close_ends_underlying_session(
     service: TranscriptionStreamService, fake_session: FakeSession
 ):
