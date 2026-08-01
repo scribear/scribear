@@ -2,6 +2,9 @@
 Defines DebugProvider that provides debugging information as "transcriptions"
 """
 
+# The provider/session wiring necessarily mirrors the other providers.
+# pylint: disable=duplicate-code
+
 from src.shared.logger import Logger
 from src.shared.utils.worker_pool import JobException, JobSuccess, WorkerPool
 from src.transcription_provider_interface import (
@@ -51,19 +54,10 @@ class DebugProvider(TranscriptionProviderInterface):
             self.session_uid = session_uid
             self.room_uid = room_uid
 
-            self._job = provider.worker_pool.register_job(
-                (),
-                DEBUG_JOB_PERIOD_MS,
-                DebugProviderJob(self._config),
-                provider.provider_key,
-                session_uid=self.session_uid,
-                room_uid=self.room_uid,
-            )
+            # Not registered here - see _ensure_job. An idle client that never
+            # sends audio must never take a worker's job slot.
+            self._job = None
 
-            self._job.on(self._job.JobResultEvent, self._handle_job_result)
-
-            # Last, so a registration that raises above never counts a session
-            # that did not open.
             provider.session_started()
 
         def _handle_job_result(
@@ -108,15 +102,46 @@ class DebugProvider(TranscriptionProviderInterface):
                 ),
             )
 
+        def _ensure_job(self) -> None:
+            """
+            Registers this session's worker-pool job on the first real audio
+            chunk, not at construction
+
+            Deferred so an idle client - configured but never streaming - never
+            takes a worker's job slot, and so never counts toward that
+            worker's live_job_count for capacity admission. `check_admission`
+            is called for uniformity with the other two providers' sessions,
+            not because it can refuse one here: this session never overrides
+            `admission_worker_id`, so the call is a guaranteed no-op (see
+            TranscriptionSessionInterface.admission_worker_id).
+            """
+            if self._job is not None:
+                return
+
+            self._job = self._provider.worker_pool.register_job(
+                (),
+                DEBUG_JOB_PERIOD_MS,
+                DebugProviderJob(self._config),
+                self._provider.provider_key,
+                session_uid=self.session_uid,
+                room_uid=self.room_uid,
+            )
+            self._job.on(self._job.JobResultEvent, self._handle_job_result)
+            self._provider.check_admission(
+                self.admission_worker_id, self._logger
+            )
+
         def handle_audio_chunk(self, chunk_id: str, chunk: bytes):
             # Debug provider does not track chunk ids; the correlation id is
             # accepted for interface parity and ignored.
             del chunk_id
+            self._ensure_job()
             self._job.queue_data([chunk])
 
         def end_session(self):
             super().end_session()
-            self._job.deregister()
+            if self._job is not None:
+                self._job.deregister()
             self._provider.session_ended()
 
     def __init__(
