@@ -75,42 +75,30 @@ has sat at 5/6 ever since.
 
 ## Bugs this suite found
 
-### BUG-1 — an auto-session window with equal local times answers 500
+### BUG-1 — an auto-session window with equal local times answered 500
 
-`create-auto-session-window` and `update-auto-session-window` have **no
-`localStartTime !== localEndTime` pre-check**. `_doCreateSchedule` has one
+`create-auto-session-window` and `update-auto-session-window` had **no
+`localStartTime !== localEndTime` pre-check**. `_doCreateSchedule` had one
 (`INVALID_LOCAL_TIMES` → `400`, with a sentence naming the problem); the window
-path (`_doCreateWindow`) validates only `activeEnd`, so the
-`auto_session_windows_local_times_distinct` CHECK fires inside the transaction
-and the operator gets an opaque `500 INTERNAL_ERROR` for the same typo.
+path (`_doCreateWindow`) validated only `activeEnd`, so the
+`auto_session_windows_local_times_distinct` CHECK fired inside the transaction
+and the operator got an opaque `500 INTERNAL_ERROR` for the same typo.
 
-Minimal reproduction:
+Both window paths now mirror the schedule path exactly:
+`400 VALIDATION_ERROR` with `"localStartTime and localEndTime must not be
+equal."`. No schema change was needed — `400 VALIDATION_ERROR` is already
+declared on every route through `STANDARD_ERROR_REPLIES`, which is also all the
+schedule route ever declared for it.
 
-```bash
-curl -sk -X POST https://localhost:8443/api/session-manager/v1/schedule-management/create-auto-session-window \
-  -H "authorization: Bearer $SESSION_MANAGER_API_KEY" -H 'content-type: application/json' \
-  -d '{"roomUid":"<room>","localStartTime":"10:00","localEndTime":"10:00",
-       "daysOfWeek":["MON"],"activeStart":"2026-08-02T00:00:00Z","activeEnd":null,
-       "joinCodeScopes":["RECEIVE_TRANSCRIPTIONS"],"transcriptionProviderId":"whisper",
-       "transcriptionStreamConfig":{}}'
-# {"code":"INTERNAL_ERROR","message":"Server encountered an unexpected error..."}
-```
+The comparison is on time-of-day, not on the string: `HH:MM` and `HH:MM:SS` are
+both accepted on the wire and the database stores either as `TIME`, so a row
+written as `08:00` reads back as `08:00:00` and an update merging a request's
+`08:00` against it is exactly the collision the CHECK fires on. A string
+`===` misses that, which is why the schedule path had the same hole one level
+deeper; both are fixed.
 
-session-manager logs the cause:
-
-```
-error: new row for relation "auto_session_windows" violates check constraint
-       "auto_session_windows_local_times_distinct"
-```
-
-The same request against `create-schedule` returns
-`400 "localStartTime and localEndTime must not be equal."`.
-
-Suggested fix: mirror the schedule path's check at the top of `_doCreateWindow`
-and add an `INVALID_LOCAL_TIMES` reply to the two window schemas. Pinned by
-`equal-local-start-and-end-times-are-refused-on-schedules-and-windows`.
-
-Not fixed here — the brief was to find and report, not to change behaviour.
+Asserted by `equal-local-start-and-end-times-are-refused-on-schedules-and-windows`,
+whose update leg deliberately sends `08:00` against a stored `08:00:00`.
 
 ### BUG-2 — `activeEnd` inside an occurrence deletes the occurrence instead of clipping it
 
@@ -320,7 +308,8 @@ behaviour (BUG-1 ×2, BUG-2 ×2, BUG-3 ×3, QUIRK-3 ×2, QUIRK-4 ×1).
   including that the message names the deployment's configured providers.
 - an invalid timezone (`422`), an empty one, and that the `Etc/UTC` alias
   `Intl.supportedValuesOf` omits is still accepted.
-- equal local start/end times (BUG-1).
+- equal local start/end times on schedules **and** windows, including the
+  `HH:MM` vs stored `HH:MM:SS` form a string compare misses (BUG-1).
 - malformed vs unknown UUIDs, distinguished per resource.
 - `frequency`/`daysOfWeek` disagreement — including `daysOfWeek: []`, which the
   DB CHECK cannot catch (`array_length()` is `NULL` for an empty array, so the

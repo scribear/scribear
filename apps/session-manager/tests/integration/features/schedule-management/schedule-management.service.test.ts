@@ -4107,4 +4107,119 @@ describe('ScheduleManagementService', () => {
       );
     });
   });
+  // BUG-1: `_doCreateWindow` had no `localStartTime !== localEndTime`
+  // pre-check, so the `auto_session_windows_local_times_distinct` CHECK fired
+  // inside the transaction and the operator got a 500 for the same typo
+  // `_doCreateSchedule` answers with a sentence.
+  describe('auto-session windows - INVALID_LOCAL_TIMES', (it) => {
+    async function seedOpenWindow(roomUid: string, now: Date) {
+      const win = await service.createAutoSessionWindow(
+        {
+          roomUid,
+          activeStart: new Date(now.getTime() + 86_400_000),
+          activeEnd: null,
+          localStartTime: '08:00',
+          localEndTime: '09:00',
+          daysOfWeek: ['MON'],
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+      if (typeof win === 'string')
+        throw new Error('seed window failed: ' + win);
+      return win;
+    }
+
+    it('returns INVALID_LOCAL_TIMES from createAutoSessionWindow instead of tripping the DB CHECK', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-02T12:00:00Z');
+
+      // Act
+      const result = await service.createAutoSessionWindow(
+        {
+          roomUid,
+          activeStart: new Date(now.getTime() + 86_400_000),
+          activeEnd: null,
+          localStartTime: '10:00',
+          localEndTime: '10:00',
+          daysOfWeek: ['MON'],
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+
+      // Assert - a typed refusal, and no row written.
+      expect(result).toBe('INVALID_LOCAL_TIMES');
+      const windows = await service.listAutoSessionWindowsForRoom(roomUid, {});
+      expect(windows).toEqual([]);
+    });
+
+    it('catches HH:MM against a stored HH:MM:SS on update, which a string compare misses', async () => {
+      // Arrange - the stored row reads back as `08:00:00`; the request says
+      // `08:00`. Same time of day, different strings - so a naive `===`
+      // pre-check would pass this straight through to the CHECK constraint.
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-02T12:00:00Z');
+      const win = await seedOpenWindow(roomUid, now);
+      expect(win.localStartTime).toBe('08:00:00');
+
+      // Act
+      const result = await service.updateAutoSessionWindow(
+        win.uid,
+        { localEndTime: '08:00' },
+        now,
+      );
+
+      // Assert - refused, and the close-and-reinsert rolled back so the
+      // original window is still open and unchanged.
+      expect(result).toBe('INVALID_LOCAL_TIMES');
+      const stillThere = await service.findAutoSessionWindowByUid(win.uid);
+      if (typeof stillThere === 'string')
+        throw new Error('window unexpectedly missing');
+      expect(stillThere.localEndTime).toBe('09:00:00');
+      expect(stillThere.activeEnd).toBeNull();
+    });
+
+    it('catches the same HH:MM / HH:MM:SS mismatch on a schedule update', async () => {
+      // Arrange - the schedule path had the identical hole; it was simply
+      // never reached because its `===` check caught the obvious typo first.
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-02T12:00:00Z');
+      const created = await service.createSchedule(
+        {
+          roomUid,
+          name: 'S',
+          activeStart: new Date(now.getTime() + 86_400_000),
+          activeEnd: null,
+          localStartTime: '08:00',
+          localEndTime: '09:00',
+          frequency: 'WEEKLY',
+          daysOfWeek: ['MON'],
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+      if (typeof created === 'string')
+        throw new Error('seed schedule failed: ' + created);
+
+      // Act
+      const result = await service.updateSchedule(
+        created.uid,
+        { localEndTime: '08:00' },
+        now,
+      );
+
+      // Assert
+      expect(result).toBe('INVALID_LOCAL_TIMES');
+    });
+  });
+
+
 });

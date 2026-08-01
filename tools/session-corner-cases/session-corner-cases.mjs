@@ -2475,35 +2475,37 @@ const CHECKS = [
         400,
       );
 
-      // BUG-1: the window path has no equivalent pre-check, so the
-      // `auto_session_windows_local_times_distinct` CHECK fires and the
-      // operator gets a 500 for the same typo the schedule path answers with a
-      // sentence.
+      // The window path used to have no equivalent pre-check, so the
+      // `auto_session_windows_local_times_distinct` CHECK fired inside the
+      // transaction and the operator got a 500 for the same typo the schedule
+      // path answers with a sentence.
       const window = await fx.window(room.roomUid, {
         localStartTime: '10:00',
         localEndTime: '10:00',
       });
-      t.pin(
-        'an auto-session window with equal local times answers 500, not 400',
-        window.status === 500 && window.body?.code === 'INTERNAL_ERROR',
-        `got ${window.status} ${window.body?.code ?? ''} - the schedule path ` +
-          'validates this and returns 400; the window path lets the DB CHECK fire',
-        'BUG-1',
+      t.ok(
+        'an auto-session window with equal local times is refused 400, like a schedule',
+        window.status === 400 &&
+          window.body?.code === 'VALIDATION_ERROR' &&
+          /must not be equal/.test(window.body?.message ?? ''),
+        `got ${window.status} ${window.body?.code ?? ''} ${window.body?.message ?? ''}`,
       );
 
       const good = await fx.window(room.roomUid, {
         localStartTime: '08:00',
         localEndTime: '09:00',
       });
+      // `08:00` against a row that reads back as `08:00:00`: the same time of
+      // day, different strings, so a string-equality pre-check would miss it
+      // and let the CHECK constraint answer instead.
       const narrowed = await api.post(
         'schedule-management/update-auto-session-window',
         { windowUid: good.body.uid, localEndTime: '08:00' },
       );
-      t.pin(
-        'and so does updating an existing window to equal local times',
-        narrowed.status === 500 && narrowed.body?.code === 'INTERNAL_ERROR',
-        `got ${narrowed.status} ${narrowed.body?.code ?? ''}`,
-        'BUG-1',
+      t.ok(
+        'and so is updating an existing window to the same local time in a different format',
+        narrowed.status === 400 && narrowed.body?.code === 'VALIDATION_ERROR',
+        `got ${narrowed.status} ${narrowed.body?.code ?? ''} ${narrowed.body?.message ?? ''}`,
       );
       const survived = await api.get(
         `schedule-management/get-auto-session-window/${good.body.uid}`,
