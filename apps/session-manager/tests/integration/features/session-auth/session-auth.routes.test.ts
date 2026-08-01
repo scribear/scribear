@@ -1,5 +1,7 @@
 import { describe, expect } from 'vitest';
 
+import type { SessionScope } from '@scribear/scribear-db';
+
 import createServer from '#src/server/create-server.js';
 import { useDb } from '#tests/utils/use-db.js';
 import {
@@ -166,6 +168,103 @@ describe('Session Auth Routes', () => {
     return { ...source, roomUid, sessionUid };
   }
 
+  /**
+   * Builds an in-room source device + a **SCHEDULED** session whose effective
+   * window covers now. `cancel-session` only accepts SCHEDULED occurrences, so
+   * this is the only shape that can reach the canceled-but-live state the auth
+   * paths have to defend against.
+   */
+  async function setupLiveScheduledSession(opts: CreateSessionOpts = {}) {
+    const source = await setupActivatedDevice('Source Device');
+    const roomUid = await createRoomWithSource(source.deviceUid);
+    const schedule = await dbContext.db
+      .insertInto('session_schedules')
+      .values({
+        room_uid: roomUid,
+        name: 'S',
+        active_start: new Date('2024-01-01T00:00:00Z'),
+        active_end: null,
+        anchor_start: new Date('2024-01-01T00:00:00Z'),
+        local_start_time: '09:00:00',
+        local_end_time: '10:00:00',
+        frequency: 'ONCE',
+        days_of_week: null,
+        transcription_provider_id: 'whisper',
+        transcription_stream_config: {},
+      })
+      .returning('uid')
+      .executeTakeFirstOrThrow();
+    const session = await dbContext.db
+      .insertInto('sessions')
+      .values({
+        room_uid: roomUid,
+        name: 'Scheduled',
+        type: 'SCHEDULED',
+        scheduled_session_uid: schedule.uid,
+        scheduled_start_time: new Date(Date.now() - 60 * 60 * 1000),
+        scheduled_end_time: new Date(Date.now() + 60 * 60 * 1000),
+        join_code_scopes: (opts.joinCodeScopes ?? [
+          'RECEIVE_TRANSCRIPTIONS',
+        ]) as SessionScope[],
+        transcription_provider_id: 'whisper',
+        transcription_stream_config: {},
+      })
+      .returning('uid')
+      .executeTakeFirstOrThrow();
+    return { ...source, roomUid, sessionUid: session.uid };
+  }
+
+  /**
+   * Cancels a currently-live SCHEDULED session through the real
+   * `cancel-session` endpoint, then restores its window.
+   *
+   * The detour exists because `assertCancelable` requires the occurrence to
+   * still be upcoming - which is exactly why the bug this guards is reachable:
+   * an operator cancels a future occurrence, time passes, and the row's
+   * effective window ends up covering now while `canceled_at` stays set. We
+   * push the window forward to satisfy the endpoint's precondition, cancel for
+   * real, then put the window back to simulate that passage of time. Nothing
+   * about the resulting row is synthesized by the test.
+   */
+  async function cancelLiveScheduledSession(sessionUid: string) {
+    const original = await dbContext.db
+      .selectFrom('sessions')
+      .select(['scheduled_start_time', 'scheduled_end_time'])
+      .where('uid', '=', sessionUid)
+      .executeTakeFirstOrThrow();
+
+    await dbContext.db
+      .updateTable('sessions')
+      .set({
+        scheduled_start_time: new Date(Date.now() + 60 * 60 * 1000),
+        scheduled_end_time: new Date(Date.now() + 2 * 60 * 60 * 1000),
+      })
+      .where('uid', '=', sessionUid)
+      .execute();
+
+    const res = await server.fastify.inject({
+      method: 'POST',
+      url: `${SCHEDULE_BASE}/cancel-session`,
+      headers: { authorization: ADMIN_HEADER },
+      body: { sessionUid },
+    });
+    // Asserted, not assumed: a fixture that quietly 422s would leave the row
+    // uncanceled and every test built on it would pass while proving nothing.
+    expect(res.statusCode).toBe(200);
+    expect(res.json<{ canceledAt: string | null }>().canceledAt).toEqual(
+      expect.any(String),
+    );
+
+    await dbContext.db
+      .updateTable('sessions')
+      .set({
+        scheduled_start_time: original.scheduled_start_time,
+        scheduled_end_time: original.scheduled_end_time,
+      })
+      .where('uid', '=', sessionUid)
+      .execute();
+  }
+
   describe('POST /fetch-join-code', (it) => {
     it('returns 401 when the device cookie is missing', async () => {
       // Arrange / Act
@@ -233,6 +332,32 @@ describe('Session Auth Routes', () => {
       // Assert
       expect(res.statusCode).toBe(409);
       expect(res.json<{ code: string }>().code).toBe('JOIN_CODE_SCOPES_EMPTY');
+    });
+
+    it('returns 404 for a canceled session whose window covers now', async () => {
+      // Arrange
+      const { token, sessionUid } = await setupLiveScheduledSession();
+      await cancelLiveScheduledSession(sessionUid);
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/fetch-join-code`,
+        headers: { cookie: `DEVICE_TOKEN=${token}` },
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(404);
+      expect(res.json<{ code: string }>().code).toBe('SESSION_NOT_FOUND');
+      // No code may be minted either: a code outlives this request and would
+      // still be exchangeable from anywhere.
+      const codes = await dbContext.db
+        .selectFrom('session_join_codes')
+        .select('join_code')
+        .where('session_uid', '=', sessionUid)
+        .execute();
+      expect(codes).toHaveLength(0);
     });
 
     it('returns 200 with a fresh current code on the first call', async () => {
@@ -489,6 +614,25 @@ describe('Session Auth Routes', () => {
       expect(res.json<{ status: string }>().status).toBe('not-active');
     });
 
+    it("returns status 'not-active' for a canceled session whose window covers now", async () => {
+      // Arrange
+      const { sessionUid } = await setupLiveScheduledSession();
+      await cancelLiveScheduledSession(sessionUid);
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/admin-fetch-join-code`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(200);
+      expect(res.json<{ status: string }>().status).toBe('not-active');
+      expect(res.json<{ joinCode: string | null }>().joinCode).toBeNull();
+    });
+
     it("returns status 'ok' with a fresh code on the first call", async () => {
       // Arrange
       const { sessionUid } = await setupActiveSession();
@@ -735,6 +879,28 @@ describe('Session Auth Routes', () => {
         'SESSION_NOT_CURRENTLY_ACTIVE',
       );
     });
+
+    it('returns 409 for a canceled session whose window covers now', async () => {
+      // Arrange - the source kiosk still has this uid cached from before the
+      // cancellation; without the guard it re-arms itself with a SEND_AUDIO
+      // token and streams into a session nobody scheduled.
+      const { token, sessionUid } = await setupLiveScheduledSession();
+      await cancelLiveScheduledSession(sessionUid);
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/exchange-device-token`,
+        headers: { cookie: `DEVICE_TOKEN=${token}` },
+        body: { sessionUid },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe(
+        'SESSION_NOT_CURRENTLY_ACTIVE',
+      );
+    });
   });
 
   describe('POST /exchange-join-code', (it) => {
@@ -807,6 +973,34 @@ describe('Session Auth Routes', () => {
       expect(res.json<{ code: string }>().code).toBe(
         'SESSION_NOT_CURRENTLY_ACTIVE',
       );
+    });
+
+    it('returns 409 for a canceled session, and mints nothing', async () => {
+      // Arrange - the code was minted while the session was still live and is
+      // well inside its 5-minute TTL, so the code row alone cannot stop this.
+      const { token, sessionUid } = await setupLiveScheduledSession();
+      const joinCode = await fetchJoinCode(token, sessionUid);
+      await cancelLiveScheduledSession(sessionUid);
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/exchange-join-code`,
+        body: { joinCode },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe(
+        'SESSION_NOT_CURRENTLY_ACTIVE',
+      );
+      // A refresh token would outlive the request and keep re-minting.
+      const tokens = await dbContext.db
+        .selectFrom('session_refresh_tokens')
+        .select('uid')
+        .where('session_uid', '=', sessionUid)
+        .execute();
+      expect(tokens).toHaveLength(0);
     });
 
     it('returns 200 with a session token, refresh token, clientId, and scopes', async () => {
@@ -927,6 +1121,26 @@ describe('Session Auth Routes', () => {
       const { token, sessionUid } = await setupActiveSession();
       const refresh = await exchangeJoinCodeForRefresh(token, sessionUid);
       await endSessionEarly(sessionUid);
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/refresh-session-token`,
+        body: { sessionRefreshToken: refresh },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe('SESSION_ENDED');
+    });
+
+    it('returns 409 when the session has been canceled', async () => {
+      // Arrange - a viewer who joined before the cancellation holds a refresh
+      // token that outlives every short-lived session token; cancellation has
+      // to be terminal here or the viewer never actually loses access.
+      const { token, sessionUid } = await setupLiveScheduledSession();
+      const refresh = await exchangeJoinCodeForRefresh(token, sessionUid);
+      await cancelLiveScheduledSession(sessionUid);
 
       // Act
       const res = await server.fastify.inject({

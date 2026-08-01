@@ -85,6 +85,13 @@ export class SessionAuthService {
       const session = await this._repo.findSessionForAuth(trx, sessionUid);
       if (!session) return 'SESSION_NOT_FOUND' as const;
 
+      // A canceled session is invisible to devices by construction:
+      // `my-schedule` filters `canceled_at`, so no device should ever be
+      // holding this uid. Report it as gone rather than adding a new error
+      // code to this route's published contract - and, more importantly,
+      // rather than minting a code that would exchange into a live token.
+      if (session.canceledAt !== null) return 'SESSION_NOT_FOUND' as const;
+
       const inRoom = await this._repo.isDeviceInRoom(
         trx,
         deviceUid,
@@ -482,7 +489,16 @@ export class SessionAuthService {
   }
 }
 
+/**
+ * Mirrors `schedule-management`'s `findActiveSession` predicate, including its
+ * `canceled_at IS NULL` clause. Canceling does not move a session's window -
+ * `cancel-session` only accepts *upcoming* occurrences, so time eventually
+ * catches up to every canceled row's slot - which means a start/end-only
+ * predicate starts reporting canceled sessions as live and mints tokens for
+ * them.
+ */
 function isSessionCurrentlyActive(session: SessionAuthRow, now: Date): boolean {
+  if (session.canceledAt !== null) return false;
   if (session.effectiveStart.getTime() > now.getTime()) return false;
   if (
     session.effectiveEnd !== null &&
@@ -493,7 +509,13 @@ function isSessionCurrentlyActive(session: SessionAuthRow, now: Date): boolean {
   return true;
 }
 
+/**
+ * Whether a session can never issue another token. Cancellation is terminal in
+ * the same way an elapsed end time is: an already-issued refresh token must
+ * stop working, not keep re-minting for the rest of the (canceled) window.
+ */
 function isSessionEnded(session: SessionAuthRow, now: Date): boolean {
+  if (session.canceledAt !== null) return true;
   return (
     session.effectiveEnd !== null &&
     session.effectiveEnd.getTime() <= now.getTime()

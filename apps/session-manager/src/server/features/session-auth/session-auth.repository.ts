@@ -18,6 +18,11 @@ export interface JoinCode {
 /**
  * Subset of `sessions` columns relevant to authentication. Effective start/end
  * are precomputed to mirror the convention used in `schedule-management`.
+ *
+ * `canceledAt` is part of the auth-relevant set, not just calendar metadata: a
+ * canceled row keeps its effective window, so every "is this session live?"
+ * predicate that reads only start/end will happily authorize a session an
+ * operator has canceled once time catches up to its slot.
  */
 export interface SessionAuthRow {
   uid: string;
@@ -25,6 +30,7 @@ export interface SessionAuthRow {
   joinCodeScopes: SessionScope[];
   effectiveStart: Date;
   effectiveEnd: Date | null;
+  canceledAt: Date | null;
 }
 
 /** A persisted `session_refresh_tokens` row mapped to camelCase. */
@@ -107,6 +113,7 @@ export class SessionAuthRepository {
         'uid',
         'room_uid',
         'join_code_scopes',
+        'canceled_at',
         effectiveStart.as('effective_start'),
         effectiveEnd.as('effective_end'),
       ])
@@ -120,6 +127,7 @@ export class SessionAuthRepository {
       joinCodeScopes: parsePgEnumArray(row.join_code_scopes) as SessionScope[],
       effectiveStart: row.effective_start,
       effectiveEnd: row.effective_end,
+      canceledAt: row.canceled_at,
     };
   }
 
