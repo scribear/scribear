@@ -98,8 +98,25 @@ def test_debug_provider_registers_job_correlated_to_session_and_room_uid(
     """
     Test the session's job is correlated to session_uid/room_uid in the pool's
     worker snapshots - what makes /providers/health show it as an ActiveJob
+
+    Registration is deferred to the first audio chunk (an idle session never
+    takes a worker's job slot), so this sends one before reading the snapshot -
+    and reads the snapshot once beforehand, which is the actual invariant. The
+    equivalent of `register_job.assert_not_called()` for a real pool: without
+    it the test would pass just as happily if construction ALSO registered a
+    job, which is the entire behaviour being introduced.
     """
+    # Arrange
+    with open(path.join(AUDIO_DIR, "mono_f64le.wav"), "rb") as f:
+        chunk = f.read()
+
+    # Assert - the fixture's session exists but has streamed nothing yet
+    (idle_snapshot,) = debug_provider_worker_pool.worker_snapshots()
+    assert idle_snapshot.active_jobs == ()
+    assert idle_snapshot.live_job_count == 0
+
     # Act
+    debug_provider_session.handle_audio_chunk("chunk-1", chunk)
     (snapshot,) = debug_provider_worker_pool.worker_snapshots()
 
     # Assert
@@ -279,7 +296,10 @@ def test_debug_provider_reports_the_period_it_schedules():
     )
 
     # Act
-    provider.create_session(SESSION_CONFIG, None, None, MagicMock(spec=Logger))
+    session = provider.create_session(
+        SESSION_CONFIG, None, None, MagicMock(spec=Logger)
+    )
+    session.handle_audio_chunk("chunk-1", b"audio")
 
     # Assert
     args, _ = mock_worker_pool.register_job.call_args

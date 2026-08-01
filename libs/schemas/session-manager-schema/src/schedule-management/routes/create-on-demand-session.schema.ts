@@ -16,6 +16,7 @@ import {
 import { SCHEDULE_MANAGEMENT_TAG } from '#src/tags.js';
 
 import { SESSION_SCHEMA } from '../entities/session.schema.js';
+import { TRANSCRIPTION_PROVIDER_ID_SCHEMA } from '../entities/transcription-provider.schema.js';
 
 const CREATE_ON_DEMAND_SESSION_SCHEMA = {
   description:
@@ -29,7 +30,7 @@ const CREATE_ON_DEMAND_SESSION_SCHEMA = {
     roomUid: Type.String({ format: 'uuid' }),
     name: Type.String({ minLength: 1, maxLength: 256 }),
     joinCodeScopes: Type.Array(SESSION_SCOPE_SCHEMA),
-    transcriptionProviderId: Type.String(),
+    transcriptionProviderId: TRANSCRIPTION_PROVIDER_ID_SCHEMA,
     transcriptionStreamConfig: Type.Unknown(),
   }),
   response: {

@@ -7,7 +7,7 @@ interface MockService {
   start: Mock;
   close: Mock;
   handleBinary: Mock;
-  publishCurrentStatus: Mock;
+  onAuthAcknowledged: Mock;
   on: (event: string, cb: (...args: unknown[]) => void) => void;
   emit: (event: string, ...args: unknown[]) => void;
 }
@@ -41,7 +41,7 @@ const {
     start = vi.fn((): Promise<void> => startPromise);
     close = vi.fn();
     handleBinary = vi.fn();
-    publishCurrentStatus = vi.fn();
+    onAuthAcknowledged = vi.fn();
     private _handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
 
     on(event: string, cb: (...args: unknown[]) => void): void {
@@ -194,7 +194,7 @@ describe('TranscriptionStreamController', () => {
       expect(h.socket.send).toHaveBeenCalledWith(AUTH_OK);
       const service = serviceInstances[0]!;
       expect(service.start).toHaveBeenCalledTimes(1);
-      expect(service.publishCurrentStatus).toHaveBeenCalledTimes(1);
+      expect(service.onAuthAcknowledged).toHaveBeenCalledTimes(1);
       expect(h.metrics.recordAuthSuccess).toHaveBeenCalledTimes(1);
 
       vi.advanceTimersByTime(5001);

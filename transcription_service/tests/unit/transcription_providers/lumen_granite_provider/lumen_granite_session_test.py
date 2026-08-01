@@ -87,11 +87,27 @@ def test_create_session_forwards_session_and_room_uid_to_register_job(
     """
     session_uid/room_uid reach worker_pool.register_job, which is what makes
     them show up as an ActiveJob on /providers/health
+
+    Registration is deferred to the first audio chunk (an idle session never
+    takes a worker's job slot), so this sends one before asserting on
+    register_job's call args - and asserts nothing was registered before it,
+    which is the actual invariant. Without that first assertion the test would
+    pass just as happily if construction ALSO registered a job, which is the
+    entire behaviour being introduced.
     """
     # Act
-    provider.create_session("unused_config", "session-1", "room-1", mock_logger)
+    session = provider.create_session(
+        "unused_config", "session-1", "room-1", mock_logger
+    )
+
+    # Assert - an idle session has taken no worker's job slot
+    mock_worker_pool.register_job.assert_not_called()
+
+    # Act
+    session.handle_audio_chunk("chunk-1", b"audio")
 
     # Assert
+    mock_worker_pool.register_job.assert_called_once()
     _, kwargs = mock_worker_pool.register_job.call_args
     assert kwargs["session_uid"] == "session-1"
     assert kwargs["room_uid"] == "room-1"
@@ -109,7 +125,8 @@ def test_reported_job_period_is_the_one_register_job_receives(
     reason the reported value is per provider rather than one number.
     """
     # Act
-    provider.create_session("unused_config", None, None, mock_logger)
+    session = provider.create_session("unused_config", None, None, mock_logger)
+    session.handle_audio_chunk("chunk-1", b"audio")
 
     # Assert
     args, _ = mock_worker_pool.register_job.call_args

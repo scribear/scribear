@@ -96,6 +96,46 @@ export interface SessionSnapshot {
 }
 
 /**
+ * Thrown by {@link TranscriptionOrchestratorService.registerSource} when the
+ * session's `effectiveEnd` has already passed.
+ *
+ * A distinct type rather than a plain `Error` because the two failures a source
+ * registration can have are not the same event and must not close the socket
+ * the same way: an unreachable Session Manager is *broken* and earns 1011
+ * `orchestrator-unavailable`, whereas this session is merely *over* and earns
+ * `sessionEnded` + a clean 1000. The kiosk already distinguishes those - 1000
+ * drops it to IDLE, anything else reconnect-loops - so collapsing them would
+ * put a finished session into a retry loop.
+ *
+ * No registration is created and no upstream is dialed, so there is nothing for
+ * the caller to release.
+ */
+export class SessionAlreadyEndedError extends Error {
+  readonly sessionUid: string;
+
+  constructor(sessionUid: string) {
+    super(`session ${sessionUid} has already reached its effectiveEnd`);
+    this.name = 'SessionAlreadyEndedError';
+    this.sessionUid = sessionUid;
+  }
+}
+
+/**
+ * Whether `session`'s effective end is already in the past.
+ *
+ * Both "no end at all" and "an end we cannot parse" read as *not* over, on
+ * purpose: this predicate gates whether a source is admitted, so its failure
+ * mode has to be admitting a session that has ended (which the end timer then
+ * catches a moment later) rather than refusing one that has not.
+ */
+function hasAlreadyEnded(session: Session): boolean {
+  if (session.effectiveEnd === null) return false;
+  const endMs = Date.parse(session.effectiveEnd);
+  if (Number.isNaN(endMs)) return false;
+  return endMs <= Date.now();
+}
+
+/**
  * Handle returned by {@link TranscriptionOrchestratorService.registerSource}.
  * The caller MUST call `unregister` when the source connection closes. The
  * caller SHOULD call `setMicrophoneActive` when the source's mic state
@@ -106,7 +146,64 @@ export interface SourceHandle {
   setMicrophoneActive: (active: boolean) => void;
 }
 
-interface SessionState {
+/**
+ * Handle returned by {@link TranscriptionOrchestratorService.registerClient}.
+ * The caller MUST call `unregister` when the client connection closes, so the
+ * session's end-watch is torn down once the last viewer leaves.
+ */
+export interface ClientHandle {
+  unregister: () => void;
+}
+
+/**
+ * Anything that may own the timer that publishes `SessionEndedChannel` for a
+ * session: the real {@link SessionState}, or a source-free
+ * {@link SessionEndWatch}. Named so {@link
+ * TranscriptionOrchestratorService._publishSessionEnded} can latch every
+ * owner a session has, which is what makes "exactly one publish per session
+ * end" hold across both paths.
+ */
+interface EndTimerOwner {
+  /**
+   * Scheduled timer that publishes `SessionEndedChannel` at the session's
+   * `effectiveEnd`. Re-armed on every config update so extensions and
+   * contractions are honored. `null` for open-ended sessions
+   * (`effectiveEnd === null`) and while the owner is disarmed.
+   */
+  endTimer: ReturnType<typeof setTimeout> | null;
+  /**
+   * Last `effectiveEnd` (epoch ms) this owner armed `endTimer` for. Used to
+   * skip re-arming when an unrelated config bump arrives without moving the
+   * end. `null` when nothing is armed.
+   */
+  endTimerArmedFor: number | null;
+  /**
+   * Latches once `SessionEndedChannel` has been published for this session.
+   * Prevents a duplicate publish if a config change races with the timer, if
+   * teardown is already in progress, or if the session's other end-timer
+   * owner reaches the end at the same moment.
+   */
+  ended: boolean;
+}
+
+/**
+ * Maps an upstream WebSocket close code onto the reason a viewer is told, or
+ * `undefined` when the close carries no information worth distinguishing
+ * (1006, 1011, a clean 1000 during teardown...). Only the two codes the
+ * transcription service chooses *deliberately* are named here; everything else
+ * stays undistinguished, exactly as before this mapping existed.
+ */
+function closeCodeToDisconnectReason(
+  code: number | null,
+): TranscriptionServiceDisconnectReason | undefined {
+  if (code === 1013) return TranscriptionServiceDisconnectReason.AT_CAPACITY;
+  if (code === 1007) {
+    return TranscriptionServiceDisconnectReason.INVALID_REQUEST;
+  }
+  return undefined;
+}
+
+interface SessionState extends EndTimerOwner {
   sourceCount: number;
   /** Monotonic counter for per-source IDs within this session. */
   nextSourceId: number;
@@ -139,9 +236,10 @@ interface SessionState {
   upstream: UpstreamClient;
   /**
    * Close code from the upstream's most recent `close` event, or `null` if it
-   * has never closed. Recorded so `_setStatus` can distinguish a capacity
-   * refusal (1013) from any other disconnect ("service crashed"-shaped
-   * disconnects included) - see
+   * has never closed. Recorded so `_setStatus` can distinguish the closes the
+   * transcription service chooses deliberately - a capacity refusal (1013) and
+   * a rejected request (1007) - from any other disconnect ("service
+   * crashed"-shaped disconnects included) - see
    * `archived-plans/2026-07-27-02-PLAN-AdmissionControl.md` §4. Stale values
    * are harmless: `_setStatus` only consults this while
    * `upstream.state !== 'OPEN'`, and it is overwritten on every subsequent
@@ -166,23 +264,35 @@ interface SessionState {
    * by {@link MAX_PENDING_CHUNKS}.
    */
   pendingChunks: Map<string, PendingChunk>;
+}
+
+/**
+ * A source-free watch on a session's end, held on behalf of client
+ * (receive-only) connections.
+ *
+ * It is a session-config long-poll and a timer, and nothing else - in
+ * particular it opens NO upstream transcription connection. A viewer must cost
+ * the transcription service zero resources: audio-less connections registering
+ * a job and consuming admission capacity is the exact fault `e80eea2` was
+ * written for.
+ *
+ * Kept in its own map rather than as a `SessionState` with a null upstream so
+ * that everything which iterates real session state (`sessionSnapshots`,
+ * `_setStatus`, `getStatus`) keeps its existing guarantee that a session in
+ * `_sessions` always has an upstream - the same reason `_syntheticStatuses` is
+ * separate.
+ */
+interface SessionEndWatch extends EndTimerOwner {
+  /** Number of client-role connections sharing this watch. */
+  clientCount: number;
+  longPoll: SessionConfigPoll;
   /**
-   * Scheduled timer that publishes `SessionEndedChannel` at the session's
-   * `effectiveEnd`. Re-armed on every config update so extensions/contractions
-   * are honored. `null` for open-ended sessions (`effectiveEnd === null`).
+   * Most recent config the long-poll delivered, or `null` before the first
+   * response. Retained so the watch can re-arm itself from the current
+   * `effectiveEnd` when a source's `SessionState` is torn down under it,
+   * without waiting for the next config bump.
    */
-  endTimer: ReturnType<typeof setTimeout> | null;
-  /**
-   * Last `effectiveEnd` (epoch ms) we armed `endTimer` for. Used to skip
-   * re-arming when an unrelated config bump arrives without changing the end.
-   */
-  endTimerArmedFor: number | null;
-  /**
-   * Latches once the orchestrator has published `SessionEndedChannel` for this
-   * session. Prevents duplicate publishes if a config change races with the
-   * timer or if teardown is already in progress.
-   */
-  ended: boolean;
+  lastSession: Session | null;
 }
 
 /**
@@ -196,11 +306,19 @@ interface SessionState {
  *
  * Each session's upstream is opened lazily on the first source registration
  * and torn down when the source-connection ref count drops back to zero.
- * Client (receive-only) connections never call into the orchestrator; they
- * subscribe to {@link TranscriptChannel} directly.
+ * Client (receive-only) connections take out an *end-watch* instead
+ * ({@link registerClient}): a config long-poll and a timer, no upstream, so a
+ * room full of viewers with no source attached still learns when the session
+ * ends without costing the transcription service anything.
  */
 export class TranscriptionOrchestratorService {
   private _sessions = new Map<string, SessionState>();
+  /**
+   * Source-free end-watches, keyed by sessionUid, one per session with at
+   * least one client-role connection. Deliberately not merged into
+   * `_sessions`: see the note on {@link SessionEndWatch}.
+   */
+  private _endWatches = new Map<string, SessionEndWatch>();
   /**
    * Status overrides for sessions that have no real upstream - only the
    * demo caption room (see `demo-room/`). Kept separate from
@@ -241,13 +359,32 @@ export class TranscriptionOrchestratorService {
    * when the source connection closes, and whose `setMicrophoneActive` the
    * caller SHOULD invoke to report mic state. The upstream is torn down when
    * the count returns to 0.
+   *
+   * Throws {@link SessionAlreadyEndedError} if the session is already past its
+   * `effectiveEnd`. Nothing is registered and no upstream is dialed in that
+   * case; the caller is expected to send `sessionEnded` and close 1000.
    */
   async registerSource(sessionUid: string): Promise<SourceHandle> {
     let state = this._sessions.get(sessionUid);
     if (state === undefined) {
       state = await this._openSession(sessionUid);
       this._sessions.set(sessionUid, state);
+    } else if (state.ended) {
+      // A state that has published its end is torn down as soon as its last
+      // source socket finishes closing, so this is a narrow window rather
+      // than a steady state - but a source landing inside that window would
+      // otherwise attach to a session no timer will ever fire for again, and
+      // hang exactly as it did before this check existed.
+      this._recordEndedSessionRegistration(sessionUid, null);
+      throw new SessionAlreadyEndedError(sessionUid);
     }
+    // A real session is the authoritative end-timer owner while it exists, so
+    // any end-watch a viewer opened before the source arrived stands down now
+    // rather than racing this session's own timer. `_unregisterSource` hands
+    // the watch its timer back when this state is torn down.
+    const watch = this._endWatches.get(sessionUid);
+    if (watch !== undefined) this._disarmEndWatch(watch);
+
     const sourceId = state.nextSourceId++;
     state.sourceCount += 1;
     state.sourceMicStates.set(sourceId, undefined);
@@ -258,6 +395,51 @@ export class TranscriptionOrchestratorService {
       },
       setMicrophoneActive: (active: boolean) => {
         this._setSourceMicrophone(sessionUid, sourceId, active);
+      },
+    };
+  }
+
+  /**
+   * Register a client (receive-only) connection for a session. The first
+   * registration opens an {@link SessionEndWatch}; subsequent ones just bump
+   * the ref count, and the watch is torn down when the last client-role
+   * connection for the session disconnects.
+   *
+   * The watch exists so a viewer on a session with **no source attached**
+   * still learns the session ended on time. Without it nothing fetches that
+   * session's config at all, so `SessionEndedChannel` is never published and
+   * the viewer sits on stale captions until its next token refresh happens to
+   * be rejected - up to half the token lifetime.
+   *
+   * Synchronous and infallible on purpose, unlike {@link registerSource}:
+   *
+   * - Synchronous, so a viewer's `authOk` is never made to wait on Session
+   *   Manager. The watch arms itself when the long-poll's first response
+   *   arrives.
+   * - Infallible, so a config fetch that fails cannot disconnect someone who
+   *   is happily receiving captions. A source that cannot reach Session
+   *   Manager is useless and rightly gets 1011; a viewer that cannot is only
+   *   missing its end signal, which degrades to the pre-end-watch behaviour.
+   */
+  registerClient(sessionUid: string): ClientHandle {
+    const existing = this._endWatches.get(sessionUid);
+    if (existing !== undefined) {
+      existing.clientCount += 1;
+    } else if (!this._startEndWatch(sessionUid)) {
+      // Degraded, not fatal - see the doc comment above.
+      return { unregister: () => undefined };
+    }
+
+    // Guarded rather than bare like `SourceHandle.unregister`, which is keyed
+    // by a per-source id: this one only has a count to decrement, and a
+    // double release would drop the watch out from under the viewers still on
+    // it.
+    let released = false;
+    return {
+      unregister: () => {
+        if (released) return;
+        released = true;
+        this._unregisterClient(sessionUid);
       },
     };
   }
@@ -358,10 +540,18 @@ export class TranscriptionOrchestratorService {
     // Omitted (not set to `undefined`) when not applicable:
     // `exactOptionalPropertyTypes` treats an explicit `undefined` on an
     // optional TypeBox-derived property as a type error, not "absent".
-    const disconnectReason =
-      !connected && state.lastUpstreamCloseCode === 1013
-        ? TranscriptionServiceDisconnectReason.AT_CAPACITY
-        : undefined;
+    //
+    // 1007 is the other close the upstream makes on purpose: it rejected our
+    // request as unacceptable (a `transcriptionProviderId` absent from the
+    // deployment's `provider_config.json` raises "Invalid Provider Key", which
+    // the transcription service maps to 1007). Unlike 1013 that is permanent -
+    // the retry loop re-sends the identical config and is refused identically,
+    // forever - so it gets its own reason rather than being collapsed into the
+    // undistinguished "disconnected" that reads to a viewer as a transient
+    // blip.
+    const disconnectReason = !connected
+      ? closeCodeToDisconnectReason(state.lastUpstreamCloseCode)
+      : undefined;
     const next: SessionStatusMessage = {
       transcriptionServiceConnected: connected,
       sourceDeviceConnected: state.sourceCount > 0,
@@ -524,6 +714,20 @@ export class TranscriptionOrchestratorService {
   private async _openSession(sessionUid: string): Promise<SessionState> {
     const longPoll = this._sessionConfigPollFactory(sessionUid);
     const initial = await this._awaitFirstConfig(longPoll, sessionUid);
+
+    // Checked here - the first moment the end is knowable - rather than left to
+    // `_armEndTimer` at the bottom of this method. By then the upstream has
+    // already been constructed and started, and the transcription service is
+    // the scarcest thing in the deployment (`num_workers: 1`, a low admission
+    // ceiling on a cold process): dialing it for a session we are about to
+    // abandon takes capacity away from a room that is actually running. The
+    // upstream is also only ever torn down by `_unregisterSource`, so an
+    // abandoned one is not reclaimed until its socket closes.
+    if (hasAlreadyEnded(initial)) {
+      longPoll.close();
+      this._recordEndedSessionRegistration(sessionUid, initial.effectiveEnd);
+      throw new SessionAlreadyEndedError(sessionUid);
+    }
 
     // The config the upstream must be (re)told about on every connection. Held
     // in a mutable box rather than read from `initial` so a reconnect after a
@@ -709,6 +913,31 @@ export class TranscriptionOrchestratorService {
   }
 
   /**
+   * Count and name a source registration that arrived after the session was
+   * already over (§3.4 of the plan this fixes).
+   *
+   * Worth its own signal rather than being folded into the ordinary end path:
+   * a session ending under a connected source is routine, whereas a source
+   * *arriving* at a finished session means something upstream is working from
+   * a stale schedule - most likely a kiosk whose `mySchedule` long-poll has
+   * been failing silently for hours. That cause is invisible in every other
+   * series, because from the outside it looks exactly like a normal
+   * registration followed by a normal end.
+   *
+   * @param effectiveEnd The end the session's config reported, when known.
+   */
+  private _recordEndedSessionRegistration(
+    sessionUid: string,
+    effectiveEnd: string | null,
+  ): void {
+    this._metrics.recordEndedSessionRegistration();
+    this._logger.warn(
+      { sessionUid, effectiveEnd },
+      'source registered onto an already-ended session',
+    );
+  }
+
+  /**
    * Arm (or re-arm) the end timer for `state` based on the session's current
    * `effectiveEnd`. Called once on initial config and again on every
    * config-stream update so extensions/contractions are honored. Idempotent
@@ -762,18 +991,191 @@ export class TranscriptionOrchestratorService {
     }, delayMs);
   }
 
-  private _publishSessionEnded(sessionUid: string, state: SessionState): void {
-    if (state.ended) return;
-    state.ended = true;
-    if (state.endTimer !== null) {
-      clearTimeout(state.endTimer);
-      state.endTimer = null;
+  /**
+   * Start a source-free end-watch for `sessionUid` on behalf of its first
+   * client connection: a session-config long-poll and nothing else. Returns
+   * `false` if it could not be started, which the caller degrades rather than
+   * propagates.
+   *
+   * The long-poll is the same one `_openSession` uses, deliberately: a
+   * session's `effectiveEnd` moves (`startSessionEarly` / `endSessionEarly`
+   * bump `sessionConfigVersion`), so the watch has to follow config rather
+   * than read the end once. `endSessionEarly` sets `end_override = now`, which
+   * arrives here as an already-past end and publishes immediately.
+   *
+   * The watch is registered and counted BEFORE the poll is started, so a
+   * response that arrives synchronously finds it in `_endWatches` and a
+   * publish it triggers has a ref count to release.
+   */
+  private _startEndWatch(sessionUid: string): boolean {
+    let watch: SessionEndWatch;
+    try {
+      watch = {
+        clientCount: 1,
+        longPoll: this._sessionConfigPollFactory(sessionUid),
+        lastSession: null,
+        endTimer: null,
+        endTimerArmedFor: null,
+        ended: false,
+      };
+    } catch (err) {
+      this._logger.error(
+        { err, sessionUid },
+        'failed to create session end-watch; viewers will not be told when this session ends',
+      );
+      return false;
     }
+
+    watch.longPoll.on('data', (session) => {
+      // Ignore a response that arrives after this watch was torn down or
+      // replaced, mirroring the stale-publish guards on `_sessions`.
+      if (this._endWatches.get(sessionUid) !== watch) return;
+      watch.lastSession = session;
+      this._armEndWatch(sessionUid, watch);
+    });
+    watch.longPoll.on('error', (err) => {
+      // Not terminal: `LongPollClient` retries with backoff on its own, and
+      // this must never reach the viewer's socket. Warn rather than error -
+      // an unreachable Session Manager costs a viewer only its end signal.
+      this._logger.warn(
+        { err, sessionUid },
+        'session-config long-poll error on end-watch',
+      );
+    });
+
+    this._endWatches.set(sessionUid, watch);
+    try {
+      watch.longPoll.start();
+    } catch (err) {
+      this._endWatches.delete(sessionUid);
+      this._logger.error(
+        { err, sessionUid },
+        'failed to start session end-watch; viewers will not be told when this session ends',
+      );
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Arm (or re-arm) an end-watch's timer from the config it last saw. Called
+   * on every config-stream response, and again by `_unregisterSource` when a
+   * session's own state is torn down under the watch.
+   *
+   * The watch defers to a live {@link SessionState}: that state already arms a
+   * timer off the same `effectiveEnd`, so while it exists the watch holds no
+   * timer at all and this is where that is enforced. There is therefore never
+   * more than one armed timer per session.
+   */
+  private _armEndWatch(sessionUid: string, watch: SessionEndWatch): void {
+    if (watch.ended) return;
+    const session = watch.lastSession;
+    if (session === null) return;
+
+    const state = this._sessions.get(sessionUid);
+    if (state !== undefined && !state.ended) {
+      this._disarmEndWatch(watch);
+      return;
+    }
+
+    if (session.effectiveEnd === null) {
+      // Open-ended: cancel any prior timer (a previous config may have had a
+      // finite end) and wait for the next config update.
+      this._disarmEndWatch(watch);
+      return;
+    }
+
+    const endMs = Date.parse(session.effectiveEnd);
+    if (watch.endTimerArmedFor === endMs) return;
+
+    if (watch.endTimer !== null) {
+      clearTimeout(watch.endTimer);
+      watch.endTimer = null;
+    }
+    watch.endTimerArmedFor = endMs;
+
+    const delayMs = endMs - Date.now();
+    if (delayMs <= 0) {
+      // Already over - a viewer joining an ended session, or an
+      // `endSessionEarly` that moved the end into the past. Publish now
+      // rather than scheduling a zero-delay timer, exactly as `_armEndTimer`
+      // does, so the viewer is not left hanging.
+      this._publishSessionEnded(sessionUid, watch);
+      return;
+    }
+    watch.endTimer = setTimeout(() => {
+      watch.endTimer = null;
+      // The watch may have been torn down between scheduling and firing (last
+      // viewer disconnected); the map check guards a stale publish.
+      if (this._endWatches.get(sessionUid) !== watch) return;
+      this._publishSessionEnded(sessionUid, watch);
+    }, delayMs);
+  }
+
+  /** Cancel an end-watch's timer, leaving it able to re-arm on a later config. */
+  private _disarmEndWatch(watch: SessionEndWatch): void {
+    if (watch.endTimer !== null) {
+      clearTimeout(watch.endTimer);
+      watch.endTimer = null;
+    }
+    watch.endTimerArmedFor = null;
+  }
+
+  private _unregisterClient(sessionUid: string): void {
+    const watch = this._endWatches.get(sessionUid);
+    if (watch === undefined) return;
+    watch.clientCount -= 1;
+    if (watch.clientCount > 0) return;
+
+    this._endWatches.delete(sessionUid);
+    this._disarmEndWatch(watch);
+    watch.longPoll.close();
+  }
+
+  /**
+   * Publish `SessionEndedChannel` for a session, at most once per end.
+   *
+   * A session can have two end-timer owners over its lifetime - the
+   * {@link SessionState} a source opens and the {@link SessionEndWatch} its
+   * viewers hold - and only one of them is ever armed at a time
+   * (`_armEndWatch` stands the watch down while a live state exists). This
+   * latches *both* regardless, so the loser of any race cannot publish a
+   * second time: in particular the source-side teardown that follows a
+   * publish deletes the state and calls back into `_armEndWatch`, which must
+   * find the watch already latched rather than re-arm it for an end that has
+   * just passed.
+   *
+   * `initiator` is passed rather than looked up because `_openSession` arms
+   * the session's timer before `registerSource` inserts the state into
+   * `_sessions`; a lookup would miss it and leave that state unlatched.
+   */
+  private _publishSessionEnded(
+    sessionUid: string,
+    initiator: EndTimerOwner,
+  ): void {
+    if (initiator.ended) return;
+    this._latchEnded(initiator);
+
+    const state = this._sessions.get(sessionUid);
+    if (state !== undefined && state !== initiator) this._latchEnded(state);
+    const watch = this._endWatches.get(sessionUid);
+    if (watch !== undefined && watch !== initiator) this._latchEnded(watch);
+
     this._logger.info({ sessionUid }, 'session reached effectiveEnd');
     // Connections subscribed on the bus will send `sessionEnded` and close
-    // 1000; their close handlers unregister sources, which drains
-    // `_unregisterSource` to zero and tears down upstream + long-poll.
+    // 1000; their close handlers unregister sources and client end-watch
+    // registrations, which drains `_unregisterSource` / `_unregisterClient` to
+    // zero and tears down upstream + long-poll(s).
     this._eventBus.publish(SessionEndedChannel, {}, sessionUid);
+  }
+
+  /** Mark an end-timer owner as having published, and cancel its timer. */
+  private _latchEnded(owner: EndTimerOwner): void {
+    owner.ended = true;
+    if (owner.endTimer !== null) {
+      clearTimeout(owner.endTimer);
+      owner.endTimer = null;
+    }
   }
 
   private async _awaitFirstConfig(
@@ -821,6 +1223,14 @@ export class TranscriptionOrchestratorService {
       clearTimeout(state.endTimer);
       state.endTimer = null;
     }
+
+    // Viewers outlive the source routinely (the kiosk is unplugged, the room
+    // keeps watching). This state was the session's end-timer owner and has
+    // just gone, so hand the job back to the end-watch if one is held. A
+    // no-op when the state got here by publishing `sessionEnded`, since that
+    // latched the watch too.
+    const watch = this._endWatches.get(sessionUid);
+    if (watch !== undefined) this._armEndWatch(sessionUid, watch);
 
     if (
       state.status.transcriptionServiceConnected ||

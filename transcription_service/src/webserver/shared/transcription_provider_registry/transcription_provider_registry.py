@@ -6,7 +6,7 @@ transcription providers configured for the service.
 # pylint: disable=import-outside-toplevel
 # Only import providers based on configuration
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from src.shared.config import (
     Config,
@@ -243,6 +243,13 @@ class TranscriptionProviderRegistry:
                         provider_key,
                     )
 
+            # Bound per provider_key rather than shared, so a refusal is
+            # always counted and logged against the provider whose session
+            # actually triggered it, not whichever provider happened to be
+            # loaded last.
+            provider.bind_admission_check(
+                self._make_admission_check(provider_key)
+            )
             providers[provider_key] = provider
         return providers
 
@@ -357,89 +364,86 @@ class TranscriptionProviderRegistry:
 
         Raises:
             TranscriptionClientError if provider doesn't exist
-            TranscriptionCapacityError if the worker the session was placed on
-                has no capacity for it
 
-        ADMISSION IS DECIDED AFTER CONSTRUCTION, ON PURPOSE
-        (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4). `admit()` is
-        a per-worker question, and
-        which worker a session lands on is chosen by live load balancing inside
-        `register_job` - so there is nothing to ask *about* until the session
-        has registered. Building the session first and tearing it back down is
-        therefore not a shortcut around a missing pre-check; it is the only
-        order in which the question is well posed.
+        NEVER RAISES TranscriptionCapacityError. That used to be decided here,
+        synchronously, because a session's job registered as part of its own
+        construction - so by the time this returned, it had already taken a
+        worker's job slot whether or not the caller ever sent it any audio.
+        That is exactly the failure this method used to cause: an idle,
+        audio-less connection occupied capacity identically to a real one, so
+        opening enough of them could refuse a genuinely busy worker's actual
+        next session, or - worse - refuse each other, entirely independent of
+        real transcription load.
 
-        `end_session()` is the undo, rather than a bespoke rollback path,
-        because it is already exactly the teardown a session that never carried
-        audio needs: it deregisters the job (so the worker's live_job_count
-        drops immediately, leaving no phantom) and decrements the provider's
-        active-session count that this constructor just incremented. A second
-        path would be a second thing to keep in step with it.
+        Registration is deferred to a session's own first `handle_audio_chunk`
+        (see each provider's `_ensure_job`), which is also now where admission
+        is decided - a session calls `provider.check_admission(...)` itself,
+        right after registering, via the callback `_make_admission_check`
+        binds onto its provider at load time. A refusal therefore surfaces
+        from `handle_audio_chunk`, not from here, and propagates out through
+        `TranscriptionStreamService.handle_audio_chunk` exactly like any other
+        session error - no special plumbing needed, since Python exceptions
+        already cross that boundary uncaught.
         """
         if provider_key not in self._providers:
             self._invalid_provider_key_rejects += 1
             raise TranscriptionClientError("Invalid Provider Key")
 
         provider = self._providers[provider_key]
-        session = provider.create_session(
+        return provider.create_session(
             session_config, session_uid, room_uid, logger
         )
 
-        if self._admits(session):
-            return session
-
-        session.end_session()
-        if self._metrics_registry is not None:
-            self._metrics_registry.record_capacity_refusal(provider_key)
-        logger.warning(
-            "Refused session: worker at capacity",
-            context={
-                "provider_key": provider_key,
-                "worker_id": session.admission_worker_id,
-            },
-        )
-        raise TranscriptionCapacityError(AT_CAPACITY_REASON)
-
-    def _admits(self, session: TranscriptionSessionInterface) -> bool:
+    def _make_admission_check(
+        self, provider_key: str
+    ) -> Callable[[int | None, Logger], None]:
         """
-        Whether a just-registered session may keep the worker slot it took
+        Builds the admission callback one provider is bound to at load time
 
         Args:
-            session - The session that has already registered its job
+            provider_key    - The provider this callback decides for, closed
+                                over so a refusal is always counted and logged
+                                against the provider whose session actually
+                                registered the job, not whichever provider
+                                `_load_providers` happened to construct last
 
         Returns:
-            True if the session should be allowed to proceed
+            A callable a session invokes with the worker its job just landed
+            on (or None - see TranscriptionSessionInterface.admission_worker_id).
+            Raises TranscriptionCapacityError if that worker has no room;
+            otherwise returns normally.
 
         Every gate here fails open, which is this plan's stated posture rather
         than laziness: an over-admission is visible, counted and self-corrects,
         while a wrong refusal is invisible and unrecoverable for that user.
-        Three of them are reached in normal operation:
+        Four of them are reached in normal operation:
 
-        1. No estimator configured - admission control is not wired up.
-        2. `admission_worker_id is None` - the session is not a claim on a local
-           worker's ASR throughput (`lumen_granite`, `debug`). See
-           TranscriptionSessionInterface.admission_worker_id for why that is a
-           statement rather than a gap.
+        1. `worker_id is None` - the session is not a claim on a local worker's
+           ASR throughput (`lumen_granite`, `debug`), or it has not yet
+           registered a job at all. See
+           TranscriptionSessionInterface.admission_worker_id for why both are
+           the same statement.
+        2. No estimator configured - admission control is not wired up.
         3. The pool reports no such worker. A worker that vanished between
            registration and this read is a pool fault, not a capacity fault,
            and refusing the user for it would misattribute the outage.
 
-        CONCURRENCY. This runs to completion between `register_job` and the
-        caller's next await point - register, read, decide and (if refused)
-        deregister are all synchronous, on the one event loop thread the pool's
-        registration bookkeeping also runs on. Two sessions arriving together
-        are therefore serialized, and each sees the other's registration
-        reflected in `live_job_count` only if that registration actually
-        happened first. There is no window in which both read a pre-registration
-        count and both get admitted, nor one in which both count the other and
-        both get refused.
+        CONCURRENCY. The session calls this synchronously, immediately after
+        `register_job` returns and before any `await` - register, read, decide
+        and (if refused) deregister all run on the one event loop thread the
+        pool's registration bookkeeping also runs on. Two sessions registering
+        together are therefore serialized, and each sees the other's
+        registration reflected in `live_job_count` only if that registration
+        actually happened first. There is no window in which both read a
+        pre-registration count and both get admitted, nor one in which both
+        count the other and both get refused.
 
         The `- 1` is what makes that true. `admit()` is specified as
         `N == 0 or N + 1 <= N*` where N is the count *before* placing the new
-        session, but by the time this runs the session is already registered and
-        the pool's `live_job_count` includes it. Passing that count raw would
-        ask whether an N+2nd session fits and would refuse the first session on
-        an idle worker, since N would never read as 0.
+        session, but by the time this runs the session is already registered
+        and the pool's `live_job_count` includes it. Passing that count raw
+        would ask whether an N+2nd session fits and would refuse the first
+        session on an idle worker, since N would never read as 0.
 
         TWO KNOWN LIMITATIONS, NAMED RATHER THAN GUARDED:
 
@@ -459,11 +463,36 @@ class TranscriptionProviderRegistry:
           §5's deferral of remote-provider capacity; it is not a claim that they
           cost a worker nothing.
         """
-        if self._capacity_estimator is None:
+
+        def _check(worker_id: int | None, logger: Logger) -> None:
+            if self._admits_worker(worker_id):
+                return
+
+            if self._metrics_registry is not None:
+                self._metrics_registry.record_capacity_refusal(provider_key)
+            logger.warning(
+                "Refused session: worker at capacity",
+                context={"provider_key": provider_key, "worker_id": worker_id},
+            )
+            raise TranscriptionCapacityError(AT_CAPACITY_REASON)
+
+        return _check
+
+    def _admits_worker(self, worker_id: int | None) -> bool:
+        """
+        Whether one more job may keep the worker slot it just took
+
+        Args:
+            worker_id   - The worker a session's job just registered onto, or
+                            None if this session's cost is not a capacity claim
+
+        Returns:
+            True if the session should be allowed to proceed
+        """
+        if worker_id is None:
             return True
 
-        worker_id = session.admission_worker_id
-        if worker_id is None:
+        if self._capacity_estimator is None:
             return True
 
         live_job_count = self._live_job_count(worker_id)

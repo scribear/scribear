@@ -73,6 +73,14 @@ interface ClientSessionServiceEvents {
   transcript: (event: TranscriptEvent) => void;
   latency: (sample: LatencySample) => void;
   joinError: (error: JoinError | null) => void;
+  /**
+   * Why this session is unrecoverable, or `null` to clear. Deliberately
+   * narrow: it used to also carry transient blips ("Network error -
+   * retrying.") that nothing rendered, which is how a session could hammer
+   * session-manager once a second with the user seeing only "Reconnecting…".
+   * Every value emitted here now reaches the user, via the connection
+   * banner's terminal branch.
+   */
   error: (message: string | null) => void;
 }
 
@@ -85,6 +93,48 @@ const TOKEN_REFRESH_FRACTION = 0.5;
 const TOKEN_REFRESH_JITTER = 0.1;
 
 /**
+ * Bounded retry budget for the session-token refresh, counted across
+ * reconnects rather than per socket. A failed refresh means `_authenticateSocket`
+ * never sends AUTH, node-server's 5 s watchdog closes the socket 1008
+ * `auth-timeout`, and the reconnect lands in the same failed refresh - but
+ * because the socket stayed open for those 5 s (longer than the transport's
+ * `stableConnectionThresholdMs`) the backoff counter resets every cycle. The
+ * result is an unbounded ~1 s hammer loop against session-manager that the
+ * user only ever sees as "Reconnecting…". Counting consecutive failures
+ * globally is what makes that loop converge: every cycle spends from the same
+ * budget, and exhausting it is terminal and visible.
+ */
+const REFRESH_MAX_CONSECUTIVE_FAILURES = 5;
+const REFRESH_RETRY_BASE_MS = 300;
+const REFRESH_RETRY_MAX_MS = 2000;
+
+/**
+ * How many consecutive 1008 closes to tolerate before declaring the session
+ * terminal, when the close reason isn't one we recognise as permanent. The
+ * kiosk app already treats any 1008 as terminal; the client is a little more
+ * forgiving because a merely-stale cached token also closes 1008 and is
+ * genuinely fixed by the refresh on the next attempt.
+ */
+const MAX_CONSECUTIVE_AUTH_FAILURES = 3;
+
+/**
+ * Close reasons node-server sends with 1008 that can never succeed on a
+ * retry (see `transcription-stream.auth.ts`): the token was minted for a
+ * different session, or without `RECEIVE_TRANSCRIPTIONS`. Reconnecting with
+ * the same refresh token reproduces both exactly.
+ *
+ * The reason string does reach the browser - node-server passes it to
+ * `socket.close(code, reason)`, so it rides in the close frame and surfaces
+ * as `CloseEvent.reason` - but an empty or unfamiliar reason is not treated
+ * as recoverable either: {@link MAX_CONSECUTIVE_AUTH_FAILURES} bounds the
+ * unrecognised case independently.
+ */
+const PERMANENT_AUTH_CLOSE_REASONS = new Set([
+  'missing-scope',
+  'session-mismatch',
+]);
+
+/**
  * Compute a uniform jitter offset in `[-jitter * base, +jitter * base]`.
  */
 function jitter(baseMs: number, fraction: number): number {
@@ -93,23 +143,52 @@ function jitter(baseMs: number, fraction: number): number {
 }
 
 /**
- * Decode a base64url string (the encoding used by JWT segments) to its raw
- * text. `atob` only accepts standard base64, so map the URL-safe alphabet
- * back first; `atob` itself tolerates the missing `=` padding.
+ * Resolve after `ms`, so an async retry loop can back off without owning a
+ * timer handle. Teardown is detected by the epoch check that follows every
+ * await, not by cancelling this.
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Decode a base64url string to its raw text. `atob` only accepts standard
+ * base64, so map the URL-safe alphabet back first; `atob` itself tolerates
+ * the missing `=` padding.
  */
 function base64UrlDecode(value: string): string {
   return atob(value.replaceAll('-', '+').replaceAll('_', '/'));
 }
 
 /**
- * Decode the `exp` claim of a JWT. Returns `null` if the token can't be
- * parsed (malformed or unsigned).
+ * Number of `.`-separated segments in a session token: `{payload}.{signature}`.
  */
-function decodeJwtExpiryMs(token: string): number | null {
+const SESSION_TOKEN_SEGMENTS = 2;
+
+/**
+ * Read the `exp` claim out of a session token. Returns `null` if the token
+ * can't be parsed.
+ *
+ * A ScribeAR session token is NOT a JWT, despite looking like one: it is
+ * `base64url(payloadJSON).base64url(HMAC-SHA256)` - **two** segments, payload
+ * first (see session-manager's `SessionTokenService.sign`). This function
+ * previously read `parts[1]` as a JWT's payload would be, so it fed the raw
+ * signature to `JSON.parse` and returned `null` for every token ever issued.
+ * Nothing crashed, because both callers treat `null` as "unknown expiry" -
+ * which silently meant the proactive refresh timer was never armed on any
+ * connection, and every socket open burned a refresh round-trip before it
+ * could send AUTH.
+ *
+ * The signature is not checked here; only session-manager and node-server
+ * hold the signing key. This is a scheduling hint, not an authorization
+ * decision - a tampered `exp` can only make this client refresh at the wrong
+ * time, never make a bad token acceptable.
+ */
+function decodeSessionTokenExpiryMs(token: string): number | null {
   const parts = token.split('.');
-  if (parts.length < 2) return null;
+  if (parts.length !== SESSION_TOKEN_SEGMENTS) return null;
   try {
-    const payload = JSON.parse(base64UrlDecode(parts[1] ?? '')) as {
+    const payload = JSON.parse(base64UrlDecode(parts[0] ?? '')) as {
       exp?: number;
     };
     if (typeof payload.exp !== 'number') return null;
@@ -151,6 +230,28 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
    */
   private _epoch = 0;
 
+  /**
+   * Increments on every authentication attempt. The socket reconnects
+   * internally without the epoch changing, so `open` can fire again while a
+   * previous attempt is still awaiting a token refresh; the generation lets
+   * the older attempt bail instead of racing the newer one.
+   */
+  private _authGeneration = 0;
+
+  /**
+   * Consecutive failures, reset on the corresponding success. Both are
+   * deliberately *not* reset by a reconnect - see
+   * {@link REFRESH_MAX_CONSECUTIVE_FAILURES}.
+   */
+  private _refreshFailures = 0;
+  private _authFailures = 0;
+
+  /**
+   * Set once the session has been declared unrecoverable, to keep the
+   * transition one-way for the remainder of this session.
+   */
+  private _terminal = false;
+
   constructor() {
     super();
     const baseUrl = window.location.origin;
@@ -178,6 +279,13 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
     }
 
     this._identity = stored;
+    // Re-announce the resumed identity. Without this the middleware never
+    // dispatches `setActiveSession`, so `clientSessionService.session` stays
+    // null after a page reload, `setConnectionStatus`/`setSessionStatus`
+    // early-return on every event, and the reloaded viewer gets no banner at
+    // all - not even while its socket is dead. The value is identical to what
+    // is already persisted, so re-emitting it is a no-op for storage.
+    this.emit('sessionIdentity', stored);
     this._enterActive(stored);
   }
 
@@ -265,6 +373,9 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
 
   private _enterActive(identity: SessionIdentity): void {
     const epoch = ++this._epoch;
+    this._terminal = false;
+    this._refreshFailures = 0;
+    this._authFailures = 0;
     this._setLifecycle(ClientLifecycle.ACTIVE);
     this.emit('connectionStatus', SessionConnectionStatus.CONNECTING);
     this.emit('error', null);
@@ -301,7 +412,9 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
       switch (msg.type) {
         case TranscriptionStreamServerMessageType.AUTH_OK:
           // Auth acknowledged; transcript and status messages now flow on the
-          // established channel.
+          // established channel. This is the only proof the credential was
+          // accepted, so it's what clears the consecutive-failure budget.
+          this._authFailures = 0;
           break;
         case TranscriptionStreamServerMessageType.TRANSCRIPT:
           this.emit('transcript', {
@@ -342,7 +455,7 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
       }
     });
 
-    socket.on('close', (code) => {
+    socket.on('close', (code, reason) => {
       if (epoch !== this._epoch) return;
       // 1000 = normal close (sessionEnded message received) - session is
       // over and the persisted identity should be cleared.
@@ -353,9 +466,24 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
       // 1008 = auth failure. The cached session token was rejected; drop it
       // so the next reconnect attempt forces a fresh refresh-token exchange
       // before sending AUTH again. WebSocketClient handles the reconnect
-      // backoff internally.
+      // backoff internally - which is exactly the problem when the rejection
+      // is permanent: 1008 is not in its `normalCloseCodes`, so it would
+      // reconnect into the identical rejection forever. Bound it.
       if (code === 1008) {
         this._sessionToken = null;
+        this._authFailures++;
+        if (PERMANENT_AUTH_CLOSE_REASONS.has(reason)) {
+          this._enterTerminal(
+            'This session refused the connection. Leave the session and join again with a new join code.',
+          );
+          return;
+        }
+        if (this._authFailures >= MAX_CONSECUTIVE_AUTH_FAILURES) {
+          this._enterTerminal(
+            'Could not connect to this session. Leave the session and join again with a new join code.',
+          );
+          return;
+        }
       }
       // Note: 1013 ("at capacity") is NOT a code this socket ever receives -
       // and TRANSCRIPTION_STREAM_SCHEMA's closeCodes (1000/1001/1006/1007/
@@ -374,8 +502,13 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
     socket.on('error', (err) => {
       if (epoch !== this._epoch) return;
       if (err instanceof WsSchemaValidationError) {
-        this.emit('error', 'Session stream protocol mismatch.');
-        this.leaveSession();
+        // Client and server disagree about the wire format. Reconnecting
+        // cannot fix a schema drift, and dropping to IDLE (as this used to)
+        // discarded the explanation along with the session - the join dialog
+        // reopened with no indication of what happened.
+        this._enterTerminal(
+          'Session stream protocol mismatch. This app may be out of date - reload the page.',
+        );
       }
     });
 
@@ -385,18 +518,24 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
   /**
    * Send the AUTH message on the freshly-opened socket. Re-runs after every
    * reconnect because the WebSocketClient re-emits `open` on each successful
-   * underlying socket open.
+   * underlying socket open - so it takes a generation and abandons any
+   * earlier attempt still waiting on a refresh.
    */
   private async _authenticateSocket(
     identity: SessionIdentity,
     epoch: number,
   ): Promise<void> {
+    const generation = ++this._authGeneration;
+
     let token = this._sessionToken;
     if (token !== null && this._isTokenExpired(token)) token = null;
 
     if (token === null) {
-      token = await this._refreshSessionToken(identity, epoch);
-      if (epoch !== this._epoch) return;
+      token = await this._refreshWithBackoff(identity, epoch, generation);
+      if (epoch !== this._epoch || generation !== this._authGeneration) return;
+      // Refresh gave up (transiently, or terminally); either way there is
+      // nothing to authenticate with. The socket will be closed by
+      // node-server's auth watchdog, or already has been.
       if (token === null) return;
       this._sessionToken = token;
     }
@@ -410,10 +549,46 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
   }
 
   /**
-   * Trade the refresh token for a fresh session token. On a 401/409, the
+   * Retry {@link _refreshSessionToken} with exponential backoff until it
+   * succeeds or the consecutive-failure budget is exhausted, at which point
+   * the session becomes terminal. Returns `null` if it gave up or if the
+   * attempt was superseded (teardown, or a newer socket open).
+   */
+  private async _refreshWithBackoff(
+    identity: SessionIdentity,
+    epoch: number,
+    generation: number,
+  ): Promise<string | null> {
+    for (;;) {
+      const token = await this._refreshSessionToken(identity, epoch);
+      if (epoch !== this._epoch || generation !== this._authGeneration) {
+        return null;
+      }
+      if (token !== null) return token;
+
+      if (this._refreshFailures >= REFRESH_MAX_CONSECUTIVE_FAILURES) {
+        this._enterTerminal(
+          'Lost access to this session and could not restore it. Leave the session and join again with a new join code.',
+        );
+        return null;
+      }
+
+      const delayMs = Math.min(
+        REFRESH_RETRY_BASE_MS * 2 ** (this._refreshFailures - 1),
+        REFRESH_RETRY_MAX_MS,
+      );
+      await sleep(delayMs + jitter(delayMs, TOKEN_REFRESH_JITTER));
+      if (epoch !== this._epoch || generation !== this._authGeneration) {
+        return null;
+      }
+    }
+  }
+
+  /**
+   * Trade the refresh token for a fresh session token, once. On a 401/409 the
    * session is unrecoverable - clear stored identity and fall back to IDLE.
-   * On a transient failure, surface it to the UI but stay in ACTIVE so the
-   * WebSocketClient's reconnect loop keeps trying.
+   * Any other failure returns `null` after charging the consecutive-failure
+   * budget; retrying and giving up is {@link _refreshWithBackoff}'s job.
    */
   private async _refreshSessionToken(
     identity: SessionIdentity,
@@ -426,18 +601,17 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
 
     if (epoch !== this._epoch) return null;
 
-    if (error instanceof NetworkError) {
-      this.emit('error', 'Network error - retrying.');
-      return null;
-    }
+    // Transient failures are deliberately not written to `error`: the
+    // connection banner already says "Reconnecting…" for all of them, and the
+    // only thing worth telling the user is the point at which retrying stops.
     if (error !== null) {
-      this.emit('error', 'Failed to refresh session token.');
+      this._refreshFailures++;
       return null;
     }
 
     switch (response.status) {
       case 200:
-        this.emit('error', null);
+        this._refreshFailures = 0;
         return response.data.sessionToken;
       // 401 INVALID_REFRESH_TOKEN or 409 SESSION_ENDED: refresh token is no
       // longer usable. Drop the stored identity and return to IDLE so the
@@ -447,11 +621,17 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
         this.leaveSession();
         return null;
       default:
-        this.emit('error', 'Failed to refresh session token.');
+        this._refreshFailures++;
         return null;
     }
   }
 
+  /**
+   * Arm the proactive refresh timer for `token`, so a long-lived viewer keeps
+   * a valid credential without ever having to reconnect to get one. A token
+   * whose expiry can't be read leaves no timer armed - which, until
+   * {@link decodeSessionTokenExpiryMs} was fixed, was every token.
+   */
   private _scheduleTokenRefresh(
     identity: SessionIdentity,
     token: string,
@@ -462,7 +642,7 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
       this._tokenRefreshTimer = null;
     }
 
-    const expiryMs = decodeJwtExpiryMs(token);
+    const expiryMs = decodeSessionTokenExpiryMs(token);
     if (expiryMs === null) return;
 
     const remainingMs = expiryMs - Date.now();
@@ -494,8 +674,9 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
     if (epoch !== this._epoch) return;
     if (this._socket === null) return;
 
-    const token = await this._refreshSessionToken(identity, epoch);
-    if (epoch !== this._epoch) return;
+    const generation = ++this._authGeneration;
+    const token = await this._refreshWithBackoff(identity, epoch, generation);
+    if (epoch !== this._epoch || generation !== this._authGeneration) return;
     if (token === null) return;
 
     this._sessionToken = token;
@@ -507,9 +688,28 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
   }
 
   private _isTokenExpired(token: string): boolean {
-    const expiryMs = decodeJwtExpiryMs(token);
+    const expiryMs = decodeSessionTokenExpiryMs(token);
     if (expiryMs === null) return true;
     return expiryMs <= Date.now();
+  }
+
+  /**
+   * Declare the session unrecoverable: stop every retry loop, tear the socket
+   * down, and tell the user - with the reason - that this session is over and
+   * what to do about it. Stays in {@link ClientLifecycle.ACTIVE} on purpose,
+   * so the captions already on screen survive and the Leave button (which is
+   * bound to ACTIVE) is still there to rejoin with.
+   *
+   * One-way for the rest of the session; `joinSession`/`start` clear it.
+   */
+  private _enterTerminal(message: string): void {
+    if (this._terminal) return;
+    // Bumps the epoch, so every in-flight retry, refresh and timer this
+    // session armed is abandoned rather than merely ignored.
+    this._teardownActiveSession();
+    this._terminal = true;
+    this.emit('error', message);
+    this.emit('connectionStatus', SessionConnectionStatus.TERMINAL);
   }
 
   private _joinErrorFromStatus(status: number): JoinError {

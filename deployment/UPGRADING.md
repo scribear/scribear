@@ -12,6 +12,118 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — the capacity estimator's knobs are reachable from `.env` (`compose.yml` v9)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. **A
+stock deployment needs to do nothing** — all three new variables carry the
+values the service already used.
+
+Three new variables on `transcription-service`, all optional:
+
+| `.env` key | Default | What it does |
+| --- | --- | --- |
+| `TRANSCRIPTION_TARGET_BUSY` | `0.85` | Fraction of a worker the estimated ceiling aims to keep busy |
+| `TRANSCRIPTION_MIN_SESSIONS` | `1` | Floor under the estimated ceiling, so one bad window cannot report zero |
+| `TRANSCRIPTION_MAX_SESSIONS` | *(empty)* | Operator hard pin. Empty means auto-tune |
+
+transcription-service measures how much of a worker one ASR session actually
+costs and derives a ceiling — `estimatedCapacitySessions` on
+`/metrics/status` and `/providers/health`, drawn as "estimated capacity" in the
+dashboard's fleet view. **It is observe-only: nothing is refused because of it**,
+so these three change what is *reported*, never who gets captions.
+
+`TRANSCRIPTION_MAX_SESSIONS` is the strongest of the three on purpose. It wins
+over `TRANSCRIPTION_MIN_SESSIONS` *and* over warm-up, so it applies from the
+first request rather than after a measurement it has already overruled — it is a
+statement about your hardware, not an estimate. Set it if you have measured your
+box and want the dashboard to say so; leave it empty otherwise.
+
+### Why this is an upgrade note at all
+
+The service has read `TARGET_BUSY`, `MIN_SESSIONS` and `MAX_SESSIONS` from its
+environment since they were added, and its own config file says they are
+"reachable from `.env` on purpose". They were not: nothing passed them through
+`compose.yml`, so a compose operator had no way to set them short of editing the
+compose file — which is exactly the regret that variable was created to avoid,
+one indirection along. This closes it.
+
+Empty is read as "unset" for `TRANSCRIPTION_MAX_SESSIONS`, because compose has
+no way to omit an environment key. A value that is neither empty nor a number
+still stops the service at boot, deliberately: silently auto-tuning under a
+`MAX_SESSIONS` an operator believed was a hard pin is a misconfiguration with no
+symptom to find.
+
+---
+
+## Unreleased — node-server is sticky-routed by session uid
+
+**Pull the new `scribear-nginx` image** (`docker compose pull scribear-nginx &&
+docker compose up -d`, or just run [`deploy_latest.sh`](deploy_latest.sh)). No
+`.env` or `compose.yml` change; the fix is inside the image.
+
+`upstream node-server` in `nginx.conf` now carries
+`hash $node_server_session_uid;`, keyed off the session uid in the WebSocket
+URL path. Before this, it had no balancing directive at all — nginx
+round-robined.
+
+That was survivable only because the service runs one replica.
+`docker compose up -d --scale node-server=2` would have broken live captioning
+in a way nothing reports: node-server's orchestrator state is per-process (the
+event bus, the upstream transcription socket), so a viewer routed to a
+different instance than its room's source subscribes to a channel nothing
+publishes on and receives no transcripts — no error, no close, no banner, just
+an empty caption view. **Scaling node-server past one replica is now
+supported**; before, it was not, and nothing said so.
+
+One caveat worth knowing before you scale: the hash is a plain modulo, not
+ketama. `consistent` is silently ignored by this nginx when the upstream server
+is a `resolve` name (measured — it falls back to round-robin, `nginx -t` passes
+either way), so it is deliberately not used. The practical consequence is that
+changing the replica count re-homes most sessions; do it when a brief
+reconnect is acceptable.
+
+---
+
+## Unreleased — session-manager validates `transcriptionProviderId` (`compose.yml` v8)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`.
+
+New variable: **`TRANSCRIPTION_PROVIDER_IDS`** on `session-manager`. It is a
+comma-separated list of the provider keys session-manager will accept when a
+session, schedule or auto-session window is created or updated, and it defaults
+to the set shipped in `provider_config.template.json`
+(`debug,whisper,lumen_granite,crisper_whisper`). **A stock deployment needs to
+do nothing.**
+
+**If you have edited `provider_config.json`** — added a provider, removed one,
+renamed a key — set `TRANSCRIPTION_PROVIDER_IDS` in `.env` to exactly the keys
+under its `"providers"` object. The two files now have to agree, and this is the
+one place that says so.
+
+### Why
+
+A `transcriptionProviderId` naming no configured provider used to be accepted
+silently and only fail when someone tried to use the room: transcription-service
+raises `Invalid Provider Key` and closes the socket with 1007, node-server
+retries a request that can never succeed, and every viewer sits on
+"Connection to the transcription service was lost. Reconnecting…" forever, with
+nothing anywhere naming the cause. The typo is made once, by an operator, at a
+keyboard — it is now answered there, with a `400` that lists the accepted keys.
+
+The list is deployment configuration rather than a fixed set in the API schema
+because `provider_config.json` is yours to edit: a hardcoded set would reject a
+provider you legitimately added and accept one you removed. It is not read live
+from transcription-service either — that endpoint needs `METRICS_API_KEY`, a
+credential session-manager does not have, and it would make scheduling fail
+whenever transcription-service is down.
+
+Getting the list wrong is loud either way: too narrow and a create fails
+immediately with the accepted keys in the message; too wide and you are back to
+the old behaviour, which the viewer now sees as a specific "misconfigured"
+message rather than an endless reconnect.
+
+---
+
 ## Unreleased — watchtower is gone; `deploy_latest.sh` replaces it (`compose.yml` v7)
 
 **Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. If

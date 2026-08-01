@@ -89,9 +89,11 @@ export type ConnectionBannerState =
  *
  * No session (`connectionStatus === null`) means there is nothing to report
  * - the kiosk isn't participating in a session, so there's no connection to
- * be lost. Every case here is a retrying/transient state (matching this
- * feature's fail-open philosophy elsewhere), so severity is always
- * `'warning'`, never `'error'`.
+ * be lost. Almost every case here is a retrying/transient state (matching
+ * this feature's fail-open philosophy elsewhere) and so is a `'warning'`. The
+ * one exception is `INVALID_REQUEST`: the transcription service rejected this
+ * session's configuration and will reject the identical retry forever, so
+ * there is nothing to wait for and it is reported as an `'error'`.
  */
 export function deriveConnectionBanner(
   connectionStatus: SessionConnectionStatus | null,
@@ -118,6 +120,23 @@ export function deriveConnectionBanner(
         severity: 'warning',
         message:
           'The live transcription service is at capacity. Retrying automatically…',
+      };
+    }
+    // Permanent, unlike every other branch here: the transcription service
+    // rejected this session's configuration (close 1007 - typically a
+    // transcriptionProviderId that does not exist on this deployment) and will
+    // reject the identical retry forever. "Reconnecting…" would be a promise
+    // nothing can keep, so this says what has to happen instead, and says it
+    // as an error rather than a warning.
+    if (
+      sessionStatus.transcriptionServiceDisconnectReason ===
+      TranscriptionServiceDisconnectReason.INVALID_REQUEST
+    ) {
+      return {
+        open: true,
+        severity: 'error',
+        message:
+          'Live transcription is misconfigured for this room and cannot start. An administrator needs to check the session’s transcription provider.',
       };
     }
     return {

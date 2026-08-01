@@ -3,6 +3,7 @@ Defines TranscriptionProviderInterface API for transcription providers
 """
 
 from abc import ABC, abstractmethod
+from typing import Callable
 
 from src.shared.logger import Logger
 from src.shared.utils.worker_pool import WorkerPool
@@ -91,6 +92,56 @@ class TranscriptionProviderInterface(ABC):
     # immutable, so the first increment rebinds it as an instance attribute and
     # no state is ever shared between providers.
     _active_sessions: int = 0
+
+    # None until `bind_admission_check` wires one on, which
+    # TranscriptionProviderRegistry does right after constructing this
+    # provider. A provider built directly - every provider unit test does
+    # this - therefore admits unconditionally, the same fail-open default
+    # admission control has used from the start.
+    _admission_check: Callable[[int | None, Logger], None] | None = None
+
+    def bind_admission_check(
+        self, check: Callable[[int | None, Logger], None]
+    ) -> None:
+        """
+        Wires this provider to the registry's capacity gate
+
+        Args:
+            check   - Callable a session invokes the moment it discovers
+                        which worker (if any) its job landed on. Raises
+                        TranscriptionCapacityError if that worker has no
+                        room; a no-op call is always safe.
+
+        Called once, by TranscriptionProviderRegistry._load_providers,
+        immediately after construction - never by a session, and never
+        more than once per provider.
+        """
+        self._admission_check = check
+
+    def check_admission(self, worker_id: int | None, logger: Logger) -> None:
+        """
+        Asks the registry whether the given worker has room for one more
+        session, raising TranscriptionCapacityError if not
+
+        Args:
+            worker_id   - The worker a session's job just landed on, or None
+                            if this session's cost is not a capacity claim
+                            (see TranscriptionSessionInterface.admission_worker_id)
+            logger      - Logger to attach to a refusal
+
+        A session calls this itself, right after registering its job - not
+        the registry, and not at session construction - and calls it through
+        `TranscriptionSessionInterface._admit_registered_job`, which owns the
+        deregistration a refusal has to undo. Registration is what
+        makes a session a claim on worker capacity at all (an idle,
+        audio-less connection that never registers a job never shows up in
+        any worker's live_job_count), so there is nothing to decide before
+        it happens, and deciding any later would let that session's job sit
+        on a worker it was never granted.
+        """
+        if self._admission_check is None:
+            return
+        self._admission_check(worker_id, logger)
 
     @property
     def job_period_ms(self) -> int | None:

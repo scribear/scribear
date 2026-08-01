@@ -63,6 +63,26 @@ describe('deriveConnectionBanner', (it) => {
     });
   });
 
+  it('reports a permanent error when the transcription service rejected the request', () => {
+    // Close 1007 - in practice a transcriptionProviderId that is not in the
+    // deployment's provider_config.json. The retry loop re-sends the identical
+    // config forever, so "Reconnecting…" would be a promise nothing can keep.
+    const status = statusSnapshot({
+      transcriptionServiceConnected: false,
+      transcriptionServiceDisconnectReason:
+        TranscriptionServiceDisconnectReason.INVALID_REQUEST,
+    });
+
+    expect(
+      deriveConnectionBanner(SessionConnectionStatus.CONNECTED, status),
+    ).toEqual({
+      open: true,
+      severity: 'error',
+      message:
+        'Live transcription is misconfigured for this room and cannot start. An administrator needs to check the session’s transcription provider.',
+    });
+  });
+
   it('warns generically when the socket is up but the transcription service is down for an unknown reason', () => {
     const status = statusSnapshot({ transcriptionServiceConnected: false });
 

@@ -15,6 +15,11 @@ does not describe it.
 Every session here is built over a mocked WorkerPool, so no model is loaded and
 no worker process is spawned; what is being pinned is which worker id each
 session reports, not what the pool does with it.
+
+Every test sends one audio chunk before asserting anything. Job registration -
+and therefore the worker placement `admission_worker_id` reports - is deferred
+to a session's first `handle_audio_chunk`, not its construction, so an idle
+session that never streams never takes a worker's job slot at all.
 """
 
 from unittest.mock import MagicMock
@@ -92,6 +97,7 @@ def test_whisper_session_reports_the_worker_its_job_landed_on(
     session = provider.create_session(
         "unused_config", "session-1", "room-1", mock_logger
     )
+    session.handle_audio_chunk("chunk-1", b"audio")
 
     # Assert
     assert session.admission_worker_id == ASSIGNED_WORKER_ID
@@ -123,6 +129,7 @@ def test_lumen_granite_session_is_excluded_from_capacity_admission(
     session = provider.create_session(
         "unused_config", "session-1", "room-1", mock_logger
     )
+    session.handle_audio_chunk("chunk-1", b"audio")
 
     # Assert
     assert session.admission_worker_id is None
@@ -151,6 +158,7 @@ def test_debug_session_is_excluded_from_capacity_admission(
     session = provider.create_session(
         DEBUG_SESSION_CONFIG, "session-1", "room-1", mock_logger
     )
+    session.handle_audio_chunk("chunk-1", b"audio")
 
     # Assert
     assert session.admission_worker_id is None

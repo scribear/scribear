@@ -124,6 +124,24 @@ export class MetricsRegistry {
   );
 
   /**
+   * Source registrations refused because the session was already over. Not a
+   * failure — the socket is closed 1000 with `sessionEnded` and no upstream
+   * is dialed — which is exactly why it needs its own series: downstream it is
+   * indistinguishable from an ordinary session end, while it actually means a
+   * device connected to a session that finished before it arrived. The usual
+   * cause is a kiosk whose schedule long-poll has been failing silently, and
+   * nothing else in the fleet reports that.
+   *
+   * Optional on the wire
+   * (`STATUS_PROCESS_SCHEMA.summary.endedSessionRegistrationsTotal`), so a
+   * poll of an older node-server records no increment rather than a zero.
+   */
+  readonly nodeEndedSessionRegistrationsTotal = new Counter(
+    'scribear_node_ended_session_registrations_total',
+    'Source registrations refused because the session had already reached its effectiveEnd.',
+  );
+
+  /**
    * Audio frames evicted at the per-session pending-chunk cap (§3 N3).
    * Sustained eviction means latency correlation is degrading silently.
    */
@@ -719,6 +737,7 @@ export class MetricsRegistry {
       this.nodeAuthTimeoutsTotal,
       this.nodeBinaryBeforeAuthDropsTotal,
       this.nodeOrchestratorFailuresTotal,
+      this.nodeEndedSessionRegistrationsTotal,
       this.nodePendingChunkEvictionsTotal,
       this.nodeLatencySamplesTotal,
       this.nodeLatencyE2eNegativeTotal,

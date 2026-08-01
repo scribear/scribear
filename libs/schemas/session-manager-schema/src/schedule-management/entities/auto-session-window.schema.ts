@@ -4,6 +4,7 @@ import { SESSION_SCOPE_SCHEMA } from '#src/shared/entities/session-scope.schema.
 
 import { DAY_OF_WEEK_SCHEMA } from './day-of-week.schema.js';
 import { LOCAL_TIME_SCHEMA } from './session-schedule.schema.js';
+import { TRANSCRIPTION_PROVIDER_ID_SCHEMA } from './transcription-provider.schema.js';
 
 /**
  * An auto-session window as returned by schedule-management read endpoints.
@@ -20,7 +21,7 @@ export const AUTO_SESSION_WINDOW_SCHEMA = Type.Object(
     daysOfWeek: Type.Array(DAY_OF_WEEK_SCHEMA),
 
     joinCodeScopes: Type.Array(SESSION_SCOPE_SCHEMA),
-    transcriptionProviderId: Type.String(),
+    transcriptionProviderId: TRANSCRIPTION_PROVIDER_ID_SCHEMA,
     transcriptionStreamConfig: Type.Unknown(),
 
     activeStart: Type.String({ format: 'date-time' }),

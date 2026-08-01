@@ -126,6 +126,20 @@ services:
       # Unset seeds nothing and leaves the canary off, which is where a
       # deployment that never provisioned a canary device already was.
       CANARY_DEVICE_SECRET: ${MONITORING_CANARY_DEVICE_SECRET:-}
+      # Provider keys accepted on create/update of a session, schedule or
+      # auto-session window. MUST list exactly the keys under "providers" in the
+      # provider_config.json mounted into transcription-service below
+      # (PROVIDER_CONFIG_PATH) - if you edit that file, edit this alongside it.
+      #
+      # An id that matches no provider is otherwise invisible until stream time:
+      # transcription-service raises "Invalid Provider Key" and closes the
+      # socket 1007, node-server retries a request that can never succeed, and
+      # every viewer of the room sees only a reconnecting banner. Validating it
+      # here answers the typo at the console instead.
+      #
+      # The default is the set in provider_config.template.json, so a stock
+      # deployment needs nothing here.
+      TRANSCRIPTION_PROVIDER_IDS: ${TRANSCRIPTION_PROVIDER_IDS:-debug,whisper,lumen_granite,crisper_whisper}
     depends_on:
       scribear-db:
         condition: service_healthy
@@ -205,7 +219,7 @@ services:
       # Not `:?`-guarded, like DEPLOYMENT_ENV below and unlike the secrets: it
       # changes what is *reported*, never what runs, and must not be able to
       # stop a stack from starting.
-      COMPOSE_FILE_VERSION: "7"
+      COMPOSE_FILE_VERSION: "9"
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
@@ -435,6 +449,30 @@ services:
       # hostname, which compose sets to the container name, so scaling this
       # service gives each replica a distinct identity with no configuration.
       REDIS_URL: ${TRANSCRIPTION_REDIS_URL:-}
+      # Capacity estimator knobs. The estimator measures per-session ASR cost
+      # per worker and publishes a ceiling on /metrics/status and
+      # /providers/health, which the dashboard's fleet view draws; it is
+      # currently observe-only, so these change what is *reported*, not what is
+      # admitted. All three carry the shipped defaults, so leaving them unset
+      # changes nothing.
+      #
+      # They are here because this subsystem already shipped tuning knobs that
+      # only existed as compose-file edits and had to be rediscovered by every
+      # deployment; the service has read these from `.env` from the start, and
+      # this is the compose path that makes that true for an operator too.
+      #
+      # TARGET_BUSY is the headroom fraction the ceiling aims at, and is
+      # deliberately device-independent - the hardware-specific half
+      # (per-session cost) is measured, not configured. MIN_SESSIONS is the
+      # floor that stops a bad measurement taking a worker to zero.
+      # MAX_SESSIONS is the operator's hard pin: empty means auto-tune, and
+      # setting it disables auto-tuning entirely - it wins over the floor AND
+      # over warm-up, so it is the one value that is in effect from the first
+      # request. Empty is read as "unset" by the service, since compose has no
+      # way to omit a key.
+      TARGET_BUSY: ${TRANSCRIPTION_TARGET_BUSY:-0.85}
+      MIN_SESSIONS: ${TRANSCRIPTION_MIN_SESSIONS:-1}
+      MAX_SESSIONS: ${TRANSCRIPTION_MAX_SESSIONS:-}
       # Model download cache. faster-whisper pulls weights via huggingface_hub
       # and silero-vad via torch.hub; both honour HF_HOME (torch.hub falls back
       # to it when TORCH_HOME is unset), so one variable redirects both. The

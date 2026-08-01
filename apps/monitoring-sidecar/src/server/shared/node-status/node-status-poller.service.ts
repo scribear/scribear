@@ -132,6 +132,15 @@ export class NodeStatusPollerService extends AbsoluteStatusPoller<NodeStatusBody
       { service },
       s.orchestratorFailuresTotal,
     );
+    // Optional on the wire, skipped rather than defaulted - same reasoning as
+    // `binaryBeforeAuthDropsTotal` above.
+    if (s.endedSessionRegistrationsTotal !== undefined) {
+      this._advance(
+        this._metrics.nodeEndedSessionRegistrationsTotal,
+        { service },
+        s.endedSessionRegistrationsTotal,
+      );
+    }
     this._advance(
       this._metrics.nodePendingChunkEvictionsTotal,
       { service },

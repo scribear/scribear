@@ -60,12 +60,40 @@ class EnvSchema(BaseModel):
     # edits, never as `.env` values - `ALERT_RTF_P95` and its two siblings, a
     # number a CPU deployment must currently discover for itself and hand-set
     # with no `.env` path to do so. These three are the manual override the plan
-    # calls out by name, and are not repeating that mistake.
+    # calls out by name, and are not repeating that mistake. They are wired
+    # through `deployment/compose.yml` as `TRANSCRIPTION_TARGET_BUSY`,
+    # `TRANSCRIPTION_MIN_SESSIONS` and `TRANSCRIPTION_MAX_SESSIONS`, so a
+    # compose operator can actually reach them - which for a while they could
+    # not, the exact regret above one indirection along.
     TARGET_BUSY: float = 0.85
     MIN_SESSIONS: int = 1
     MAX_SESSIONS: int | None = None
 
     PROVIDER_CONFIG_PATH: str
+
+    @field_validator("MAX_SESSIONS", mode="before")
+    @classmethod
+    def _blank_max_sessions_means_no_pin(cls, value: Any) -> Any:
+        """
+        Reads an empty MAX_SESSIONS as "no operator pin", same as unset
+
+        Compose has no way to omit an environment key, so the
+        transcription-service block passes
+        `MAX_SESSIONS: ${TRANSCRIPTION_MAX_SESSIONS:-}` and every stock
+        deployment hands this an empty string. Without this, that empty string
+        fails `int | None` parsing at boot and the container refuses to start -
+        which would turn an optional tuning knob into a required one for
+        everybody who copied the shipped compose file, the loudest possible
+        version of a change that is supposed to be inert by default.
+
+        Only the empty case is special-cased: a typo'd `MAX_SESSIONS=lots`
+        still fails loudly, because silently auto-tuning under a value an
+        operator believed was a hard pin is precisely the misconfiguration
+        nobody would find.
+        """
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
 
     @field_validator("TRANSCRIPTION_HOST_ID")
     @classmethod

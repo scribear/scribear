@@ -67,18 +67,10 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
             self.session_uid = session_uid
             self.room_uid = room_uid
 
-            self._job = provider.worker_pool.register_job(
-                (),  # no context - remote endpoint does the work
-                provider.config.job_period_ms,
-                LumenGraniteProviderJob(provider.config),
-                provider.provider_key,
-                session_uid=self.session_uid,
-                room_uid=self.room_uid,
-            )
-            self._job.on(self._job.JobResultEvent, self._handle_job_result)
+            # Not registered here - see _ensure_job. An idle client that never
+            # sends audio must never take a worker's job slot.
+            self._job = None
 
-            # Last, so a registration that raises above never counts a session
-            # that did not open.
             provider.session_started()
 
         def _handle_job_result(
@@ -90,14 +82,49 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
 
             self.emit(self.TranscriptionResultEvent, result.value)
 
+        def _ensure_job(self) -> None:
+            """
+            Registers this session's worker-pool job on the first real audio
+            chunk, not at construction
+
+            Deferred so an idle client - configured but never streaming - never
+            takes a worker's job slot, and so never counts toward that
+            worker's live_job_count for capacity admission.
+
+            `_admit_registered_job` is the same register/ask/undo the other two
+            providers' sessions run, called through the one implementation on
+            TranscriptionSessionInterface. Today it cannot refuse this session,
+            because this one does not override `admission_worker_id` - a remote
+            provider's capacity question is upstream rate limits and network
+            latency, explicitly out of scope per §5/§7. That is a property of
+            this class right now, not a reason to write the call differently
+            here, and the shared helper means opting in later cannot leak a
+            registered job.
+            """
+            if self._job is not None:
+                return
+
+            self._job = self._provider.worker_pool.register_job(
+                (),  # no context - remote endpoint does the work
+                self._provider.config.job_period_ms,
+                LumenGraniteProviderJob(self._provider.config),
+                self._provider.provider_key,
+                session_uid=self.session_uid,
+                room_uid=self.room_uid,
+            )
+            self._job.on(self._job.JobResultEvent, self._handle_job_result)
+            self._admit_registered_job(self._provider, self._log)
+
         def handle_audio_chunk(self, chunk_id: str, chunk: bytes):
+            self._ensure_job()
             self._job.queue_data(
                 [AudioChunkPayload(chunk_id=chunk_id, audio_bytes=chunk)]
             )
 
         def end_session(self):
             super().end_session()
-            self._job.deregister()
+            if self._job is not None:
+                self._job.deregister()
             self._provider.session_ended()
 
     def __init__(

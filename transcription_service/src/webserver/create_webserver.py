@@ -53,10 +53,10 @@ def create_webserver(config: Config, logger: Logger):
     metrics_registry = MetricsRegistry(process_identity=process_identity)
     # archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §3/§4. Constructed
     # here, next to metrics_registry, because both are fed by the same
-    # job_observer below and
-    # both are threaded onward the same way - the estimator now reaching the
-    # provider registry (which enforces admission) as well as metrics_router
-    # (which reports its snapshot).
+    # job_observer below and both are threaded onward the same way - to
+    # metrics_router and ProviderHealthSnapshotService, which report its
+    # snapshot. It is deliberately NOT threaded into the provider registry;
+    # see the comment above that construction.
     capacity_estimator = CapacityEstimator(
         target_busy=config.target_busy,
         min_sessions=config.min_sessions,
@@ -67,17 +67,37 @@ def create_webserver(config: Config, logger: Logger):
         """
         Fans one completed job execution out to both consumers that need it:
         the metrics registry (what /metrics/status reports) and the capacity
-        estimator (what decides whether the next session is admitted).
+        estimator (whose ceiling both /metrics/status and /providers/health
+        publish).
         """
         metrics_registry.record_job_execution(observation)
         capacity_estimator.record(observation)
 
-    # Admission enforcement disabled for now: idle (audio-less) connections
-    # register a job and count toward a worker's live_job_count the same as
-    # an active one, so N can cross the ratcheted ceiling from connection
-    # count alone. `capacity_estimator` is still wired into `_observe_job`
-    # below and into /metrics/status + /providers/health, so estimation stays
-    # live in shadow mode - only the refusal in `create_session` is off.
+    # SHADOW MODE: `None` where `capacity_estimator` would go, so the estimator
+    # observes and reports but nothing is ever refused. Deliberate, and the one
+    # thing that has to stay this way until a real deployment has been watched.
+    #
+    # Deferring job registration to a session's first audio chunk is
+    # unambiguously correct on its own - an idle, audio-less connection no
+    # longer takes a worker's job slot, which is what made refusals fire on
+    # connection count rather than on load. But that same fix *lowers* the
+    # measured ceiling, and by a lot. Idle registered jobs used to run an empty
+    # batch every period (`worker_process.py`'s scheduling loop), which added a
+    # distinct job_id to the estimator's window - inflating the `sessions`
+    # denominator of `cost_per_session = busy / sessions`
+    # (`capacity_estimator.py:_update_ratchet`) while contributing nothing to
+    # the numerator. A live box measured `estimatedCapacitySessions: 50` under
+    # that inflation. With it removed, a single whisper stream that keeps the
+    # one worker busy for half of each 5000 ms period gives b ~ 0.5 and
+    # therefore N* = 1.
+    #
+    # Turning enforcement on in the same change as the fix that moved the
+    # number would mean shipping a ceiling nobody has observed under real load.
+    # Wrong refusals are invisible to the user and unrecoverable for that
+    # session, so the order is: measure first (the estimate is published on
+    # /metrics/status and /providers/health, and drawn on the fleet dashboard),
+    # then decide. Passing `capacity_estimator` here is the whole of the
+    # switch - `_admits_worker` fails open on a `None` estimator by design.
     provider_registry = TranscriptionProviderRegistry(
         config, logger, _observe_job, None, metrics_registry
     )

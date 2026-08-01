@@ -21,6 +21,7 @@ import {
   LOCAL_TIME_SCHEMA,
   SESSION_SCHEDULE_SCHEMA,
 } from '../entities/session-schedule.schema.js';
+import { TRANSCRIPTION_PROVIDER_ID_SCHEMA } from '../entities/transcription-provider.schema.js';
 
 const CREATE_SCHEDULE_SCHEMA = {
   description:
@@ -57,7 +58,7 @@ const CREATE_SCHEDULE_SCHEMA = {
       Type.Null(),
     ]),
     joinCodeScopes: Type.Array(SESSION_SCOPE_SCHEMA),
-    transcriptionProviderId: Type.String(),
+    transcriptionProviderId: TRANSCRIPTION_PROVIDER_ID_SCHEMA,
     transcriptionStreamConfig: Type.Unknown(),
   }),
   response: {
