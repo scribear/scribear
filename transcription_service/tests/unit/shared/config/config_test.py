@@ -278,6 +278,71 @@ def test_config_loads_the_capacity_estimator_overrides_when_set(
     assert config.max_sessions == MAX_SESSIONS
 
 
+def test_config_reads_a_blank_max_sessions_as_no_pin(
+    clean_os_environ: None, tmp_path: Path
+):
+    # pylint: disable=unused-argument
+    # Need to include clean_os_environ so that fixture is created
+    """
+    Test an empty MAX_SESSIONS leaves the estimator auto-tuning
+
+    This is what every stock compose deployment sends. `compose.yml` cannot
+    omit an environment key, so it passes
+    `MAX_SESSIONS: ${TRANSCRIPTION_MAX_SESSIONS:-}` and an operator who never
+    sets the variable hands the service an empty string rather than nothing at
+    all. `int | None` refuses to parse that, so without the coercion the whole
+    container fails to boot - an optional tuning knob becoming a required one
+    for everyone who copied the shipped file.
+
+    The other two need no equivalent: they carry real literal defaults in
+    compose, so they are never blank.
+    """
+    # Arrange
+    transcription_config_path = tmp_path / "transcription_config.json"
+    transcription_config_path.write_text(VALID_PROVIDER_CONFIG_JSON)
+
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text(
+        valid_env(str(transcription_config_path)) + "MAX_SESSIONS=\n"
+    )
+
+    # Act
+    config = Config(dotenv_path=str(dotenv_path))
+
+    # Assert - identical to leaving the variable out entirely
+    assert config.max_sessions is None
+    assert config.target_busy == 0.85
+    assert config.min_sessions == 1
+
+
+def test_config_still_rejects_an_unparseable_max_sessions(
+    clean_os_environ: None, tmp_path: Path
+):
+    # pylint: disable=unused-argument
+    # Need to include clean_os_environ so that fixture is created
+    """
+    Test a non-numeric MAX_SESSIONS stops the process rather than being ignored
+
+    The blank coercion above is deliberately narrow. Falling back to
+    auto-tuning on any unparseable value would leave an operator who typed
+    `MAX_SESSIONS=lots` believing they had pinned the ceiling while the
+    estimator quietly went on measuring one - a misconfiguration with no
+    symptom to find.
+    """
+    # Arrange
+    transcription_config_path = tmp_path / "transcription_config.json"
+    transcription_config_path.write_text(VALID_PROVIDER_CONFIG_JSON)
+
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text(
+        valid_env(str(transcription_config_path)) + "MAX_SESSIONS=lots\n"
+    )
+
+    # Act / Assert
+    with pytest.raises(ValidationError):
+        Config(dotenv_path=str(dotenv_path))
+
+
 def test_config_rejects_a_host_id_that_could_forge_a_telemetry_key(
     clean_os_environ: None, tmp_path: Path
 ):

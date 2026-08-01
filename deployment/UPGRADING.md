@@ -12,6 +12,49 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — the capacity estimator's knobs are reachable from `.env` (`compose.yml` v9)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. **A
+stock deployment needs to do nothing** — all three new variables carry the
+values the service already used.
+
+Three new variables on `transcription-service`, all optional:
+
+| `.env` key | Default | What it does |
+| --- | --- | --- |
+| `TRANSCRIPTION_TARGET_BUSY` | `0.85` | Fraction of a worker the estimated ceiling aims to keep busy |
+| `TRANSCRIPTION_MIN_SESSIONS` | `1` | Floor under the estimated ceiling, so one bad window cannot report zero |
+| `TRANSCRIPTION_MAX_SESSIONS` | *(empty)* | Operator hard pin. Empty means auto-tune |
+
+transcription-service measures how much of a worker one ASR session actually
+costs and derives a ceiling — `estimatedCapacitySessions` on
+`/metrics/status` and `/providers/health`, drawn as "estimated capacity" in the
+dashboard's fleet view. **It is observe-only: nothing is refused because of it**,
+so these three change what is *reported*, never who gets captions.
+
+`TRANSCRIPTION_MAX_SESSIONS` is the strongest of the three on purpose. It wins
+over `TRANSCRIPTION_MIN_SESSIONS` *and* over warm-up, so it applies from the
+first request rather than after a measurement it has already overruled — it is a
+statement about your hardware, not an estimate. Set it if you have measured your
+box and want the dashboard to say so; leave it empty otherwise.
+
+### Why this is an upgrade note at all
+
+The service has read `TARGET_BUSY`, `MIN_SESSIONS` and `MAX_SESSIONS` from its
+environment since they were added, and its own config file says they are
+"reachable from `.env` on purpose". They were not: nothing passed them through
+`compose.yml`, so a compose operator had no way to set them short of editing the
+compose file — which is exactly the regret that variable was created to avoid,
+one indirection along. This closes it.
+
+Empty is read as "unset" for `TRANSCRIPTION_MAX_SESSIONS`, because compose has
+no way to omit an environment key. A value that is neither empty nor a number
+still stops the service at boot, deliberately: silently auto-tuning under a
+`MAX_SESSIONS` an operator believed was a hard pin is a misconfiguration with no
+symptom to find.
+
+---
+
 ## Unreleased — node-server is sticky-routed by session uid
 
 **Pull the new `scribear-nginx` image** (`docker compose pull scribear-nginx &&
