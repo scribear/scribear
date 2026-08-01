@@ -517,6 +517,71 @@ describe('Room Management Routes', () => {
       expect(res.statusCode).toBe(409);
       expect(res.json<{ code: string }>().code).toBe('DEVICE_ALREADY_IN_ROOM');
     });
+
+    // The repository's `asSource` branch clears `is_source` across the room
+    // before inserting, so this used to answer 204 and silently demote the
+    // incumbent kiosk - which kept its membership and its device token and
+    // just stopped being granted SEND_AUDIO. The 409 the route has always
+    // published for this had no producer.
+    it('returns 409 TOO_MANY_SOURCE_DEVICES when the room already has a source', async () => {
+      // Arrange
+      const { deviceUid: sourceUid } = await setupActivatedDevice('Source');
+      const { uid: roomUid } = await createRoom(sourceUid);
+      const { deviceUid: secondUid } = await setupActivatedDevice('Second');
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/add-device-to-room`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { roomUid, deviceUid: secondUid, asSource: true },
+      });
+
+      // Assert - refused, and the incumbent is untouched.
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe('TOO_MANY_SOURCE_DEVICES');
+      const members = await dbContext.db
+        .selectFrom('room_devices')
+        .select(['device_uid', 'is_source'])
+        .where('room_uid', '=', roomUid)
+        .execute();
+      expect(members).toEqual([{ device_uid: sourceUid, is_source: true }]);
+    });
+
+    it('still supports a deliberate source swap via add-as-member then set-source-device', async () => {
+      // Arrange - the flow the refusal above points operators at.
+      const { deviceUid: sourceUid } = await setupActivatedDevice('Source');
+      const { uid: roomUid } = await createRoom(sourceUid);
+      const { deviceUid: secondUid } = await setupActivatedDevice('Second');
+
+      // Act
+      const attach = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/add-device-to-room`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { roomUid, deviceUid: secondUid, asSource: false },
+      });
+      const promote = await server.fastify.inject({
+        method: 'POST',
+        url: `${ROOM_BASE}/set-source-device`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { roomUid, deviceUid: secondUid },
+      });
+
+      // Assert
+      expect(attach.statusCode).toBe(204);
+      expect(promote.statusCode).toBe(204);
+      const members = await dbContext.db
+        .selectFrom('room_devices')
+        .select(['device_uid', 'is_source'])
+        .where('room_uid', '=', roomUid)
+        .orderBy('is_source', 'desc')
+        .execute();
+      expect(members).toEqual([
+        { device_uid: secondUid, is_source: true },
+        { device_uid: sourceUid, is_source: false },
+      ]);
+    });
   });
 
   describe('POST /remove-device-from-room', (it) => {

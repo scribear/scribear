@@ -186,8 +186,17 @@ const AddDeviceDialog = ({
   const handleSubmit = () => {
     setSubmitting(true);
     setMisconfigured(false);
+    // Attach, then promote as a separate call. `add-device-to-room` refuses
+    // `asSource` when the room already has a source (409
+    // TOO_MANY_SOURCE_DEVICES) precisely so that replacing a source is never a
+    // side effect of attaching a device; `set-source-device` is the deliberate
+    // swap, and every room has a source, so that is the only path that works
+    // here.
     adminApi
-      .addDeviceToRoom({ roomUid, deviceUid, asSource })
+      .addDeviceToRoom({ roomUid, deviceUid, asSource: false })
+      .then(() =>
+        asSource ? adminApi.setSourceDevice({ roomUid, deviceUid }) : null,
+      )
       .then(() => {
         showSuccess('Device added to room.');
         onAdded();
@@ -260,7 +269,7 @@ const AddDeviceDialog = ({
               }}
             />
           }
-          label="Add as source device"
+          label="Add as source device (replaces the room's current source)"
           sx={{ mt: 1 }}
         />
       </DialogContent>

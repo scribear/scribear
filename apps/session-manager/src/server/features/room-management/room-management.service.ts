@@ -272,8 +272,8 @@ export class RoomManagementService {
    * Adds a device to a room as either a source or non-source member.
    * @param params.roomUid The room to add the device to.
    * @param params.deviceUid The device to add; must not already be in a room.
-   * @param params.asSource Whether to designate this device as the room's source.
-   * @returns `undefined` on success, or an error code: `'DEMO_ROOM_NOT_ASSIGNABLE'`, `'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE'`, `'TEST_AUDIO_ROOM_NOT_ASSIGNABLE'`, `'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE'`, `'CANARY_ROOM_NOT_ASSIGNABLE'`, `'CANARY_DEVICE_NOT_ASSIGNABLE'`, `'ROOM_NOT_FOUND'`, `'DEVICE_NOT_FOUND'`, or `'DEVICE_ALREADY_IN_ROOM'`.
+   * @param params.asSource Whether to designate this device as the room's source. Refused with `'TOO_MANY_SOURCE_DEVICES'` when the room already has one; swapping the source is `setSourceDevice`'s job.
+   * @returns `undefined` on success, or an error code: `'DEMO_ROOM_NOT_ASSIGNABLE'`, `'DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE'`, `'TEST_AUDIO_ROOM_NOT_ASSIGNABLE'`, `'TEST_AUDIO_DEVICE_NOT_ASSIGNABLE'`, `'CANARY_ROOM_NOT_ASSIGNABLE'`, `'CANARY_DEVICE_NOT_ASSIGNABLE'`, `'ROOM_NOT_FOUND'`, `'DEVICE_NOT_FOUND'`, `'DEVICE_ALREADY_IN_ROOM'`, or `'TOO_MANY_SOURCE_DEVICES'`.
    */
   async addDeviceToRoom(params: {
     roomUid: string;
@@ -302,6 +302,31 @@ export class RoomManagementService {
     if (!roomExists) return 'ROOM_NOT_FOUND';
     if (!device) return 'DEVICE_NOT_FOUND';
     if (device.roomUid !== null) return 'DEVICE_ALREADY_IN_ROOM';
+
+    // A room takes exactly one source device (`room_devices_single_source`),
+    // and the repository's `asSource` branch clears `is_source` across the
+    // room before inserting - so without this check the call silently demotes
+    // the incumbent and answers 204. The demoted device keeps its membership
+    // and its long-lived device token, still resolves the session, and is
+    // simply no longer granted SEND_AUDIO: a kiosk that starts, connects,
+    // displays a join code and sends no audio, with nothing anywhere
+    // reporting a fault. That is the exact harm the reserved test-audio and
+    // canary rooms are already guarded against; ordinary teaching rooms had
+    // no such guard.
+    //
+    // Refusing rather than swapping is deliberate. `set-source-device` is the
+    // deliberate replace-the-source flow and it already exists, so an
+    // operator who means to swap says so in one call (add the device as a
+    // plain member, then promote it) and one who does not is told why. This
+    // is also the 409 the route has always published and nothing could
+    // produce: only `createRoom` emitted `TOO_MANY_SOURCE_DEVICES`.
+    if (params.asSource) {
+      const existingSource =
+        await this._roomManagementRepository.findSourceDeviceUid(
+          params.roomUid,
+        );
+      if (existingSource !== undefined) return 'TOO_MANY_SOURCE_DEVICES';
+    }
 
     await this._roomManagementRepository.addDeviceToRoom(
       params.roomUid,

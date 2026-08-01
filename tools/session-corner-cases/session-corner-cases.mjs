@@ -2075,12 +2075,13 @@ const CHECKS = [
         `${none.status} ${none.body?.code}`,
       );
 
-      // BUG-3. `add-device-to-room` publishes a 409 TOO_MANY_SOURCE_DEVICES
-      // reply that nothing can ever produce: only `createRoom` emits that code.
-      // The service runs no "this room already has a source" check, and the
+      // `add-device-to-room` used to publish a 409 TOO_MANY_SOURCE_DEVICES
+      // reply that nothing could produce: only `createRoom` emitted that code.
+      // The service ran no "this room already has a source" check, and the
       // repository's `asSource` branch clears `is_source` across the whole room
-      // before inserting - so the call silently demotes the room's kiosk and
-      // answers 204.
+      // before inserting - so the call silently demoted the room's kiosk and
+      // answered 204. It now refuses, and a deliberate swap goes through
+      // `set-source-device`, which is asserted below.
       const room = await fx.room('one-src');
       const session = await fx.onDemand(room.roomUid, 'one-src');
       const beforeScopes = await api.device(
@@ -2099,12 +2100,11 @@ const CHECKS = [
         deviceUid: b.deviceUid,
         asSource: true,
       });
-      t.pin(
-        'adding a second device asSource is accepted (204) rather than refused',
-        second.status === 204,
-        `got ${second.status} ${second.body?.code ?? ''}; the route publishes a ` +
-          '409 TOO_MANY_SOURCE_DEVICES reply that only create-room can produce',
-        'BUG-3',
+      t.status(
+        'adding a second device asSource is refused 409 TOO_MANY_SOURCE_DEVICES',
+        second,
+        409,
+        'TOO_MANY_SOURCE_DEVICES',
       );
 
       const afterScopes = await api.device(
@@ -2112,24 +2112,51 @@ const CHECKS = [
         'session-auth/exchange-device-token',
         { sessionUid: session.body.uid },
       );
-      t.pin(
-        'and it silently demotes the original source, which keeps its token but loses SEND_AUDIO',
+      t.ok(
+        'and the original source keeps SEND_AUDIO',
         afterScopes.status === 200 &&
-          !afterScopes.body?.scopes?.includes('SEND_AUDIO'),
-        `original source scopes are now ${JSON.stringify(afterScopes.body?.scopes)} - ` +
-          'a kiosk that still authenticates, still finds the session, and sends nothing',
-        'BUG-3',
+          afterScopes.body?.scopes?.includes('SEND_AUDIO'),
+        `original source scopes are ${JSON.stringify(afterScopes.body?.scopes)}`,
       );
+
+      // The deliberate replace-the-source flow the refusal points at. A kiosk
+      // really does get swapped sometimes (broken hardware), so this has to
+      // keep working - it is now two calls instead of one silent side effect.
+      const asMember = await api.post('room-management/add-device-to-room', {
+        roomUid: room.roomUid,
+        deviceUid: b.deviceUid,
+        asSource: false,
+      });
+      t.status(
+        'the same device can be attached as a plain member',
+        asMember,
+        204,
+      );
+      const promote = await api.post('room-management/set-source-device', {
+        roomUid: room.roomUid,
+        deviceUid: b.deviceUid,
+      });
+      t.status('and set-source-device then promotes it', promote, 204);
+
       const promoted = await api.device(
         b.deviceToken,
         'session-auth/exchange-device-token',
         { sessionUid: session.body.uid },
       );
-      t.pin(
-        'while the newly added device now holds SEND_AUDIO',
+      t.ok(
+        'after which the promoted device holds SEND_AUDIO',
         promoted.body?.scopes?.includes('SEND_AUDIO'),
         JSON.stringify(promoted.body?.scopes),
-        'BUG-3',
+      );
+      const demoted = await api.device(
+        room.device.deviceToken,
+        'session-auth/exchange-device-token',
+        { sessionUid: session.body.uid },
+      );
+      t.ok(
+        'and the device it replaced no longer does',
+        demoted.status === 200 && !demoted.body?.scopes?.includes('SEND_AUDIO'),
+        `replaced source scopes are ${JSON.stringify(demoted.body?.scopes)}`,
       );
     },
   },

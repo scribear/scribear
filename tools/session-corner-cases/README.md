@@ -75,6 +75,17 @@ has sat at 5/6 ever since.
 
 ## Bugs this suite found
 
+All three were fixed in `2026-08-01-SessionBugFixes`; the assertions that used
+to pin the broken behaviour now assert the correct behaviour, which is what
+turned them red and forced this section to be rewritten. They are kept here
+because the defect explains why the check is shaped the way it is.
+
+### Numbering
+
+`BUG-n` / `QUIRK-n` are stable identifiers, not a sequence: they are not
+renumbered when one is fixed, so a label in an old run log or commit message
+still resolves. `QUIRK-4` being the only surviving pin is expected.
+
 ### BUG-1 — an auto-session window with equal local times answered 500
 
 `create-auto-session-window` and `update-auto-session-window` had **no
@@ -155,17 +166,17 @@ half.
 the old drop behaviour as its discriminator and had to be rebuilt around
 clipping — see "What is checked" below.
 
-### BUG-3 — `add-device-to-room` silently demotes a room's source device
+### BUG-3 — `add-device-to-room` silently demoted a room's source device
 
-`add-device-to-room` **publishes a `409 TOO_MANY_SOURCE_DEVICES` reply that
-nothing can produce**: that code is only ever returned by `createRoom`.
-`RoomManagementService.addDeviceToRoom` runs no "this room already has a source"
+`add-device-to-room` **published a `409 TOO_MANY_SOURCE_DEVICES` reply that
+nothing could produce**: that code was only ever returned by `createRoom`.
+`RoomManagementService.addDeviceToRoom` ran no "this room already has a source"
 check, and `RoomManagementRepository.addDeviceToRoom` clears `is_source` across
-the entire room before inserting when `asSource` is true. So the call succeeds
-with `204` and swaps the room's source out from under the operator.
+the entire room before inserting when `asSource` is true. So the call succeeded
+with `204` and swapped the room's source out from under the operator.
 
-The victim keeps its room membership and its long-lived `DEVICE_TOKEN`, still
-sees the session through `my-schedule`, and still gets a session token — with
+The victim kept its room membership and its long-lived `DEVICE_TOKEN`, still
+saw the session through `my-schedule`, and still got a session token — with
 `["RECEIVE_TRANSCRIPTIONS"]` instead of `["SEND_AUDIO","RECEIVE_TRANSCRIPTIONS"]`.
 That is a kiosk that starts, connects, shows a join code, and sends no audio,
 with nothing anywhere reporting a fault.
@@ -175,25 +186,19 @@ the reserved rooms — "Promoting some other device to source silently demotes t
 synthetic source, which then still authenticates and still finds the session but
 is no longer granted SEND_AUDIO, so the operator sees a device that starts and
 sends nothing" — and guards `TEST_AUDIO_ROOM_NOT_ASSIGNABLE` /
-`CANARY_ROOM_NOT_ASSIGNABLE` against. Ordinary teaching rooms have no such
-guard.
+`CANARY_ROOM_NOT_ASSIGNABLE` against. Ordinary teaching rooms had no such guard.
 
-Minimal reproduction:
+`asSource` on a room that already has a source is now refused with the 409 the
+route always published. Replacing a source is a real operator need — kiosk
+hardware breaks — so it keeps working, as the two deliberate calls it always
+should have been: attach with `asSource: false`, then `set-source-device`. Both
+admin-console callers (the kiosk wizard's "add to an existing room" and the room
+detail page's "add as source device") now do exactly that, because every room
+has a source and so both of those were _always_ swaps.
 
-```bash
-# room R with source device D1, live session S; D2 registered and activated, in no room
-curl -sk -X POST .../room-management/add-device-to-room -H "authorization: Bearer $KEY" \
-  -H 'content-type: application/json' \
-  -d '{"roomUid":"R","deviceUid":"D2","asSource":true}'          # 204
-
-curl -sk -X POST .../session-auth/exchange-device-token -H "cookie: DEVICE_TOKEN=<D1>" \
-  -H 'content-type: application/json' -d '{"sessionUid":"S"}'
-# 200 {"scopes":["RECEIVE_TRANSCRIPTIONS"]}      <- was ["SEND_AUDIO", ...]
-```
-
-Suggested fix: return the already-published `TOO_MANY_SOURCE_DEVICES` when
-`asSource` is true and the room has a source, and leave deliberate swaps to
-`set-source-device`. Pinned by `a-room-takes-exactly-one-source-device`.
+Asserted by `a-room-takes-exactly-one-source-device`, which checks the 409, that
+the incumbent keeps `SEND_AUDIO` afterwards, and that the attach-then-promote
+path completes the swap (new device gains `SEND_AUDIO`, old one loses it).
 
 ## Questionable-but-current behaviour also pinned
 
@@ -304,7 +309,9 @@ behaviour (BUG-1 ×2, BUG-2 ×2, BUG-3 ×3, QUIRK-3 ×2, QUIRK-4 ×1).
 
 ### Rooms / devices
 
-- exactly one source device per room (BUG-3).
+- exactly one source device per room: `add-device-to-room` with `asSource`
+  is `409 TOO_MANY_SOURCE_DEVICES` when the room has one, and the deliberate
+  swap through `set-source-device` still works (BUG-3).
 - a device cannot belong to two rooms.
 - a room's source device cannot be deleted or detached.
 - deleting a room with a live session cascades the session and kills its join

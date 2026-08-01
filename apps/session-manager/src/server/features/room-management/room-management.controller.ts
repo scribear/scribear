@@ -314,6 +314,13 @@ export class RoomManagementController {
         'Device is already a member of a room.',
       );
     }
+    if (result === 'TOO_MANY_SOURCE_DEVICES') {
+      throw HttpError.conflict(
+        'TOO_MANY_SOURCE_DEVICES',
+        'Room already has a source device. Add the device without asSource ' +
+          'and use set-source-device to replace the current one.',
+      );
+    }
 
     res.code(204).send(null);
   }

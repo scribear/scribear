@@ -47,6 +47,7 @@ describe('RoomManagementService', () => {
     setSourceDevice: Mock;
     findRoomMembership: Mock;
     findRoomExists: Mock;
+    findSourceDeviceUid: Mock;
   };
   let mockDeviceRepo: { findById: Mock };
   let service: RoomManagementService;
@@ -63,6 +64,10 @@ describe('RoomManagementService', () => {
       setSourceDevice: vi.fn(),
       findRoomMembership: vi.fn(),
       findRoomExists: vi.fn(),
+      // Default: the room has no source device, so `asSource` attaches
+      // without tripping the one-source-per-room guard. Tests that exercise
+      // the guard override this.
+      findSourceDeviceUid: vi.fn().mockResolvedValue(undefined),
     };
     mockDeviceRepo = { findById: vi.fn() };
 
@@ -423,6 +428,94 @@ describe('RoomManagementService', () => {
 
       // Assert
       expect(result).toBeUndefined();
+    });
+
+    // The repository's `asSource` branch clears `is_source` across the whole
+    // room before inserting, so without this guard the call answers 204 and
+    // silently demotes the incumbent kiosk - which keeps its membership and
+    // its device token, still resolves the session, and is simply no longer
+    // granted SEND_AUDIO.
+    it("returns 'TOO_MANY_SOURCE_DEVICES' when the room already has a source and asSource is true", async () => {
+      // Arrange
+      mockRoomRepo.findRoomExists.mockResolvedValue(true);
+      mockDeviceRepo.findById.mockResolvedValue(mockDevice);
+      mockRoomRepo.findSourceDeviceUid.mockResolvedValue('incumbent-device');
+
+      // Act
+      const result = await service.addDeviceToRoom({
+        roomUid: 'room-1',
+        deviceUid: 'device-1',
+        asSource: true,
+      });
+
+      // Assert - and nothing was written, so the incumbent keeps SEND_AUDIO.
+      expect(result).toBe('TOO_MANY_SOURCE_DEVICES');
+      expect(mockRoomRepo.addDeviceToRoom).not.toHaveBeenCalled();
+    });
+
+    it('still attaches a non-source device to a room that already has a source', async () => {
+      // Arrange - the first half of the deliberate swap: attach as a plain
+      // member, then promote with `setSourceDevice`.
+      mockRoomRepo.findRoomExists.mockResolvedValue(true);
+      mockDeviceRepo.findById.mockResolvedValue(mockDevice);
+      mockRoomRepo.findSourceDeviceUid.mockResolvedValue('incumbent-device');
+      mockRoomRepo.addDeviceToRoom.mockResolvedValue(undefined);
+
+      // Act
+      const result = await service.addDeviceToRoom({
+        roomUid: 'room-1',
+        deviceUid: 'device-1',
+        asSource: false,
+      });
+
+      // Assert
+      expect(result).toBeUndefined();
+      expect(mockRoomRepo.addDeviceToRoom).toHaveBeenCalledWith(
+        'room-1',
+        'device-1',
+        false,
+      );
+    });
+
+    it('does not look up the room’s source when asSource is false', async () => {
+      // Arrange
+      mockRoomRepo.findRoomExists.mockResolvedValue(true);
+      mockDeviceRepo.findById.mockResolvedValue(mockDevice);
+      mockRoomRepo.addDeviceToRoom.mockResolvedValue(undefined);
+
+      // Act
+      await service.addDeviceToRoom({
+        roomUid: 'room-1',
+        deviceUid: 'device-1',
+        asSource: false,
+      });
+
+      // Assert
+      expect(mockRoomRepo.findSourceDeviceUid).not.toHaveBeenCalled();
+    });
+
+    it('accepts asSource on a room that has no source yet', async () => {
+      // Arrange - a room can transiently have no source (the trigger is
+      // row-level on `room_devices`, so an empty room fires nothing).
+      mockRoomRepo.findRoomExists.mockResolvedValue(true);
+      mockDeviceRepo.findById.mockResolvedValue(mockDevice);
+      mockRoomRepo.findSourceDeviceUid.mockResolvedValue(undefined);
+      mockRoomRepo.addDeviceToRoom.mockResolvedValue(undefined);
+
+      // Act
+      const result = await service.addDeviceToRoom({
+        roomUid: 'room-1',
+        deviceUid: 'device-1',
+        asSource: true,
+      });
+
+      // Assert
+      expect(result).toBeUndefined();
+      expect(mockRoomRepo.addDeviceToRoom).toHaveBeenCalledWith(
+        'room-1',
+        'device-1',
+        true,
+      );
     });
   });
 

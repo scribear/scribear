@@ -193,7 +193,7 @@ const RoomStep = ({
         <FormControlLabel
           value="existing"
           control={<Radio />}
-          label="Add to an existing room"
+          label="Add to an existing room (replaces its source device)"
         />
       </RadioGroup>
       {roomChoice === 'new' ? (
@@ -477,8 +477,17 @@ export const KioskWizardPage = () => {
     if (deviceUid === null || selectedRoomUid === '') return;
     setRoomSubmitting(true);
     setRoomMisconfigured(false);
+    // Attach, then promote as a separate call. `add-device-to-room` refuses
+    // `asSource` when the room already has a source (409
+    // TOO_MANY_SOURCE_DEVICES) so that a swap is never a side effect of
+    // attaching a device - and every room has a source, so the wizard's
+    // "add to an existing room" is always a swap. `set-source-device` is the
+    // deliberate form of it.
     adminApi
-      .addDeviceToRoom({ roomUid: selectedRoomUid, deviceUid, asSource: true })
+      .addDeviceToRoom({ roomUid: selectedRoomUid, deviceUid, asSource: false })
+      .then(() =>
+        adminApi.setSourceDevice({ roomUid: selectedRoomUid, deviceUid }),
+      )
       .then(() => {
         setRoomUid(selectedRoomUid);
         showSuccess('Device added to room.');
