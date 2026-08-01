@@ -35,16 +35,33 @@ export enum LatencyKind {
 
 /**
  * Distinguishes *why* `transcriptionServiceConnected` is `false`, when known.
+ *
  * `AT_CAPACITY` means the Transcription Service explicitly refused the
  * connection (WebSocket close 1013, "try again later") rather than the
  * connection dropping or the service crashing - see
  * `archived-plans/2026-07-27-02-PLAN-AdmissionControl.md` §4, "node-server must
- * distinguish 'service refused' from 'service crashed'". Mirrors the local
- * `TranscriptionServiceDisconnectReason` in node-server's
+ * distinguish 'service refused' from 'service crashed'".
+ *
+ * `INVALID_REQUEST` means the Transcription Service rejected what the Node
+ * Server sent as unacceptable (WebSocket close 1007, "invalid frame payload
+ * data"). The service closes 1007 for a `TranscriptionClientError` - in
+ * practice a session whose `transcriptionProviderId` is not a key in the
+ * deployment's `provider_config.json` ("Invalid Provider Key") - or for a
+ * message that fails its schema. Both are permanent: the Node Server's
+ * reconnect loop will re-send exactly the same request and be refused exactly
+ * the same way, forever. Distinguishing it is what lets a viewer be told the
+ * room is misconfigured instead of watching a "reconnecting" banner that will
+ * never resolve.
+ *
+ * The two are deliberately separate values: `AT_CAPACITY` clears on its own
+ * when load drops, `INVALID_REQUEST` never clears without an operator.
+ *
+ * Mirrors the local `TranscriptionServiceDisconnectReason` in node-server's
  * `session-status.events.ts`; keep both in sync.
  */
 export enum TranscriptionServiceDisconnectReason {
   AT_CAPACITY = 'at-capacity',
+  INVALID_REQUEST = 'invalid-request',
 }
 
 const TRANSCRIPTION_STREAM_SCHEMA = {
@@ -105,7 +122,7 @@ const TRANSCRIPTION_STREAM_SCHEMA = {
       transcriptionServiceDisconnectReason: Type.Optional(
         Type.Enum(TranscriptionServiceDisconnectReason, {
           description:
-            'Present only when transcriptionServiceConnected is false and the cause is known: today, "at-capacity" means the Transcription Service explicitly refused the connection (close 1013) rather than it dropping or crashing. Absent when connected, or when disconnected for an undistinguished reason, or when the publisher predates this field.',
+            'Present only when transcriptionServiceConnected is false and the cause is known. "at-capacity" means the Transcription Service explicitly refused the connection for load (close 1013) and will accept it again once load drops. "invalid-request" means the Transcription Service rejected the request as unacceptable (close 1007) - typically a transcriptionProviderId that is not configured on the deployment - which no amount of reconnecting will fix. Absent when connected, or when disconnected for an undistinguished reason, or when the publisher predates this field.',
         }),
       ),
     }),

@@ -101,6 +101,34 @@ describe('node-server status poller (B1.1 PR 4)', () => {
       ).toBe(9);
     });
 
+    it('folds ended-session source registrations, and skips them when omitted', async () => {
+      // Arrange - the stale-schedule signal: a kiosk arriving at a session
+      // that finished before it connected. Optional on the wire like the
+      // counter above, so an older node-server must record no delta rather
+      // than a zero.
+      const { metrics, poller } = await createPoller();
+
+      // Act - a poll with the field absent, then two that report it.
+      await poller.pollOnce();
+      const omitted = metrics.nodeEndedSessionRegistrationsTotal.get({
+        service: SERVICE,
+      });
+      node.setBody(
+        statusBody({ summary: { endedSessionRegistrationsTotal: 2 } }),
+      );
+      await poller.pollOnce();
+      node.setBody(
+        statusBody({ summary: { endedSessionRegistrationsTotal: 7 } }),
+      );
+      await poller.pollOnce();
+
+      // Assert - 7 total events seen, not 2 + 7.
+      expect(omitted).toBe(0);
+      expect(
+        metrics.nodeEndedSessionRegistrationsTotal.get({ service: SERVICE }),
+      ).toBe(7);
+    });
+
     it('does not throw or record a delta when an older node-server omits the field', async () => {
       // Arrange - the field is optional on the wire for backward-compat with
       // publishers that predate it, so a body that simply never mentions it

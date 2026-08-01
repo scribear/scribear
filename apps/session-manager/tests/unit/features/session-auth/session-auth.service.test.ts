@@ -14,6 +14,7 @@ const ACTIVE_SESSION = {
   joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS' as const],
   effectiveStart: new Date(NOW.getTime() - 60_000),
   effectiveEnd: new Date(NOW.getTime() + 60 * 60_000),
+  canceledAt: null,
 };
 
 const NOT_YET_STARTED_SESSION = {
@@ -24,6 +25,18 @@ const NOT_YET_STARTED_SESSION = {
 const ENDED_SESSION = {
   ...ACTIVE_SESSION,
   effectiveEnd: new Date(NOW.getTime() - 60_000),
+};
+
+/**
+ * A canceled session whose effective window still covers `now`. This is not a
+ * contrived state: `cancel-session` only accepts *upcoming* SCHEDULED
+ * occurrences, so every canceled row eventually has time catch up to its slot.
+ * `findActiveSession` and the `sessions_no_overlap` exclusion constraint both
+ * stop counting it at that point; every auth path must too.
+ */
+const CANCELED_SESSION = {
+  ...ACTIVE_SESSION,
+  canceledAt: new Date(NOW.getTime() - 30 * 60_000),
 };
 
 describe('SessionAuthService', () => {
@@ -125,6 +138,23 @@ describe('SessionAuthService', () => {
 
       // Assert
       expect(result).toBe('JOIN_CODE_SCOPES_EMPTY');
+    });
+
+    it("returns 'SESSION_NOT_FOUND' for a canceled session", async () => {
+      // Arrange - a canceled session is invisible to devices by design
+      // (`my-schedule` filters `canceled_at`), so the device-facing join-code
+      // endpoint must not confirm it exists either, let alone mint a code for
+      // it that would then exchange into a live token.
+      mockRepo.findSessionForAuth.mockResolvedValue(CANCELED_SESSION);
+      mockRepo.isDeviceInRoom.mockResolvedValue(true);
+      mockRepo.findActiveJoinCodes.mockResolvedValue([]);
+
+      // Act
+      const result = await service.fetchJoinCodes(DEVICE_UID, SESSION_UID, NOW);
+
+      // Assert
+      expect(result).toBe('SESSION_NOT_FOUND');
+      expect(mockRepo.insertJoinCode).not.toHaveBeenCalled();
     });
 
     it('generates a fresh code when none exist', async () => {
@@ -307,6 +337,20 @@ describe('SessionAuthService', () => {
       expect(result).toBe('SESSION_NOT_CURRENTLY_ACTIVE');
     });
 
+    it("returns 'SESSION_NOT_CURRENTLY_ACTIVE' for a canceled session", async () => {
+      // Arrange - the console must not offer an "open live captions" link for
+      // a session an operator has canceled.
+      mockRepo.findSessionForAuth.mockResolvedValue(CANCELED_SESSION);
+      mockRepo.findActiveJoinCodes.mockResolvedValue([]);
+
+      // Act
+      const result = await service.fetchJoinCodeForAdmin(SESSION_UID, NOW);
+
+      // Assert
+      expect(result).toBe('SESSION_NOT_CURRENTLY_ACTIVE');
+      expect(mockRepo.insertJoinCode).not.toHaveBeenCalled();
+    });
+
     it('mints a fresh code when none is active', async () => {
       // Arrange
       mockRepo.findSessionForAuth.mockResolvedValue(ACTIVE_SESSION);
@@ -415,6 +459,25 @@ describe('SessionAuthService', () => {
       expect(result).toBe('SESSION_NOT_CURRENTLY_ACTIVE');
     });
 
+    it("returns 'SESSION_NOT_CURRENTLY_ACTIVE' for a canceled session", async () => {
+      // Arrange
+      mockRepo.findSessionForAuth.mockResolvedValue(CANCELED_SESSION);
+      mockRepo.isDeviceInRoom.mockResolvedValue(true);
+      mockRepo.isDeviceSourceForRoom.mockResolvedValue(true);
+      mockTokenService.sign.mockReturnValue('signed-token');
+
+      // Act
+      const result = await service.exchangeDeviceToken(
+        DEVICE_UID,
+        SESSION_UID,
+        NOW,
+      );
+
+      // Assert
+      expect(result).toBe('SESSION_NOT_CURRENTLY_ACTIVE');
+      expect(mockTokenService.sign).not.toHaveBeenCalled();
+    });
+
     it('grants SEND_AUDIO + RECEIVE_TRANSCRIPTIONS to a source device', async () => {
       // Arrange
       mockRepo.findSessionForAuth.mockResolvedValue(ACTIVE_SESSION);
@@ -512,6 +575,69 @@ describe('SessionAuthService', () => {
       expect(result).toBe('JOIN_CODE_EXPIRED');
     });
 
+    it("returns 'JOIN_CODE_NOT_FOUND' for a pre-minted handoff code that is not valid yet", async () => {
+      // Arrange - `fetchJoinCodes` mints the next code 60s before the current
+      // one expires, with validStart == current.validEnd. Without a
+      // valid_start check that code is exchangeable the instant it is minted,
+      // which stretches a code's usable life from the intended 5 minutes to
+      // nearly 10. The kiosk only ever renders `current`, so nothing legitimate
+      // presents a future code.
+      mockRepo.findJoinCodeByCode.mockResolvedValue({
+        ...VALID_CODE,
+        validStart: new Date(NOW.getTime() + 30_000),
+        validEnd: new Date(NOW.getTime() + 30_000 + 5 * 60_000),
+      });
+      mockRepo.findSessionForAuth.mockResolvedValue(ACTIVE_SESSION);
+      mockHashService.hash.mockResolvedValue('hash');
+      mockRepo.insertRefreshToken.mockResolvedValue({ uid: 'refresh-uid' });
+      mockTokenService.sign.mockReturnValue('signed-token');
+
+      // Act
+      const result = await service.exchangeJoinCode(VALID_CODE.joinCode, NOW);
+
+      // Assert
+      expect(result).toBe('JOIN_CODE_NOT_FOUND');
+      expect(mockRepo.insertRefreshToken).not.toHaveBeenCalled();
+    });
+
+    it("returns 'JOIN_CODE_NOT_FOUND' one millisecond before validStart", async () => {
+      // Arrange - boundary, closed side.
+      mockRepo.findJoinCodeByCode.mockResolvedValue({
+        ...VALID_CODE,
+        validStart: new Date(NOW.getTime() + 1),
+      });
+      mockRepo.findSessionForAuth.mockResolvedValue(ACTIVE_SESSION);
+
+      // Act
+      const result = await service.exchangeJoinCode(VALID_CODE.joinCode, NOW);
+
+      // Assert
+      expect(result).toBe('JOIN_CODE_NOT_FOUND');
+    });
+
+    it('exchanges a handoff code the instant validStart arrives', async () => {
+      // Arrange - boundary, open side. `validStart <= now` matches the
+      // predicate `fetchJoinCodes` and `_findOrMintCurrentJoinCode` already
+      // use, so a code becomes exchangeable exactly when it becomes "current".
+      // This is what keeps the QR handoff seamless.
+      mockRepo.findJoinCodeByCode.mockResolvedValue({
+        ...VALID_CODE,
+        validStart: NOW,
+        validEnd: new Date(NOW.getTime() + 5 * 60_000),
+      });
+      mockRepo.findSessionForAuth.mockResolvedValue(ACTIVE_SESSION);
+      mockHashService.hash.mockResolvedValue('hash');
+      mockRepo.insertRefreshToken.mockResolvedValue({ uid: 'refresh-uid' });
+      mockTokenService.sign.mockReturnValue('signed-token');
+
+      // Act
+      const result = await service.exchangeJoinCode(VALID_CODE.joinCode, NOW);
+
+      // Assert
+      if (typeof result === 'string') throw new Error('expected token result');
+      expect(result.sessionToken).toBe('signed-token');
+    });
+
     it("returns 'SESSION_NOT_CURRENTLY_ACTIVE' when the session has ended", async () => {
       // Arrange
       mockRepo.findJoinCodeByCode.mockResolvedValue(VALID_CODE);
@@ -534,6 +660,24 @@ describe('SessionAuthService', () => {
 
       // Assert
       expect(result).toBe('SESSION_NOT_CURRENTLY_ACTIVE');
+    });
+
+    it("returns 'SESSION_NOT_CURRENTLY_ACTIVE' for a canceled session", async () => {
+      // Arrange - a code minted before the cancellation is still inside its
+      // 5-minute TTL, so the code row alone cannot stop this exchange.
+      mockRepo.findJoinCodeByCode.mockResolvedValue(VALID_CODE);
+      mockRepo.findSessionForAuth.mockResolvedValue(CANCELED_SESSION);
+      mockHashService.hash.mockResolvedValue('hash');
+      mockRepo.insertRefreshToken.mockResolvedValue({ uid: 'refresh-uid' });
+      mockTokenService.sign.mockReturnValue('signed-token');
+
+      // Act
+      const result = await service.exchangeJoinCode(VALID_CODE.joinCode, NOW);
+
+      // Assert
+      expect(result).toBe('SESSION_NOT_CURRENTLY_ACTIVE');
+      expect(mockRepo.insertRefreshToken).not.toHaveBeenCalled();
+      expect(mockTokenService.sign).not.toHaveBeenCalled();
     });
 
     it('issues a session token, refresh token, and a fresh clientId', async () => {
@@ -651,6 +795,30 @@ describe('SessionAuthService', () => {
 
       // Assert
       expect(result).toBe('SESSION_ENDED');
+    });
+
+    it("returns 'SESSION_ENDED' for a canceled session", async () => {
+      // Arrange - without this the refresh path re-mints indefinitely for a
+      // viewer who joined before the cancellation, which is the whole point of
+      // a long-lived refresh token.
+      mockRepo.findRefreshTokenByUid.mockResolvedValue({
+        uid: 'uid',
+        sessionUid: SESSION_UID,
+        clientId: 'client-1',
+        hash: 'stored-hash',
+        scopes: ['RECEIVE_TRANSCRIPTIONS'],
+        authMethod: 'JOIN_CODE',
+      });
+      mockHashService.verify.mockResolvedValue(true);
+      mockRepo.findSessionForAuth.mockResolvedValue(CANCELED_SESSION);
+      mockTokenService.sign.mockReturnValue('refreshed-token');
+
+      // Act
+      const result = await service.refreshSessionToken('uid:secret', NOW);
+
+      // Assert
+      expect(result).toBe('SESSION_ENDED');
+      expect(mockTokenService.sign).not.toHaveBeenCalled();
     });
 
     it('returns a new session token preserving the original scopes and clientId', async () => {

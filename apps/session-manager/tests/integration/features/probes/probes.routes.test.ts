@@ -1,6 +1,7 @@
 import { describe, expect, inject } from 'vitest';
 
 import { LogLevel } from '@scribear/base-fastify-server';
+import { SHIPPED_TRANSCRIPTION_PROVIDER_IDS } from '@scribear/session-manager-schema';
 
 import type { AppConfig } from '#src/app-config/app-config.js';
 import createServer from '#src/server/create-server.js';
@@ -65,6 +66,9 @@ describe('Probes Routes', () => {
         },
         testAudioRoomsConfig: { enabled: false, deviceSecret: '' },
         canaryRoomConfig: { enabled: false, deviceSecret: '' },
+        scheduleManagementConfig: {
+          transcriptionProviderIds: [...SHIPPED_TRANSCRIPTION_PROVIDER_IDS],
+        },
       } as unknown as AppConfig;
       const { fastify } = await createServer(brokenConfig);
       await fastify.ready();

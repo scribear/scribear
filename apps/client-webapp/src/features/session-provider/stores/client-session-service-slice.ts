@@ -24,9 +24,23 @@ export interface ClientSessionServiceSliceState {
   session: {
     sessionUid: string;
     connectionStatus: SessionConnectionStatus;
-    sessionStatus: SessionStatusSnapshot;
+    /**
+     * Last `sessionStatus` message node-server sent, or `null` while none has
+     * arrived yet. The null case is load-bearing: seeding it with an
+     * all-`false` snapshot instead made "we have not heard yet" indistinguish-
+     * able from "the upstream is down", and every freshly-joined room rendered
+     * a "transcription service lost, reconnecting…" banner from the moment of
+     * a *successful* join.
+     */
+    sessionStatus: SessionStatusSnapshot | null;
   } | null;
   joinError: JoinError | null;
+  /**
+   * Why the current session is unrecoverable, or `null`. Rendered by
+   * `selectConnectionBanner`'s terminal branch - its only consumer, and the
+   * only reason to write anything here. It used to also collect transient
+   * strings ("Network error - retrying.") that no component read.
+   */
   error: string | null;
 }
 
@@ -67,10 +81,7 @@ export const clientSessionServiceSlice = createSlice({
       state.session = {
         sessionUid: action.payload,
         connectionStatus: SessionConnectionStatus.CONNECTING,
-        sessionStatus: {
-          transcriptionServiceConnected: false,
-          sourceDeviceConnected: false,
-        },
+        sessionStatus: null,
       };
     },
     setConnectionStatus: (

@@ -4,6 +4,7 @@ import { SESSION_SCOPE_SCHEMA } from '#src/shared/entities/session-scope.schema.
 
 import { DAY_OF_WEEK_SCHEMA } from './day-of-week.schema.js';
 import { SCHEDULE_FREQUENCY_SCHEMA } from './schedule-frequency.schema.js';
+import { TRANSCRIPTION_PROVIDER_ID_SCHEMA } from './transcription-provider.schema.js';
 
 const LOCAL_TIME_SCHEMA = Type.String({
   maxLength: 8,
@@ -39,7 +40,10 @@ export const SESSION_SCHEDULE_SCHEMA = Type.Object(
     daysOfWeek: Type.Union([Type.Array(DAY_OF_WEEK_SCHEMA), Type.Null()]),
 
     joinCodeScopes: Type.Array(SESSION_SCOPE_SCHEMA),
-    transcriptionProviderId: Type.Union([Type.String(), Type.Null()]),
+    transcriptionProviderId: Type.Union([
+      TRANSCRIPTION_PROVIDER_ID_SCHEMA,
+      Type.Null(),
+    ]),
     transcriptionStreamConfig: Type.Union([Type.Unknown(), Type.Null()]),
 
     createdAt: Type.String({ format: 'date-time' }),

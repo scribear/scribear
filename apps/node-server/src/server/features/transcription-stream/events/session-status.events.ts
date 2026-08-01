@@ -8,12 +8,20 @@ import type { ChannelDefinition } from '#src/server/shared/services/event-bus.se
  * connection (WebSocket close 1013, "try again later") rather than the
  * connection dropping or the service crashing - see
  * `archived-plans/2026-07-27-02-PLAN-AdmissionControl.md` §4, "node-server must
- * distinguish 'service refused' from 'service crashed'". Mirrored in
- * `@scribear/node-server-schema`'s `sessionStatus` message; keep both in
- * sync.
+ * distinguish 'service refused' from 'service crashed'".
+ *
+ * `INVALID_REQUEST` means the service rejected what we sent as unacceptable
+ * (close 1007), which in practice is a session whose `transcriptionProviderId`
+ * is not a key in the deployment's `provider_config.json`. The reconnect loop
+ * re-sends the same request forever, so this one never clears without an
+ * operator - unlike `AT_CAPACITY`, which clears when load drops.
+ *
+ * Mirrored in `@scribear/node-server-schema`'s `sessionStatus` message; keep
+ * both in sync.
  */
 export enum TranscriptionServiceDisconnectReason {
   AT_CAPACITY = 'at-capacity',
+  INVALID_REQUEST = 'invalid-request',
 }
 
 /**

@@ -6,6 +6,7 @@ import type {
   ScheduleFrequency,
   SessionScope,
 } from '@scribear/scribear-db';
+import { SHIPPED_TRANSCRIPTION_PROVIDER_IDS } from '@scribear/session-manager-schema';
 
 import type {
   Schedule,
@@ -163,7 +164,9 @@ function createMockRepo(): MockRepo {
     insertWindow: vi.fn(),
     updateWindowActiveEnd: vi.fn().mockResolvedValue(true),
     deleteWindowHard: vi.fn().mockResolvedValue(true),
-    findLatestPastOrActiveSessionForSchedule: vi.fn().mockResolvedValue(undefined),
+    findLatestPastOrActiveSessionForSchedule: vi
+      .fn()
+      .mockResolvedValue(undefined),
     findActiveSession: vi.fn().mockResolvedValue(undefined),
     findActiveOnDemandSession: vi.fn().mockResolvedValue(undefined),
     findActiveAutoSession: vi.fn().mockResolvedValue(undefined),
@@ -209,6 +212,7 @@ describe('ScheduleManagementService', () => {
       mockDbClient as never,
       mockRepo as never,
       mockEventBus as never,
+      { transcriptionProviderIds: [...SHIPPED_TRANSCRIPTION_PROVIDER_IDS] },
     );
   });
 
@@ -255,7 +259,10 @@ describe('ScheduleManagementService', () => {
       });
 
       const result = await service.createSchedule(
-        makeCreateInput({ localStartTime: '09:00:00', localEndTime: '09:00:00' }),
+        makeCreateInput({
+          localStartTime: '09:00:00',
+          localEndTime: '09:00:00',
+        }),
         NOW,
       );
 
@@ -569,7 +576,9 @@ describe('ScheduleManagementService', () => {
         autoSessionEnabled: false,
       });
       mockRepo.findSchedulesOverlapping.mockResolvedValue([]);
-      mockRepo.insertSchedule.mockRejectedValue(new Error('DB connection lost'));
+      mockRepo.insertSchedule.mockRejectedValue(
+        new Error('DB connection lost'),
+      );
 
       await expect(
         service.createSchedule(makeCreateInput({ activeStart: FUTURE }), NOW),
@@ -729,6 +738,144 @@ describe('ScheduleManagementService', () => {
 
       expect(result).toBe('ANOTHER_SESSION_ACTIVE');
       expect(mockRepo.setSessionsConstraintsDeferred).not.toHaveBeenCalled();
+    });
+  });
+  // A transcriptionProviderId that no provider in the deployment's
+  // provider_config.json matches is invisible until stream time, where
+  // transcription-service raises "Invalid Provider Key", closes the upstream
+  // socket 1007, and node-server retries a permanently unsatisfiable request
+  // forever while every viewer sits on a reconnecting banner. Answered at the
+  // write, which is where an operator can still see it.
+  describe('transcriptionProviderId validation', (it) => {
+    const ROOM = { uid: 'room-1', timezone: 'UTC', autoSessionEnabled: false };
+
+    it('rejects an unknown provider on createSchedule, before touching the database', async () => {
+      mockRepo.lockRoom.mockResolvedValue(ROOM);
+
+      const result = await service.createSchedule(
+        {
+          roomUid: 'room-1',
+          name: 'Standup',
+          activeStart: FUTURE,
+          activeEnd: null,
+          localStartTime: '09:00:00',
+          localEndTime: '10:00:00',
+          frequency: 'WEEKLY',
+          daysOfWeek: ['MON'],
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whipser',
+          transcriptionStreamConfig: {},
+        },
+        NOW,
+      );
+
+      expect(result).toBe('UNKNOWN_TRANSCRIPTION_PROVIDER');
+      expect(mockRepo.lockRoom).not.toHaveBeenCalled();
+      expect(mockRepo.insertSchedule).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unknown provider on updateSchedule', async () => {
+      mockRepo.lockRoom.mockResolvedValue(ROOM);
+      mockRepo.findScheduleByUid.mockResolvedValue(makeSchedule());
+
+      const result = await service.updateSchedule(
+        'sched-1',
+        { transcriptionProviderId: 'not-a-provider' },
+        NOW,
+      );
+
+      expect(result).toBe('UNKNOWN_TRANSCRIPTION_PROVIDER');
+      expect(mockRepo.insertSchedule).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unknown provider on createAutoSessionWindow', async () => {
+      mockRepo.lockRoom.mockResolvedValue(ROOM);
+
+      const result = await service.createAutoSessionWindow(
+        {
+          roomUid: 'room-1',
+          localStartTime: '09:00:00',
+          localEndTime: '17:00:00',
+          daysOfWeek: ['MON'],
+          activeStart: FUTURE,
+          activeEnd: null,
+          joinCodeScopes: [],
+          transcriptionProviderId: 'not-a-provider',
+          transcriptionStreamConfig: {},
+        },
+        NOW,
+      );
+
+      expect(result).toBe('UNKNOWN_TRANSCRIPTION_PROVIDER');
+      expect(mockRepo.insertWindow).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unknown provider on updateAutoSessionWindow', async () => {
+      mockRepo.lockRoom.mockResolvedValue(ROOM);
+
+      const result = await service.updateAutoSessionWindow(
+        'win-1',
+        { transcriptionProviderId: 'not-a-provider' },
+        NOW,
+      );
+
+      expect(result).toBe('UNKNOWN_TRANSCRIPTION_PROVIDER');
+      expect(mockRepo.insertWindow).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unknown provider on createOnDemandSession', async () => {
+      mockRepo.lockRoom.mockResolvedValue(ROOM);
+
+      const result = await service.createOnDemandSession(
+        {
+          roomUid: 'room-1',
+          name: 'Quick',
+          joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS'],
+          transcriptionProviderId: 'not-a-provider',
+          transcriptionStreamConfig: {},
+        },
+        NOW,
+      );
+
+      expect(result).toBe('UNKNOWN_TRANSCRIPTION_PROVIDER');
+      expect(mockRepo.insertSessions).not.toHaveBeenCalled();
+    });
+
+    it('accepts an update that does not mention the provider at all', async () => {
+      // `undefined` cannot introduce a bad value, so it must not be treated as
+      // one - otherwise every partial update of an unrelated field 400s.
+      mockRepo.lockRoom.mockResolvedValue(ROOM);
+      mockRepo.findWindowByUid.mockResolvedValue(undefined);
+
+      const result = await service.updateAutoSessionWindow(
+        'win-1',
+        { localStartTime: '10:00:00' },
+        NOW,
+      );
+
+      expect(result).not.toBe('UNKNOWN_TRANSCRIPTION_PROVIDER');
+    });
+
+    it('accepts every provider the deployment configured', async () => {
+      // Guards the parsing as much as the check: a list that arrived as one
+      // unsplit string would reject all four.
+      for (const providerId of SHIPPED_TRANSCRIPTION_PROVIDER_IDS) {
+        mockRepo.lockRoom.mockResolvedValue(undefined);
+
+        const result = await service.createOnDemandSession(
+          {
+            roomUid: 'room-1',
+            name: 'Quick',
+            joinCodeScopes: ['RECEIVE_TRANSCRIPTIONS'],
+            transcriptionProviderId: providerId,
+            transcriptionStreamConfig: {},
+          },
+          NOW,
+        );
+
+        // Got past the provider gate and on to the room lookup.
+        expect(result).toBe('ROOM_NOT_FOUND');
+      }
     });
   });
 });

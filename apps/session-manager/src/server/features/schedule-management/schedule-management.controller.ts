@@ -98,6 +98,8 @@ export class ScheduleManagementController {
       new Date(),
     );
 
+    if (result === 'UNKNOWN_TRANSCRIPTION_PROVIDER')
+      throw HttpError.badRequest(this._unknownProviderMessage());
     if (result === 'ROOM_NOT_FOUND')
       throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
     if (result === 'CONFLICT')
@@ -168,6 +170,8 @@ export class ScheduleManagementController {
       new Date(),
     );
 
+    if (result === 'UNKNOWN_TRANSCRIPTION_PROVIDER')
+      throw HttpError.badRequest(this._unknownProviderMessage());
     if (result === 'NOT_FOUND')
       throw HttpError.notFound('SCHEDULE_NOT_FOUND', 'Schedule not found.');
     if (result === 'CONFLICT')
@@ -253,6 +257,8 @@ export class ScheduleManagementController {
       new Date(),
     );
 
+    if (result === 'UNKNOWN_TRANSCRIPTION_PROVIDER')
+      throw HttpError.badRequest(this._unknownProviderMessage());
     if (result === 'ROOM_NOT_FOUND')
       throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
     if (result === 'CONFLICT')
@@ -314,6 +320,8 @@ export class ScheduleManagementController {
       new Date(),
     );
 
+    if (result === 'UNKNOWN_TRANSCRIPTION_PROVIDER')
+      throw HttpError.badRequest(this._unknownProviderMessage());
     if (result === 'NOT_FOUND')
       throw HttpError.notFound(
         'WINDOW_NOT_FOUND',
@@ -453,6 +461,8 @@ export class ScheduleManagementController {
       new Date(),
     );
 
+    if (result === 'UNKNOWN_TRANSCRIPTION_PROVIDER')
+      throw HttpError.badRequest(this._unknownProviderMessage());
     if (result === 'ROOM_NOT_FOUND')
       throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
     if (result === 'ANOTHER_SESSION_ACTIVE')
@@ -718,6 +728,23 @@ export class ScheduleManagementController {
         this._mapSession(s),
       ),
     };
+  }
+
+  /**
+   * Rejection message for an unrecognized `transcriptionProviderId`.
+   *
+   * Names the accepted keys rather than just saying "invalid": the value comes
+   * from a free-text field in the admin console, the accepted set is deployment
+   * configuration the operator cannot see from the UI, and the alternative to
+   * telling them here is that they discover the typo when a room full of people
+   * gets a permanent "reconnecting" banner. Emitted as `400 VALIDATION_ERROR` -
+   * the same answer the request validator gives for any other malformed field,
+   * and already declared on every one of these routes, so nothing about the
+   * wire contract changes.
+   */
+  private _unknownProviderMessage(): string {
+    const known = this._scheduleService.transcriptionProviderIds.join(', ');
+    return `transcriptionProviderId is not a provider configured on this deployment. Configured providers: ${known}.`;
   }
 
   private _mapSchedule(s: Schedule) {

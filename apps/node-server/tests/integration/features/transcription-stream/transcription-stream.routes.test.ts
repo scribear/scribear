@@ -10,6 +10,7 @@ import {
   TranscriptionStreamClientMessageType,
   TranscriptionStreamServerMessageType,
 } from '@scribear/node-server-schema';
+import { createSessionManagerClient } from '@scribear/session-manager-client';
 import type { SessionTokenPayload } from '@scribear/session-manager-schema';
 
 import { seedSession } from '#tests/utils/seed-session.js';
@@ -742,6 +743,257 @@ describe('Transcription Stream Routes', () => {
 
         client.stop();
         clientWs.terminate();
+      },
+    );
+  });
+
+  // The bug this covers: `registerSource` was the only thing that ever built
+  // `SessionState`, so a room whose viewers joined before (or without) a kiosk
+  // had nobody fetching its config, nobody arming an end timer, and no
+  // `sessionEnded` ever published. Viewers sat on stale captions until a token
+  // refresh happened to be rejected - up to half the token lifetime.
+  describe('viewer-only session end (no source attached)', (it) => {
+    it(
+      'sends sessionEnded and closes 1000 when the session is ended early',
+      { timeout: 60_000 },
+      async () => {
+        // Arrange - a session of its own, so ending it cannot disturb the
+        // shared streaming fixture. On-demand sessions are created open-ended
+        // (`scheduledEndTime` is the next non-AUTO start, absent here), so
+        // nothing is armed until the early end moves `effectiveEnd` into the
+        // past - the `end_override = now` case.
+        const session = await seedSession({
+          sessionManagerBaseUrl: inject('sessionManagerBaseUrl'),
+          adminApiKey: inject('adminApiKey'),
+          transcriptionProviderId: 'debug',
+          transcriptionStreamConfig: {
+            sample_rate: DEBUG_SAMPLE_RATE,
+            num_channels: DEBUG_NUM_CHANNELS,
+          },
+        });
+
+        const ws = await server.fastify.injectWS(clientPath(session.uid));
+        const { messages, stop } = collectMessages(ws);
+        ws.send(
+          JSON.stringify({
+            type: TranscriptionStreamClientMessageType.AUTH,
+            sessionToken: signToken({
+              sessionUid: session.uid,
+              clientId: 'lonely-viewer',
+              scopes: ['RECEIVE_TRANSCRIPTIONS'],
+              exp: FAR_FUTURE,
+            }),
+          }),
+        );
+        await vi.waitFor(
+          () => {
+            expect(
+              messages.find(
+                (m) => m.type === TranscriptionStreamServerMessageType.AUTH_OK,
+              ),
+            ).toBeDefined();
+          },
+          { timeout: 15_000 },
+        );
+
+        // Assert - the viewer costs the transcription service nothing: no
+        // upstream was dialed, so the session holds no orchestrator state and
+        // does not appear in /status. Opening an upstream for an audio-less
+        // connection is the fault e80eea2 was written for.
+        const status = await server.fastify.inject({
+          method: 'GET',
+          url: '/api/node-server/v1/status',
+          headers: { authorization: `Bearer ${TEST_SERVICE_API_KEY}` },
+        });
+        expect(status.statusCode).toBe(200);
+        const sessions = status.json<{
+          sessions: { sessionUid: string }[];
+        }>().sessions;
+        expect(sessions.map((s) => s.sessionUid)).not.toContain(session.uid);
+
+        // Act - end the session out from under the viewer.
+        const closed = nextClose(ws);
+        const sm = createSessionManagerClient(inject('sessionManagerBaseUrl'));
+        const ended = await sm.scheduleManagement.endSessionEarly({
+          body: { sessionUid: session.uid },
+          headers: { authorization: `Bearer ${inject('adminApiKey')}` },
+        });
+        expect(ended[1]).toBeNull();
+        expect(ended[0]?.status).toBe(200);
+
+        // Assert - the config bump reaches the end-watch's long-poll, which
+        // sees an `effectiveEnd` already in the past and publishes at once.
+        await vi.waitFor(
+          () => {
+            expect(
+              messages.find(
+                (m) =>
+                  m.type === TranscriptionStreamServerMessageType.SESSION_ENDED,
+              ),
+            ).toBeDefined();
+          },
+          { timeout: 20_000 },
+        );
+        await expect(closed).resolves.toMatchObject({
+          code: 1000,
+          reason: 'session-ended',
+        });
+
+        stop();
+      },
+    );
+  });
+
+  // The bug this covers: a SOURCE connecting to a session whose `effectiveEnd`
+  // had already passed was never told. `registerSource` published
+  // `SessionEndedChannel` from inside its own await - before that connection
+  // had subscribed to hear it - so the publish landed on an empty channel. The
+  // kiosk was never sent `sessionEnded`, never closed 1000, and went on
+  // streaming audio into a session the server considered over, holding an
+  // upstream transcription connection open for the whole time. PR #184 fixed
+  // the viewer half of this and explicitly did not fix this half.
+  describe('source connecting to an already-ended session', (it) => {
+    /** Sessions in `/status`, i.e. those holding an upstream connection. */
+    async function statusSessionUids(): Promise<string[]> {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: '/api/node-server/v1/status',
+        headers: { authorization: `Bearer ${TEST_SERVICE_API_KEY}` },
+      });
+      expect(res.statusCode).toBe(200);
+      return res
+        .json<{ sessions: { sessionUid: string }[] }>()
+        .sessions.map((s) => s.sessionUid);
+    }
+
+    /** Reads the endedSessionRegistrationsTotal counter off /status. */
+    async function readEndedRegistrations(): Promise<number> {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: '/api/node-server/v1/status',
+        headers: { authorization: `Bearer ${TEST_SERVICE_API_KEY}` },
+      });
+      expect(res.statusCode).toBe(200);
+      return res.json<{
+        summary: { endedSessionRegistrationsTotal: number };
+      }>().summary.endedSessionRegistrationsTotal;
+    }
+
+    /** A fresh on-demand session of its own, so ending it disturbs nothing. */
+    async function seedOwnSession(): Promise<{ uid: string }> {
+      return await seedSession({
+        sessionManagerBaseUrl: inject('sessionManagerBaseUrl'),
+        adminApiKey: inject('adminApiKey'),
+        transcriptionProviderId: 'debug',
+        transcriptionStreamConfig: {
+          sample_rate: DEBUG_SAMPLE_RATE,
+          num_channels: DEBUG_NUM_CHANNELS,
+        },
+      });
+    }
+
+    async function endSessionEarly(sessionUid: string): Promise<void> {
+      const sm = createSessionManagerClient(inject('sessionManagerBaseUrl'));
+      const ended = await sm.scheduleManagement.endSessionEarly({
+        body: { sessionUid },
+        headers: { authorization: `Bearer ${inject('adminApiKey')}` },
+      });
+      expect(ended[1]).toBeNull();
+      expect(ended[0]?.status).toBe(200);
+    }
+
+    function authAsSource(ws: WebSocket, sessionUid: string, id: string): void {
+      ws.send(
+        JSON.stringify({
+          type: TranscriptionStreamClientMessageType.AUTH,
+          sessionToken: signToken({
+            sessionUid,
+            clientId: id,
+            scopes: ['SEND_AUDIO', 'RECEIVE_TRANSCRIPTIONS'],
+            exp: FAR_FUTURE,
+          }),
+        }),
+      );
+    }
+
+    it(
+      'sends sessionEnded, closes 1000, and dials no upstream',
+      { timeout: 60_000 },
+      async () => {
+        // Arrange - the stale-schedule case (§4.2): the session is already over
+        // by the time the kiosk arrives.
+        const session = await seedOwnSession();
+        await endSessionEarly(session.uid);
+        const before = await readEndedRegistrations();
+
+        // Act
+        const ws = await server.fastify.injectWS(sourcePath(session.uid));
+        const { messages, stop } = collectMessages(ws);
+        const closed = nextClose(ws);
+        authAsSource(ws, session.uid, 'late-kiosk');
+
+        // Assert - closed 1000 rather than left streaming into a dead session.
+        await expect(closed).resolves.toMatchObject({
+          code: 1000,
+          reason: 'session-ended',
+        });
+
+        // Assert - and told why, in protocol order: `authOk` first, because
+        // both webapp clients hold their handshake open until it arrives.
+        const types = messages.map((m) => m.type);
+        expect(types).toContain(
+          TranscriptionStreamServerMessageType.SESSION_ENDED,
+        );
+        expect(
+          types.indexOf(TranscriptionStreamServerMessageType.AUTH_OK),
+        ).toBe(0);
+        expect(
+          types.indexOf(TranscriptionStreamServerMessageType.SESSION_ENDED),
+        ).toBeGreaterThan(0);
+
+        // Assert - no upstream was dialed for a session that is over. The
+        // transcription service runs `num_workers: 1`; a connection opened for
+        // an abandoned session is only ever reclaimed when its source socket
+        // closes, which in the bug never happened.
+        expect(await statusSessionUids()).not.toContain(session.uid);
+
+        // Assert - and the stale-schedule cause is visible in production
+        // rather than inferred (§3.4).
+        expect(await readEndedRegistrations()).toBe(before + 1);
+
+        stop();
+      },
+    );
+
+    it(
+      'terminates the source when the end lands during its connect (§4.1)',
+      { timeout: 120_000 },
+      async () => {
+        // The genuine race, not the stale schedule: an operator ends the
+        // session in the window between the kiosk's token exchange and its
+        // registration - the exact button pressed during a demo. Either branch
+        // may win (the config fetch returns the already-ended session, or it
+        // returns the live one and the bump arrives moments later), and the
+        // point of the assertion is that BOTH terminate the socket rather than
+        // leaving it streaming.
+        const rounds = 3;
+        for (let round = 0; round < rounds; round++) {
+          // Arrange
+          const session = await seedOwnSession();
+          const ws = await server.fastify.injectWS(sourcePath(session.uid));
+          const closed = nextClose(ws);
+
+          // Act - auth and the early end are issued in the same tick.
+          authAsSource(ws, session.uid, `raced-kiosk-${String(round)}`);
+          await endSessionEarly(session.uid);
+
+          // Assert
+          await expect(closed).resolves.toMatchObject({
+            code: 1000,
+            reason: 'session-ended',
+          });
+          expect(await statusSessionUids()).not.toContain(session.uid);
+        }
       },
     );
   });

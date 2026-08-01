@@ -220,17 +220,55 @@ export class ScheduleManagementService {
   private _dbClient: AppDependencies['dbClient'];
   private _repo: AppDependencies['scheduleManagementRepository'];
   private _eventBus: AppDependencies['eventBusService'];
+  /**
+   * Provider keys this deployment's transcription-service defines. See
+   * `TRANSCRIPTION_PROVIDER_IDS` in `app-config.ts` for why the accepted set is
+   * configuration rather than a schema enum or a live lookup.
+   */
+  private _transcriptionProviderIds: Set<string>;
 
   constructor(
     logger: AppDependencies['logger'],
     dbClient: AppDependencies['dbClient'],
     scheduleManagementRepository: AppDependencies['scheduleManagementRepository'],
     eventBusService: AppDependencies['eventBusService'],
+    scheduleManagementConfig: AppDependencies['scheduleManagementConfig'],
   ) {
     this._log = logger;
     this._dbClient = dbClient;
     this._repo = scheduleManagementRepository;
     this._eventBus = eventBusService;
+    this._transcriptionProviderIds = new Set(
+      scheduleManagementConfig.transcriptionProviderIds,
+    );
+  }
+
+  /**
+   * The provider keys this service accepts, in configured order. Exposed so the
+   * controller can name them in the rejection message - an operator who typed
+   * `whipser` should not have to go read the deployment's env to find out what
+   * was expected.
+   */
+  get transcriptionProviderIds(): string[] {
+    return [...this._transcriptionProviderIds];
+  }
+
+  /**
+   * Rejects a `transcriptionProviderId` the deployment has no provider for.
+   *
+   * Checked here, at write time, because the alternative is that it surfaces at
+   * *stream* time: transcription-service raises "Invalid Provider Key" and
+   * closes the upstream socket 1007, node-server retries a permanently
+   * unsatisfiable request forever, and every viewer of that room watches a
+   * banner promising a reconnection that cannot happen. The typo is made once,
+   * by an operator, at a keyboard - that is where it should be answered.
+   *
+   * `undefined` (an update that does not touch the field) passes: it cannot
+   * introduce a bad value.
+   */
+  private _isKnownTranscriptionProvider(id: string | undefined): boolean {
+    if (id === undefined) return true;
+    return this._transcriptionProviderIds.has(id);
   }
 
   /**
@@ -457,7 +495,11 @@ export class ScheduleManagementService {
     | 'INVALID_ACTIVE_END'
     | 'INVALID_LOCAL_TIMES'
     | 'INVALID_FREQUENCY_FIELDS'
+    | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
   > {
+    if (!this._isKnownTranscriptionProvider(data.transcriptionProviderId)) {
+      return 'UNKNOWN_TRANSCRIPTION_PROVIDER' as const;
+    }
     return this._runWithEvents(async (trx, collector) => {
       const room = await this._repo.lockRoom(trx, data.roomUid);
       if (!room) return 'ROOM_NOT_FOUND' as const;
@@ -549,7 +591,11 @@ export class ScheduleManagementService {
     | 'INVALID_ACTIVE_END'
     | 'INVALID_LOCAL_TIMES'
     | 'INVALID_FREQUENCY_FIELDS'
+    | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
   > {
+    if (!this._isKnownTranscriptionProvider(data.transcriptionProviderId)) {
+      return 'UNKNOWN_TRANSCRIPTION_PROVIDER' as const;
+    }
     return this._runWithEvents(async (trx, collector) => {
       const existing = await this._repo.findScheduleByUid(trx, uid);
       if (existing?.activeEnd !== null) {
@@ -615,8 +661,15 @@ export class ScheduleManagementService {
     data: CreateWindowInput,
     now: Date,
   ): Promise<
-    AutoSessionWindow | 'ROOM_NOT_FOUND' | 'CONFLICT' | 'INVALID_ACTIVE_END'
+    | AutoSessionWindow
+    | 'ROOM_NOT_FOUND'
+    | 'CONFLICT'
+    | 'INVALID_ACTIVE_END'
+    | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
   > {
+    if (!this._isKnownTranscriptionProvider(data.transcriptionProviderId)) {
+      return 'UNKNOWN_TRANSCRIPTION_PROVIDER' as const;
+    }
     return this._runWithEvents(async (trx, collector) => {
       const room = await this._repo.lockRoom(trx, data.roomUid);
       if (!room) return 'ROOM_NOT_FOUND' as const;
@@ -697,8 +750,15 @@ export class ScheduleManagementService {
     data: UpdateWindowInput,
     now: Date,
   ): Promise<
-    AutoSessionWindow | 'NOT_FOUND' | 'CONFLICT' | 'INVALID_ACTIVE_END'
+    | AutoSessionWindow
+    | 'NOT_FOUND'
+    | 'CONFLICT'
+    | 'INVALID_ACTIVE_END'
+    | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
   > {
+    if (!this._isKnownTranscriptionProvider(data.transcriptionProviderId)) {
+      return 'UNKNOWN_TRANSCRIPTION_PROVIDER' as const;
+    }
     return this._runWithEvents(async (trx, collector) => {
       const existing = await this._repo.findWindowByUid(trx, uid);
       if (existing?.activeEnd !== null) {
@@ -878,7 +938,15 @@ export class ScheduleManagementService {
   async createOnDemandSession(
     data: CreateOnDemandSessionInput,
     now: Date,
-  ): Promise<Session | 'ROOM_NOT_FOUND' | 'ANOTHER_SESSION_ACTIVE'> {
+  ): Promise<
+    | Session
+    | 'ROOM_NOT_FOUND'
+    | 'ANOTHER_SESSION_ACTIVE'
+    | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
+  > {
+    if (!this._isKnownTranscriptionProvider(data.transcriptionProviderId)) {
+      return 'UNKNOWN_TRANSCRIPTION_PROVIDER' as const;
+    }
     return this._runWithEvents(async (trx, collector) => {
       const room = await this._repo.lockRoom(trx, data.roomUid);
       if (!room) return 'ROOM_NOT_FOUND' as const;

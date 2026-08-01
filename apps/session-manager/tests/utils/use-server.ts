@@ -1,12 +1,14 @@
 import { afterAll, beforeAll, inject } from 'vitest';
 
 import { LogLevel } from '@scribear/base-fastify-server';
+import { SHIPPED_TRANSCRIPTION_PROVIDER_IDS } from '@scribear/session-manager-schema';
 
 import type {
   AppConfig,
   BaseConfig,
   CanaryRoomConfig,
   DemoRoomConfig,
+  ScheduleManagementConfig,
   TestAudioRoomsConfig,
 } from '#src/app-config/app-config.js';
 import type { DBClientConfig } from '#src/db/db-client.js';
@@ -43,6 +45,7 @@ export interface TestAppConfigOverrides {
   demoRoomConfig?: Partial<DemoRoomConfig>;
   testAudioRoomsConfig?: Partial<TestAudioRoomsConfig>;
   canaryRoomConfig?: Partial<CanaryRoomConfig>;
+  scheduleManagementConfig?: Partial<ScheduleManagementConfig>;
 }
 
 /**
@@ -119,6 +122,13 @@ export function buildTestAppConfig(
       enabled: false,
       deviceSecret: '',
       ...overrides.canaryRoomConfig,
+    },
+    // The shipped provider set, so fixtures using `whisper` behave as they do
+    // in a stock deployment. Suites that want to prove the rejection override
+    // this with a narrower list.
+    scheduleManagementConfig: {
+      transcriptionProviderIds: [...SHIPPED_TRANSCRIPTION_PROVIDER_IDS],
+      ...overrides.scheduleManagementConfig,
     },
   } as unknown as AppConfig;
 }

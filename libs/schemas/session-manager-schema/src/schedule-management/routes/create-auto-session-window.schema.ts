@@ -18,6 +18,7 @@ import { SCHEDULE_MANAGEMENT_TAG } from '#src/tags.js';
 import { AUTO_SESSION_WINDOW_SCHEMA } from '../entities/auto-session-window.schema.js';
 import { DAY_OF_WEEK_SCHEMA } from '../entities/day-of-week.schema.js';
 import { LOCAL_TIME_SCHEMA } from '../entities/session-schedule.schema.js';
+import { TRANSCRIPTION_PROVIDER_ID_SCHEMA } from '../entities/transcription-provider.schema.js';
 
 const CREATE_AUTO_SESSION_WINDOW_SCHEMA = {
   description:
@@ -38,7 +39,7 @@ const CREATE_AUTO_SESSION_WINDOW_SCHEMA = {
     activeStart: Type.String({ format: 'date-time' }),
     activeEnd: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
     joinCodeScopes: Type.Array(SESSION_SCOPE_SCHEMA),
-    transcriptionProviderId: Type.String(),
+    transcriptionProviderId: TRANSCRIPTION_PROVIDER_ID_SCHEMA,
     transcriptionStreamConfig: Type.Unknown(),
   }),
   response: {

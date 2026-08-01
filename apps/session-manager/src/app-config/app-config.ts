@@ -3,6 +3,7 @@ import { Type } from 'typebox';
 import type { Static } from 'typebox';
 
 import { LogLevel } from '@scribear/base-fastify-server';
+import { SHIPPED_TRANSCRIPTION_PROVIDER_IDS } from '@scribear/session-manager-schema';
 
 import type { DBClientConfig } from '#src/db/db-client.js';
 import { DEFAULT_DEMO_SESSION_UID } from '#src/server/features/demo-room/demo-room.constants.js';
@@ -82,6 +83,35 @@ const CONFIG_SCHEMA = Type.Object({
   // which is where a deployment that never provisioned a canary device already
   // was. Rotating it is a restart of both services.
   CANARY_DEVICE_SECRET: Type.String({ default: '' }),
+
+  // Comma-separated provider keys this deployment's transcription-service
+  // actually defines in its `provider_config.json`. A session, schedule or
+  // auto-session window created with anything else is rejected at 400.
+  //
+  // WHY A CONFIG VALUE AND NOT AN ENUM IN THE SCHEMA: `provider_config.json` is
+  // operator-editable deployment config. Baking the shipped four into the wire
+  // schema would reject a provider an operator legitimately added and accept
+  // one they removed - the schema would be asserting something it cannot know,
+  // the same mistake as pinning the Authorization header to a character class.
+  // The default is the shipped set, so a stock deployment needs nothing; a
+  // deployment that edits provider_config.json edits this alongside it.
+  //
+  // WHY NOT A LIVE LOOKUP: the authoritative list is behind
+  // transcription-service's `/providers/health`, which requires
+  // METRICS_API_KEY - a credential session-manager does not have and should not
+  // acquire, since it otherwise never talks to transcription-service at all.
+  // Making a create request depend on a second service being reachable would
+  // also mean a transcription-service outage blocks scheduling, which is worse
+  // than the problem being solved.
+  //
+  // Getting this list wrong is loud in both directions: too narrow and a create
+  // fails immediately with the accepted keys named in the message; too wide and
+  // we are back to today's behaviour, which the `invalid-request` disconnect
+  // reason now surfaces to the viewer anyway. Neither is silent.
+  TRANSCRIPTION_PROVIDER_IDS: Type.String({
+    minLength: 1,
+    default: SHIPPED_TRANSCRIPTION_PROVIDER_IDS.join(','),
+  }),
 });
 
 export interface BaseConfig {
@@ -107,6 +137,15 @@ export interface TestAudioRoomsConfig {
    * generator derives the same value from the same two inputs.
    */
   deviceSecret: string;
+}
+
+export interface ScheduleManagementConfig {
+  /**
+   * Provider keys accepted on session/schedule/window writes. Parsed from
+   * `TRANSCRIPTION_PROVIDER_IDS`; never empty (the env value has
+   * `minLength: 1` and a default).
+   */
+  transcriptionProviderIds: string[];
 }
 
 export interface CanaryRoomConfig {
@@ -186,6 +225,14 @@ export class AppConfig {
       // would only add a way to be half-configured.
       enabled: this._env.TEST_AUDIO_DEVICE_SECRET !== '',
       deviceSecret: this._env.TEST_AUDIO_DEVICE_SECRET,
+    };
+  }
+
+  get scheduleManagementConfig(): ScheduleManagementConfig {
+    return {
+      transcriptionProviderIds: this._env.TRANSCRIPTION_PROVIDER_IDS.split(',')
+        .map((id) => id.trim())
+        .filter((id) => id !== ''),
     };
   }
 

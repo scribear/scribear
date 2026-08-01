@@ -164,6 +164,39 @@ describe('Schedule Management Routes', () => {
       expect(res.json<{ code: string }>().code).toBe('INVALID_ACTIVE_START');
     });
 
+    it('returns 400 naming the configured providers when the provider is unknown', async () => {
+      // Arrange - a typo in a free-text field. Left unchecked it surfaces at
+      // stream time as an upstream 1007 and a permanent "reconnecting" banner
+      // for every viewer of the room; answered here it costs one 400.
+      const { roomUid } = await setupRoom();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/create-schedule`,
+        headers: { authorization: ADMIN_HEADER },
+        body: defaultScheduleBody(roomUid, {
+          transcriptionProviderId: 'whipser',
+        }),
+      });
+
+      // Assert - 400 VALIDATION_ERROR is already declared on this route via
+      // STANDARD_ERROR_REPLIES, so nothing about the contract changes. The
+      // message names the accepted keys: the operator cannot see the
+      // deployment's provider set from the console.
+      expect(res.statusCode).toBe(400);
+      const body = res.json<{ code: string; message: string }>();
+      expect(body.code).toBe('VALIDATION_ERROR');
+      expect(body.message).toContain('whisper');
+
+      // And nothing was written.
+      const schedules = await dbContext.db
+        .selectFrom('session_schedules')
+        .select('uid')
+        .execute();
+      expect(schedules).toHaveLength(0);
+    });
+
     it('returns 201 with the created schedule', async () => {
       // Arrange
       const { roomUid } = await setupRoom();
@@ -400,6 +433,30 @@ describe('Schedule Management Routes', () => {
       expect(res.statusCode).toBe(200);
       const body = res.json<{ uid: string; name: string }>();
       expect(body.name).toBe('Renamed');
+    });
+
+    it('returns 400 when the update names an unknown provider', async () => {
+      // Arrange
+      const { roomUid } = await setupRoom();
+      const create = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/create-schedule`,
+        headers: { authorization: ADMIN_HEADER },
+        body: defaultScheduleBody(roomUid),
+      });
+      const { uid: scheduleUid } = create.json<{ uid: string }>();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/update-schedule`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { scheduleUid, transcriptionProviderId: 'not-a-provider' },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(400);
+      expect(res.json<{ code: string }>().code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 422 when a past activeStart is supplied', async () => {
@@ -644,6 +701,31 @@ describe('Schedule Management Routes', () => {
       expect(body.roomUid).toBe(roomUid);
     });
 
+    it('returns 400 when the provider is unknown', async () => {
+      // Arrange - the window path matters as much as the session path: every
+      // AUTO session it materializes inherits this provider id.
+      const { roomUid } = await setupRoom();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/create-auto-session-window`,
+        headers: { authorization: ADMIN_HEADER },
+        body: defaultWindowBody(roomUid, {
+          transcriptionProviderId: 'not-a-provider',
+        }),
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(400);
+      expect(res.json<{ code: string }>().code).toBe('VALIDATION_ERROR');
+      const windows = await dbContext.db
+        .selectFrom('auto_session_windows')
+        .select('uid')
+        .execute();
+      expect(windows).toHaveLength(0);
+    });
+
     it('returns 404 when the room does not exist', async () => {
       // Arrange / Act
       const res = await server.fastify.inject({
@@ -721,6 +803,30 @@ describe('Schedule Management Routes', () => {
   });
 
   describe('POST /update-auto-session-window', (it) => {
+    it('returns 400 when the update names an unknown provider', async () => {
+      // Arrange
+      const { roomUid } = await setupRoom();
+      const create = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/create-auto-session-window`,
+        headers: { authorization: ADMIN_HEADER },
+        body: defaultWindowBody(roomUid),
+      });
+      const { uid: windowUid } = create.json<{ uid: string }>();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/update-auto-session-window`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { windowUid, transcriptionProviderId: 'not-a-provider' },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(400);
+      expect(res.json<{ code: string }>().code).toBe('VALIDATION_ERROR');
+    });
+
     it('returns 200 with the new window, replacing the original', async () => {
       // Arrange
       const { roomUid } = await setupRoom();
@@ -1055,6 +1161,28 @@ describe('Schedule Management Routes', () => {
       // Assert
       expect(res.statusCode).toBe(201);
       expect(res.json<{ type: string }>().type).toBe('ON_DEMAND');
+    });
+
+    it('returns 400 when the provider is unknown, and creates nothing', async () => {
+      // Arrange
+      const { roomUid } = await setupRoom();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/create-on-demand-session`,
+        headers: { authorization: ADMIN_HEADER },
+        body: makeBody(roomUid, { transcriptionProviderId: 'not-a-provider' }),
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(400);
+      expect(res.json<{ code: string }>().code).toBe('VALIDATION_ERROR');
+      const sessions = await dbContext.db
+        .selectFrom('sessions')
+        .select('uid')
+        .execute();
+      expect(sessions).toHaveLength(0);
     });
 
     it('returns 404 when the room does not exist', async () => {

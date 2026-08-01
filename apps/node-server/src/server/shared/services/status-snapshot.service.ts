@@ -51,6 +51,7 @@ export class StatusSnapshotService {
         authSuccessTotal: counters.authSuccessTotal,
         authTimeoutsTotal: counters.authTimeoutsTotal,
         orchestratorFailuresTotal: counters.orchestratorFailuresTotal,
+        endedSessionRegistrationsTotal: counters.endedSessionRegistrationsTotal,
         latencySamplesTotal: counters.latencySamplesTotal,
         latencyE2eUnavailableTotal: counters.latencyE2eUnavailableTotal,
         latencyE2eNegativeTotal: counters.latencyE2eNegativeTotal,

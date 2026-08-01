@@ -12,6 +12,75 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — node-server is sticky-routed by session uid
+
+**Pull the new `scribear-nginx` image** (`docker compose pull scribear-nginx &&
+docker compose up -d`, or just run [`deploy_latest.sh`](deploy_latest.sh)). No
+`.env` or `compose.yml` change; the fix is inside the image.
+
+`upstream node-server` in `nginx.conf` now carries
+`hash $node_server_session_uid;`, keyed off the session uid in the WebSocket
+URL path. Before this, it had no balancing directive at all — nginx
+round-robined.
+
+That was survivable only because the service runs one replica.
+`docker compose up -d --scale node-server=2` would have broken live captioning
+in a way nothing reports: node-server's orchestrator state is per-process (the
+event bus, the upstream transcription socket), so a viewer routed to a
+different instance than its room's source subscribes to a channel nothing
+publishes on and receives no transcripts — no error, no close, no banner, just
+an empty caption view. **Scaling node-server past one replica is now
+supported**; before, it was not, and nothing said so.
+
+One caveat worth knowing before you scale: the hash is a plain modulo, not
+ketama. `consistent` is silently ignored by this nginx when the upstream server
+is a `resolve` name (measured — it falls back to round-robin, `nginx -t` passes
+either way), so it is deliberately not used. The practical consequence is that
+changing the replica count re-homes most sessions; do it when a brief
+reconnect is acceptable.
+
+---
+
+## Unreleased — session-manager validates `transcriptionProviderId` (`compose.yml` v8)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`.
+
+New variable: **`TRANSCRIPTION_PROVIDER_IDS`** on `session-manager`. It is a
+comma-separated list of the provider keys session-manager will accept when a
+session, schedule or auto-session window is created or updated, and it defaults
+to the set shipped in `provider_config.template.json`
+(`debug,whisper,lumen_granite,crisper_whisper`). **A stock deployment needs to
+do nothing.**
+
+**If you have edited `provider_config.json`** — added a provider, removed one,
+renamed a key — set `TRANSCRIPTION_PROVIDER_IDS` in `.env` to exactly the keys
+under its `"providers"` object. The two files now have to agree, and this is the
+one place that says so.
+
+### Why
+
+A `transcriptionProviderId` naming no configured provider used to be accepted
+silently and only fail when someone tried to use the room: transcription-service
+raises `Invalid Provider Key` and closes the socket with 1007, node-server
+retries a request that can never succeed, and every viewer sits on
+"Connection to the transcription service was lost. Reconnecting…" forever, with
+nothing anywhere naming the cause. The typo is made once, by an operator, at a
+keyboard — it is now answered there, with a `400` that lists the accepted keys.
+
+The list is deployment configuration rather than a fixed set in the API schema
+because `provider_config.json` is yours to edit: a hardcoded set would reject a
+provider you legitimately added and accept one you removed. It is not read live
+from transcription-service either — that endpoint needs `METRICS_API_KEY`, a
+credential session-manager does not have, and it would make scheduling fail
+whenever transcription-service is down.
+
+Getting the list wrong is loud either way: too narrow and a create fails
+immediately with the accepted keys in the message; too wide and you are back to
+the old behaviour, which the viewer now sees as a specific "misconfigured"
+message rather than an endless reconnect.
+
+---
+
 ## Unreleased — watchtower is gone; `deploy_latest.sh` replaces it (`compose.yml` v7)
 
 **Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. If
