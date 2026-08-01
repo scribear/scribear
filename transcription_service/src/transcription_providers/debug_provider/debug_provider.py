@@ -109,11 +109,15 @@ class DebugProvider(TranscriptionProviderInterface):
 
             Deferred so an idle client - configured but never streaming - never
             takes a worker's job slot, and so never counts toward that
-            worker's live_job_count for capacity admission. `check_admission`
-            is called for uniformity with the other two providers' sessions,
-            not because it can refuse one here: this session never overrides
-            `admission_worker_id`, so the call is a guaranteed no-op (see
-            TranscriptionSessionInterface.admission_worker_id).
+            worker's live_job_count for capacity admission.
+
+            `_admit_registered_job` is the same register/ask/undo the other two
+            providers' sessions run, called through the one implementation on
+            TranscriptionSessionInterface. Today it cannot refuse this session,
+            because this one does not override `admission_worker_id` - but that
+            is a property of this class right now, not a reason to write the
+            call differently here, and the shared helper means overriding that
+            property later cannot leak a registered job.
             """
             if self._job is not None:
                 return
@@ -127,9 +131,7 @@ class DebugProvider(TranscriptionProviderInterface):
                 room_uid=self.room_uid,
             )
             self._job.on(self._job.JobResultEvent, self._handle_job_result)
-            self._provider.check_admission(
-                self.admission_worker_id, self._logger
-            )
+            self._admit_registered_job(self._provider, self._logger)
 
         def handle_audio_chunk(self, chunk_id: str, chunk: bytes):
             # Debug provider does not track chunk ids; the correlation id is

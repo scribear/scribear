@@ -133,12 +133,14 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
             Deferred so an idle client - configured but never streaming - never
             takes a worker's job slot, and so never counts toward that
             worker's live_job_count for capacity admission
-            (PLAN-AdmissionControl.md §4). `check_admission` is called
+            (PLAN-AdmissionControl.md §4). `_admit_registered_job` is called
             immediately after registering, before any data is queued to the
             job, so a refusal can undo the registration and raise before this
             chunk is ever processed - the same "build then undo" shape
             admission used at construction time, just relocated to where
-            registration itself now happens.
+            registration itself now happens. That undo lives on
+            TranscriptionSessionInterface rather than here, so all three
+            providers get it identically.
 
             A `register_job` that raises (context tags misconfigured, per
             `describe_health`'s "routed here dies at register_job") now
@@ -162,15 +164,7 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
                 room_uid=self.room_uid,
             )
             self._job.on(self._job.JobResultEvent, self._handle_job_result)
-
-            try:
-                self._provider.check_admission(
-                    self.admission_worker_id, self._log
-                )
-            except BaseException:
-                self._job.deregister()
-                self._job = None
-                raise
+            self._admit_registered_job(self._provider, self._log)
 
         def handle_audio_chunk(self, chunk_id: str, chunk: bytes):
             self._ensure_job()

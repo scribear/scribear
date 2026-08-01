@@ -130,7 +130,9 @@ class TranscriptionProviderInterface(ABC):
             logger      - Logger to attach to a refusal
 
         A session calls this itself, right after registering its job - not
-        the registry, and not at session construction. Registration is what
+        the registry, and not at session construction - and calls it through
+        `TranscriptionSessionInterface._admit_registered_job`, which owns the
+        deregistration a refusal has to undo. Registration is what
         makes a session a claim on worker capacity at all (an idle,
         audio-less connection that never registers a job never shows up in
         any worker's live_job_count), so there is nothing to decide before

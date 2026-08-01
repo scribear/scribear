@@ -89,13 +89,17 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
 
             Deferred so an idle client - configured but never streaming - never
             takes a worker's job slot, and so never counts toward that
-            worker's live_job_count for capacity admission. `check_admission`
-            is called for uniformity with the other two providers' sessions,
-            not because it can refuse one here: this session never overrides
-            `admission_worker_id`, so the call is a guaranteed no-op (see
-            TranscriptionSessionInterface.admission_worker_id) - a remote
+            worker's live_job_count for capacity admission.
+
+            `_admit_registered_job` is the same register/ask/undo the other two
+            providers' sessions run, called through the one implementation on
+            TranscriptionSessionInterface. Today it cannot refuse this session,
+            because this one does not override `admission_worker_id` - a remote
             provider's capacity question is upstream rate limits and network
-            latency, explicitly out of scope per §5/§7.
+            latency, explicitly out of scope per §5/§7. That is a property of
+            this class right now, not a reason to write the call differently
+            here, and the shared helper means opting in later cannot leak a
+            registered job.
             """
             if self._job is not None:
                 return
@@ -109,7 +113,7 @@ class LumenGraniteProvider(TranscriptionProviderInterface):
                 room_uid=self.room_uid,
             )
             self._job.on(self._job.JobResultEvent, self._handle_job_result)
-            self._provider.check_admission(self.admission_worker_id, self._log)
+            self._admit_registered_job(self._provider, self._log)
 
         def handle_audio_chunk(self, chunk_id: str, chunk: bytes):
             self._ensure_job()
