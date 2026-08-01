@@ -12,6 +12,35 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — node-server is sticky-routed by session uid
+
+**Pull the new `scribear-nginx` image** (`docker compose pull scribear-nginx &&
+docker compose up -d`, or just run [`deploy_latest.sh`](deploy_latest.sh)). No
+`.env` or `compose.yml` change; the fix is inside the image.
+
+`upstream node-server` in `nginx.conf` now carries
+`hash $node_server_session_uid;`, keyed off the session uid in the WebSocket
+URL path. Before this, it had no balancing directive at all — nginx
+round-robined.
+
+That was survivable only because the service runs one replica.
+`docker compose up -d --scale node-server=2` would have broken live captioning
+in a way nothing reports: node-server's orchestrator state is per-process (the
+event bus, the upstream transcription socket), so a viewer routed to a
+different instance than its room's source subscribes to a channel nothing
+publishes on and receives no transcripts — no error, no close, no banner, just
+an empty caption view. **Scaling node-server past one replica is now
+supported**; before, it was not, and nothing said so.
+
+One caveat worth knowing before you scale: the hash is a plain modulo, not
+ketama. `consistent` is silently ignored by this nginx when the upstream server
+is a `resolve` name (measured — it falls back to round-robin, `nginx -t` passes
+either way), so it is deliberately not used. The practical consequence is that
+changing the replica count re-homes most sessions; do it when a brief
+reconnect is acceptable.
+
+---
+
 ## Unreleased — session-manager validates `transcriptionProviderId` (`compose.yml` v8)
 
 **Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`.
