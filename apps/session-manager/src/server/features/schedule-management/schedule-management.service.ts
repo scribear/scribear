@@ -25,7 +25,10 @@ import { assertCancelable, assertUncancelable } from './utils/cancellation.js';
 import type { CancelEligibility } from './utils/cancellation.js';
 import { detectConflict } from './utils/conflict-detector.js';
 import { buildScheduledSessionRow } from './utils/occurrence-to-session.js';
-import { materializeSchedule } from './utils/schedule-materializer.js';
+import {
+  MIN_SESSION_DURATION_SECONDS,
+  materializeSchedule,
+} from './utils/schedule-materializer.js';
 import type { ScheduleForMaterialization } from './utils/schedule-materializer.js';
 import { materializeWindow } from './utils/window-materializer.js';
 
@@ -67,7 +70,6 @@ export class MaterializationFailedError extends Error {
 }
 
 const MATERIALIZATION_WINDOW_DAYS = 7;
-const MIN_AUTO_SESSION_DURATION_SECONDS = 60;
 const CONFLICT_CHECK_HORIZON_DAYS = 14;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -369,7 +371,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         newAutoEnabled,
         collector.sessionBumps,
       );
@@ -488,7 +490,7 @@ export class ScheduleManagementService {
       room.timezone,
       now,
       windowEnd,
-      MIN_AUTO_SESSION_DURATION_SECONDS,
+      MIN_SESSION_DURATION_SECONDS,
       room.autoSessionEnabled,
       collector.sessionBumps,
     );
@@ -835,7 +837,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );
@@ -1025,7 +1027,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );
@@ -1114,7 +1116,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );
@@ -1172,7 +1174,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );
@@ -1224,7 +1226,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );
@@ -1410,7 +1412,7 @@ export class ScheduleManagementService {
       room.timezone,
       now,
       windowEnd,
-      MIN_AUTO_SESSION_DURATION_SECONDS,
+      MIN_SESSION_DURATION_SECONDS,
       room.autoSessionEnabled,
       collector.sessionBumps,
     );
@@ -1470,7 +1472,7 @@ export class ScheduleManagementService {
       room.timezone,
       now,
       windowEnd,
-      MIN_AUTO_SESSION_DURATION_SECONDS,
+      MIN_SESSION_DURATION_SECONDS,
       room.autoSessionEnabled,
       collector.sessionBumps,
     );
@@ -1583,7 +1585,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );
@@ -1627,7 +1629,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );

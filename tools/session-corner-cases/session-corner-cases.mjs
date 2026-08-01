@@ -92,14 +92,16 @@ const ALL_DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * How far back an auto-session window's `activeStart` is placed when the check
- * wants a session covering *now*.
+ * How far back an auto-session window's `activeStart` is placed by default.
  *
- * `inRange` in `schedule-materializer.ts` drops any occurrence whose *start*
- * precedes `activeStart`, so a daily 00:00-23:59 window created at 16:00 with
- * `activeStart = now` loses today's occurrence entirely and first materializes
- * tomorrow. A week back clears the day boundary in any timezone. This is the
- * behaviour `auto-window-activeStart-must-precede-...` pins on purpose.
+ * No longer required to get a session covering *now* - `inRange` clips an
+ * occurrence to `activeStart` rather than dropping it, so a window created at
+ * 16:00 with `activeStart = now` covers the rest of today (asserted by
+ * `an-auto-window-starting-now-covers-the-rest-of-today`). It is kept because
+ * several checks want a window that has been active for a while, so the AUTO
+ * session's `effectiveStart` is in the past: that is what exercises the
+ * reconciler's preserve-the-running-AUTO branch rather than its
+ * create-a-fresh-slot one.
  */
 const BACKDATE_MS = 7 * DAY_MS;
 
@@ -1517,49 +1519,45 @@ const CHECKS = [
 
   {
     group: 'calendar / scheduling',
-    name: 'an-auto-window-must-start-before-the-occurrence-to-cover-today',
+    name: 'an-auto-window-starting-now-covers-the-rest-of-today',
     async run(t, { fx }) {
-      // `inRange` drops any occurrence whose *start* precedes `activeStart`,
-      // so a daily 00:00-23:59 window created at 16:00 with `activeStart = now`
-      // loses today's occurrence entirely and first materializes tomorrow. The
-      // admin dialog forces `activeStart` into the future, so an operator who
-      // creates "auto sessions, every day, from now" gets nothing until
-      // midnight. demo-e2e backdates a week for exactly this reason.
+      // `inRange` clips an occurrence to `activeStart` rather than dropping
+      // it. The daily 00:00-23:59 window the admin console creates started at
+      // midnight, before any `activeStart` an operator can type, so dropping
+      // meant "auto sessions, every day, from now" produced nothing until the
+      // next local midnight - with no explanation, and with the admin dialog
+      // forcing `activeStart` into the future to hide it.
       const today = await fx.room('as-today', { auto: true });
+      const startedNow = new Date();
       await fx.window(today.roomUid, {
-        activeStart: new Date().toISOString(),
+        activeStart: startedNow.toISOString(),
       });
-      const noneNow = await fx.activeSession(today.roomUid, 3_000);
-      t.pin(
-        'a window whose activeStart is "now" produces NO session covering now',
-        noneNow === null,
-        noneNow === null
-          ? 'no active session, as inRange drops the occurrence that started at 00:00'
-          : `unexpectedly active: ${noneNow.effectiveStart}`,
-        'QUIRK-3',
+      const live = await fx.activeSession(today.roomUid);
+      t.ok(
+        'a window whose activeStart is "now" produces a session covering now',
+        live?.type === 'AUTO',
+        `active ${live?.type ?? 'none'}`,
       );
-      const upcoming = await fx.listSessions(
-        today.roomUid,
-        -60_000,
-        2 * DAY_MS,
+      t.ok(
+        'and that session starts at activeStart, not at the occurrence’s midnight',
+        live !== null &&
+          Math.abs(Date.parse(live.effectiveStart) - startedNow.getTime()) <
+            5 * 60_000,
+        `effectiveStart ${live?.effectiveStart} vs activeStart ${startedNow.toISOString()}`,
       );
-      t.pin(
-        'and the first AUTO session appears only on the next local day',
-        upcoming.length > 0 &&
-          Date.parse(upcoming[0].effectiveStart) > Date.now(),
-        upcoming.length
-          ? `first at ${upcoming[0].effectiveStart}`
-          : 'no sessions in the next two days',
-        'QUIRK-3',
+      t.ok(
+        'and it still runs to the end of the local day',
+        live !== null && Date.parse(live.effectiveEnd) > Date.now(),
+        `effectiveEnd ${live?.effectiveEnd}`,
       );
 
       const backdated = await fx.room('as-backdated', { auto: true });
       await fx.window(backdated.roomUid);
-      const live = await fx.activeSession(backdated.roomUid);
+      const older = await fx.activeSession(backdated.roomUid);
       t.ok(
-        'the same window backdated a week does cover now',
-        live?.type === 'AUTO',
-        `active ${live?.type ?? 'none'}`,
+        'the same window backdated a week also covers now',
+        older?.type === 'AUTO',
+        `active ${older?.type ?? 'none'}`,
       );
     },
   },
@@ -1678,16 +1676,18 @@ const CHECKS = [
     name: 'a-fall-back-ambiguous-local-time-resolves-to-the-standard-time-instant',
     async run(t, { fx }) {
       // At fall-back, local 01:00-01:59 happens twice. `localToUtc` picks the
-      // LATER (standard-time) instant, so an occurrence 00:30-01:30 runs two
-      // hours, not one.
+      // LATER (standard-time) instant, so an occurrence at 01:15-01:45 local
+      // lands *after* the transition, not before it.
       //
       // Conflict detection alone cannot see this: local -> UTC is strictly
       // increasing under either reading, so overlap decisions are identical.
-      // What does distinguish them is `inRange`'s activeEnd test, which drops
-      // an occurrence whose end exceeds activeEnd. Put activeEnd *between* the
-      // two candidate ends and the occurrences survive only under the earlier
-      // (daylight) reading - so "no conflict" here is a positive statement
-      // that the later instant was chosen.
+      // What does distinguish them is where `activeEnd` cuts. Both occurrences
+      // sit wholly inside the ambiguous hour, and `activeEnd` is placed at the
+      // transition instant itself: under the daylight reading they precede it
+      // and survive (and conflict); under the standard reading they begin
+      // after it, clip to nothing, and vanish. So "no conflict" here is a
+      // positive statement that the later instant was chosen, and the control
+      // below proves the pair does conflict once it is inside the range.
       const zone = 'America/Chicago';
       const fall = nextTransitions(zone, new Date(), 4).find(
         (x) => x.toOffset < x.fromOffset,
@@ -1697,11 +1697,11 @@ const CHECKS = [
       }
       const dow = localDayOfWeek(zone, new Date(fall.at.getTime() + 60_000));
       const activeStart = new Date(fall.at.getTime() - 8 * 60 * 60 * 1000);
-      // 00:30 local is unambiguous (daylight); 01:30 local is ambiguous.
-      // daylight reading ends 30 min BEFORE the transition instant, standard
-      // reading 30 min after.
-      const between = new Date(fall.at.getTime());
-      const afterBoth = new Date(fall.at.getTime() + 90 * 60_000);
+      // Under the daylight reading 01:15-01:45 runs from 45 to 15 minutes
+      // BEFORE the transition instant; under the standard reading, from 15 to
+      // 45 minutes after it.
+      const atTransition = new Date(fall.at.getTime());
+      const afterBoth = new Date(fall.at.getTime() + 60 * 60_000);
       const pair = (roomUid, ls, le, activeEnd) => ({
         roomUid,
         frequency: 'WEEKLY',
@@ -1715,14 +1715,14 @@ const CHECKS = [
       const decisive = await fx.room('dst-fall', { timezone: zone });
       const d1 = await fx.schedule(
         decisive.roomUid,
-        pair(decisive.roomUid, '00:30', '01:30', between),
+        pair(decisive.roomUid, '01:15', '01:45', atTransition),
       );
       const d2 = await fx.schedule(
         decisive.roomUid,
-        pair(decisive.roomUid, '00:45', '01:15', between),
+        pair(decisive.roomUid, '01:20', '01:40', atTransition),
       );
       t.ok(
-        'with activeEnd between the daylight and standard readings both occurrences vanish',
+        'with activeEnd at the transition instant both occurrences fall outside it and vanish',
         d1.status === 201 && d2.status === 201,
         `${d1.status}/${d2.status} ${d2.body?.code ?? ''} ` +
           `(transition at ${fall.at.toISOString()})`,
@@ -1731,11 +1731,11 @@ const CHECKS = [
       const control = await fx.room('dst-fall-ctl', { timezone: zone });
       const c1 = await fx.schedule(
         control.roomUid,
-        pair(control.roomUid, '00:30', '01:30', afterBoth),
+        pair(control.roomUid, '01:15', '01:45', afterBoth),
       );
       const c2 = await fx.schedule(
         control.roomUid,
-        pair(control.roomUid, '00:45', '01:15', afterBoth),
+        pair(control.roomUid, '01:20', '01:40', afterBoth),
       );
       t.ok(
         'with activeEnd past the standard reading they survive and conflict',
@@ -1884,25 +1884,30 @@ const CHECKS = [
 
   {
     group: 'calendar / scheduling',
-    name: 'an-activeEnd-inside-an-occurrence-drops-the-occurrence-instead-of-clipping-it',
+    name: 'an-activeEnd-inside-an-occurrence-clips-it-instead-of-dropping-it',
     async run(t, { fx, api }) {
-      // `inRange` rejects an occurrence whose end exceeds `activeEnd` rather
-      // than clipping it. For a daily 00:00-23:59 window that means setting
-      // activeEnd to any instant before 23:59 removes the whole day. An
-      // operator reading "auto sessions until 15:00" gets none at all - and,
-      // worse, narrowing a *live* window ends the session that is running now.
+      // `inRange` clips an occurrence to `activeEnd` rather than rejecting it.
+      // For the daily 00:00-23:59 window the admin console creates, dropping
+      // meant *any* activeEnd before 23:59 removed the whole day: "auto
+      // sessions until 15:00" produced none at all, and narrowing a *live*
+      // window ended the session that was running right then.
+      const stopFresh = new Date(Date.now() + 30 * 60_000);
       const fresh = await fx.room('clip-fresh', { auto: true });
       await fx.window(fresh.roomUid, {
-        activeEnd: new Date(Date.now() + 30 * 60_000).toISOString(),
+        activeEnd: stopFresh.toISOString(),
       });
-      const none = await fx.activeSession(fresh.roomUid, 3_000);
-      t.pin(
-        'a window whose activeEnd lands mid-occurrence produces no session at all',
-        none === null,
-        none === null
-          ? 'no active session (the whole occurrence was dropped, not clipped to activeEnd)'
-          : `unexpectedly active until ${none.effectiveEnd}`,
-        'BUG-2',
+      const clipped = await fx.activeSession(fresh.roomUid);
+      t.ok(
+        'a window whose activeEnd lands mid-occurrence still produces a session covering now',
+        clipped?.type === 'AUTO',
+        `active ${clipped?.type ?? 'none'}`,
+      );
+      t.ok(
+        'and that session ends at activeEnd, not at the occurrence’s own end',
+        clipped !== null &&
+          Math.abs(Date.parse(clipped.effectiveEnd) - stopFresh.getTime()) <
+            60_000,
+        `effectiveEnd ${clipped?.effectiveEnd} vs activeEnd ${stopFresh.toISOString()}`,
       );
 
       const live = await fx.room('clip-live', { auto: true });
@@ -1922,13 +1927,15 @@ const CHECKS = [
       const after = await api.get(
         `schedule-management/get-active-session/${live.roomUid}`,
       );
-      t.pin(
-        'and it ends the running AUTO session NOW rather than at the new activeEnd',
-        after.body === null,
+      t.ok(
+        'and the running AUTO session survives, now ending at the new activeEnd',
+        after.body !== null &&
+          after.body.uid === before?.uid &&
+          Math.abs(Date.parse(after.body.effectiveEnd) - stopAt.getTime()) <
+            60_000,
         after.body === null
           ? `no active session, though the operator asked for one until ${stopAt.toISOString()}`
-          : `still active until ${after.body.effectiveEnd}`,
-        'BUG-2',
+          : `session ${after.body.uid} (was ${before?.uid}) active until ${after.body.effectiveEnd}`,
       );
     },
   },
