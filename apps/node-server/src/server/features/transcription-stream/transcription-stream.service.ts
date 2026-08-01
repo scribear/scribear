@@ -13,7 +13,10 @@ import { LatencyChannel } from './events/latency.events.js';
 import { SessionEndedChannel } from './events/session-ended.events.js';
 import { SessionStatusChannel } from './events/session-status.events.js';
 import { TranscriptChannel } from './events/transcript.events.js';
-import type { SourceHandle } from './transcription-orchestrator.service.js';
+import type {
+  ClientHandle,
+  SourceHandle,
+} from './transcription-orchestrator.service.js';
 import type { TranscriptionStreamRole } from './transcription-stream.auth.js';
 
 type ServerMessage = Static<
@@ -56,6 +59,7 @@ export class TranscriptionStreamService extends EventEmitter<TranscriptionStream
   private _unsubscribeSessionStatus: (() => void) | null = null;
   private _unsubscribeSessionEnded: (() => void) | null = null;
   private _orchestratorHandle: SourceHandle | null = null;
+  private _endWatchHandle: ClientHandle | null = null;
   private _closed = false;
   private _metrics: AppDependencies['nodeServerMetricsService'];
   /**
@@ -158,6 +162,30 @@ export class TranscriptionStreamService extends EventEmitter<TranscriptionStream
       },
       this._sessionUid,
     );
+
+    if (this._role === 'client') {
+      // Take out the session's end-watch, so a viewer on a session with no
+      // source attached is still told when it ends. Deliberately last: the
+      // watch can publish `sessionEnded` the moment it learns the session is
+      // already over, and the subscription above has to exist by then for
+      // this connection to hear it.
+      //
+      // `registerClient` is synchronous and does not throw - a viewer must
+      // not be disconnected because Session Manager is unreachable - so
+      // unlike the source path there is nothing here for the controller to
+      // map to a 1011.
+      const handle = this._transcriptionOrchestratorService.registerClient(
+        this._sessionUid,
+      );
+      if (this._closed) {
+        // The watch published `sessionEnded` synchronously and this
+        // connection has already been cleaned up; release the registration
+        // rather than leaking it into the ref count.
+        handle.unregister();
+        return;
+      }
+      this._endWatchHandle = handle;
+    }
   }
 
   /**
@@ -229,5 +257,7 @@ export class TranscriptionStreamService extends EventEmitter<TranscriptionStream
     this._unsubscribeSessionEnded = null;
     this._orchestratorHandle?.unregister();
     this._orchestratorHandle = null;
+    this._endWatchHandle?.unregister();
+    this._endWatchHandle = null;
   }
 }

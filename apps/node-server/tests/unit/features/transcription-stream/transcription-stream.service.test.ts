@@ -19,6 +19,8 @@ interface Harness {
   bus: EventBusService;
   registerSource: ReturnType<typeof vi.fn>;
   unregisterSource: ReturnType<typeof vi.fn>;
+  registerClient: ReturnType<typeof vi.fn>;
+  unregisterClient: ReturnType<typeof vi.fn>;
   getStatus: ReturnType<typeof vi.fn>;
   sent: unknown[];
   closes: { code: number; reason: string }[];
@@ -48,6 +50,8 @@ function makeHarness(
       setMicrophoneActive,
     });
   });
+  const unregisterClient = vi.fn();
+  const registerClient = vi.fn(() => ({ unregister: unregisterClient }));
   const getStatus = vi.fn(
     () =>
       options.initialStatus ?? {
@@ -58,6 +62,7 @@ function makeHarness(
   );
   const orchestrator = {
     registerSource,
+    registerClient,
     getStatus,
     activeSessionCount: 0,
   } as unknown as ConstructorParameters<
@@ -87,6 +92,8 @@ function makeHarness(
     bus,
     registerSource,
     unregisterSource,
+    registerClient,
+    unregisterClient,
     getStatus,
     sent,
     closes,
@@ -163,15 +170,65 @@ describe('TranscriptionStreamService', () => {
       expect(h.metrics.subscriberCount(SESSION_UID)).toBe(0);
     });
 
-    it('does not register with the orchestrator on client-role start', async () => {
+    it('does not register a source on client-role start', async () => {
       // Arrange
       const h = makeHarness('client');
 
       // Act
       await h.service.start();
 
-      // Assert
+      // Assert - a viewer must never open an upstream transcription
+      // connection; audio-less connections registering a job is what tripped
+      // admission control in e80eea2.
       expect(h.registerSource).not.toHaveBeenCalled();
+    });
+
+    it('takes out the session end-watch on client-role start and releases it on close', async () => {
+      // Arrange - without this a viewer on a source-free session is never
+      // told the session ended: nothing else in node-server fetches that
+      // session's config, so `sessionEnded` is never published and the viewer
+      // sits on stale captions until a token refresh happens to be rejected.
+      const h = makeHarness('client');
+
+      // Act
+      await h.service.start();
+
+      // Assert
+      expect(h.registerClient).toHaveBeenCalledWith(SESSION_UID);
+      expect(h.unregisterClient).not.toHaveBeenCalled();
+
+      // Act
+      h.service.close();
+
+      // Assert - the watch is ref-counted, so a viewer that leaves must
+      // release its share or the watch outlives the room.
+      expect(h.unregisterClient).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not take out an end-watch on source-role start', async () => {
+      // Arrange - the source's own `SessionState` already owns the end timer.
+      const h = makeHarness('source');
+
+      // Act
+      await h.service.start();
+
+      // Assert
+      expect(h.registerClient).not.toHaveBeenCalled();
+    });
+
+    it('releases the end-watch exactly once when close runs more than once', async () => {
+      // Arrange - the controller calls close() on both its own path and the
+      // socket's, and a second decrement would drop the watch out from under
+      // the viewers still on it.
+      const h = makeHarness('client');
+      await h.service.start();
+
+      // Act
+      h.service.close();
+      h.service.close();
+
+      // Assert
+      expect(h.unregisterClient).toHaveBeenCalledTimes(1);
     });
 
     it('propagates orchestrator errors so the controller can map them to 1011', async () => {

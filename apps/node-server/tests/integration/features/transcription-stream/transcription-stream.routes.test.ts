@@ -10,6 +10,7 @@ import {
   TranscriptionStreamClientMessageType,
   TranscriptionStreamServerMessageType,
 } from '@scribear/node-server-schema';
+import { createSessionManagerClient } from '@scribear/session-manager-client';
 import type { SessionTokenPayload } from '@scribear/session-manager-schema';
 
 import { seedSession } from '#tests/utils/seed-session.js';
@@ -742,6 +743,103 @@ describe('Transcription Stream Routes', () => {
 
         client.stop();
         clientWs.terminate();
+      },
+    );
+  });
+
+  // The bug this covers: `registerSource` was the only thing that ever built
+  // `SessionState`, so a room whose viewers joined before (or without) a kiosk
+  // had nobody fetching its config, nobody arming an end timer, and no
+  // `sessionEnded` ever published. Viewers sat on stale captions until a token
+  // refresh happened to be rejected - up to half the token lifetime.
+  describe('viewer-only session end (no source attached)', (it) => {
+    it(
+      'sends sessionEnded and closes 1000 when the session is ended early',
+      { timeout: 60_000 },
+      async () => {
+        // Arrange - a session of its own, so ending it cannot disturb the
+        // shared streaming fixture. On-demand sessions are created open-ended
+        // (`scheduledEndTime` is the next non-AUTO start, absent here), so
+        // nothing is armed until the early end moves `effectiveEnd` into the
+        // past - the `end_override = now` case.
+        const session = await seedSession({
+          sessionManagerBaseUrl: inject('sessionManagerBaseUrl'),
+          adminApiKey: inject('adminApiKey'),
+          transcriptionProviderId: 'debug',
+          transcriptionStreamConfig: {
+            sample_rate: DEBUG_SAMPLE_RATE,
+            num_channels: DEBUG_NUM_CHANNELS,
+          },
+        });
+
+        const ws = await server.fastify.injectWS(clientPath(session.uid));
+        const { messages, stop } = collectMessages(ws);
+        ws.send(
+          JSON.stringify({
+            type: TranscriptionStreamClientMessageType.AUTH,
+            sessionToken: signToken({
+              sessionUid: session.uid,
+              clientId: 'lonely-viewer',
+              scopes: ['RECEIVE_TRANSCRIPTIONS'],
+              exp: FAR_FUTURE,
+            }),
+          }),
+        );
+        await vi.waitFor(
+          () => {
+            expect(
+              messages.find(
+                (m) => m.type === TranscriptionStreamServerMessageType.AUTH_OK,
+              ),
+            ).toBeDefined();
+          },
+          { timeout: 15_000 },
+        );
+
+        // Assert - the viewer costs the transcription service nothing: no
+        // upstream was dialed, so the session holds no orchestrator state and
+        // does not appear in /status. Opening an upstream for an audio-less
+        // connection is the fault e80eea2 was written for.
+        const status = await server.fastify.inject({
+          method: 'GET',
+          url: '/api/node-server/v1/status',
+          headers: { authorization: `Bearer ${TEST_SERVICE_API_KEY}` },
+        });
+        expect(status.statusCode).toBe(200);
+        const sessions = status.json<{
+          sessions: { sessionUid: string }[];
+        }>().sessions;
+        expect(sessions.map((s) => s.sessionUid)).not.toContain(session.uid);
+
+        // Act - end the session out from under the viewer.
+        const closed = nextClose(ws);
+        const sm = createSessionManagerClient(inject('sessionManagerBaseUrl'));
+        const ended = await sm.scheduleManagement.endSessionEarly({
+          body: { sessionUid: session.uid },
+          headers: { authorization: `Bearer ${inject('adminApiKey')}` },
+        });
+        expect(ended[1]).toBeNull();
+        expect(ended[0]?.status).toBe(200);
+
+        // Assert - the config bump reaches the end-watch's long-poll, which
+        // sees an `effectiveEnd` already in the past and publishes at once.
+        await vi.waitFor(
+          () => {
+            expect(
+              messages.find(
+                (m) =>
+                  m.type === TranscriptionStreamServerMessageType.SESSION_ENDED,
+              ),
+            ).toBeDefined();
+          },
+          { timeout: 20_000 },
+        );
+        await expect(closed).resolves.toMatchObject({
+          code: 1000,
+          reason: 'session-ended',
+        });
+
+        stop();
       },
     );
   });
