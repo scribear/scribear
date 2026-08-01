@@ -30,6 +30,12 @@ const UPSTREAM_LOST: ConnectionBanner = {
   severity: 'warning',
   message: 'Connection to the transcription service was lost. Reconnecting…',
 };
+const MISCONFIGURED: ConnectionBanner = {
+  open: true,
+  severity: 'error',
+  message:
+    'Live transcription is misconfigured for this room and cannot start. An administrator needs to check the session\u2019s transcription provider.',
+};
 const CLOSED: ConnectionBanner = { open: false };
 const TERMINAL_FALLBACK: ConnectionBanner = {
   open: true,
@@ -45,10 +51,16 @@ const CONNECTION_STATUSES = [
   SessionConnectionStatus.TERMINAL,
 ] as const;
 
-const REASONS = [
+/**
+ * Every disconnect reason the schema defines, read off the enum rather than
+ * listed by hand: a reason added to `node-server-schema` should fail this
+ * table (as an unexpected input row) rather than silently fall into the
+ * generic branch.
+ */
+const REASONS: (TranscriptionServiceDisconnectReason | undefined)[] = [
   undefined,
-  TranscriptionServiceDisconnectReason.AT_CAPACITY,
-] as const;
+  ...Object.values(TranscriptionServiceDisconnectReason),
+];
 
 function snapshot(
   sourceDeviceConnected: boolean,
@@ -89,8 +101,8 @@ function caseKey(
 /**
  * The complete input space of this pure function, written out as literals
  * rather than re-derived from the implementation: 4 connection statuses x
- * (the `sessionStatus === null` case + 2 x 2 x 2 snapshot combinations) = 36
- * rows. Spot-checking instead of pinning this table is how the "healthy idle
+ * (the `sessionStatus === null` case + 2 x 2 x 3 snapshot combinations, the 3
+ * being every disconnect reason the schema defines plus none) = 52 rows. Spot-checking instead of pinning this table is how the "healthy idle
  * room" case shipped - a successful join with nobody streaming yet was
  * rendered as "Connection to the transcription service was lost.
  * Reconnecting…", forever, on every real room.
@@ -114,6 +126,14 @@ const EXPECTED: Record<string, ConnectionBanner> = {
     SOCKET_DOWN,
   'CONNECTING | source=true transcription=true reason=none': SOCKET_DOWN,
   'CONNECTING | source=true transcription=true reason=at-capacity': SOCKET_DOWN,
+  'CONNECTING | source=false transcription=false reason=invalid-request':
+    SOCKET_DOWN,
+  'CONNECTING | source=false transcription=true reason=invalid-request':
+    SOCKET_DOWN,
+  'CONNECTING | source=true transcription=false reason=invalid-request':
+    SOCKET_DOWN,
+  'CONNECTING | source=true transcription=true reason=invalid-request':
+    SOCKET_DOWN,
   'DISCONNECTED | no-status-yet': SOCKET_DOWN,
   'DISCONNECTED | source=false transcription=false reason=none': SOCKET_DOWN,
   'DISCONNECTED | source=false transcription=false reason=at-capacity':
@@ -126,6 +146,14 @@ const EXPECTED: Record<string, ConnectionBanner> = {
     SOCKET_DOWN,
   'DISCONNECTED | source=true transcription=true reason=none': SOCKET_DOWN,
   'DISCONNECTED | source=true transcription=true reason=at-capacity':
+    SOCKET_DOWN,
+  'DISCONNECTED | source=false transcription=false reason=invalid-request':
+    SOCKET_DOWN,
+  'DISCONNECTED | source=false transcription=true reason=invalid-request':
+    SOCKET_DOWN,
+  'DISCONNECTED | source=true transcription=false reason=invalid-request':
+    SOCKET_DOWN,
+  'DISCONNECTED | source=true transcription=true reason=invalid-request':
     SOCKET_DOWN,
 
   // Own socket up, nothing reported yet: silence, not a guess.
@@ -142,6 +170,10 @@ const EXPECTED: Record<string, ConnectionBanner> = {
   'CONNECTED | source=false transcription=true reason=none': WAITING_FOR_SOURCE,
   'CONNECTED | source=false transcription=true reason=at-capacity':
     WAITING_FOR_SOURCE,
+  'CONNECTED | source=false transcription=false reason=invalid-request':
+    WAITING_FOR_SOURCE,
+  'CONNECTED | source=false transcription=true reason=invalid-request':
+    WAITING_FOR_SOURCE,
 
   // Own socket up, a source IS streaming: now the upstream flag is a real
   // fault signal.
@@ -149,6 +181,11 @@ const EXPECTED: Record<string, ConnectionBanner> = {
   'CONNECTED | source=true transcription=false reason=at-capacity': AT_CAPACITY,
   'CONNECTED | source=true transcription=true reason=none': CLOSED,
   'CONNECTED | source=true transcription=true reason=at-capacity': CLOSED,
+  // Permanent: the upstream rejected this session's configuration and will
+  // reject the identical retry forever, so this is the one non-terminal error.
+  'CONNECTED | source=true transcription=false reason=invalid-request':
+    MISCONFIGURED,
+  'CONNECTED | source=true transcription=true reason=invalid-request': CLOSED,
 
   // Terminal: nothing is retrying, so nothing node-server last said matters.
   'TERMINAL | no-status-yet': TERMINAL_FALLBACK,
@@ -163,6 +200,14 @@ const EXPECTED: Record<string, ConnectionBanner> = {
     TERMINAL_FALLBACK,
   'TERMINAL | source=true transcription=true reason=none': TERMINAL_FALLBACK,
   'TERMINAL | source=true transcription=true reason=at-capacity':
+    TERMINAL_FALLBACK,
+  'TERMINAL | source=false transcription=false reason=invalid-request':
+    TERMINAL_FALLBACK,
+  'TERMINAL | source=false transcription=true reason=invalid-request':
+    TERMINAL_FALLBACK,
+  'TERMINAL | source=true transcription=false reason=invalid-request':
+    TERMINAL_FALLBACK,
+  'TERMINAL | source=true transcription=true reason=invalid-request':
     TERMINAL_FALLBACK,
 };
 
@@ -186,7 +231,7 @@ describe('deriveConnectionBanner', () => {
     // expectation row that no longer corresponds to a reachable input.
     it('has exactly one expectation per reachable input', () => {
       expect([...covered].sort()).toEqual(Object.keys(EXPECTED).sort());
-      expect(covered.size).toBe(36);
+      expect(covered.size).toBe(52);
     });
   });
 

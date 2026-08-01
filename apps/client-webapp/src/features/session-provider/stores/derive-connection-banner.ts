@@ -44,16 +44,20 @@ export type ConnectionBanner =
  *    look broken while the demo room (which fakes both flags true) looked
  *    fine.
  * 5. A source *is* connected but node-server's link to the Transcription
- *    Service is down. That is a genuine fault. If the reason is known to be
- *    admission control (`AT_CAPACITY`), say so specifically; otherwise use a
- *    generic "lost the upstream connection" message.
+ *    Service is down. That is a genuine fault, and the reason decides the
+ *    wording: `AT_CAPACITY` clears on its own when load drops, so it promises
+ *    a retry; `INVALID_REQUEST` never clears without an operator, so it is an
+ *    error asking for one; anything else gets the generic "lost the upstream
+ *    connection" message.
  * 6. Otherwise, nothing to report - the banner is unmounted.
  *
- * Apart from `TERMINAL`, every state here is retrying/transient (the client
- * and node-server both keep retrying automatically), matching this feature's
- * "wrong refusal is worse than wrong admission" / fail-open philosophy
- * elsewhere in admission control - so severity is `'warning'`, or `'info'`
- * where nothing is actually wrong. An unrecoverable *session* failure (e.g.
+ * Apart from `TERMINAL` and `INVALID_REQUEST`, every state here is
+ * retrying/transient (the client and node-server both keep retrying
+ * automatically), matching this feature's "wrong refusal is worse than wrong
+ * admission" / fail-open philosophy elsewhere in admission control - so
+ * severity is `'warning'`, or `'info'` where nothing is actually wrong. Only
+ * the two states nothing in the system can recover from on its own are
+ * `'error'`. An unrecoverable *session* failure (e.g.
  * an expired refresh token) still routes through `JoinError`/`leaveSession`
  * and drops the user back to `IDLE`, off this banner's `ACTIVE`-only concern
  * entirely.
@@ -102,6 +106,23 @@ export function deriveConnectionBanner(
         severity: 'warning',
         message:
           'The live transcription service is at capacity. Retrying automatically…',
+      };
+    }
+    // Permanent, unlike every other branch here: the Transcription Service
+    // rejected this session's configuration (close 1007 - typically a
+    // transcriptionProviderId that does not exist on this deployment) and will
+    // reject the identical retry forever. "Reconnecting…" would be a promise
+    // nothing can keep, so this says what has to happen instead, and says it
+    // as an error rather than a warning. Mirrors the kiosk's branch.
+    if (
+      sessionStatus.transcriptionServiceDisconnectReason ===
+      TranscriptionServiceDisconnectReason.INVALID_REQUEST
+    ) {
+      return {
+        open: true,
+        severity: 'error',
+        message:
+          'Live transcription is misconfigured for this room and cannot start. An administrator needs to check the session’s transcription provider.',
       };
     }
     return {
