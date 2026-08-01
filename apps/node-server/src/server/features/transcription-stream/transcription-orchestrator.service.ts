@@ -106,6 +106,23 @@ export interface SourceHandle {
   setMicrophoneActive: (active: boolean) => void;
 }
 
+/**
+ * Maps an upstream WebSocket close code onto the reason a viewer is told, or
+ * `undefined` when the close carries no information worth distinguishing
+ * (1006, 1011, a clean 1000 during teardown...). Only the two codes the
+ * transcription service chooses *deliberately* are named here; everything else
+ * stays undistinguished, exactly as before this mapping existed.
+ */
+function closeCodeToDisconnectReason(
+  code: number | null,
+): TranscriptionServiceDisconnectReason | undefined {
+  if (code === 1013) return TranscriptionServiceDisconnectReason.AT_CAPACITY;
+  if (code === 1007) {
+    return TranscriptionServiceDisconnectReason.INVALID_REQUEST;
+  }
+  return undefined;
+}
+
 interface SessionState {
   sourceCount: number;
   /** Monotonic counter for per-source IDs within this session. */
@@ -139,9 +156,10 @@ interface SessionState {
   upstream: UpstreamClient;
   /**
    * Close code from the upstream's most recent `close` event, or `null` if it
-   * has never closed. Recorded so `_setStatus` can distinguish a capacity
-   * refusal (1013) from any other disconnect ("service crashed"-shaped
-   * disconnects included) - see
+   * has never closed. Recorded so `_setStatus` can distinguish the closes the
+   * transcription service chooses deliberately - a capacity refusal (1013) and
+   * a rejected request (1007) - from any other disconnect ("service
+   * crashed"-shaped disconnects included) - see
    * `archived-plans/2026-07-27-02-PLAN-AdmissionControl.md` §4. Stale values
    * are harmless: `_setStatus` only consults this while
    * `upstream.state !== 'OPEN'`, and it is overwritten on every subsequent
@@ -358,10 +376,18 @@ export class TranscriptionOrchestratorService {
     // Omitted (not set to `undefined`) when not applicable:
     // `exactOptionalPropertyTypes` treats an explicit `undefined` on an
     // optional TypeBox-derived property as a type error, not "absent".
-    const disconnectReason =
-      !connected && state.lastUpstreamCloseCode === 1013
-        ? TranscriptionServiceDisconnectReason.AT_CAPACITY
-        : undefined;
+    //
+    // 1007 is the other close the upstream makes on purpose: it rejected our
+    // request as unacceptable (a `transcriptionProviderId` absent from the
+    // deployment's `provider_config.json` raises "Invalid Provider Key", which
+    // the transcription service maps to 1007). Unlike 1013 that is permanent -
+    // the retry loop re-sends the identical config and is refused identically,
+    // forever - so it gets its own reason rather than being collapsed into the
+    // undistinguished "disconnected" that reads to a viewer as a transient
+    // blip.
+    const disconnectReason = !connected
+      ? closeCodeToDisconnectReason(state.lastUpstreamCloseCode)
+      : undefined;
     const next: SessionStatusMessage = {
       transcriptionServiceConnected: connected,
       sourceDeviceConnected: state.sourceCount > 0,

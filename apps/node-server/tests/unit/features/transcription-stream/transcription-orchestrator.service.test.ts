@@ -637,7 +637,64 @@ describe('TranscriptionOrchestratorService', () => {
       });
     });
 
-    it('leaves the disconnect reason unset for a non-1013 close', async () => {
+    it('reports "invalid-request" after the upstream closes with 1007', async () => {
+      // Arrange - 1007 is what the transcription service closes with for a
+      // TranscriptionClientError, and the one that actually happens is
+      // "Invalid Provider Key": a session whose transcriptionProviderId is not
+      // in the deployment's provider_config.json. The retry loop re-sends the
+      // identical config forever, so collapsing this into the undistinguished
+      // "disconnected" leaves every viewer on a reconnecting banner that can
+      // never resolve.
+      await registerAndDrain(h, SESSION_UID);
+      h.upstream.setOpen();
+
+      const statuses: {
+        transcriptionServiceConnected: boolean;
+        transcriptionServiceDisconnectReason?: string;
+      }[] = [];
+      h.bus.subscribe(
+        SessionStatusChannel,
+        (s) => {
+          statuses.push(s);
+        },
+        SESSION_UID,
+      );
+
+      // Act
+      h.upstream.closeWith(1007, 'Invalid Provider Key');
+
+      // Assert
+      expect(statuses[statuses.length - 1]).toMatchObject({
+        transcriptionServiceConnected: false,
+        transcriptionServiceDisconnectReason: 'invalid-request',
+      });
+      expect(h.orchestrator.getStatus(SESSION_UID)).toMatchObject({
+        transcriptionServiceDisconnectReason: 'invalid-request',
+      });
+    });
+
+    it('does not confuse a capacity refusal with a rejected request', async () => {
+      // Arrange - the two reasons must stay distinguishable in both
+      // directions: at-capacity clears when load drops, invalid-request never
+      // clears without an operator, and a viewer is told different things.
+      await registerAndDrain(h, SESSION_UID);
+      h.upstream.setOpen();
+      h.upstream.closeWith(1007, 'Invalid Provider Key');
+      expect(h.orchestrator.getStatus(SESSION_UID)).toMatchObject({
+        transcriptionServiceDisconnectReason: 'invalid-request',
+      });
+
+      // Act - a later reconnect is refused for capacity instead.
+      h.upstream.setOpen();
+      h.upstream.closeWith(1013, 'at-capacity');
+
+      // Assert
+      expect(h.orchestrator.getStatus(SESSION_UID)).toMatchObject({
+        transcriptionServiceDisconnectReason: 'at-capacity',
+      });
+    });
+
+    it('leaves the disconnect reason unset for an undistinguished close', async () => {
       // Arrange
       await registerAndDrain(h, SESSION_UID);
       h.upstream.setOpen();
