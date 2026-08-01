@@ -59,6 +59,7 @@ function registerDependencies(
     demoRoomConfig: asValue(config.demoRoomConfig),
     testAudioRoomsConfig: asValue(config.testAudioRoomsConfig),
     canaryRoomConfig: asValue(config.canaryRoomConfig),
+    scheduleManagementConfig: asValue(config.scheduleManagementConfig),
 
     // Database
     dbClient: asClass(DBClient, { lifetime: Lifetime.SINGLETON }),

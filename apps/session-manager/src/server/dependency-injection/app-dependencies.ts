@@ -8,6 +8,7 @@ import type {
   BaseConfig,
   CanaryRoomConfig,
   DemoRoomConfig,
+  ScheduleManagementConfig,
   TestAudioRoomsConfig,
 } from '#src/app-config/app-config.js';
 import type { DBClient, DBClientConfig } from '#src/db/db-client.js';
@@ -67,6 +68,7 @@ interface AppDependencies extends BaseDependencies {
   demoRoomConfig: DemoRoomConfig;
   testAudioRoomsConfig: TestAudioRoomsConfig;
   canaryRoomConfig: CanaryRoomConfig;
+  scheduleManagementConfig: ScheduleManagementConfig;
 
   // Database
   dbClient: DBClient;

@@ -36,6 +36,7 @@ export * from './schedule-management/entities/session-schedule.schema.js';
 export * from './schedule-management/entities/session-type.schema.js';
 export * from './schedule-management/entities/session.schema.js';
 export * from './schedule-management/entities/auto-session-window.schema.js';
+export * from './schedule-management/entities/transcription-provider.schema.js';
 
 export * from './schedule-management/routes/my-schedule.schema.js';
 export * from './schedule-management/routes/list-schedules.schema.js';

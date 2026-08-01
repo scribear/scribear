@@ -12,6 +12,46 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — session-manager validates `transcriptionProviderId` (`compose.yml` v8)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`.
+
+New variable: **`TRANSCRIPTION_PROVIDER_IDS`** on `session-manager`. It is a
+comma-separated list of the provider keys session-manager will accept when a
+session, schedule or auto-session window is created or updated, and it defaults
+to the set shipped in `provider_config.template.json`
+(`debug,whisper,lumen_granite,crisper_whisper`). **A stock deployment needs to
+do nothing.**
+
+**If you have edited `provider_config.json`** — added a provider, removed one,
+renamed a key — set `TRANSCRIPTION_PROVIDER_IDS` in `.env` to exactly the keys
+under its `"providers"` object. The two files now have to agree, and this is the
+one place that says so.
+
+### Why
+
+A `transcriptionProviderId` naming no configured provider used to be accepted
+silently and only fail when someone tried to use the room: transcription-service
+raises `Invalid Provider Key` and closes the socket with 1007, node-server
+retries a request that can never succeed, and every viewer sits on
+"Connection to the transcription service was lost. Reconnecting…" forever, with
+nothing anywhere naming the cause. The typo is made once, by an operator, at a
+keyboard — it is now answered there, with a `400` that lists the accepted keys.
+
+The list is deployment configuration rather than a fixed set in the API schema
+because `provider_config.json` is yours to edit: a hardcoded set would reject a
+provider you legitimately added and accept one you removed. It is not read live
+from transcription-service either — that endpoint needs `METRICS_API_KEY`, a
+credential session-manager does not have, and it would make scheduling fail
+whenever transcription-service is down.
+
+Getting the list wrong is loud either way: too narrow and a create fails
+immediately with the accepted keys in the message; too wide and you are back to
+the old behaviour, which the viewer now sees as a specific "misconfigured"
+message rather than an endless reconnect.
+
+---
+
 ## Unreleased — watchtower is gone; `deploy_latest.sh` replaces it (`compose.yml` v7)
 
 **Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. If

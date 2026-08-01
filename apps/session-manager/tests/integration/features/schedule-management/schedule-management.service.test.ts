@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect } from 'vitest';
 
+import { SHIPPED_TRANSCRIPTION_PROVIDER_IDS } from '@scribear/session-manager-schema';
+
 import { ScheduleManagementRepository } from '#src/server/features/schedule-management/schedule-management.repository.js';
 import { ScheduleManagementService } from '#src/server/features/schedule-management/schedule-management.service.js';
 import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
@@ -26,6 +28,7 @@ describe('ScheduleManagementService', () => {
       dbContext.dbClient,
       repository,
       new EventBusService(logger as never),
+      { transcriptionProviderIds: [...SHIPPED_TRANSCRIPTION_PROVIDER_IDS] },
     );
   });
 
@@ -123,6 +126,7 @@ describe('ScheduleManagementService', () => {
         | 'INVALID_ACTIVE_END'
         | 'INVALID_LOCAL_TIMES'
         | 'INVALID_FREQUENCY_FIELDS'
+        | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
       >;
       const sessions = await listSessionsForRoom(roomUid);
       const scheduled = sessions.filter((s) => s.type === 'SCHEDULED');
@@ -174,6 +178,7 @@ describe('ScheduleManagementService', () => {
         | 'INVALID_ACTIVE_END'
         | 'INVALID_LOCAL_TIMES'
         | 'INVALID_FREQUENCY_FIELDS'
+        | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
       >;
       expect(schedule.activeEnd).toEqual(activeEnd);
       const scheduled = (await listSessionsForRoom(roomUid)).filter(
@@ -458,6 +463,7 @@ describe('ScheduleManagementService', () => {
         | 'INVALID_ACTIVE_END'
         | 'INVALID_LOCAL_TIMES'
         | 'INVALID_FREQUENCY_FIELDS'
+        | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
       >;
 
       // Act
@@ -621,6 +627,7 @@ describe('ScheduleManagementService', () => {
         | 'INVALID_ACTIVE_END'
         | 'INVALID_LOCAL_TIMES'
         | 'INVALID_FREQUENCY_FIELDS'
+        | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
       >;
       expect(updated.uid).not.toBe(original.uid);
       expect(updated.name).toBe('Renamed');
@@ -775,6 +782,7 @@ describe('ScheduleManagementService', () => {
         | 'INVALID_ACTIVE_END'
         | 'INVALID_LOCAL_TIMES'
         | 'INVALID_FREQUENCY_FIELDS'
+        | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
       >;
       // Sanity: there's an upcoming auto session.
       const before = await listSessionsForRoom(roomUid);
@@ -1095,6 +1103,7 @@ describe('ScheduleManagementService', () => {
         | 'INVALID_ACTIVE_END'
         | 'INVALID_LOCAL_TIMES'
         | 'INVALID_FREQUENCY_FIELDS'
+        | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
       >;
       // Anchor preserved verbatim; the updated activeStart is the new one.
       expect(updated.anchorStart).toEqual(anchorDate);
@@ -1156,7 +1165,9 @@ describe('ScheduleManagementService', () => {
       expect(result).not.toBe('ANOTHER_SESSION_ACTIVE');
       const session = result as Exclude<
         typeof result,
-        'ROOM_NOT_FOUND' | 'ANOTHER_SESSION_ACTIVE'
+        | 'ROOM_NOT_FOUND'
+        | 'ANOTHER_SESSION_ACTIVE'
+        | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
       >;
       expect(session.scheduledEndTime).toEqual(nextStart);
     });
@@ -1183,7 +1194,9 @@ describe('ScheduleManagementService', () => {
       expect(result).not.toBe('ANOTHER_SESSION_ACTIVE');
       const session = result as Exclude<
         typeof result,
-        'ROOM_NOT_FOUND' | 'ANOTHER_SESSION_ACTIVE'
+        | 'ROOM_NOT_FOUND'
+        | 'ANOTHER_SESSION_ACTIVE'
+        | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
       >;
       expect(session.scheduledEndTime).toBeNull();
     });
@@ -2115,6 +2128,7 @@ describe('ScheduleManagementService', () => {
         | 'INVALID_ACTIVE_END'
         | 'INVALID_LOCAL_TIMES'
         | 'INVALID_FREQUENCY_FIELDS'
+        | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
       >;
 
       // Clear existing AUTO sessions and insert one that is currently running.
@@ -2648,6 +2662,7 @@ describe('ScheduleManagementService', () => {
           | 'INVALID_ACTIVE_END'
           | 'INVALID_LOCAL_TIMES'
           | 'INVALID_FREQUENCY_FIELDS'
+          | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
         >
       >;
     }
@@ -2859,6 +2874,7 @@ describe('ScheduleManagementService', () => {
         | 'INVALID_ACTIVE_END'
         | 'INVALID_LOCAL_TIMES'
         | 'INVALID_FREQUENCY_FIELDS'
+        | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
       >;
       expect(schedule.name).toBe('Biweekly B');
     });
@@ -2916,6 +2932,7 @@ describe('ScheduleManagementService', () => {
         | 'INVALID_ACTIVE_END'
         | 'INVALID_LOCAL_TIMES'
         | 'INVALID_FREQUENCY_FIELDS'
+        | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
       >;
       expect(schedule.name).toBe('Adjacent');
     });
@@ -3035,6 +3052,7 @@ describe('ScheduleManagementService', () => {
         | 'INVALID_ACTIVE_END'
         | 'INVALID_LOCAL_TIMES'
         | 'INVALID_FREQUENCY_FIELDS'
+        | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
       >;
       const before = (await listSessionsForRoom(roomUid)).filter(
         (s) => s.type === 'AUTO',
