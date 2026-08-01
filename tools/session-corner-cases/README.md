@@ -219,7 +219,9 @@ console.
 
 ## What is checked
 
-`--list` prints the current set. As of this commit, 35 checks / ~150 assertions:
+`--list` prints the current set. As of this commit, **35 checks / 172
+assertions**, all green against `bc37f92`, of which 10 pin questionable
+behaviour (BUG-1 ×2, BUG-2 ×2, BUG-3 ×3, QUIRK-3 ×2, QUIRK-4 ×1).
 
 ### Session lifecycle
 
