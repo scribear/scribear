@@ -325,24 +325,36 @@ def test_refusal_increments_the_counter_under_its_provider_key(
     both end as a closed socket with no transcript, and only one of them means
     the deployment needs more capacity. Labelled by provider key because a host
     serving both a local model and a remote one needs to know which of the two
-    it has run out of - proven here by refusing on the first provider's
-    callback and confirming the second provider's counter is untouched.
+    it has run out of.
+
+    BOTH providers refuse here, deliberately. Refusing only on the first and
+    asserting the second's counter reads zero proves nothing at all - it is
+    trivially zero because the second provider's closure was never invoked, and
+    the test would pass unchanged if `_load_providers` had bound the *same*
+    key to both. Driving a refusal through each provider's own callback and
+    then reading two different counts is what actually pins the binding: a
+    shared key would put all four refusals on one label and leave the other at
+    zero.
     """
     # Arrange
     mock_worker_pool_instance.worker_snapshots.return_value = [
         worker_snapshot(PLACED_WORKER_ID, live_job_count=2)
     ]
     check = admission_check(mock_provider_instances[0])
+    other_check = admission_check(mock_provider_instances[1], provider_index=1)
 
     # Act
     for _ in range(3):
         with pytest.raises(TranscriptionCapacityError):
             check(PLACED_WORKER_ID, MagicMock(spec=Logger))
 
+    with pytest.raises(TranscriptionCapacityError):
+        other_check(PLACED_WORKER_ID, MagicMock(spec=Logger))
+
     # Assert
     counter = metrics_registry.sessions_refused_capacity_total
     assert counter.get({"provider_key": PROVIDER_KEY}) == 3
-    assert counter.get({"provider_key": OTHER_PROVIDER_KEY}) == 0
+    assert counter.get({"provider_key": OTHER_PROVIDER_KEY}) == 1
 
 
 def test_admitted_worker_is_not_counted_as_a_refusal(

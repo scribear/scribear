@@ -614,41 +614,66 @@ async def test_controller_closes_1013_for_a_capacity_refusal(
 
 
 @pytest.mark.asyncio
-async def test_capacity_refusal_during_config_reaches_the_error_handler(
+async def test_capacity_refusal_from_an_audio_chunk_reaches_the_error_handler(
     controller: TranscriptionStreamController,
     mock_auth_service: MagicMock,
     mock_provider_registry: MagicMock,
     mock_close_method: MagicMock,
 ):
     """
-    Test a refusal raised from the CONFIG step closes the socket with 1013
+    Test a refusal raised from an AUDIO frame closes the socket with 1013
 
     The end-to-end path through the controller, not just the mapping in
-    isolation: the registry refuses inside `create_session`, the error travels
-    out of `_config` through `WebsocketHandler`'s receive loop, and the socket
-    closes 1013. Worth pinning separately because the controller sets
-    `self._service` only after `start()` returns - a refusal must leave the
-    connection with no service attached and must NOT fall through to the
-    generic 1011 "Internal Server Error", which would tell an operator the
+    isolation: the session refuses inside `handle_audio_chunk`, the error
+    travels out of `_handle_binary_message` through `WebsocketHandler`'s
+    receive loop, and the socket closes 1013 rather than falling through to
+    the generic 1011 "Internal Server Error", which would tell an operator the
     service crashed.
+
+    This used to stub `create_session` raising instead. That path no longer
+    exists: a session's worker-pool job registers on its own first audio
+    chunk, so `create_session` has nothing to decide and its docstring now
+    says it NEVER RAISES TranscriptionCapacityError - a test asserting the
+    controller handles a refusal from there was pinning an impossibility.
+
+    The refusal is raised by the session directly rather than driven through
+    real admission, which is off in the shipped wiring (`create_webserver`
+    passes no estimator to the registry - shadow mode). What the controller
+    owes either way is the same: whatever surfaces a
+    `TranscriptionCapacityError` out of a binary frame closes 1013. Note the
+    service is still attached afterwards, unlike the old CONFIG-step case -
+    config succeeded, so `close()` has real teardown to do when the socket
+    goes.
     """
+
     # Arrange
+    class _RefusingSession(TranscriptionSessionInterface):
+        """A session whose first chunk discovers its worker has no room."""
+
+        def handle_audio_chunk(self, chunk_id: str, chunk: bytes):
+            raise TranscriptionCapacityError(AT_CAPACITY_REASON)
+
     mock_auth_service.is_authenticated.return_value = True
-    mock_provider_registry.create_session.side_effect = (
-        TranscriptionCapacityError(AT_CAPACITY_REASON)
-    )
+    mock_provider_registry.create_session.return_value = _RefusingSession()
     await controller._handle_text_message(VALID_AUTH_MESSAGE)
+    await controller._handle_text_message(VALID_CONFIG_MESSAGE)
 
     # Act - the same path receive_messages() takes when a handler raises
     try:
-        await controller._handle_text_message(VALID_CONFIG_MESSAGE)
+        await controller._handle_binary_message(AUDIO_FRAME)
         assert False
     except TranscriptionCapacityError as error:
         assert controller._handle_error(error) is True
 
     # Assert
     mock_close_method.assert_called_once_with(1013, AT_CAPACITY_REASON)
-    assert controller._service is None
+    assert controller._service is not None
+
+    # And the chunks that arrive before the close lands are swallowed, not
+    # re-raised - the service latches the failure, so one refusal produces one
+    # close rather than one per frame still in flight.
+    await controller._handle_binary_message(AUDIO_FRAME)
+    mock_close_method.assert_called_once_with(1013, AT_CAPACITY_REASON)
 
 
 @pytest.mark.asyncio
