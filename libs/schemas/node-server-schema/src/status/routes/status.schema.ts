@@ -214,6 +214,17 @@ export const STATUS_PROCESS_SCHEMA = Type.Object({
       description:
         'Source registrations that threw, closing the socket with 1011.',
     }),
+    // Optional for the same reason as `binaryBeforeAuthDropsTotal`: this
+    // record is republished to Redis and read back through a strict
+    // `Value.Check`, so a required field an older publisher omits would drop
+    // the whole snapshot and blank the node in the fleet view for the length
+    // of a rolling deploy.
+    endedSessionRegistrationsTotal: Type.Optional(
+      Type.Integer({
+        description:
+          'Source registrations refused because the session was already past its `effectiveEnd`. Not an error: the socket is closed 1000 with `sessionEnded` and no upstream is dialed. It is the only signal that a device is acting on a stale schedule - most often a kiosk whose `mySchedule` long-poll has been failing silently. Optional for backward-compat with publishers that predate it.',
+      }),
+    ),
     latencySamplesTotal: Type.Integer({
       description:
         'Latency samples published. The denominator for the two figures below.',

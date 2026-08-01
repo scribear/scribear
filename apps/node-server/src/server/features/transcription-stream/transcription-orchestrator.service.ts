@@ -96,6 +96,46 @@ export interface SessionSnapshot {
 }
 
 /**
+ * Thrown by {@link TranscriptionOrchestratorService.registerSource} when the
+ * session's `effectiveEnd` has already passed.
+ *
+ * A distinct type rather than a plain `Error` because the two failures a source
+ * registration can have are not the same event and must not close the socket
+ * the same way: an unreachable Session Manager is *broken* and earns 1011
+ * `orchestrator-unavailable`, whereas this session is merely *over* and earns
+ * `sessionEnded` + a clean 1000. The kiosk already distinguishes those - 1000
+ * drops it to IDLE, anything else reconnect-loops - so collapsing them would
+ * put a finished session into a retry loop.
+ *
+ * No registration is created and no upstream is dialed, so there is nothing for
+ * the caller to release.
+ */
+export class SessionAlreadyEndedError extends Error {
+  readonly sessionUid: string;
+
+  constructor(sessionUid: string) {
+    super(`session ${sessionUid} has already reached its effectiveEnd`);
+    this.name = 'SessionAlreadyEndedError';
+    this.sessionUid = sessionUid;
+  }
+}
+
+/**
+ * Whether `session`'s effective end is already in the past.
+ *
+ * Both "no end at all" and "an end we cannot parse" read as *not* over, on
+ * purpose: this predicate gates whether a source is admitted, so its failure
+ * mode has to be admitting a session that has ended (which the end timer then
+ * catches a moment later) rather than refusing one that has not.
+ */
+function hasAlreadyEnded(session: Session): boolean {
+  if (session.effectiveEnd === null) return false;
+  const endMs = Date.parse(session.effectiveEnd);
+  if (Number.isNaN(endMs)) return false;
+  return endMs <= Date.now();
+}
+
+/**
  * Handle returned by {@link TranscriptionOrchestratorService.registerSource}.
  * The caller MUST call `unregister` when the source connection closes. The
  * caller SHOULD call `setMicrophoneActive` when the source's mic state
@@ -319,12 +359,24 @@ export class TranscriptionOrchestratorService {
    * when the source connection closes, and whose `setMicrophoneActive` the
    * caller SHOULD invoke to report mic state. The upstream is torn down when
    * the count returns to 0.
+   *
+   * Throws {@link SessionAlreadyEndedError} if the session is already past its
+   * `effectiveEnd`. Nothing is registered and no upstream is dialed in that
+   * case; the caller is expected to send `sessionEnded` and close 1000.
    */
   async registerSource(sessionUid: string): Promise<SourceHandle> {
     let state = this._sessions.get(sessionUid);
     if (state === undefined) {
       state = await this._openSession(sessionUid);
       this._sessions.set(sessionUid, state);
+    } else if (state.ended) {
+      // A state that has published its end is torn down as soon as its last
+      // source socket finishes closing, so this is a narrow window rather
+      // than a steady state - but a source landing inside that window would
+      // otherwise attach to a session no timer will ever fire for again, and
+      // hang exactly as it did before this check existed.
+      this._recordEndedSessionRegistration(sessionUid, null);
+      throw new SessionAlreadyEndedError(sessionUid);
     }
     // A real session is the authoritative end-timer owner while it exists, so
     // any end-watch a viewer opened before the source arrived stands down now
@@ -663,6 +715,20 @@ export class TranscriptionOrchestratorService {
     const longPoll = this._sessionConfigPollFactory(sessionUid);
     const initial = await this._awaitFirstConfig(longPoll, sessionUid);
 
+    // Checked here - the first moment the end is knowable - rather than left to
+    // `_armEndTimer` at the bottom of this method. By then the upstream has
+    // already been constructed and started, and the transcription service is
+    // the scarcest thing in the deployment (`num_workers: 1`, a low admission
+    // ceiling on a cold process): dialing it for a session we are about to
+    // abandon takes capacity away from a room that is actually running. The
+    // upstream is also only ever torn down by `_unregisterSource`, so an
+    // abandoned one is not reclaimed until its socket closes.
+    if (hasAlreadyEnded(initial)) {
+      longPoll.close();
+      this._recordEndedSessionRegistration(sessionUid, initial.effectiveEnd);
+      throw new SessionAlreadyEndedError(sessionUid);
+    }
+
     // The config the upstream must be (re)told about on every connection. Held
     // in a mutable box rather than read from `initial` so a reconnect after a
     // config bump replays the CURRENT config, not the one this session opened
@@ -844,6 +910,31 @@ export class TranscriptionOrchestratorService {
     this._armEndTimer(sessionUid, state, initial);
 
     return state;
+  }
+
+  /**
+   * Count and name a source registration that arrived after the session was
+   * already over (§3.4 of the plan this fixes).
+   *
+   * Worth its own signal rather than being folded into the ordinary end path:
+   * a session ending under a connected source is routine, whereas a source
+   * *arriving* at a finished session means something upstream is working from
+   * a stale schedule - most likely a kiosk whose `mySchedule` long-poll has
+   * been failing silently for hours. That cause is invisible in every other
+   * series, because from the outside it looks exactly like a normal
+   * registration followed by a normal end.
+   *
+   * @param effectiveEnd The end the session's config reported, when known.
+   */
+  private _recordEndedSessionRegistration(
+    sessionUid: string,
+    effectiveEnd: string | null,
+  ): void {
+    this._metrics.recordEndedSessionRegistration();
+    this._logger.warn(
+      { sessionUid, effectiveEnd },
+      'source registered onto an already-ended session',
+    );
   }
 
   /**

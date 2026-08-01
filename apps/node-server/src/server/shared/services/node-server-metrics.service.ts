@@ -228,6 +228,7 @@ export class NodeServerMetricsService {
   private _authSuccessTotal = 0;
   private _authTimeoutsTotal = 0;
   private _orchestratorFailuresTotal = 0;
+  private _endedSessionRegistrationsTotal = 0;
   private _latencySamplesTotal = 0;
   private _latencyE2eUnavailableTotal = 0;
   private _latencyE2eNegativeTotal = 0;
@@ -357,6 +358,23 @@ export class NodeServerMetricsService {
   }
 
   /**
+   * A source tried to register on a session that was already past its
+   * `effectiveEnd`. It is refused before any upstream is dialed and closed
+   * 1000 with `sessionEnded`, so this is not an error series - it is the only
+   * evidence that a device is acting on a schedule it should have discarded.
+   *
+   * Counted separately from the ordinary end path because the two look
+   * identical downstream (a `1000 session-ended` close either way) while
+   * meaning opposite things: a session ending under a connected kiosk is
+   * routine, a kiosk *arriving* at a finished session means its schedule
+   * long-poll has most likely been dead for a while - `poll.on('error', ...)`
+   * on the kiosk swallows that failure, so nothing else reports it.
+   */
+  recordEndedSessionRegistration(): void {
+    this._endedSessionRegistrationsTotal += 1;
+  }
+
+  /**
    * A latency sample was published (B1.4).
    *
    * `e2eOutcome` records what happened to the end-to-end figure: `unavailable`
@@ -437,6 +455,7 @@ export class NodeServerMetricsService {
       authSuccessTotal: this._authSuccessTotal,
       authTimeoutsTotal: this._authTimeoutsTotal,
       orchestratorFailuresTotal: this._orchestratorFailuresTotal,
+      endedSessionRegistrationsTotal: this._endedSessionRegistrationsTotal,
       latencySamplesTotal: this._latencySamplesTotal,
       latencyE2eUnavailableTotal: this._latencyE2eUnavailableTotal,
       latencyE2eNegativeTotal: this._latencyE2eNegativeTotal,

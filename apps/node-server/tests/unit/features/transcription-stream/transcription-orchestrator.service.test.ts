@@ -14,6 +14,7 @@ import { SessionEndedChannel } from '#src/server/features/transcription-stream/e
 import { SessionStatusChannel } from '#src/server/features/transcription-stream/events/session-status.events.js';
 import { TranscriptChannel } from '#src/server/features/transcription-stream/events/transcript.events.js';
 import {
+  SessionAlreadyEndedError,
   type SessionConfigPollFactory,
   type SourceHandle,
   TranscriptionOrchestratorService,
@@ -311,6 +312,100 @@ describe('TranscriptionOrchestratorService', () => {
       expect(h.poolFactory).toHaveBeenCalledTimes(1);
       expect(h.transcriptionStreamFactory).toHaveBeenCalledTimes(1);
       expect(h.orchestrator.activeSessionCount).toBe(1);
+    });
+
+    it('refuses a session whose effectiveEnd has already passed', async () => {
+      // The stale-schedule case: a kiosk acting on a schedule it should have
+      // discarded connects to a session that finished before it arrived. It
+      // used to be admitted silently - the end was published from inside this
+      // very call, before the connection had subscribed to hear it - and then
+      // streamed audio into a dead session indefinitely.
+      // Arrange
+      const promise = h.orchestrator.registerSource(SESSION_UID);
+      h.longPoll.emit(
+        'data',
+        fakeSession({ effectiveEnd: isoFromNow(-60_000) }),
+      );
+
+      // Act / Assert
+      await expect(promise).rejects.toBeInstanceOf(SessionAlreadyEndedError);
+      expect(h.orchestrator.activeSessionCount).toBe(0);
+    });
+
+    it('dials no upstream transcription connection for an already-ended session', async () => {
+      // The transcription service is the scarcest thing in the deployment, and
+      // an upstream is only ever torn down by the last source unregistering -
+      // so one opened for a session we are about to refuse would sit there
+      // holding admission capacity away from a room that is actually running.
+      // Arrange
+      const promise = h.orchestrator.registerSource(SESSION_UID);
+      h.longPoll.emit('data', fakeSession({ effectiveEnd: isoFromNow(-1) }));
+
+      // Act
+      await expect(promise).rejects.toBeInstanceOf(SessionAlreadyEndedError);
+
+      // Assert - nothing dialed, and the config poll opened to find this out
+      // is closed rather than left running for a session with no connections.
+      expect(h.transcriptionStreamFactory).not.toHaveBeenCalled();
+      expect(h.longPoll.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('counts and names an ended-session registration', async () => {
+      // §3.4: without its own counter this is indistinguishable downstream
+      // from an ordinary session end (a 1000 `session-ended` close either
+      // way), while meaning something quite different - a device working from
+      // a schedule that is hours stale.
+      // Arrange
+      const promise = h.orchestrator.registerSource(SESSION_UID);
+      h.longPoll.emit('data', fakeSession({ effectiveEnd: isoFromNow(-1) }));
+
+      // Act
+      await expect(promise).rejects.toBeInstanceOf(SessionAlreadyEndedError);
+
+      // Assert
+      expect(h.metrics.snapshot().endedSessionRegistrationsTotal).toBe(1);
+    });
+
+    it('admits a session that is still running, with no spurious end', async () => {
+      // The other half of the refusal: the check must not fire a moment early
+      // for a live session, which would refuse every kiosk in the fleet.
+      // Arrange
+      const ended: unknown[] = [];
+      h.bus.subscribe(
+        SessionEndedChannel,
+        (m) => {
+          ended.push(m);
+        },
+        SESSION_UID,
+      );
+
+      // Act
+      const promise = h.orchestrator.registerSource(SESSION_UID);
+      h.longPoll.emit(
+        'data',
+        fakeSession({ effectiveEnd: isoFromNow(60_000) }),
+      );
+      await promise;
+
+      // Assert
+      expect(h.orchestrator.activeSessionCount).toBe(1);
+      expect(h.transcriptionStreamFactory).toHaveBeenCalledTimes(1);
+      expect(ended).toHaveLength(0);
+      expect(h.metrics.snapshot().endedSessionRegistrationsTotal).toBe(0);
+    });
+
+    it('admits an open-ended session', async () => {
+      // `effectiveEnd: null` is the shape an on-demand session is created
+      // with, and `Date.parse(null)` NaNs - the refusal must read that as "not
+      // over", not as "cannot tell, so refuse".
+      // Act
+      const promise = h.orchestrator.registerSource(SESSION_UID);
+      h.longPoll.emit('data', fakeSession({ effectiveEnd: null }));
+      await promise;
+
+      // Assert
+      expect(h.orchestrator.activeSessionCount).toBe(1);
+      expect(h.metrics.snapshot().endedSessionRegistrationsTotal).toBe(0);
     });
 
     it('publishes sessionDeviceConnected: true on first registration', async () => {
@@ -1122,6 +1217,39 @@ describe('TranscriptionOrchestratorService end-watch', () => {
 
       late.unregister();
       source.unregister();
+    });
+
+    it('leaves nothing behind for a later viewer when a source bounced off an ended session', async () => {
+      // §3.3, the knock-on the refusal has to not have: the end-watch design
+      // assumes a `SessionState` that ends is promptly torn down. A source
+      // admitted onto an ended session used to leave one in `_sessions`
+      // forever - holding a live upstream, still answering `getStatus`, and
+      // still listed by `/status`. Refusing the registration means there is no
+      // such state for a viewer to arrive behind.
+      // Arrange - the source is refused; it took out (and closed) long-poll #0.
+      const refused = h.orchestrator.registerSource(SESSION_UID);
+      h.longPoll.emit('data', fakeSession({ effectiveEnd: isoFromNow(-1000) }));
+      await expect(refused).rejects.toBeInstanceOf(SessionAlreadyEndedError);
+      expect(ended).toHaveLength(0);
+
+      // Act - a viewer of the same room joins afterwards, on long-poll #1.
+      const late = h.orchestrator.registerClient(SESSION_UID);
+      h.longPolls[1]?.emit(
+        'data',
+        fakeSession({ effectiveEnd: isoFromNow(-1000) }),
+      );
+
+      // Assert - told, and told by its own watch rather than by a stale
+      // session state that should never have existed.
+      expect(ended).toHaveLength(1);
+      expect(h.orchestrator.activeSessionCount).toBe(0);
+      expect(h.orchestrator.sessionSnapshots(10).sessions).toHaveLength(0);
+      expect(h.orchestrator.getStatus(SESSION_UID)).toMatchObject({
+        transcriptionServiceConnected: false,
+        sourceDeviceConnected: false,
+      });
+
+      late.unregister();
     });
 
     it('hands the end back to the watch when the source disconnects before the end', async () => {

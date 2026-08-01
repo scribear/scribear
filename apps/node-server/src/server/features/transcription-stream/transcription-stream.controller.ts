@@ -179,7 +179,11 @@ export class TranscriptionStreamController {
       this._metrics.recordAuthSuccess();
 
       safeSend({ type: TranscriptionStreamServerMessageType.AUTH_OK });
-      service.publishCurrentStatus();
+      // Must follow the AUTH_OK send, never precede it: this is what opens the
+      // service's outbound gate, and it is also where a session that ended
+      // during registration gets its `sessionEnded` + 1000 close - in that
+      // order, after the client has been told its auth succeeded.
+      service.onAuthAcknowledged();
     };
 
     socket.on('close', (code: number, reason: Buffer) => {
