@@ -35,5 +35,6 @@ The field is `Type.Optional` and the enum only gains a member, so a client built
 against an older schema still validates every message; it simply falls through
 to the generic branch it uses today.
 
-Not included: the client-webapp banner. `derive-connection-banner.ts` is being
-restructured concurrently; the branch it needs is the mirror of the kiosk's.
+The client-webapp banner is not in this change — `derive-connection-banner.ts`
+was being restructured concurrently — and landed separately as the mirror of the
+kiosk's branch.
