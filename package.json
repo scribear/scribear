@@ -31,6 +31,7 @@
     "e2e:admin": "node tools/admin-scheduling-e2e/admin-scheduling-e2e.mjs",
     "e2e:demo": "node tools/demo-e2e/demo-e2e.mjs",
     "e2e:browser-demo": "node tools/browser-demo-e2e/browser-demo-e2e.mjs",
+    "e2e:sessions": "node tools/session-corner-cases/session-corner-cases.mjs",
     "asr:load": "node tools/asr-load/asr-load.mjs"
   },
   "engines": {
