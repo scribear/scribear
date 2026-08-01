@@ -31,11 +31,18 @@ const UPSTREAM_LOST: ConnectionBanner = {
   message: 'Connection to the transcription service was lost. Reconnecting…',
 };
 const CLOSED: ConnectionBanner = { open: false };
+const TERMINAL_FALLBACK: ConnectionBanner = {
+  open: true,
+  severity: 'error',
+  message:
+    'Disconnected from this session and unable to reconnect. Leave the session and join again with a new join code.',
+};
 
 const CONNECTION_STATUSES = [
   SessionConnectionStatus.CONNECTING,
   SessionConnectionStatus.CONNECTED,
   SessionConnectionStatus.DISCONNECTED,
+  SessionConnectionStatus.TERMINAL,
 ] as const;
 
 const REASONS = [
@@ -57,6 +64,16 @@ function snapshot(
   };
 }
 
+/** Every snapshot the client can hold, including "none reported yet". */
+const ALL_SESSION_STATUSES: (SessionStatusSnapshot | null)[] = [
+  null,
+  ...[false, true].flatMap((source) =>
+    [false, true].flatMap((transcription) =>
+      REASONS.map((reason) => snapshot(source, transcription, reason)),
+    ),
+  ),
+];
+
 function caseKey(
   connectionStatus: SessionConnectionStatus,
   sessionStatus: SessionStatusSnapshot | null,
@@ -71,12 +88,17 @@ function caseKey(
 
 /**
  * The complete input space of this pure function, written out as literals
- * rather than re-derived from the implementation: 3 connection statuses x
- * (the `sessionStatus === null` case + 2 x 2 x 2 snapshot combinations) = 27
+ * rather than re-derived from the implementation: 4 connection statuses x
+ * (the `sessionStatus === null` case + 2 x 2 x 2 snapshot combinations) = 36
  * rows. Spot-checking instead of pinning this table is how the "healthy idle
  * room" case shipped - a successful join with nobody streaming yet was
  * rendered as "Connection to the transcription service was lost.
  * Reconnecting…", forever, on every real room.
+ *
+ * The fourth input, `error`, is `null` throughout this table and covered
+ * separately below: it only reaches the output through the `TERMINAL` branch,
+ * and the "it changes nothing anywhere else" half of that claim is asserted
+ * against this same table rather than duplicated into it.
  */
 const EXPECTED: Record<string, ConnectionBanner> = {
   // Own socket down: it subsumes everything node-server might have said.
@@ -127,6 +149,21 @@ const EXPECTED: Record<string, ConnectionBanner> = {
   'CONNECTED | source=true transcription=false reason=at-capacity': AT_CAPACITY,
   'CONNECTED | source=true transcription=true reason=none': CLOSED,
   'CONNECTED | source=true transcription=true reason=at-capacity': CLOSED,
+
+  // Terminal: nothing is retrying, so nothing node-server last said matters.
+  'TERMINAL | no-status-yet': TERMINAL_FALLBACK,
+  'TERMINAL | source=false transcription=false reason=none': TERMINAL_FALLBACK,
+  'TERMINAL | source=false transcription=false reason=at-capacity':
+    TERMINAL_FALLBACK,
+  'TERMINAL | source=false transcription=true reason=none': TERMINAL_FALLBACK,
+  'TERMINAL | source=false transcription=true reason=at-capacity':
+    TERMINAL_FALLBACK,
+  'TERMINAL | source=true transcription=false reason=none': TERMINAL_FALLBACK,
+  'TERMINAL | source=true transcription=false reason=at-capacity':
+    TERMINAL_FALLBACK,
+  'TERMINAL | source=true transcription=true reason=none': TERMINAL_FALLBACK,
+  'TERMINAL | source=true transcription=true reason=at-capacity':
+    TERMINAL_FALLBACK,
 };
 
 describe('deriveConnectionBanner', () => {
@@ -134,14 +171,7 @@ describe('deriveConnectionBanner', () => {
     const covered = new Set<string>();
 
     for (const connectionStatus of CONNECTION_STATUSES) {
-      for (const sessionStatus of [
-        null,
-        ...[false, true].flatMap((source) =>
-          [false, true].flatMap((transcription) =>
-            REASONS.map((reason) => snapshot(source, transcription, reason)),
-          ),
-        ),
-      ]) {
+      for (const sessionStatus of ALL_SESSION_STATUSES) {
         const key = caseKey(connectionStatus, sessionStatus);
         covered.add(key);
         it(key, () => {
@@ -156,7 +186,34 @@ describe('deriveConnectionBanner', () => {
     // expectation row that no longer corresponds to a reachable input.
     it('has exactly one expectation per reachable input', () => {
       expect([...covered].sort()).toEqual(Object.keys(EXPECTED).sort());
-      expect(covered.size).toBe(27);
+      expect(covered.size).toBe(36);
+    });
+  });
+
+  describe('the error message, the fourth input', () => {
+    const CAUSE = 'This session refused the connection.';
+
+    it('is what TERMINAL renders, in place of the generic fallback', () => {
+      expect(
+        deriveConnectionBanner(SessionConnectionStatus.TERMINAL, null, CAUSE),
+      ).toEqual({ open: true, severity: 'error', message: CAUSE });
+    });
+
+    it('falls back to a generic terminal message when absent', () => {
+      expect(
+        deriveConnectionBanner(SessionConnectionStatus.TERMINAL, null, null),
+      ).toEqual(TERMINAL_FALLBACK);
+    });
+
+    it('changes nothing in any non-terminal state', () => {
+      for (const connectionStatus of CONNECTION_STATUSES) {
+        if (connectionStatus === SessionConnectionStatus.TERMINAL) continue;
+        for (const sessionStatus of ALL_SESSION_STATUSES) {
+          expect(
+            deriveConnectionBanner(connectionStatus, sessionStatus, CAUSE),
+          ).toEqual(EXPECTED[caseKey(connectionStatus, sessionStatus)]);
+        }
+      }
     });
   });
 

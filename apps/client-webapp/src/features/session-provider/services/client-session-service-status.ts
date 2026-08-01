@@ -15,11 +15,22 @@ export enum ClientLifecycle {
 /**
  * Sub-status of a session connection while the client is `ACTIVE`. Drives the
  * connection indicator in the UI; not used outside `ACTIVE`.
+ *
+ * `TERMINAL` is the modeled unrecoverable state: the service has stopped
+ * retrying and will not reconnect on its own. It exists because without it a
+ * permanent fault (a rejected session token, a scope mismatch, a schema drift)
+ * is indistinguishable from a flaky network forever - the client reconnects,
+ * fails the same way, resets its backoff because the socket survived long
+ * enough to look "stable", and hammers the server roughly once a second while
+ * the user just sees "Reconnecting…". The session stays `ACTIVE` in TERMINAL
+ * so the transcript already on screen survives and the Leave button remains
+ * available for the user to rejoin.
  */
 export enum SessionConnectionStatus {
   CONNECTING = 'CONNECTING',
   CONNECTED = 'CONNECTED',
   DISCONNECTED = 'DISCONNECTED',
+  TERMINAL = 'TERMINAL',
 }
 
 /**

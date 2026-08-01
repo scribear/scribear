@@ -35,6 +35,12 @@ export interface ClientSessionServiceSliceState {
     sessionStatus: SessionStatusSnapshot | null;
   } | null;
   joinError: JoinError | null;
+  /**
+   * Why the current session is unrecoverable, or `null`. Rendered by
+   * `selectConnectionBanner`'s terminal branch - its only consumer, and the
+   * only reason to write anything here. It used to also collect transient
+   * strings ("Network error - retrying.") that no component read.
+   */
   error: string | null;
 }
 
