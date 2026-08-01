@@ -322,6 +322,21 @@ export class SessionAuthService {
       joinCode,
     );
     if (!codeRow) return 'JOIN_CODE_NOT_FOUND' as const;
+    // A code is exchangeable only inside `[validStart, validEnd)` - the same
+    // window `fetchJoinCodes` and `_findOrMintCurrentJoinCode` use to decide
+    // which code is "current". Checking only `validEnd` made the handoff code
+    // that `fetchJoinCodes` pre-mints 60s before expiry (validStart ==
+    // current.validEnd) exchangeable the instant it was minted, stretching a
+    // code's usable life from the intended 5 minutes to nearly 10.
+    //
+    // Not-yet-valid answers 404 rather than 410: 410 GONE claims the code is
+    // permanently finished when it is about to work, and a distinct status
+    // would confirm an unused code to anyone guessing at the 8-character
+    // space. Nothing legitimate presents a future code - the kiosk QR renders
+    // only `current` - so this costs no working flow.
+    if (codeRow.validStart.getTime() > now.getTime()) {
+      return 'JOIN_CODE_NOT_FOUND' as const;
+    }
     if (codeRow.validEnd.getTime() <= now.getTime()) {
       return 'JOIN_CODE_EXPIRED' as const;
     }

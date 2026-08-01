@@ -975,6 +975,68 @@ describe('Session Auth Routes', () => {
       );
     });
 
+    it('returns 404 for the pre-minted handoff code until its validStart arrives', async () => {
+      // Arrange - drive the real handoff: back-date the current code so we are
+      // inside the 60s handoff window, then re-fetch, which mints `next` with
+      // validStart == current.validEnd. That code is in the future.
+      const { token, sessionUid } = await setupActiveSession();
+      const current = await fetchJoinCode(token, sessionUid);
+      const now = Date.now();
+      await dbContext.db
+        .updateTable('session_join_codes')
+        .set({
+          valid_start: new Date(now - 4 * 60_000 - 30_000),
+          valid_end: new Date(now + 30_000),
+        })
+        .where('join_code', '=', current)
+        .execute();
+
+      const pairRes = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/fetch-join-code`,
+        headers: { cookie: `DEVICE_TOKEN=${token}` },
+        body: { sessionUid },
+      });
+      const next = pairRes.json<{
+        next: { joinCode: string; validStart: string } | null;
+      }>().next;
+      expect(next).not.toBeNull();
+      expect(Date.parse(next!.validStart)).toBeGreaterThan(Date.now());
+
+      // Act - the handoff code, presented early.
+      const early = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/exchange-join-code`,
+        body: { joinCode: next!.joinCode },
+      });
+
+      // Assert - not yet. Answering 404 rather than a distinct status also
+      // keeps the route from confirming an unused code to anyone guessing.
+      expect(early.statusCode).toBe(404);
+      expect(early.json<{ code: string }>().code).toBe('JOIN_CODE_NOT_FOUND');
+
+      // The current code is unaffected - the handoff still works.
+      const stillCurrent = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/exchange-join-code`,
+        body: { joinCode: current },
+      });
+      expect(stillCurrent.statusCode).toBe(200);
+
+      // And the handoff code becomes exchangeable the moment its window opens.
+      await dbContext.db
+        .updateTable('session_join_codes')
+        .set({ valid_start: new Date(Date.now() - 1000) })
+        .where('join_code', '=', next!.joinCode)
+        .execute();
+      const onTime = await server.fastify.inject({
+        method: 'POST',
+        url: `${SESSION_AUTH_BASE}/exchange-join-code`,
+        body: { joinCode: next!.joinCode },
+      });
+      expect(onTime.statusCode).toBe(200);
+    });
+
     it('returns 409 for a canceled session, and mints nothing', async () => {
       // Arrange - the code was minted while the session was still live and is
       // well inside its 5-minute TTL, so the code row alone cannot stop this.

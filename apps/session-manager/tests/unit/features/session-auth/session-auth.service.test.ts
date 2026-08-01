@@ -575,6 +575,69 @@ describe('SessionAuthService', () => {
       expect(result).toBe('JOIN_CODE_EXPIRED');
     });
 
+    it("returns 'JOIN_CODE_NOT_FOUND' for a pre-minted handoff code that is not valid yet", async () => {
+      // Arrange - `fetchJoinCodes` mints the next code 60s before the current
+      // one expires, with validStart == current.validEnd. Without a
+      // valid_start check that code is exchangeable the instant it is minted,
+      // which stretches a code's usable life from the intended 5 minutes to
+      // nearly 10. The kiosk only ever renders `current`, so nothing legitimate
+      // presents a future code.
+      mockRepo.findJoinCodeByCode.mockResolvedValue({
+        ...VALID_CODE,
+        validStart: new Date(NOW.getTime() + 30_000),
+        validEnd: new Date(NOW.getTime() + 30_000 + 5 * 60_000),
+      });
+      mockRepo.findSessionForAuth.mockResolvedValue(ACTIVE_SESSION);
+      mockHashService.hash.mockResolvedValue('hash');
+      mockRepo.insertRefreshToken.mockResolvedValue({ uid: 'refresh-uid' });
+      mockTokenService.sign.mockReturnValue('signed-token');
+
+      // Act
+      const result = await service.exchangeJoinCode(VALID_CODE.joinCode, NOW);
+
+      // Assert
+      expect(result).toBe('JOIN_CODE_NOT_FOUND');
+      expect(mockRepo.insertRefreshToken).not.toHaveBeenCalled();
+    });
+
+    it("returns 'JOIN_CODE_NOT_FOUND' one millisecond before validStart", async () => {
+      // Arrange - boundary, closed side.
+      mockRepo.findJoinCodeByCode.mockResolvedValue({
+        ...VALID_CODE,
+        validStart: new Date(NOW.getTime() + 1),
+      });
+      mockRepo.findSessionForAuth.mockResolvedValue(ACTIVE_SESSION);
+
+      // Act
+      const result = await service.exchangeJoinCode(VALID_CODE.joinCode, NOW);
+
+      // Assert
+      expect(result).toBe('JOIN_CODE_NOT_FOUND');
+    });
+
+    it('exchanges a handoff code the instant validStart arrives', async () => {
+      // Arrange - boundary, open side. `validStart <= now` matches the
+      // predicate `fetchJoinCodes` and `_findOrMintCurrentJoinCode` already
+      // use, so a code becomes exchangeable exactly when it becomes "current".
+      // This is what keeps the QR handoff seamless.
+      mockRepo.findJoinCodeByCode.mockResolvedValue({
+        ...VALID_CODE,
+        validStart: NOW,
+        validEnd: new Date(NOW.getTime() + 5 * 60_000),
+      });
+      mockRepo.findSessionForAuth.mockResolvedValue(ACTIVE_SESSION);
+      mockHashService.hash.mockResolvedValue('hash');
+      mockRepo.insertRefreshToken.mockResolvedValue({ uid: 'refresh-uid' });
+      mockTokenService.sign.mockReturnValue('signed-token');
+
+      // Act
+      const result = await service.exchangeJoinCode(VALID_CODE.joinCode, NOW);
+
+      // Assert
+      if (typeof result === 'string') throw new Error('expected token result');
+      expect(result.sessionToken).toBe('signed-token');
+    });
+
     it("returns 'SESSION_NOT_CURRENTLY_ACTIVE' when the session has ended", async () => {
       // Arrange
       mockRepo.findJoinCodeByCode.mockResolvedValue(VALID_CODE);
