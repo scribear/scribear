@@ -2,6 +2,7 @@ import { EventEmitter } from 'eventemitter3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  InvalidResponseBodyError,
   NetworkError,
   UnexpectedResponseError,
 } from '@scribear/base-api-client';
@@ -773,18 +774,41 @@ describe('KioskService session-token failures (2.4)', () => {
   });
 
   it('names the HTTP status when the session service refuses with an undeclared one', async () => {
+    // 502, not 429: `exchange-device-token` has no rate limiter (see
+    // `session-auth.router.ts`), so it can never produce a 429 - the only
+    // undeclared statuses that reach this branch are gateway codes like this
+    // one (nginx unable to reach session-manager) or a schema mismatch.
     exchangeDeviceToken.mockResolvedValue([
       null,
-      new UnexpectedResponseError(429),
+      new UnexpectedResponseError(502),
     ]);
     const service = await bringToIdle();
     const { faults } = observe(service);
 
     await deliverSchedule([activeSession()]);
 
-    // 429, 500 and "session-manager is down" used to be one indistinguishable
-    // silence; a room full of devices behind one NAT is a real 429 source.
-    expect(faults.at(-1)?.message).toMatch(/HTTP 429/);
+    // 502, 500 and "session-manager is down" used to be one indistinguishable
+    // silence.
+    expect(faults.at(-1)?.message).toMatch(/HTTP 502/);
+    expect(faults.at(-1)?.severity).toBe('warning');
+  });
+
+  it('names the service as unreachable, not just an HTTP status, on a non-JSON error body', async () => {
+    // A declared status (500) with nothing readable behind it - the fixed
+    // `createEndpointClient` bug this whole feature exists to consume. Before
+    // this, the promise chain would have escaped the `[response, error]`
+    // tuple entirely; now it reports a specific, distinguishable cause.
+    exchangeDeviceToken.mockResolvedValue([
+      null,
+      new InvalidResponseBodyError(500, new SyntaxError('boom')),
+    ]);
+    const service = await bringToIdle();
+    const { faults } = observe(service);
+
+    await deliverSchedule([activeSession()]);
+
+    expect(faults.at(-1)?.message).toMatch(/unreachable/i);
+    expect(faults.at(-1)?.message).toMatch(/HTTP 500/);
     expect(faults.at(-1)?.severity).toBe('warning');
   });
 

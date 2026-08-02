@@ -1,6 +1,10 @@
 import EventEmitter from 'eventemitter3';
 
-import { NetworkError } from '@scribear/base-api-client';
+import {
+  InvalidResponseBodyError,
+  NetworkError,
+  UnexpectedResponseError,
+} from '@scribear/base-api-client';
 import {
   type WebSocketClient,
   SchemaValidationError as WsSchemaValidationError,
@@ -116,6 +120,69 @@ const REFRESH_RETRY_BASE_MS = 300;
 const REFRESH_RETRY_MAX_MS = 2000;
 
 /**
+ * session-manager rate-limits `refresh-session-token` (and `exchange-join-code`)
+ * per client IP using `@fastify/rate-limit`'s default store
+ * (`LocalStore.incr`, see the package's `store/LocalStore.js`), which is a
+ * **fixed window** counter, not a sliding one: a bucket starts on the IP's
+ * first request in a window and every request within `timeWindow` of that
+ * start counts against the same cap, however it's distributed in time. The
+ * bucket does not partially drain - it stays fully "spent" until
+ * `iterationStartMs + timeWindow` passes, at which point it resets all at
+ * once. This client cannot see `iterationStartMs`, so it cannot know how much
+ * of the current window is already behind it when a 429 first arrives.
+ *
+ * The window length itself is per-deployment config on the server
+ * (`SessionAuthRateLimitConfig.refreshSessionTokenWindowMs`, an env var read
+ * in session-manager's `app-config.ts`) - not a constant this client can read
+ * or a value worth copying, since it can be retuned independently of this
+ * code. What's stable enough to build a client-side heuristic on is the
+ * *shipped default*, 60 seconds, which is also the number this feature's own
+ * design doc uses when describing the limiter. Nothing here assumes a
+ * specific request *count* (that number changes independently of the window
+ * and this client never needs it).
+ *
+ * The generic exponential schedule above (300/600/1200/2000ms) burns the
+ * entire {@link REFRESH_MAX_CONSECUTIVE_FAILURES} budget in about 4.5
+ * seconds - many multiples faster than a fixed window still mid-cycle could
+ * ever clear, so an overloaded lecture hall always exhausted its budget
+ * within the *same* window it started in, then went terminal telling
+ * everyone to "wait a minute" after its own retry loop had already given up
+ * seconds earlier.
+ *
+ * Because the bucket's phase is unknown, no single wait can be timed
+ * precisely - so when the most recent failure was specifically a 429 (see
+ * `_refreshFailureCause`), retries are spread a quarter of the assumed
+ * window apart instead of firing in the first few seconds: four delays of
+ * {@link RATE_LIMIT_RETRY_DELAY_MS} spend the same 5-attempt budget across
+ * roughly one window's duration, so at least one attempt is likely to land
+ * after whatever reset boundary this IP's bucket actually has, rather than
+ * gambling the whole budget on the first few seconds of it.
+ *
+ * This cannot use the `Retry-After` header the limiter sets (which *would*
+ * name the real remaining time), because `createEndpointClient` returns only
+ * `{status, data}` and discards response headers entirely - reading it would
+ * require a `base-api-client` change. The default window length is the best
+ * available substitute.
+ */
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_RETRY_DELAY_MS = RATE_LIMIT_WINDOW_MS / 4;
+
+/**
+ * Statuses nginx synthesizes itself - never session-manager - when it cannot
+ * reach or times out talking to it. Verified against this deployment's own
+ * config: `infra/scribear-nginx/nginx.conf`'s `location /api/session-manager/`
+ * sets no `error_page` or `proxy_intercept_errors`, so on a connect failure or
+ * timeout nginx returns its own bare response under one of these three
+ * codes - none of which any route schema declares, so `createEndpointClient`
+ * reports them as a plain `UnexpectedResponseError` before ever attempting to
+ * read a body. A `status` in this set is the same "can't reach the service"
+ * story as `InvalidResponseBodyError`, just arriving through the
+ * undeclared-status branch instead of a body-parse failure - see
+ * `_causeFromError` for where the two are folded together.
+ */
+const GATEWAY_ERROR_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
+
+/**
  * How many consecutive 1008 closes to tolerate before declaring the session
  * terminal, when the close reason isn't one we recognise as permanent. The
  * kiosk app already treats any 1008 as terminal; the client is a little more
@@ -140,6 +207,30 @@ const PERMANENT_AUTH_CLOSE_REASONS = new Set([
   'missing-scope',
   'session-mismatch',
 ]);
+
+/**
+ * Classify a `createEndpointClient` failure that is neither `null` nor a
+ * `NetworkError` into the two user-facing stories worth telling apart: the
+ * request never reached anything that could answer as session-manager
+ * (`'service-unreachable'`), or it reached something that answered with
+ * content this build doesn't recognize (`'version-mismatch'`). Shared between
+ * the join and refresh paths (see `joinSession` and `_refreshSessionToken`)
+ * so the two don't drift into different definitions of the same distinction.
+ *
+ * `InvalidResponseBodyError` (a declared status with no readable body) and an
+ * `UnexpectedResponseError` on one of {@link GATEWAY_ERROR_STATUSES} (an
+ * undeclared status nginx synthesizes itself) are both folded into
+ * `'service-unreachable'`: to a viewer they mean the same thing - try again
+ * shortly - even though one arrives via a body-parse failure and the other
+ * via the undeclared-status branch, before any body is even read.
+ */
+function classifyUnexpectedResponseError(
+  error: UnexpectedResponseError,
+): 'service-unreachable' | 'version-mismatch' {
+  if (error instanceof InvalidResponseBodyError) return 'service-unreachable';
+  if (GATEWAY_ERROR_STATUSES.has(error.status)) return 'service-unreachable';
+  return 'version-mismatch';
+}
 
 /**
  * Compute a uniform jitter offset in `[-jitter * base, +jitter * base]`.
@@ -254,14 +345,37 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
   private _authFailures = 0;
 
   /**
-   * Whether the most recent refresh failure was session-manager's per-IP rate
-   * limit (429). Only used to word the terminal message once the retry budget
-   * is spent: a rate-limited viewer must not be told to "join again with a new
-   * join code", because a new join code is exchanged over a rate-limited route
-   * too - the advice reproduces the problem, and does it from every seat in
-   * the room at once.
+   * Best-known cause of the most recent refresh failure. Reset on every
+   * success and whenever a fresh session becomes `ACTIVE`. Used for two
+   * things: choosing the terminal message once the retry budget is spent (see
+   * {@link _refreshTerminalMessage}), and - for `'rate-limited'` only -
+   * pacing the retry delay itself (see {@link RATE_LIMIT_RETRY_DELAY_MS}).
+   *
+   * - `'rate-limited'`: session-manager's per-IP limit (429) fired. Nothing
+   *   is wrong with the join code, the session, or this device - a lecture
+   *   hall behind one campus NAT shares a client IP and trips it collectively.
+   *   Self-clearing; the advice must not be "join again with a new join
+   *   code", because a new join code is exchanged over a rate-limited route
+   *   too, reproducing the problem from every seat in the room at once.
+   * - `'service-unreachable'`: see {@link classifyUnexpectedResponseError} -
+   *   either a declared status with no readable body (`InvalidResponseBodyError`),
+   *   or an undeclared status nginx synthesizes itself when it can't reach
+   *   session-manager ({@link GATEWAY_ERROR_STATUSES}). The same "join again"
+   *   trap applies: a new join code goes over the same broken path.
+   * - `'version-mismatch'`: everything else `classifyUnexpectedResponseError`
+   *   sees - a declared status whose body parsed but didn't match this
+   *   client's schema, or some other status this build's schema doesn't know
+   *   at all. Usually means this client and the deployed session-manager are
+   *   out of sync after a partial deploy - a reload can pick up a matching
+   *   build.
+   * - `'other'`: `NetworkError`, or anything not distinguished above. Keeps
+   *   the original "Lost access to this session…" wording.
    */
-  private _refreshRateLimited = false;
+  private _refreshFailureCause:
+    | 'rate-limited'
+    | 'service-unreachable'
+    | 'version-mismatch'
+    | 'other' = 'other';
 
   /**
    * Set once the session has been declared unrecoverable, to keep the
@@ -350,7 +464,12 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
       return;
     }
     if (error !== null) {
-      this.emit('joinError', JoinError.UNKNOWN);
+      this.emit(
+        'joinError',
+        classifyUnexpectedResponseError(error) === 'service-unreachable'
+          ? JoinError.SERVICE_UNREACHABLE
+          : JoinError.VERSION_MISMATCH,
+      );
       this._setLifecycle(ClientLifecycle.IDLE);
       return;
     }
@@ -412,7 +531,7 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
     const epoch = ++this._epoch;
     this._terminal = false;
     this._refreshFailures = 0;
-    this._refreshRateLimited = false;
+    this._refreshFailureCause = 'other';
     this._authFailures = 0;
     this._setLifecycle(ClientLifecycle.ACTIVE);
     this.emit('connectionStatus', SessionConnectionStatus.CONNECTING);
@@ -609,26 +728,46 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
       if (token !== null) return token;
 
       if (this._refreshFailures >= REFRESH_MAX_CONSECUTIVE_FAILURES) {
-        // The generic message sends the user to fetch a new join code. That is
-        // the wrong instruction after a rate limit and an actively harmful one
-        // when a whole room shares the IP that tripped it, so 429 gets its own
-        // wording: the credential is fine, the window just has to roll over.
-        this._enterTerminal(
-          this._refreshRateLimited
-            ? 'Too many people are reconnecting at once, so this session could not renew its access. Wait a minute, then reload this page — you do not need a new join code.'
-            : 'Lost access to this session and could not restore it. Leave the session and join again with a new join code.',
-        );
+        this._enterTerminal(this._refreshTerminalMessage());
         return null;
       }
 
-      const delayMs = Math.min(
-        REFRESH_RETRY_BASE_MS * 2 ** (this._refreshFailures - 1),
-        REFRESH_RETRY_MAX_MS,
-      );
+      // Every cause but a rate limit keeps the original fast exponential
+      // schedule - those are the failures a quick retry can plausibly clear.
+      // A 429 gets a schedule aligned with the limiter's own window instead
+      // of a faster one: see {@link RATE_LIMIT_RETRY_DELAY_MS} for why.
+      const delayMs =
+        this._refreshFailureCause === 'rate-limited'
+          ? RATE_LIMIT_RETRY_DELAY_MS
+          : Math.min(
+              REFRESH_RETRY_BASE_MS * 2 ** (this._refreshFailures - 1),
+              REFRESH_RETRY_MAX_MS,
+            );
       await sleep(delayMs + jitter(delayMs, TOKEN_REFRESH_JITTER));
       if (epoch !== this._epoch || generation !== this._authGeneration) {
         return null;
       }
+    }
+  }
+
+  /**
+   * Word the terminal message once the refresh retry budget is exhausted, by
+   * the cause of the most recent failure (see {@link _refreshFailureCause}).
+   * The generic "join again with a new join code" advice is actively harmful
+   * for the two infrastructure-shaped causes - `exchange-join-code` goes over
+   * the same rate limit, and the same broken proxy/gateway - so both get
+   * their own wording naming what to actually wait on.
+   */
+  private _refreshTerminalMessage(): string {
+    switch (this._refreshFailureCause) {
+      case 'rate-limited':
+        return 'Too many people are reconnecting at once, so this session could not renew its access. Wait a minute, then reload this page — you do not need a new join code.';
+      case 'service-unreachable':
+        return 'Could not reach the session service to renew access. This looks like a network or server problem rather than an issue with this session - wait a few minutes, then reload this page.';
+      case 'version-mismatch':
+        return 'This app could not understand the session service’s response, so it could not renew access. Reload the page to pick up a matching version.';
+      case 'other':
+        return 'Lost access to this session and could not restore it. Leave the session and join again with a new join code.';
     }
   }
 
@@ -638,10 +777,9 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
    * Any other failure returns `null` after charging the consecutive-failure
    * budget; retrying and giving up is {@link _refreshWithBackoff}'s job.
    *
-   * A 429 is charged like any other transient failure - the budget is what
-   * stops the loop hammering a server that is already telling us to slow down
-   * - but it is also recorded in {@link _refreshRateLimited}, because it is the
-   * one failure whose terminal advice has to differ.
+   * Every failure also updates {@link _refreshFailureCause}, because the
+   * budget alone can't say *why* it ran out - and "why" is what decides both
+   * the terminal wording and, for a 429, the retry pacing itself.
    */
   private async _refreshSessionToken(
     identity: SessionIdentity,
@@ -659,14 +797,21 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
     // only thing worth telling the user is the point at which retrying stops.
     if (error !== null) {
       this._refreshFailures++;
-      this._refreshRateLimited = false;
+      // NetworkError (fetch itself failed) has no further story to tell -
+      // 'other'. Everything else goes through the same classifier the join
+      // path uses, so the two don't independently decide what "service
+      // unreachable" vs. "version mismatch" means.
+      this._refreshFailureCause =
+        error instanceof NetworkError
+          ? 'other'
+          : classifyUnexpectedResponseError(error);
       return null;
     }
 
     switch (response.status) {
       case 200:
         this._refreshFailures = 0;
-        this._refreshRateLimited = false;
+        this._refreshFailureCause = 'other';
         return response.data.sessionToken;
       // 401 INVALID_REFRESH_TOKEN: refresh token is no longer usable. Drop
       // the stored identity and return to IDLE so the user can join a new
@@ -689,11 +834,11 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
       // user is told if the budget runs out first.
       case 429:
         this._refreshFailures++;
-        this._refreshRateLimited = true;
+        this._refreshFailureCause = 'rate-limited';
         return null;
       default:
         this._refreshFailures++;
-        this._refreshRateLimited = false;
+        this._refreshFailureCause = 'other';
         return null;
     }
   }

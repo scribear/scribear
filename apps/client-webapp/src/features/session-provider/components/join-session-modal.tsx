@@ -47,6 +47,19 @@ const JOIN_ERROR_MESSAGES: Record<JoinError, string> = {
   // simultaneously, producing the next round of 429s.
   [JoinError.RATE_LIMITED]:
     'Too many people are joining at once. Wait a minute, then try the same join code again — this clears on its own.',
+  // Either no structured error body at all (session-manager failed partway
+  // through a response it had already started, or the connection dropped
+  // mid-body), or nginx's own 502/503/504 for a session-manager it couldn't
+  // reach - see `JoinError.SERVICE_UNREACHABLE`'s doc. Names the service, not
+  // the code, as the suspect.
+  [JoinError.SERVICE_UNREACHABLE]:
+    'Could not reach the session service. This is not a problem with your join code — try again in a moment.',
+  // A body that parsed as JSON but didn't match what this client expects, or
+  // some other status this build's schema doesn't recognize - session-manager
+  // answered, just not with anything this build understands. Usually a
+  // partial deploy; a reload can pick up a matching build.
+  [JoinError.VERSION_MISMATCH]:
+    'This app may be out of date with the session service. Reload the page and try again.',
   [JoinError.UNKNOWN]: 'Unable to join session. Please try again.',
 };
 
@@ -64,6 +77,12 @@ const JOIN_ERROR_SEVERITY: Record<JoinError, 'error' | 'warning'> = {
   [JoinError.JOIN_CODE_EXPIRED]: 'error',
   [JoinError.SESSION_NOT_CURRENTLY_ACTIVE]: 'error',
   [JoinError.RATE_LIMITED]: 'warning',
+  // Both name a next action (retry shortly / reload), same as NETWORK_ERROR,
+  // so they follow its precedent rather than RATE_LIMITED's: this isn't a
+  // self-clearing condition the whole room shares, so there's no reason to
+  // withhold the "something's wrong" framing the way RATE_LIMITED does.
+  [JoinError.SERVICE_UNREACHABLE]: 'error',
+  [JoinError.VERSION_MISMATCH]: 'error',
   [JoinError.UNKNOWN]: 'error',
 };
 

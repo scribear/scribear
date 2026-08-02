@@ -1,7 +1,11 @@
 import { EventEmitter } from 'eventemitter3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { NetworkError } from '@scribear/base-api-client';
+import {
+  InvalidResponseBodyError,
+  NetworkError,
+  UnexpectedResponseError,
+} from '@scribear/base-api-client';
 import type { NodeServerClient } from '@scribear/node-server-client';
 import { createNodeServerClient } from '@scribear/node-server-client';
 import {
@@ -592,6 +596,10 @@ describe('ClientSessionService rate limiting', () => {
 
   it('does not tell a rate-limited viewer to fetch a new join code', async () => {
     vi.useFakeTimers();
+    // Zero out jitter so the 4 inter-attempt delays sum to exactly 60s
+    // (4 x 15s) - the point being tested is that they now span the limiter's
+    // own window instead of the ~4.5s the generic exponential schedule took.
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
     refreshSessionToken.mockResolvedValue(rateLimited());
     const service = new ClientSessionService();
     const errors: (string | null)[] = [];
@@ -599,11 +607,20 @@ describe('ClientSessionService rate limiting', () => {
 
     service.start(IDENTITY);
     fakeSocket.emit('open');
-    await vi.advanceTimersByTimeAsync(30_000);
+
+    // Short of the new rate-limit-aware schedule's total (4 gaps x 15s: the
+    // 5th and final attempt lands at t=60s): the budget must still have one
+    // attempt left here, unlike the old ~4.5s schedule which would have
+    // already exhausted all 5.
+    await vi.advanceTimersByTimeAsync(50_000);
+    expect(refreshSessionToken).toHaveBeenCalledTimes(4);
+
+    await vi.advanceTimersByTimeAsync(15_000);
 
     // Still bounded - 429 is charged to the same budget as any other
     // transient failure, so the loop converges rather than hammering a server
-    // that is already asking it to stop.
+    // that is already asking it to stop, but now the budget is spent over
+    // roughly the limiter's 60s window instead of in ~4.5s.
     expect(refreshSessionToken).toHaveBeenCalledTimes(5);
     const terminal = errors.at(-1) ?? '';
     // The load-bearing assertion: a new join code is exchanged over a
@@ -614,10 +631,12 @@ describe('ClientSessionService rate limiting', () => {
     expect(terminal).toMatch(/you do not need a new join code/i);
     expect(terminal).toMatch(/too many people are reconnecting/i);
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('keeps the generic terminal wording when the last failure was not a rate limit', async () => {
     vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
     refreshSessionToken
       .mockResolvedValueOnce(rateLimited())
       .mockResolvedValueOnce(rateLimited())
@@ -628,12 +647,122 @@ describe('ClientSessionService rate limiting', () => {
 
     service.start(IDENTITY);
     fakeSocket.emit('open');
-    await vi.advanceTimersByTimeAsync(30_000);
+    // 2 rate-limit-paced gaps (15s each) + 2 fast exponential gaps once the
+    // cause switches to NetworkError (1.2s + 2s) = 33.2s worst case.
+    await vi.advanceTimersByTimeAsync(40_000);
 
     // The flag describes the most recent failure, not "a 429 happened once":
     // a session that started rate-limited and ended up genuinely offline must
     // not be told to wait for a limit window that is no longer the problem.
+    expect(refreshSessionToken).toHaveBeenCalledTimes(5);
     expect(errors.at(-1)).toMatch(/could not restore it/i);
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('reports the session service as unreachable, not the join code, on a non-JSON error body', async () => {
+    exchangeJoinCode.mockResolvedValue([
+      null,
+      new InvalidResponseBodyError(
+        500,
+        new SyntaxError('Unexpected end of JSON input'),
+      ),
+    ]);
+    const service = new ClientSessionService();
+    const joinErrors: (JoinError | null)[] = [];
+    service.on('joinError', (error) => joinErrors.push(error));
+
+    await service.joinSession('JOINCODE');
+
+    // A declared status with no readable body - session-manager failing
+    // mid-response, or a dropped connection - is a service/infra symptom,
+    // not a bad join code, so it must not collapse into UNKNOWN.
+    expect(joinErrors).toEqual([null, JoinError.SERVICE_UNREACHABLE]);
+    expect(service.lifecycle).toBe(ClientLifecycle.IDLE);
+  });
+
+  it('also reports the gateway-synthesized statuses as unreachable, not a version mismatch', async () => {
+    // 502/503/504 are undeclared on every route, so `createEndpointClient`
+    // reports them as a plain UnexpectedResponseError without ever attempting
+    // to read a body - and per `infra/scribear-nginx/nginx.conf`'s
+    // `location /api/session-manager/` (no `error_page`/`proxy_intercept_errors`
+    // override), these three are exactly what nginx synthesizes itself when it
+    // cannot reach or times out talking to session-manager. That is a "can't
+    // reach the service" story, not "this build is out of date".
+    for (const status of [502, 503, 504]) {
+      exchangeJoinCode.mockResolvedValue([
+        null,
+        new UnexpectedResponseError(status),
+      ]);
+      const service = new ClientSessionService();
+      const joinErrors: (JoinError | null)[] = [];
+      service.on('joinError', (error) => joinErrors.push(error));
+
+      await service.joinSession('JOINCODE');
+
+      expect(joinErrors).toEqual([null, JoinError.SERVICE_UNREACHABLE]);
+    }
+  });
+
+  it('reports a schema-mismatched join reply as a version mismatch, not UNKNOWN', async () => {
+    // 501 is neither a gateway status nginx would synthesize nor one any
+    // route declares, standing in for "session-manager (or its schema)
+    // answered with something this build doesn't recognize".
+    exchangeJoinCode.mockResolvedValue([
+      null,
+      new UnexpectedResponseError(501),
+    ]);
+    const service = new ClientSessionService();
+    const joinErrors: (JoinError | null)[] = [];
+    service.on('joinError', (error) => joinErrors.push(error));
+
+    await service.joinSession('JOINCODE');
+
+    expect(joinErrors).toEqual([null, JoinError.VERSION_MISMATCH]);
+  });
+
+  it('tells a viewer the session service looked unreachable, not to fetch a new join code, once refresh gives up', async () => {
+    vi.useFakeTimers();
+    refreshSessionToken.mockResolvedValue([
+      null,
+      new InvalidResponseBodyError(500, new SyntaxError('boom')),
+    ]);
+    const service = new ClientSessionService();
+    const errors: (string | null)[] = [];
+    service.on('error', (message) => errors.push(message));
+
+    service.start(IDENTITY);
+    fakeSocket.emit('open');
+    // No rate-limit pacing applies here - InvalidResponseBodyError keeps the
+    // fast exponential schedule, same budget as the "gives up" test above.
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(refreshSessionToken).toHaveBeenCalledTimes(5);
+    const terminal = errors.at(-1) ?? '';
+    expect(terminal).not.toMatch(/join again with a new join code/i);
+    expect(terminal).toMatch(/network or server problem/i);
+    vi.useRealTimers();
+  });
+
+  it('tells a viewer to reload, not to fetch a new join code, when refresh keeps failing schema validation', async () => {
+    vi.useFakeTimers();
+    // 501: neither a gateway status nor one any route declares.
+    refreshSessionToken.mockResolvedValue([
+      null,
+      new UnexpectedResponseError(501),
+    ]);
+    const service = new ClientSessionService();
+    const errors: (string | null)[] = [];
+    service.on('error', (message) => errors.push(message));
+
+    service.start(IDENTITY);
+    fakeSocket.emit('open');
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(refreshSessionToken).toHaveBeenCalledTimes(5);
+    const terminal = errors.at(-1) ?? '';
+    expect(terminal).not.toMatch(/join again with a new join code/i);
+    expect(terminal).toMatch(/reload the page/i);
     vi.useRealTimers();
   });
 });
