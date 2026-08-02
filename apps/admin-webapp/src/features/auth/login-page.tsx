@@ -9,6 +9,7 @@ import Divider from '@mui/material/Divider';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 
+import { useSearchParams } from 'react-router-dom';
 import { Navigate, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '#src/features/auth/auth-context';
@@ -17,14 +18,28 @@ import { ApiError } from '#src/lib/api-error';
 export const LoginPage = () => {
   const { status, config, configError, login } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const ssoError = searchParams.get('sso_error');
+
   if (status === 'authed') {
     return <Navigate to="/" replace />;
   }
+
+  const ssoErrorMessage: Record<string, string> = {
+    state_error:
+      'Sign-in session expired or was tampered with. Please try again.',
+    auth_failed:
+      'Authentication failed. Please try again, or contact an operator if this continues.',
+    group_rejected:
+      'You are not authorized to administer this deployment. Contact an operator if you believe this is an error.',
+    config_error:
+      'SSO is misconfigured on the server (missing group claim). Contact an operator.',
+  };
 
   const handleSubmit = (e: SyntheticEvent) => {
     e.preventDefault();
@@ -77,6 +92,12 @@ export const LoginPage = () => {
             </Alert>
           )}
 
+          {ssoError && ssoErrorMessage[ssoError] && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {ssoErrorMessage[ssoError]}
+            </Alert>
+          )}
+
           {configError && (
             <Alert severity="error" sx={{ mb: 2 }}>
               Couldn&apos;t reach the admin server ({configError}). Try
@@ -124,7 +145,21 @@ export const LoginPage = () => {
           {config?.local && config.sso && <Divider sx={{ my: 2 }}>or</Divider>}
 
           {config?.sso && (
-            <Button variant="outlined" fullWidth size="large" disabled>
+            <Button
+              variant="outlined"
+              fullWidth
+              size="large"
+              onClick={() => {
+                const currentPath =
+                  window.location.pathname + window.location.search;
+                const loginUrl =
+                  '/api/admin/v1/auth/sso/login' +
+                  (currentPath && currentPath !== '/admin/login'
+                    ? `?return_to=${encodeURIComponent(currentPath)}`
+                    : '');
+                window.location.href = loginUrl;
+              }}
+            >
               Sign in with Illinois (Azure AD)
             </Button>
           )}
