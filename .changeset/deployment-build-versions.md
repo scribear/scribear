@@ -47,13 +47,16 @@ can confirm what is actually deployed and running.
 - **`scribear-db` and `redis`** appear in the table as `n/a` with the reason:
   neither has an HTTP surface to report a build on.
 
-- **PR images are published again.** A pull request into `main` or `staging`
-  pushes `ghcr.io/scribear/<image>:PR-<n>`, so a reviewer can pull the exact
-  build under review rather than rebuilding it — and the image says which
-  commit it is. The tag moves with the PR head. Set the repository variable
+- **PR images are published again, named for their target environment.** A
+  pull request into `staging` pushes
+  `ghcr.io/scribear/<image>:staging-pr<n>`; into `main`,
+  `ghcr.io/scribear/<image>:production-pr<n>` — so a reviewer can pull the
+  exact build under review rather than rebuilding it, and tell at a glance
+  which environment it's a candidate for, without cross-referencing the PR
+  on GitHub. The tag moves with the PR head. Set the repository variable
   `PUBLISH_PR_IMAGES` to `false` to switch it off, or `true` to publish for
-  every base branch. Fork PRs still build without publishing, since their
-  `GITHUB_TOKEN` cannot push.
+  every base branch (tagged `<base-branch>-pr<n>`). Fork PRs still build
+  without publishing, since their `GITHUB_TOKEN` cannot push.
 
 Nothing new is required in `deployment/.env`. The six new admin-server base-URL
 variables all default to their compose service names.

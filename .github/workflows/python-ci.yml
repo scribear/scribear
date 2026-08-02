@@ -104,10 +104,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # PRs into main or staging publish a PR-<n> image, so a reviewer can pull
-      # the exact build under review instead of rebuilding it. The tag moves
-      # with the PR head - `PR-157` is always that PR's latest push, and the
-      # image says which commit it is via GET /build-info.
+      # PRs into main or staging publish a staging-pr<n>/production-pr<n>
+      # image (named for which environment a merge would land in, not just
+      # the PR number), so a reviewer can pull the exact build under review
+      # instead of rebuilding it. The tag moves with the PR head -
+      # `production-pr157` is always PR #157's latest push targeting main,
+      # and the image says which commit it is via GET /build-info.
       #
       # Set the repository variable PUBLISH_PR_IMAGES to "false" to switch this
       # off (or "true" to publish for every base branch); either is a one-field
