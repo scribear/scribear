@@ -216,9 +216,15 @@ declare -A EXPECT_TITLE_BY_PATH=(
   [/client/]="ScribeAR Client"
   [/kiosk/]="ScribeAR Kiosk"
   [/standalone/]="ScribeAR - Live Captions"
+  [/admin/]="ScribeAR Admin"
 )
 
-for path in /client/ /kiosk/ /standalone/; do
+# /admin/ isn't part of the client/kiosk/standalone "swap" scenario sections
+# 1-3 diagnose (those three are interchangeable single-page apps that could
+# plausibly get mistagged with each other; admin-webapp never was), so it's
+# only checked here - this section's job is "what did nginx actually serve,"
+# and the onsite gate now covers /admin/ too.
+for path in /client/ /kiosk/ /standalone/ /admin/; do
   result=$(fetch_via_nginx "$path")
   status=$(printf '%s\n' "$result" | sed -n '1p')
   location=$(printf '%s\n' "$result" | sed -n '2p')

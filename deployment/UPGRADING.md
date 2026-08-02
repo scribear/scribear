@@ -42,8 +42,21 @@ IP ranges, instead of being reachable from anywhere on the internet:
   `ONSITE_CONTENT_PATH` can preview what an off-campus visitor sees without
   spoofing their own IP address. Every gated frontend route redirects here.
 
+**Prerequisite if you set `ONSITE_ALLOWLIST_PATH` to a real allowlist: nginx
+must be the actual internet-facing edge.** The gate trusts `$remote_addr`
+directly. If a load balancer, CDN, or any other proxy sits in front of this
+nginx, every request arrives looking like it came from that proxy, not the
+real client — and if the proxy's own address happens to fall inside your
+allowlist (plausible if it runs on-campus), **every off-campus request
+passes the gate**, silently. This is a fail-*open* failure, the opposite of
+the gate's purpose, and it produces no error to notice. If that's your
+topology, configure `set_real_ip_from`/`real_ip_header` in `nginx.conf`
+first (commented-out guidance is right next to the `$onsite` allowlist
+include) — don't turn on a real allowlist without doing this first.
+
 Design and the full campus-network research behind the default allowlist:
-`2026-08-02-01-PLAN-OnsiteAccess.md` (not tracked in this repo).
+`2026-08-02-PLAN-AccessRulesLandingPage.md` (not tracked in this repo). Code
+review: `2026-08-02-REVIEW-AccessRulesLandingPage.md` (same location).
 
 ## Unreleased — db-backup hardening: retry, integrity check, opt-out, encryption (`compose.yml` v12)
 

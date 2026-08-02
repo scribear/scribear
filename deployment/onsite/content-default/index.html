@@ -110,6 +110,16 @@
       // nginx.conf). document.referrer, not a server-reflected query
       // parameter: it's the browser's own navigation history, so there is
       // nothing here for a crafted URL to inject.
+      //
+      // Known edge cases where `target` stays null and Reload just reloads
+      // THIS page instead of returning anywhere - accepted tradeoffs, not
+      // bugs, for the same reason: a strict Referrer-Policy or private
+      // browsing can empty document.referrer entirely; navigating here
+      // directly (the devops preview use case) has no referrer by
+      // definition; and a referrer from a different origin fails the check
+      // above on purpose. All three degrade to "Reload does nothing useful
+      // yet" rather than anything unsafe - the muted text below already
+      // covers the visible symptom ("wait a moment and reload again").
       (function () {
         var button = document.getElementById('reload');
         var target = null;

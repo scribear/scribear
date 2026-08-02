@@ -8,7 +8,7 @@ import { describe, expect } from 'vitest';
  * nginx-session-config-stream-not-public.test.ts (session-manager) guard
  * their own routes: nginx.conf is the only place this policy is enforced,
  * and a comment asking not to delete a location block is weaker than a
- * failing test. See 2026-08-02-01-PLAN-OnsiteAccess.md (scribear2, not this
+ * failing test. See 2026-08-02-PLAN-AccessRulesLandingPage.md (scribear2, not this
  * repo) for the full design.
  *
  * This lives here, not in one of the app workspaces the way the two
@@ -70,13 +70,29 @@ describe('nginx onsite-only access gate', (it) => {
     expect(conf).toContain('include /etc/nginx/onsite/config/allowlist.conf;');
   });
 
+  it('defines the log/header-visibility maps every gated location depends on', () => {
+    // $onsite_gate_status backs X-Onsite-Gate (distinguishes a gate-403 from
+    // an upstream 403 in logs); $onsite_no_cache backs the frontend
+    // locations' Cache-Control (stops a stale 302 being replayed by a
+    // caching intermediary). Both must resolve to an EMPTY string on the
+    // allowed path (`default ""`), not e.g. "allowed" - nginx omits an
+    // add_header whose value is empty, which is what keeps these headers
+    // off an allowed/proxied response entirely.
+    expect(conf).toMatch(
+      /map \$onsite \$onsite_gate_status \{\s*0\s+"denied";\s*default\s+"";\s*\}/,
+    );
+    expect(conf).toMatch(
+      /map \$onsite \$onsite_no_cache \{\s*0\s+"no-store";\s*default\s+"";\s*\}/,
+    );
+  });
+
   it('serves /extlanding without an $onsite check - it must stay reachable from anywhere', () => {
     // Arrange
     const start = conf.indexOf('location = /extlanding {');
     expect(
       start,
       'nginx.conf has no /extlanding location. This route is the devops ' +
-        'preview page (see 2026-08-02-01-PLAN-OnsiteAccess.md §3) and every ' +
+        'preview page (see 2026-08-02-PLAN-AccessRulesLandingPage.md §3) and every ' +
         'gated frontend route redirects to it - it must exist and must never ' +
         'itself be gated.',
     ).toBeGreaterThanOrEqual(0);
@@ -116,7 +132,28 @@ describe('nginx onsite-only access gate', (it) => {
         expect(block).toContain(`return 403 "${ONSITE_DENIED_MESSAGE}`);
       } else {
         expect(block).toContain('return 302 /extlanding;');
+        // Stops a stale redirect from being replayed by a caching
+        // intermediary after the client actually connects - API 403s don't
+        // need this (they aren't redirects a client would "come back to").
+        expect(block).toContain(
+          'add_header Cache-Control $onsite_no_cache always;',
+        );
       }
+
+      // Every gated location tags a denied response for log visibility...
+      expect(block).toContain(
+        'add_header X-Onsite-Gate $onsite_gate_status always;',
+      );
+      // ...and, because that's this location's own add_header (the first
+      // one, for the API/client/kiosk/standalone locations; already present
+      // for a different reason on the two /admin* locations), it must
+      // re-declare HSTS or lose it silently: nginx only inherits the server
+      // block's add_header directives when a location defines none of its
+      // own. Verified live once already - the header actually disappeared
+      // from a real response the first time this gate shipped without it.
+      expect(block).toContain(
+        'add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;',
+      );
     });
   }
 
