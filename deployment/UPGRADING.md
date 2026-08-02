@@ -12,6 +12,46 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — session-auth rate limits are tunable and recalibrated (`compose.yml` v16)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. A
+stock deployment needs to do nothing else — all six new variables default to
+the new shipped values, and the defaults are what you want unless you have an
+unusual topology.
+
+The per-client-IP limit on join-code exchange and token refresh was
+`100 / 60 s`, hard-coded. That fired on ordinary traffic: token refresh alone
+crosses it at roughly **250 viewers behind one egress IP** in steady state,
+with nobody doing anything unusual, so a large lecture hall on campus NAT was
+rate-limited continuously. It also did essentially nothing against guessing —
+join codes are 8 characters from a 36-character alphabet and rotate every five
+minutes.
+
+New defaults: `600 / 60 s` for join-code exchange (a 1,000-seat hall joins
+inside ~100 s), `1000 / 60 s` for refresh (~2,500 viewers behind one IP). Both
+are now tunable:
+
+- **`SESSION_AUTH_RATE_LIMIT_JOIN_CODE_MAX`** / **`..._WINDOW_SEC`** — 600 / 60
+- **`SESSION_AUTH_RATE_LIMIT_REFRESH_MAX`** / **`..._WINDOW_SEC`** — 1000 / 60
+- **`SESSION_AUTH_RATE_LIMIT_FAILED_JOIN_CODE_MAX`** / **`..._WINDOW_SEC`** —
+  100 / 60. This one is new behaviour, not a re-tune: a separate, tighter cap
+  counting **only** join-code exchanges that come back 404. Expired codes (410)
+  are deliberately not counted, because a stale code left on a projector makes
+  a whole room produce one at the same instant.
+
+**If you front this stack with a load balancer or CDN**, enable nginx's
+`set_real_ip_from` block as well. It is commented out by default, and without
+it every request arrives carrying the front proxy's address — which turns all
+of the above from per-client limits into deployment-wide ones. This was already
+true before this change; the raised defaults make it less likely to bite.
+
+Note the real service-wide ceiling is not any of these numbers: token refresh
+runs one bcrypt cost-12 comparison per call (~154 ms), so the binding
+constraint is the hashing threadpool, at roughly 25 refreshes per second across
+the whole service. Raising a per-IP limit does not raise that.
+
+---
+
 ## Unreleased — Azure Entra ID SSO reaches admin-server (`compose.yml` v14)
 
 **Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. A
