@@ -226,7 +226,7 @@ services:
       # Not `:?`-guarded, like DEPLOYMENT_ENV below and unlike the secrets: it
       # changes what is *reported*, never what runs, and must not be able to
       # stop a stack from starting.
-      COMPOSE_FILE_VERSION: "13"
+      COMPOSE_FILE_VERSION: "14"
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
@@ -272,6 +272,16 @@ services:
       ADMIN_PROMETHEUS_BASE_URL: ${ADMIN_PROMETHEUS_BASE_URL:-}
       ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET}
       ADMIN_LOCAL_CREDENTIALS: ${ADMIN_LOCAL_CREDENTIALS}
+      # Azure Entra ID SSO (compose.yml v14). All five empty (the default)
+      # keeps SSO off - AzureOidcAuthService.isEnabled() requires every one -
+      # so a stock deployment is unaffected. See scribear.wiki/Developing
+      # Admin.md "Azure Entra ID SSO provider" for the one-time Azure
+      # app-registration walkthrough and where each value comes from.
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      AZURE_REDIRECT_URI: ${AZURE_REDIRECT_URI:-}
+      ADMIN_ALLOWED_GROUP: ${ADMIN_ALLOWED_GROUP:-}
       # Defaulted to the bundled container. Point them at a managed Postgres
       # to run the database outside this stack - see deployment/UPGRADING.md,
       # which also covers removing the bundled service and its depends_on.
