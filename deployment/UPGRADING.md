@@ -12,6 +12,39 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — onsite-only access gate (`compose.yml` v13)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. A
+stock deployment needs to do nothing new — the two variables below default to
+"nobody is restricted," identical to today's behavior.
+
+`nginx.conf` can now restrict every route — every API (403) and every
+frontend (redirected to a landing page) — to an explicit allowlist of source
+IP ranges, instead of being reachable from anywhere on the internet:
+
+- **`ONSITE_ALLOWLIST_PATH`** (default `./onsite/allowlist.default.conf`, a
+  permissive "everyone is onsite" file checked into this directory) — point
+  this at a real allowlist (see
+  [`onsite-allowlist.example.conf`](onsite-allowlist.example.conf), built for
+  University of Illinois Urbana-Champaign's own published ranges, as a
+  starting point for another campus/network) to actually restrict access.
+  Unlike `PROVIDER_CONFIG_PATH`, this default is a real, live file, not a
+  `.template` to copy first — "nobody is restricted" is a sane universal
+  default here, so a deployment that never touches this variable is simply
+  never gated.
+- **`ONSITE_CONTENT_PATH`** (default `./onsite/content-default`) — the static
+  landing page shown to a gated frontend request, explaining that live
+  captions require an on-campus or VPN connection. Point this at your own
+  directory to customize the wording or add branding.
+- **`/extlanding`** is a new route, deliberately **never** gated. It serves
+  the exact same landing page a gated visitor would see, reachable from
+  anywhere — including from on campus — so whoever maintains
+  `ONSITE_CONTENT_PATH` can preview what an off-campus visitor sees without
+  spoofing their own IP address. Every gated frontend route redirects here.
+
+Design and the full campus-network research behind the default allowlist:
+`2026-08-02-01-PLAN-OnsiteAccess.md` (not tracked in this repo).
+
 ## Unreleased — db-backup hardening: retry, integrity check, opt-out, encryption (`compose.yml` v12)
 
 **Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. A

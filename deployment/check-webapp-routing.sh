@@ -17,6 +17,18 @@
 # project's containers). Read-only: only runs `docker inspect`, `docker exec`
 # of read-only commands (wget/cat), and `docker images`.
 #
+# If ONSITE_ALLOWLIST_PATH (see UPGRADING.md) is set to a real allowlist,
+# section 4's "curl https://localhost/..." may get redirected to /extlanding
+# instead of the app's real content - handled below, not a routing bug, and
+# expected. Whether it actually happens depends on Docker's own compose
+# network bridge gateway address (what nginx sees curl-from-the-host as),
+# which is assigned per-project and outside your control - it may coincide
+# with a private range your allowlist admits, in which case this section
+# passes/fails exactly as it did before this feature existed. Neither outcome
+# says anything about whether the onsite gate itself is working; that's
+# infra/scribear-nginx/tests/unit/onsite-gate.test.ts's job, not this
+# script's.
+#
 # Usage:
 #   ./check-webapp-routing.sh [compose-project-name-or-container-prefix]
 #
@@ -184,15 +196,20 @@ fi
 # ---------------------------------------------------------------------------
 section "4. Content served through nginx end-to-end (what IT actually saw)"
 # ---------------------------------------------------------------------------
-fetch_title_via_nginx() {
-  # $1 = path, e.g. /client/
+fetch_via_nginx() {
+  # $1 = path, e.g. /client/. Prints "STATUS\nLOCATION\nBODY" (LOCATION empty
+  # if the response wasn't a redirect) - not following redirects, since a
+  # redirect to /extlanding is itself a meaningful, distinguishable result
+  # (see the onsite-gate check below), not something to chase through.
   local path="$1"
-  local body
-  body=$(curl -sk "https://localhost${path}" 2>/dev/null) || true
-  if [ -z "$body" ]; then
-    body=$(curl -s "http://localhost${path}" 2>/dev/null) || true
-  fi
-  printf '%s' "$body" | grep -o '<title>[^<]*</title>' | head -1 | sed -e 's/<title>//' -e 's/<\/title>//'
+  local out
+  out=$(curl -sk -D - -o - "https://localhost${path}" 2>/dev/null) || \
+  out=$(curl -s -D - -o - "http://localhost${path}" 2>/dev/null) || true
+  local status location body
+  status=$(printf '%s' "$out" | head -1 | tr -d '\r')
+  location=$(printf '%s' "$out" | grep -i '^location:' | head -1 | sed -e 's/^[Ll]ocation: *//' -e 's/\r$//')
+  body=$(printf '%s' "$out" | awk 'f; /^\r?$/{f=1}')
+  printf '%s\n%s\n%s' "$status" "$location" "$body"
 }
 
 declare -A EXPECT_TITLE_BY_PATH=(
@@ -202,8 +219,26 @@ declare -A EXPECT_TITLE_BY_PATH=(
 )
 
 for path in /client/ /kiosk/ /standalone/; do
-  title=$(fetch_title_via_nginx "$path")
+  result=$(fetch_via_nginx "$path")
+  status=$(printf '%s\n' "$result" | sed -n '1p')
+  location=$(printf '%s\n' "$result" | sed -n '2p')
+  body=$(printf '%s\n' "$result" | sed -n '3,$p')
   expected="${EXPECT_TITLE_BY_PATH[$path]}"
+
+  if [ -n "$location" ] && printf '%s' "$location" | grep -q '/extlanding'; then
+    # The onsite-only access gate (nginx.conf's $onsite check) redirected
+    # this request - expected and CORRECT if the deployment has a real
+    # allowlist configured (ONSITE_ALLOWLIST_PATH), since this script runs
+    # on the docker host itself and curl's "https://localhost" is loopback,
+    # which is never on-campus/VPN under any real allowlist. Not a routing
+    # bug, and not something this check can see past from localhost - if you
+    # need to verify the actual app content, curl the same path from a
+    # machine your allowlist actually admits.
+    warn "https://localhost$path : redirected to /extlanding (onsite gate active). Inconclusive from localhost - this is expected if ONSITE_ALLOWLIST_PATH is set to a real allowlist; re-run this check from an allowlisted network to verify $path's actual content."
+    continue
+  fi
+
+  title=$(printf '%s' "$body" | grep -o '<title>[^<]*</title>' | head -1 | sed -e 's/<title>//' -e 's/<\/title>//')
   if [ -z "$title" ]; then
     warn "https://localhost$path : no response / could not parse title (is nginx reachable on localhost from this host?)."
   elif [ "$title" = "$expected" ]; then

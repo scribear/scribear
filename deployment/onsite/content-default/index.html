@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ScribeAR — onsite access required</title>
+    <style>
+      /* Same palette roles as libs/audio-meter-page/audio-meter.html, for a
+         consistent look across every static page this deployment serves. */
+      :root {
+        color-scheme: light;
+        --surface: #fcfcfb;
+        --plane: #f9f9f7;
+        --ink: #0b0b0b;
+        --ink-2: #52514e;
+        --ink-muted: #898781;
+        --border: rgba(11, 11, 11, 0.1);
+        --focus: #2a78d6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:where(:not([data-theme='light'])) {
+          color-scheme: dark;
+          --surface: #1a1a19;
+          --plane: #0d0d0d;
+          --ink: #ffffff;
+          --ink-2: #c3c2b7;
+          --ink-muted: #898781;
+          --border: rgba(255, 255, 255, 0.1);
+          --focus: #3987e5;
+        }
+      }
+      :root[data-theme='dark'] {
+        color-scheme: dark;
+        --surface: #1a1a19;
+        --plane: #0d0d0d;
+        --ink: #ffffff;
+        --ink-2: #c3c2b7;
+        --ink-muted: #898781;
+        --border: rgba(255, 255, 255, 0.1);
+        --focus: #3987e5;
+      }
+
+      body {
+        margin: 0;
+        background: var(--plane);
+        color: var(--ink);
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        font-size: 16px;
+        line-height: 1.6;
+      }
+      main {
+        max-width: 34rem;
+        margin: 3.5rem auto;
+        padding: 2rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 0.75rem;
+      }
+      h1 {
+        font-size: 1.25rem;
+        margin: 0 0 1rem;
+      }
+      p {
+        color: var(--ink-2);
+        margin: 0 0 1.5rem;
+      }
+      button {
+        font: inherit;
+        font-weight: 600;
+        color: var(--surface);
+        background: var(--ink);
+        border: none;
+        border-radius: 0.4rem;
+        padding: 0.6rem 1.2rem;
+        cursor: pointer;
+      }
+      button:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 2px;
+      }
+      button:hover {
+        opacity: 0.85;
+      }
+      .muted {
+        color: var(--ink-muted);
+        font-size: 0.85rem;
+        margin-top: 1.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Onsite access required</h1>
+      <p>
+        Live Captions require an on-campus network connection; they are not
+        accessible from the internet. Connect your phone or laptop to the
+        VPN, campus WiFi (or ethernet), then reload.
+      </p>
+      <button type="button" id="reload">Reload</button>
+      <p class="muted">
+        If you're on campus or VPN and still see this page, the connection
+        may not have applied yet — wait a moment and reload again.
+      </p>
+    </main>
+    <script>
+      // Returns to wherever the visitor was trying to go (client/kiosk/admin/
+      // standalone), not just this landing page, once the network connects -
+      // otherwise "Reload" would just show this same page again forever,
+      // since this route is intentionally never gated (see /extlanding in
+      // nginx.conf). document.referrer, not a server-reflected query
+      // parameter: it's the browser's own navigation history, so there is
+      // nothing here for a crafted URL to inject.
+      (function () {
+        var button = document.getElementById('reload');
+        var target = null;
+        try {
+          if (document.referrer) {
+            var referrer = new URL(document.referrer);
+            if (referrer.origin === window.location.origin) {
+              target = referrer.href;
+            }
+          }
+        } catch (e) {
+          target = null;
+        }
+        button.addEventListener('click', function () {
+          window.location.href = target || window.location.href;
+        });
+      })();
+    </script>
+  </body>
+</html>
