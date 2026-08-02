@@ -117,6 +117,13 @@ export class TranscriptionMetricsPollerService extends AbsoluteStatusPoller<Tran
    * applies to poll failures.
    */
   private _warnedUnknownPeriod = new Set<string>();
+  /**
+   * Inference device per provider, resolved from the reported `providerDevice`
+   * field. Empty until the service sends one; the alert rules read this to
+   * select per-device thresholds, falling back to the GPU default for a
+   * provider with no reported device.
+   */
+  private _providerDevices = new Map<string, string>();
 
   constructor(
     transcriptionMetricsPollerConfig: TranscriptionMetricsPollerConfig,
@@ -152,6 +159,38 @@ export class TranscriptionMetricsPollerService extends AbsoluteStatusPoller<Tran
     this._applyRtfTotals(body);
     this._applyWorkerGauges(body);
     this._applyQuantileGauges(body);
+    this._applyProviderDevices(body);
+  }
+
+  /**
+   * Resolves the per-provider inference device from the reported
+   * `providerDevice` field, so alert rules can select per-device thresholds.
+   *
+   * Same shape as `_resolvePeriods`: reported values replace whatever was
+   * known, and a provider absent from the map is removed rather than left
+   * stale. A service too old to send `providerDevice` leaves the map empty,
+   * which means every provider falls back to the GPU default — the existing
+   * behaviour.
+   */
+  private _applyProviderDevices(body: TranscriptionMetricsBody): void {
+    const next = new Map<string, string>();
+    for (const [providerKey, device] of Object.entries(
+      body.providerDevice ?? {},
+    )) {
+      if (typeof device === 'string' && device.length > 0) {
+        next.set(providerKey, device);
+      }
+    }
+    this._providerDevices = next;
+  }
+
+  /**
+   * The inference device per provider, as reported by transcription-service.
+   * Empty for a service too old to send `providerDevice`; the alert rules
+   * fall back to the GPU default for a provider with no entry.
+   */
+  get providerDevices(): ReadonlyMap<string, string> {
+    return this._providerDevices;
   }
 
   /**

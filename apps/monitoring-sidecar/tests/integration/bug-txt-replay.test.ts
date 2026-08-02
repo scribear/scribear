@@ -10,6 +10,7 @@ import type {
   ProbePollerService,
   ProbeStatus,
 } from '#src/server/shared/probes/probe-poller.service.js';
+import type { TranscriptionMetricsPollerService } from '#src/server/shared/transcription-metrics/transcription-metrics-poller.service.js';
 import {
   type FakeNodeStatus,
   type FakeSession,
@@ -85,11 +86,15 @@ describe('BUG.txt upstream flap replay', () => {
     // The canary is irrelevant to this replay; a runner that has never produced
     // a result keeps the canary rules inert without stubbing the whole service.
     const canaryRunner = { lastResult: null } as CanaryRunnerService;
+    const transcriptionPoller = {
+      providerDevices: new Map<string, string>(),
+    } as unknown as TranscriptionMetricsPollerService;
     const evaluator = new AlertEvaluatorService(
       metrics,
       probePoller,
       canaryRunner,
       DEFAULT_THRESHOLDS,
+      transcriptionPoller,
     );
     node.setBody(statusBody());
     await poller.pollOnce();

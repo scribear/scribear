@@ -8,6 +8,7 @@ import {
 import type { CanaryRunnerService } from '#src/server/shared/canary/canary-runner.service.js';
 import type { MetricsRegistry } from '#src/server/shared/metrics/metrics-registry.service.js';
 import type { ProbePollerService } from '#src/server/shared/probes/probe-poller.service.js';
+import type { TranscriptionMetricsPollerService } from '#src/server/shared/transcription-metrics/transcription-metrics-poller.service.js';
 
 /**
  * Evaluates the alert rules on demand.
@@ -26,6 +27,7 @@ export class AlertEvaluatorService {
   private _probePoller: ProbePollerService;
   private _canaryRunner: CanaryRunnerService;
   private _thresholds: AlertThresholds;
+  private _transcriptionPoller: TranscriptionMetricsPollerService;
   private _rules: readonly AlertRule[];
 
   // Every parameter name matches its Awilix registration key. Awilix runs in
@@ -36,12 +38,14 @@ export class AlertEvaluatorService {
     probePollerService: ProbePollerService,
     canaryRunnerService: CanaryRunnerService,
     alertThresholds: AlertThresholds,
+    transcriptionMetricsPollerService: TranscriptionMetricsPollerService,
     alertRules: readonly AlertRule[] = DEFAULT_RULES,
   ) {
     this._metrics = metricsRegistry;
     this._probePoller = probePollerService;
     this._canaryRunner = canaryRunnerService;
     this._thresholds = alertThresholds;
+    this._transcriptionPoller = transcriptionMetricsPollerService;
     this._rules = alertRules;
   }
 
@@ -53,6 +57,7 @@ export class AlertEvaluatorService {
       canary: this._canaryRunner.lastResult,
       nowMs,
       thresholds: this._thresholds,
+      providerDevices: this._transcriptionPoller.providerDevices,
     };
 
     const alerts: Alert[] = [];

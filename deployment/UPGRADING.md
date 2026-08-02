@@ -31,6 +31,27 @@ container never received them. Fixed:
   "Azure Entra ID SSO provider" for the one-time Azure app-registration
   walkthrough and where each value comes from.
 
+## Unreleased — per-device alert thresholds (automatic CPU/GPU selection)
+
+The monitoring sidecar now selects the `asrDutyRatio` threshold per provider
+based on the inference device the transcription service reports. A GPU
+provider keeps the existing 0.45 default; a CPU provider gets 0.7 — the value
+that was previously a manual `.env` override. **A stock CPU deployment no
+longer needs `MONITORING_ASR_DUTY_RATIO=0.7`**: it is the default for CPU.
+
+The transcription service reports `providerDevice` on `/metrics/status`
+alongside `providerJobPeriodMs`, using the same reported-then-fallback shape.
+A service too old to send it (a rolling upgrade) leaves the field absent, and
+the sidecar falls back to the GPU default — the existing behaviour.
+
+The flat override `MONITORING_ASR_DUTY_RATIO` still wins over both per-device
+defaults, preserving the escape hatch for a deployment that needs its own
+number.
+
+A new env var `MONITORING_ASR_DUTY_RATIO_CPU` (default 0.7) lets an operator
+tune the CPU default without affecting GPU providers. `MONITORING_ASR_DUTY_RATIO`
+remains the flat override.
+
 ## Unreleased — CPU default model is now `base`; `transcription-service-cpu` publishes multi-arch
 
 The shipped CPU provider template now defaults to whisper **`base`** instead

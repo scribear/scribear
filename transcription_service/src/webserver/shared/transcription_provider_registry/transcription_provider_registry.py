@@ -107,6 +107,7 @@ class TranscriptionProviderRegistry:
         self._capacity_estimator = capacity_estimator
         self._metrics_registry = metrics_registry
 
+        self._context_device_by_tag: dict[str, str] = {}
         contexts = self._load_contexts(config.provider_config.contexts)
 
         self._worker_pool = WorkerPool(
@@ -154,6 +155,11 @@ class TranscriptionProviderRegistry:
         """
         Build ContextAssignment list from the configured context entries
 
+        Also builds the tag-to-device map the registry uses to resolve each
+        provider's inference device: `device` lives on the context config, not
+        the provider config, so the registry resolves it here and exposes it
+        via `provider_device` for /metrics/status.
+
         Args:
             context_configurations  - List of context configurations to load
 
@@ -166,11 +172,23 @@ class TranscriptionProviderRegistry:
                 case JobContextDefinitionUID.FASTER_WHISPER:
                     from src.transcription_contexts.faster_whisper_context import (
                         FasterWhisperContext,
+                        FasterWhisperContextConfig,
                     )
 
                     context: Any = FasterWhisperContext(
                         config.context_config, config.tags
                     )
+                    # FasterWhisperContextConfig carries `device` ("cuda" or
+                    # "cpu"). Each tag maps to the device its context was
+                    # configured with, so a provider that references the tag
+                    # (via `whisper_context_tag`) can be resolved to its device
+                    # without the provider itself having access to the context
+                    # config.
+                    validated = FasterWhisperContextConfig.model_validate(
+                        config.context_config
+                    )
+                    for tag in config.tags:
+                        self._context_device_by_tag[tag] = validated.device
                 case JobContextDefinitionUID.SILERO_VAD:
                     from src.transcription_contexts.silero_vad_context import (
                         SileroVadContext,
@@ -288,6 +306,36 @@ class TranscriptionProviderRegistry:
             if period_ms is not None:
                 periods[key] = period_ms
         return periods
+
+    @property
+    def provider_device(self) -> dict[str, str]:
+        """
+        Gets the inference device each provider's context runs on, keyed by
+        provider key
+
+        A provider that can state its own device directly returns it; one that
+        cannot (the default) is resolved by looking up its ``context_tags``
+        against the tag-to-device map built during context loading. A provider
+        with no resolvable device is **absent from the map** rather than
+        present with a placeholder, the same convention as
+        ``provider_job_period_ms``: the monitoring sidecar treats absence as
+        "no device known, use the default threshold", which is the existing
+        GPU-calibrated behaviour.
+
+        Side effect free, so it is safe to call from a request handler.
+        """
+        devices: dict[str, str] = {}
+        for key, provider in self._providers.items():
+            device = provider.device
+            if device is not None:
+                devices[key] = device
+                continue
+            for tag in provider.context_tags:
+                tag_device = self._context_device_by_tag.get(tag)
+                if tag_device is not None:
+                    devices[key] = tag_device
+                    break
+        return devices
 
     def worker_snapshots(self) -> list[WorkerSnapshot]:
         """

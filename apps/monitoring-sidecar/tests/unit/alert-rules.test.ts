@@ -35,6 +35,7 @@ function context(
   probes: ProbeStatus[] = [],
   overrides: Partial<AlertThresholds> = {},
   canary: CanaryRunResult | null = null,
+  providerDevices: ReadonlyMap<string, string> = new Map(),
 ): AlertContext {
   return {
     metrics,
@@ -42,6 +43,7 @@ function context(
     canary,
     nowMs: NOW,
     thresholds: { ...DEFAULT_THRESHOLDS, ...overrides },
+    providerDevices,
   };
 }
 
@@ -603,6 +605,79 @@ describe('alert rules', () => {
       expect(alerts[0]?.summary).toContain(
         '12.5s of audio already force-finalized',
       );
+    });
+
+    it('uses the CPU threshold (0.7) for a CPU provider, staying silent at 0.5', () => {
+      // Arrange — 0.5 is past the GPU default (0.45) but under the CPU default
+      // (0.7). A CPU provider running `small`/4 measured 0.471 healthy, so
+      // without per-device thresholds this would fire on a healthy stack.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: 0.5 });
+      const devices = new Map([['whisper', 'cpu']]);
+
+      // Act
+      const alerts = transcriptionFallingBehindRule(
+        context(metrics, [], {}, null, devices),
+      );
+
+      // Assert
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('fires for a CPU provider at 0.75 (past the CPU threshold)', () => {
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: 0.75 });
+      const devices = new Map([['whisper', 'cpu']]);
+
+      // Act
+      const alerts = transcriptionFallingBehindRule(
+        context(metrics, [], {}, null, devices),
+      );
+
+      // Assert
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]?.threshold).toBe(0.7);
+      expect(alerts[0]?.summary).toContain('threshold 0.70');
+    });
+
+    it('uses the GPU threshold (0.45) when no device is reported', () => {
+      // Arrange — rolling-upgrade case: the service does not yet send
+      // providerDevice, so the map is empty. The GPU default must apply, which
+      // is the existing behaviour.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: 0.5 });
+
+      // Act
+      const alerts = transcriptionFallingBehindRule(
+        context(metrics, [], {}, null, new Map()),
+      );
+
+      // Assert
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]?.threshold).toBe(0.45);
+    });
+
+    it('a flat override wins over both per-device defaults', () => {
+      // Arrange — the operator set ALERT_ASR_DUTY_RATIO=0.9, which app-config
+      // applies to both asrDutyRatio and asrDutyRatioCpu. A CPU provider at
+      // 0.75 should stay silent, because 0.75 < 0.9.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: 0.75 });
+      const devices = new Map([['whisper', 'cpu']]);
+
+      // Act
+      const alerts = transcriptionFallingBehindRule(
+        context(
+          metrics,
+          [],
+          { asrDutyRatio: 0.9, asrDutyRatioCpu: 0.9 },
+          null,
+          devices,
+        ),
+      );
+
+      // Assert
+      expect(alerts).toHaveLength(0);
     });
   });
 

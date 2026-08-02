@@ -82,6 +82,19 @@ export const TRANSCRIPTION_METRICS_BODY_SCHEMA = Type.Object({
    * field the sidecar has a fallback for.
    */
   providerJobPeriodMs: Type.Optional(Type.Record(Type.String(), Type.Number())),
+  /**
+   * The inference device each provider's context runs on (`"cuda"` or
+   * `"cpu"`), keyed by provider key. Optional, for the same rolling-upgrade
+   * reason as `providerJobPeriodMs` above: a transcription-service too old to
+   * send it simply omits it, and the sidecar falls back to the GPU default
+   * threshold for every provider.
+   *
+   * A provider with no local device (`debug`, `lumen_granite`) is absent from
+   * the map — same convention as `providerJobPeriodMs` for a provider that
+   * cannot state a period. The sidecar treats absence as "no device known",
+   * which is the existing GPU-calibrated behaviour.
+   */
+  providerDevice: Type.Optional(Type.Record(Type.String(), Type.String())),
   workers: Type.Array(
     Type.Object({
       workerId: Type.Number(),

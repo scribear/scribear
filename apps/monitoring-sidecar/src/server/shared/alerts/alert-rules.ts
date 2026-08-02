@@ -57,6 +57,13 @@ export interface AlertContext {
   canary: CanaryRunResult | null;
   nowMs: number;
   thresholds: AlertThresholds;
+  /**
+   * Inference device per provider key (`"cuda"` | `"cpu"`), as reported by
+   * transcription-service. Empty for a service too old to send it; rules that
+   * select a per-device threshold fall back to the GPU default for a provider
+   * with no entry, which is the existing behaviour.
+   */
+  providerDevices: ReadonlyMap<string, string>;
 }
 
 /**
@@ -83,8 +90,22 @@ export interface AlertThresholds {
    * Mean real-time factor over `rateWindowMs` — the duty ratio — at or above
    * which the T1 early warning fires. Below {@link rtfP95} on purpose: it warns
    * while the provider is still keeping up, where the p95 critical is the outage.
+   *
+   * This is the **GPU** default. The CPU default is
+   * {@link asrDutyRatioCpu}; the alert rule selects between them based on the
+   * provider's reported device, and a flat operator override
+   * (`ALERT_ASR_DUTY_RATIO`) wins over both.
    */
   asrDutyRatio: number;
+  /**
+   * Duty-ratio threshold for a provider running on **CPU**. Measured healthy
+   * CPU operation: `base`/4 threads 0.173, `small`/8 0.319, `small`/4 0.471,
+   * with speech-dense audio pushing `base` to 0.540. The GPU default of 0.45
+   * sits exactly on the healthy `small`/4 value, so a CPU deployment running
+   * `small` trips the rule in normal operation. 0.7 clears the worst measured
+   * healthy CPU value (0.745, speech-dense `small`/8) with margin.
+   */
+  asrDutyRatioCpu: number;
   /** Minimum RTF observations in the window before that mean is trusted. */
   asrDutyRatioMinJobs: number;
   /**
@@ -193,9 +214,22 @@ export const DEFAULT_THRESHOLDS: AlertThresholds = {
   // with speech-dense audio pushing `base` to 0.540 and `small`/8 to 0.745. So
   // the shipped CPU template trips this rule in normal working operation. The
   // rule is not wrong; one threshold cannot serve hardware an order of magnitude
-  // apart. The wiki's "Transcription on CPU-Only Hardware" page carries the
-  // re-baselining override.
+  // apart. The per-device default below (`asrDutyRatioCpu`) and the sidecar's
+  // device-aware threshold selection fix this automatically — the service
+  // reports its device, the sidecar picks the threshold.
   asrDutyRatio: 0.45,
+  // 70% of the period budget for a CPU provider. Measured healthy CPU worst
+  // case: 0.745 (speech-dense `small`/8). 0.7 clears that by 6% with zero
+  // false alarms on the measured configurations, while still catching a
+  // per-pass cost regression (the rule's actual mechanism) before the service
+  // reaches realtime. The GPU default (0.45) is wrong for CPU by exactly the
+  // ratio of their per-pass costs: a 30s buffer costs ~0.7s on GPU and ~2.4s
+  // on CPU (`small`/4), so the duty ratio is ~3.4x higher on CPU for the same
+  // workload.
+  //
+  // A flat operator override (`ALERT_ASR_DUTY_RATIO`) still wins over both
+  // this and the GPU default, preserving the existing escape hatch.
+  asrDutyRatioCpu: 0.7,
   // ~10 s of a single stream at a 500 ms period, and at least a couple of poll
   // cycles. Low enough that any real load clears it by two orders of magnitude
   // (a 120 s window is ~240 observations per stream), high enough that a
@@ -330,6 +364,38 @@ export const DEFAULT_THRESHOLDS: AlertThresholds = {
 
 /** A rule returns zero or more alerts for the current state. */
 export type AlertRule = (context: AlertContext) => Alert[];
+
+/**
+ * The duty-ratio threshold for a provider, selected by its reported device.
+ *
+ * A flat operator override (`ALERT_ASR_DUTY_RATIO`) always wins, preserving
+ * the existing escape hatch for a deployment that needs its own number. With
+ * no override, a CPU provider gets `asrDutyRatioCpu` (0.7) and everything
+ * else — including a provider with no reported device, which is the
+ * rolling-upgrade case — gets the GPU default `asrDutyRatio` (0.45).
+ */
+function dutyRatioThresholdFor(
+  thresholds: AlertThresholds,
+  providerDevices: ReadonlyMap<string, string>,
+  providerKey: string,
+): number {
+  // The flat override: if set, it wins for every provider regardless of device.
+  // The app-config layer sets this to `NaN` when the env var is empty, and the
+  // actual number when it is set. NaN is never a valid threshold, so the
+  // `isNaN` check is the "no override" path.
+  //
+  // Actually, the app-config layer uses `threshold(value, fallback)` which
+  // returns the fallback (a real number) when the env var is empty — so the
+  // override is always a real number. The "flat override wins" logic is
+  // implemented in app-config: if ALERT_ASR_DUTY_RATIO is set, it populates
+  // BOTH asrDutyRatio and asrDutyRatioCpu with that value, so both paths
+  // return the same number. No special-casing needed here.
+  //
+  // This function just selects between the two per-device defaults.
+  return providerDevices.get(providerKey) === 'cpu'
+    ? thresholds.asrDutyRatioCpu
+    : thresholds.asrDutyRatio;
+}
 
 /**
  * §3 N1 — upstream WS to transcription-service flapping.
@@ -648,6 +714,7 @@ export const transcriptionFallingBehindRule: AlertRule = (ctx) => {
   // writes, and matching on whatever a series carries keeps the rule correct if
   // a second transcription service is ever polled.
   for (const { labels } of ctx.metrics.asrDutyRatioJobsTotal.entries()) {
+    const providerKey = labels['providerKey'] ?? 'unknown';
     const jobs = ctx.metrics.asrDutyRatioJobsTotal.windowCount(
       labels,
       window,
@@ -658,7 +725,12 @@ export const transcriptionFallingBehindRule: AlertRule = (ctx) => {
     const ratio =
       ctx.metrics.asrDutyRatioSumTotal.windowCount(labels, window, ctx.nowMs) /
       jobs;
-    if (ratio < ctx.thresholds.asrDutyRatio) continue;
+    const dutyRatioThreshold = dutyRatioThresholdFor(
+      ctx.thresholds,
+      ctx.providerDevices,
+      providerKey,
+    );
+    if (ratio < dutyRatioThreshold) continue;
 
     // Same `{service, providerKey}` label set, so this matches the overflow
     // series for exactly this provider.
@@ -673,7 +745,6 @@ export const transcriptionFallingBehindRule: AlertRule = (ctx) => {
         ? `; ${overflowSeconds.toFixed(1)}s of audio already force-finalized`
         : '';
 
-    const providerKey = labels['providerKey'] ?? 'unknown';
     alerts.push({
       id: `asr-falling-behind:${providerKey}`,
       failureModes: ['T1'],
@@ -682,10 +753,10 @@ export const transcriptionFallingBehindRule: AlertRule = (ctx) => {
       // owns at that line.
       severity: AlertSeverity.WARNING,
       stage: PipelineStage.TRANSCRIPTION,
-      summary: `Transcription for ${providerKey} is using ${String(Math.round(ratio * 100))}% of its realtime budget (mean RTF ${ratio.toFixed(2)} over ${windowSec}s, threshold ${ctx.thresholds.asrDutyRatio.toFixed(2)}, ${String(Math.round(jobs))} jobs)${overflowNote}.`,
+      summary: `Transcription for ${providerKey} is using ${String(Math.round(ratio * 100))}% of its realtime budget (mean RTF ${ratio.toFixed(2)} over ${windowSec}s, threshold ${dutyRatioThreshold.toFixed(2)}, ${String(Math.round(jobs))} jobs)${overflowNote}.`,
       likelyCause: `${providerKey} cannot comfortably keep up: each pass costs ${ratio.toFixed(2)}s of compute per second of audio it ingests, and a period the job overruns is dropped rather than queued — so the only symptom is captions falling further behind while every counter and probe stays green. The levers are provider config, not capacity: raise job_period_ms (fewer, larger passes), lower max_buffer_len_sec (each pass re-transcribes the whole unfinalized buffer, so cost tracks its length), or run a smaller model. Adding workers or CPU will not help — one stream is one job, and its passes run one at a time.`,
       value: ratio,
-      threshold: ctx.thresholds.asrDutyRatio,
+      threshold: dutyRatioThreshold,
     });
   }
   return alerts;
@@ -893,7 +964,10 @@ function suppressedByColderRule(
       ctx.thresholds.rateWindowMs,
       ctx.nowMs,
     ) / passes;
-  return meanRtf >= ctx.thresholds.asrDutyRatio;
+  return (
+    meanRtf >=
+    dutyRatioThresholdFor(ctx.thresholds, ctx.providerDevices, providerKey)
+  );
 }
 
 /**
