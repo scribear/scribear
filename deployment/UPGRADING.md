@@ -12,6 +12,25 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — Azure Entra ID SSO reaches admin-server (`compose.yml` v14)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. A
+stock deployment needs to do nothing new — all five variables below default
+to empty, identical to today's behavior (SSO off, local login only).
+
+`admin-server`'s `AzureOidcAuthService` was implemented, but the five
+`AZURE_*`/`ADMIN_ALLOWED_GROUP` variables it needs were never actually wired
+into `compose.yml` — setting them in `.env` had no effect at all, since the
+container never received them. Fixed:
+
+- **`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`,
+  `AZURE_REDIRECT_URI`, `ADMIN_ALLOWED_GROUP`** now pass through to
+  `admin-server`, matching `.env.example`. All five must be non-empty for
+  the "Sign in with Illinois" button to appear — see
+  [`.env.example`](.env.example) and `scribear.wiki/Developing Admin.md`
+  "Azure Entra ID SSO provider" for the one-time Azure app-registration
+  walkthrough and where each value comes from.
+
 ## Unreleased — CPU default model is now `base`; `transcription-service-cpu` publishes multi-arch
 
 The shipped CPU provider template now defaults to whisper **`base`** instead
