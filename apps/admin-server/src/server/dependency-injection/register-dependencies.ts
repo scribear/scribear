@@ -97,6 +97,7 @@ function registerDependencies(
 
     // Auth
     authController: asClass(AuthController, { lifetime: Lifetime.SCOPED }),
+    grafanaEnabled: asValue(config.grafanaEnabled),
 
     // Health
     healthCheckerConfig: asValue(config.healthCheckerConfig),

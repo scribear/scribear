@@ -207,6 +207,10 @@ export function buildTestAppConfig(
       ...overrides.backupDirectoryConfig,
     },
     cookieSecret: overrides.cookieSecret ?? TEST_COOKIE_SECRET,
+    // No ADMIN_GRAFANA_BASE_URL in the test environment, so the Grafana nav
+    // link is hidden by default. Tests that exercise the Grafana probe pass
+    // configCheckConfig.grafanaBaseUrl explicitly.
+    grafanaEnabled: false,
   } as unknown as AppConfig;
 }
 

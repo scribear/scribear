@@ -98,6 +98,7 @@ interface AppDependencies extends BaseDependencies {
 
   // Auth
   authController: AuthController;
+  grafanaEnabled: boolean;
 
   // Health
   healthCheckerConfig: HealthCheckerConfig;

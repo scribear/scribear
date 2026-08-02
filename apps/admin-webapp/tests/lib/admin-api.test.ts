@@ -43,7 +43,7 @@ describe('AdminApiClient', () => {
     it('sends a GET request with no content-type or csrf header', async () => {
       // Arrange
       fetchMock.mockResolvedValue(
-        jsonResponse(200, { ok: true, data: { local: true, sso: false } }),
+        jsonResponse(200, { ok: true, data: { local: true, sso: false, grafana: false } }),
       );
 
       // Act

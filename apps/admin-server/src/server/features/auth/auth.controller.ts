@@ -68,17 +68,20 @@ export class AuthController {
   private _azureOidcAuthService: AppDependencies['azureOidcAuthService'];
   private _sessionService: AppDependencies['sessionService'];
   private _auditService: AppDependencies['auditService'];
+  private _grafanaEnabled: boolean;
 
   constructor(
     localAuthService: AppDependencies['localAuthService'],
     azureOidcAuthService: AppDependencies['azureOidcAuthService'],
     sessionService: AppDependencies['sessionService'],
     auditService: AppDependencies['auditService'],
+    grafanaEnabled: boolean,
   ) {
     this._localAuthService = localAuthService;
     this._azureOidcAuthService = azureOidcAuthService;
     this._sessionService = sessionService;
     this._auditService = auditService;
+    this._grafanaEnabled = grafanaEnabled;
   }
 
   /** Public: which auth providers are enabled, so the SPA renders the right UI. */
@@ -87,6 +90,7 @@ export class AuthController {
       okEnvelope({
         local: this._localAuthService.isEnabled(),
         sso: this._azureOidcAuthService.isEnabled(),
+        grafana: this._grafanaEnabled,
       }),
     );
   }

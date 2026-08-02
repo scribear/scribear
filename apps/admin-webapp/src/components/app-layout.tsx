@@ -8,6 +8,7 @@ import HistoryIcon from '@mui/icons-material/History';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MeetingRoomIcon from '@mui/icons-material/MeetingRoom';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
+import MonitorIcon from '@mui/icons-material/Monitor';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import ScienceIcon from '@mui/icons-material/Science';
 import SpaceDashboardIcon from '@mui/icons-material/SpaceDashboard';
@@ -32,6 +33,7 @@ import { HealthIndicator } from '#src/components/health-indicator';
 import { OpensInNewTab } from '#src/components/opens-in-new-tab';
 import { useAuth } from '#src/features/auth/auth-context';
 import { audioMeterHref } from '#src/lib/audio-meter-url';
+import { grafanaFleetOverviewHref } from '#src/lib/grafana-url';
 import { useSettings } from '#src/lib/settings-context';
 
 const DRAWER_WIDTH = 232;
@@ -72,22 +74,43 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Audit log', to: '/audit', icon: <HistoryIcon /> },
   { label: 'Deployment Check', to: '/config-check', icon: <FactCheckIcon /> },
   { label: 'Documentation', to: '/documentation', icon: <MenuBookIcon /> },
-  {
-    label: 'Audio meter (this device)',
-    href: audioMeterHref(),
-    icon: <GraphicEqIcon />,
-    external: true,
-  },
 ];
+
+/**
+ * Shown only when `ADMIN_GRAFANA_BASE_URL` is set on the admin server (surfaced
+ * as `config.grafana` via `/auth/config`). When monitoring is off, the grafana
+ * container doesn't exist and the link would 502 — hiding it is better than a
+ * dead link. The URL is root-relative `/grafana/d/...` through the nginx
+ * subpath proxy, not the in-cluster URL (which is not browser-reachable).
+ */
+const GRAFANA_NAV_ITEM: ExternalNavItem = {
+  label: 'Grafana',
+  href: grafanaFleetOverviewHref(),
+  icon: <MonitorIcon />,
+  external: true,
+};
+
+const AUDIO_METER_NAV_ITEM: ExternalNavItem = {
+  label: 'Audio meter (this device)',
+  href: audioMeterHref(),
+  icon: <GraphicEqIcon />,
+  external: true,
+};
 
 /**
  * Authenticated app shell: top bar (title, health, sign out) + side nav +
  * routed content area.
  */
 export const AppLayout = () => {
-  const { identity, logout } = useAuth();
+  const { identity, logout, config } = useAuth();
   const { showUuids, setShowUuids } = useSettings();
   const [signingOut, setSigningOut] = useState(false);
+
+  const navItems: NavItem[] = [
+    ...NAV_ITEMS,
+    ...(config?.grafana ? [GRAFANA_NAV_ITEM] : []),
+    AUDIO_METER_NAV_ITEM,
+  ];
 
   const handleSignOut = () => {
     setSigningOut(true);
@@ -149,7 +172,7 @@ export const AppLayout = () => {
         <Toolbar />
         <Divider />
         <List>
-          {NAV_ITEMS.map((item) =>
+          {navItems.map((item) =>
             'href' in item ? (
               <ListItemButton
                 key={item.href}
