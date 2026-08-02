@@ -44,6 +44,43 @@ describe('RoomPicker', () => {
     });
   });
 
+  it('reports a failed search instead of showing "No rooms match."', async () => {
+    // Arrange - the catch used to be silent, so a dead admin server rendered
+    // as "this deployment has no rooms matching that" (PLAN-VisibleErrors §5).
+    vi.mocked(adminApi.listRooms).mockRejectedValue(new Error('backend down'));
+    render(<RoomPicker selected={[]} onChange={() => undefined} />);
+
+    // Act
+    const input = screen.getByRole('combobox', { name: 'Rooms' });
+    fireEvent.change(input, { target: { value: 'Conf' } });
+
+    // Assert - said twice on purpose: in the field's helper text and in place
+    // of the "No rooms match." empty-list wording inside the open popup.
+    expect(
+      await screen.findAllByText(/could not search rooms/i),
+    ).not.toHaveLength(0);
+    expect(screen.queryByText('No rooms match.')).not.toBeInTheDocument();
+  });
+
+  it('clears the failure notice once a later search succeeds', async () => {
+    // Arrange
+    vi.mocked(adminApi.listRooms).mockRejectedValueOnce(
+      new Error('backend down'),
+    );
+    render(<RoomPicker selected={[]} onChange={() => undefined} />);
+    await screen.findAllByText(/could not search rooms/i);
+
+    // Act
+    fireEvent.change(screen.getByRole('combobox', { name: 'Rooms' }), {
+      target: { value: 'Room' },
+    });
+
+    // Assert
+    await waitFor(() => {
+      expect(screen.queryAllByText(/could not search rooms/i)).toHaveLength(0);
+    });
+  });
+
   it('calls onChange when an option is selected', async () => {
     const onChange = vi.fn();
     render(<RoomPicker selected={[]} onChange={onChange} />);

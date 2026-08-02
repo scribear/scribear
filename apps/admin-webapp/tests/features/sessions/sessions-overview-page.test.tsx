@@ -5,6 +5,7 @@ import type { Room } from '@scribear/session-manager-schema';
 
 import { SessionsOverviewPage } from '#src/features/sessions/sessions-overview-page';
 import { adminApi } from '#src/lib/admin-api';
+import { ApiError } from '#src/lib/api-error';
 import { GRID_MAX_COLUMNS } from '#src/lib/session-rules';
 
 import { renderWithProviders } from '../../utils/render-with-providers';
@@ -57,5 +58,66 @@ describe('SessionsOverviewPage', () => {
         screen.getByRole('heading', { level: 2, name: room.name }),
       ).toBeInTheDocument();
     }
+  });
+
+  it('never says "No sessions today." in every room when the load failed', async () => {
+    // Arrange - the §5 shape on this page: a failed session load left
+    // `sessions` empty, so every room card reported a quiet day.
+    const rooms = manyRooms(GRID_MAX_COLUMNS + 1);
+    seedSelectedRooms(rooms);
+    vi.mocked(adminApi.listSessions).mockRejectedValue(
+      new ApiError('UPSTREAM_UNREACHABLE', 'unreachable', 503, 'req-42'),
+    );
+
+    // Act
+    renderWithProviders(<SessionsOverviewPage />);
+
+    // Assert
+    expect(
+      await screen.findByText('Could not load sessions.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('No sessions today.')).not.toBeInTheDocument();
+    expect(screen.getByText('req-42')).toBeInTheDocument();
+  });
+
+  it('still says "No sessions today." when the day really is empty', async () => {
+    // Arrange
+    const rooms = manyRooms(GRID_MAX_COLUMNS + 1);
+    seedSelectedRooms(rooms);
+    vi.mocked(adminApi.listSessions).mockResolvedValue({ items: [] });
+
+    // Act
+    renderWithProviders(<SessionsOverviewPage />);
+    await waitFor(() => {
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    });
+
+    // Assert
+    expect(screen.queryAllByText('No sessions today.')).toHaveLength(
+      rooms.length,
+    );
+    expect(
+      screen.queryByText('Could not load sessions.'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('explains an unusable picker instead of telling the operator to select rooms from it', async () => {
+    // Arrange - with no persisted selection the page fetches rooms to seed a
+    // default. That catch was silent, so a dead backend rendered "Select rooms
+    // above to view their calendar." above a picker that could not list any.
+    vi.mocked(adminApi.listRooms).mockRejectedValue(
+      new ApiError('UPSTREAM_UNREACHABLE', 'unreachable', 503),
+    );
+
+    // Act
+    renderWithProviders(<SessionsOverviewPage />);
+
+    // Assert
+    expect(
+      await screen.findByText('Could not load the room list.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText('Select rooms above to view their calendar.'),
+    ).not.toBeInTheDocument();
   });
 });

@@ -21,16 +21,24 @@ export interface RoomPickerProps {
 export const RoomPicker = ({ selected, onChange }: RoomPickerProps) => {
   const [inputValue, setInputValue] = useState('');
   const [options, setOptions] = useState<Room[]>([]);
+  const [searchFailed, setSearchFailed] = useState(false);
 
   useEffect(() => {
     const alive = { current: true };
     adminApi
       .listRooms({ search: inputValue, limit: 25 })
       .then((res) => {
-        if (alive.current) setOptions(res.items);
+        if (!alive.current) return;
+        setSearchFailed(false);
+        setOptions(res.items);
       })
       .catch(() => {
-        // Best-effort; leave options as-is on error.
+        // The error object itself is not kept: this is a search-as-you-type
+        // control, and the only thing the operator can do about any cause is
+        // type again. What they must NOT see is the previous "no rooms match"
+        // wording, which would report a failed search as an empty result —
+        // so the flag below rewrites the empty-list text and marks the field.
+        if (alive.current) setSearchFailed(true);
       });
     return () => {
       alive.current = false;
@@ -57,8 +65,25 @@ export const RoomPicker = ({ selected, onChange }: RoomPickerProps) => {
           return <Chip key={key} label={room.name} {...itemProps} />;
         })
       }
+      noOptionsText={
+        searchFailed
+          ? 'Could not search rooms — the admin server did not answer.'
+          : 'No rooms match.'
+      }
       renderInput={(params) => (
-        <TextField {...params} label="Rooms" placeholder="Search rooms…" />
+        <TextField
+          {...params}
+          label="Rooms"
+          placeholder="Search rooms…"
+          error={searchFailed}
+          // Not colour alone (WCAG SC 1.4.1): the helper text says it, and it
+          // names the next action rather than leaving a silently stale list.
+          helperText={
+            searchFailed
+              ? 'Could not search rooms — the admin server did not answer. Any rooms listed are from an earlier search. Edit your search to try again.'
+              : undefined
+          }
+        />
       )}
     />
   );

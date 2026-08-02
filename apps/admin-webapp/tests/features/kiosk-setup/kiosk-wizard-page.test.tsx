@@ -285,6 +285,39 @@ describe('KioskWizardPage', () => {
         callsAtUnmount,
       );
     }, 10_000);
+
+    it('says it cannot tell, rather than waiting forever, when the poll keeps failing', async () => {
+      // Arrange: same real-timer approach as above. Step 3's entire UI is a
+      // spinner reading "Waiting for the kiosk to activate…", and the poll's
+      // catch was empty — so a dead admin server left the wizard waiting
+      // forever and implicitly blaming the kiosk (PLAN-VisibleErrors §5).
+      const user = userEvent.setup();
+      vi.mocked(adminApi.getDevice).mockRejectedValue(
+        new Error('admin server down'),
+      );
+      renderWithProviders(<KioskWizardPage />);
+      await registerDevice(user);
+      await clickNext(user);
+      vi.mocked(adminApi.createRoom).mockResolvedValue(
+        buildRoom({ uid: 'room-1' }),
+      );
+      await user.type(screen.getByLabelText('Room name'), 'Room 101');
+      await user.click(screen.getByRole('button', { name: /create room/i }));
+      await screen.findByText('room-1', { selector: 'strong' });
+      await clickNext(user);
+      await clickNextOrSkip(user);
+
+      // Act: three consecutive failures at POLL_MS = 3000ms.
+      // Assert
+      await waitFor(
+        () => {
+          expect(
+            screen.getByText(/cannot tell whether the kiosk has activated/i),
+          ).toBeInTheDocument();
+        },
+        { timeout: 12_000, interval: 250 },
+      );
+    }, 20_000);
   });
 
   describe('kiosk URL', (it) => {

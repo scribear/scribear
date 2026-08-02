@@ -1,8 +1,30 @@
 import type { DependencyList } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 
+/**
+ * The fetch's outcome as a discriminated union — the single-value sibling of
+ * {@link AsyncListLoad} (PLAN-VisibleErrors §10.2), with the same
+ * `loading | ok | unavailable` vocabulary `useAlerts` uses. `data` is reachable
+ * **only** through `ok`, so a page cannot describe a failed load with the
+ * wording it uses for an empty one.
+ *
+ * Additive: `data` / `loading` / `error` below are unchanged and still
+ * supported, because a dozen pages read them and most are outside the scope of
+ * the change that introduced this. New branches should prefer `state`.
+ */
+export type AsyncDataLoad<T> =
+  | { status: 'loading' }
+  | { status: 'ok'; data: T }
+  | { status: 'unavailable'; error: unknown };
+
 export interface AsyncDataState<T> {
-  /** Latest successful result, or null before the first success. */
+  /** Discriminated view of the same fetch. Prefer this over the three fields below. */
+  state: AsyncDataLoad<T>;
+  /**
+   * Latest successful result, or null before the first success. Retained
+   * across a later failure — check `error`/`state` before describing it as
+   * current.
+   */
   data: T | null;
   /** True while a fetch is in flight (including re-fetches). */
   loading: boolean;
@@ -30,7 +52,10 @@ export function useAsyncData<T>(
   fetcher: () => Promise<T>,
   deps: DependencyList,
 ): AsyncDataState<T> {
-  const [data, setData] = useState<T | null>(null);
+  // Boxed rather than stored bare so `T` may itself be null (several callers
+  // fetch `Session | null`) without "resolved with null" and "never resolved"
+  // becoming the same state.
+  const [result, setResult] = useState<{ value: T } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   // Bumping this re-runs the effect without changing the caller's `deps`.
@@ -47,8 +72,8 @@ export function useAsyncData<T>(
     // eslint-disable-next-line @eslint-react/set-state-in-effect -- see above
     setError(null);
     fetcher()
-      .then((result) => {
-        if (alive.current) setData(result);
+      .then((value) => {
+        if (alive.current) setResult({ value });
       })
       .catch((err: unknown) => {
         if (alive.current) setError(err);
@@ -63,5 +88,17 @@ export function useAsyncData<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [...deps, reloadNonce]);
 
-  return { data, loading, error, reload };
+  // Derived, not stored, so `state` and the three legacy fields can never
+  // disagree. The final `loading` branch is unreachable in practice (the
+  // effect settles into exactly one of `result`/`error`); it is what the type
+  // needs for the window before the first settle.
+  const state: AsyncDataLoad<T> = loading
+    ? { status: 'loading' }
+    : error !== null
+      ? { status: 'unavailable', error }
+      : result !== null
+        ? { status: 'ok', data: result.value }
+        : { status: 'loading' };
+
+  return { state, data: result?.value ?? null, loading, error, reload };
 }

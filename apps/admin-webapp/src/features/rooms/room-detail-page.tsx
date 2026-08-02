@@ -37,6 +37,7 @@ import type { Device, Room, Session } from '@scribear/session-manager-schema';
 
 import { ConfirmDialog } from '#src/components/confirm-dialog';
 import { DevicePresenceChip } from '#src/components/device-presence-chip';
+import { ErrorState } from '#src/components/error-state';
 import { NameWithUid } from '#src/components/name-with-uid';
 import { TimezoneNote } from '#src/components/timezone-note';
 import type { RoomDetail } from '#src/lib/admin-api';
@@ -448,12 +449,27 @@ export const RoomDetailPage = () => {
   }
 
   if (!detail) {
-    return misconfigured ? (
-      <Alert severity="error">
-        Admin backend misconfiguration — an operator must check the
-        server&apos;s ADMIN_API_KEY.
-      </Alert>
-    ) : (
+    // "Room not found." is a statement about the deployment, so it is reserved
+    // for the one error that actually means it: a 404. Every other failure —
+    // session-manager down, a wrong ADMIN_API_KEY, a rate limit, no network —
+    // used to render the same sentence, which is the §5 bug one level up from
+    // the lists (PLAN-VisibleErrors §5; the plan located it in the devices
+    // table below, but that table is unreachable without `detail`).
+    // Keyed on the status, not the code: admin-server passes an upstream 404
+    // through with whatever `code` Session Manager sent.
+    if (
+      error !== null &&
+      !(error instanceof ApiError && error.status === 404)
+    ) {
+      return (
+        <ErrorState
+          title="Could not load this room."
+          error={error}
+          onRetry={reload}
+        />
+      );
+    }
+    return (
       <Typography
         sx={{
           color: 'text.secondary',

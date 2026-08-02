@@ -30,19 +30,22 @@ import { ActivationCodeDisplay } from '#src/components/activation-code-display';
 import { KioskUrlInstructions } from '#src/components/kiosk-url-instructions';
 import { ScheduleStep } from '#src/features/kiosk-setup/schedule-step';
 import { adminApi } from '#src/lib/admin-api';
-import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { isApiErrorCode } from '#src/lib/api-error';
+import { errorMessage } from '#src/lib/api-failure';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 
 const DEFAULT_TIMEZONE = 'America/Chicago';
 const POLL_MS = 3000;
+/**
+ * Consecutive failed activation polls before the wizard says so. One failure
+ * is a blip on a 3 s timer; three in a row (~9 s) is a problem the operator is
+ * otherwise given no way to notice.
+ */
+const POLL_FAILURES_BEFORE_WARNING = 3;
 const STEPS = ['Device', 'Room', 'Schedule', 'Verify'];
 
 type RoomChoice = 'new' | 'existing';
-
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof ApiError ? err.message : fallback;
-}
 
 interface DeviceStepProps {
   deviceName: string;
@@ -285,9 +288,16 @@ interface VerifyStepProps {
   deviceUid: string | null;
   roomUid: string | null;
   deviceActive: boolean;
+  /** True once the activation poll has failed repeatedly — see `POLL_FAILURES_BEFORE_WARNING`. */
+  pollStalled: boolean;
 }
 
-const VerifyStep = ({ deviceUid, roomUid, deviceActive }: VerifyStepProps) => {
+const VerifyStep = ({
+  deviceUid,
+  roomUid,
+  deviceActive,
+  pollStalled,
+}: VerifyStepProps) => {
   if (deviceActive) {
     return (
       <Stack
@@ -323,7 +333,9 @@ const VerifyStep = ({ deviceUid, roomUid, deviceActive }: VerifyStepProps) => {
         py: 4,
       }}
     >
-      <CircularProgress aria-label="Waiting for the kiosk to activate" />
+      {!pollStalled && (
+        <CircularProgress aria-label="Waiting for the kiosk to activate" />
+      )}
       <Typography
         sx={{
           color: 'text.secondary',
@@ -331,6 +343,14 @@ const VerifyStep = ({ deviceUid, roomUid, deviceActive }: VerifyStepProps) => {
       >
         Waiting for the kiosk to activate…
       </Typography>
+      {pollStalled && (
+        <Alert severity="error" sx={{ width: '100%' }}>
+          Cannot tell whether the kiosk has activated — the admin server has not
+          answered the last few checks. The kiosk may well have activated
+          already. Check the admin server, then reload this page; the activation
+          itself is recorded on the device, so nothing is lost.
+        </Alert>
+      )}
     </Stack>
   );
 };
@@ -392,6 +412,7 @@ export const KioskWizardPage = () => {
 
   // Step 3: verify
   const [deviceActive, setDeviceActive] = useState(false);
+  const [pollStalled, setPollStalled] = useState(false);
 
   const handleRegister = () => {
     setRegistering(true);
@@ -507,14 +528,27 @@ export const KioskWizardPage = () => {
   useEffect(() => {
     if (activeStep !== 3 || deviceUid === null || deviceActive) return;
     const alive = { current: true };
+    let consecutiveFailures = 0;
     const poll = () => {
       adminApi
         .getDevice(deviceUid)
         .then((d) => {
-          if (alive.current && d.active) setDeviceActive(true);
+          if (!alive.current) return;
+          consecutiveFailures = 0;
+          setPollStalled(false);
+          if (d.active) setDeviceActive(true);
         })
         .catch(() => {
-          /* transient poll failure — try again on the next tick */
+          // A single failure is genuinely transient and is swallowed. A run of
+          // them is not: this step's whole UI is a spinner reading "Waiting for
+          // the kiosk to activate…", so without this the wizard waits forever
+          // and blames the kiosk for the admin server being down
+          // (PLAN-VisibleErrors §5, §10.5).
+          if (!alive.current) return;
+          consecutiveFailures += 1;
+          if (consecutiveFailures >= POLL_FAILURES_BEFORE_WARNING) {
+            setPollStalled(true);
+          }
         });
     };
     poll();
@@ -621,6 +655,7 @@ export const KioskWizardPage = () => {
             deviceUid={deviceUid}
             roomUid={roomUid}
             deviceActive={deviceActive}
+            pollStalled={pollStalled}
           />
         )}
       </Paper>
