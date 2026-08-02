@@ -12,6 +12,27 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — CPU default model is now `base`; `transcription-service-cpu` publishes multi-arch
+
+The shipped CPU provider template now defaults to whisper **`base`** instead
+of `small`. `base` has comfortable headroom on CPU (mean RTF 0.17 vs 0.47 for
+`small` at the same `cpu_threads`), making the out-of-box CPU experience
+reliable on a wider range of hardware. `small` remains a one-line config edit
+for hosts that can afford it — see
+[Transcription on CPU-Only Hardware](https://github.com/scribear/scribear/wiki/Transcription-on-CPU-Only-Hardware)
+for the measured tradeoffs.
+
+This affects `provider_config.template.json` only. An existing deployment's
+`provider_config.json` is a copy and is not overwritten; edit it by hand to
+change the model. Models download automatically on first use via the `/models`
+bind mount (`HF_HOME=/models/hf`), so switching is a config edit and a restart,
+not a manual download.
+
+`transcription-service-cpu` is now published as a multi-arch manifest
+(`linux/amd64` + `linux/arm64`) alongside the Node and infra images. A Mac
+pulling `transcription-service-cpu:staging` gets a native arm64 image with no
+emulation. The two CUDA variants remain amd64-only — they cannot run on a Mac.
+
 ## Unreleased — onsite-only access gate (`compose.yml` v13)
 
 **Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. A
@@ -780,12 +801,14 @@ counts when the sidecar starts; those events happened before it was watching.
 ### CPU deployments
 
 A full stack was run on `TRANSCRIPTION_DEVICE=cpu` for the first time. On an
-RTX-class host's CPU (`small`, `cpu_threads` 4, 5000 ms period) a healthy single
-session measured **mean RTF 0.45–0.479 and a 2.9% drop share**, and at 3 sessions
-**56.3%** — so the drop-share thresholds need no CPU override, but
-`MONITORING_ASR_DUTY_RATIO` does: the GPU-calibrated 0.45 sits exactly on the
-healthy CPU value. Set it to **0.7** on CPU. With that one line a healthy CPU
-stack reports `{"alerts":[]}`.
+RTX-class host's CPU (`small`, `cpu_threads` 4, 5000 ms period — the default at
+the time; the shipped default is now `base`, which measures lower) a healthy
+single session measured **mean RTF 0.45–0.479 and a 2.9% drop share**, and at 3
+sessions **56.3%** — so the drop-share thresholds need no CPU override, but
+`MONITORING_ASR_DUTY_RATIO` can still need one: the GPU-calibrated 0.45 sits
+exactly on the healthy `small` value. Set it to **0.7** on CPU if running
+`small`; with `base` (0.17) the default 0.45 has room. With that one line a
+healthy CPU stack reports `{"alerts":[]}`.
 
 Above ~3 concurrent sessions this CPU configuration stops working altogether: at
 6 sessions every one was closed `1007 Client sent audio too quickly` and no

@@ -718,10 +718,12 @@ services:
       # The transcription T1 thresholds. Plumbed because their right values are
       # hardware-dependent in a way the others are not, and the sidecar's own
       # defaults are calibrated on a GPU: healthy CUDA operation measured mean RTF
-      # 0.28-0.33, while the shipped CPU template (small, cpu_threads 4) measured
-      # 0.471 keeping up perfectly. So a CPU deployment left on the defaults gets
-      # a permanent T1 warning, and without these variables the only remedy was to
-      # edit this file. Empty means "use the sidecar default".
+      # 0.28-0.33, while a CPU stack can land near or past that line depending on
+      # model and load — the shipped `base` template measured 0.17 at one session
+      # but `small` measured 0.471, and either can climb under concurrency. So a
+      # CPU deployment left on the defaults may get a permanent T1 warning, and
+      # without these variables the only remedy was to edit this file. Empty
+      # means "use the sidecar default".
       #
       # The wiki's "Transcription on CPU-Only Hardware" page carries measured
       # values per model and thread count.
