@@ -22,6 +22,7 @@ import type { Device, Room } from '@scribear/session-manager-schema';
 
 import { ActivationCodeDisplay } from '#src/components/activation-code-display';
 import { ConfirmDialog } from '#src/components/confirm-dialog';
+import { DevicePresenceChip } from '#src/components/device-presence-chip';
 import { KioskUrlInstructions } from '#src/components/kiosk-url-instructions';
 import { NameWithUid } from '#src/components/name-with-uid';
 import { TimezoneNote } from '#src/components/timezone-note';
@@ -292,6 +293,27 @@ export const DeviceDetailPage = () => {
                 variant="outlined"
               />
             )}
+          </Box>
+          <Divider />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography
+              variant="body2"
+              sx={{
+                color: 'text.secondary',
+                minWidth: 100,
+              }}
+            >
+              Presence
+            </Typography>
+            {/* Distinct from Status above: a device can be Activated and
+                still be Offline (unplugged). This is what answers "is the
+                kiosk plugged in?" on the deepest page in the console. */}
+            <DevicePresenceChip
+              active={device.active}
+              online={device.online}
+              lastSeenAt={device.lastSeenAt}
+              showLastSeenText
+            />
           </Box>
           <Divider />
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

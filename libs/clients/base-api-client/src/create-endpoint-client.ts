@@ -7,7 +7,11 @@ import type {
 } from '@scribear/base-schema';
 
 import { buildUrl } from './build-url.js';
-import { NetworkError, UnexpectedResponseError } from './errors.js';
+import {
+  InvalidResponseBodyError,
+  NetworkError,
+  UnexpectedResponseError,
+} from './errors.js';
 
 type InputKey = 'body' | 'querystring' | 'params' | 'headers';
 
@@ -31,13 +35,22 @@ type EndpointResponse<S extends BaseRouteSchema> = {
   };
 }[keyof S['response'] & number];
 
+/**
+ * Every error the client can put in the error slot. {@link
+ * InvalidResponseBodyError} is deliberately absent because it extends
+ * {@link UnexpectedResponseError} and is therefore already covered - callers
+ * narrowing on the union keep working, and callers that care can test for the
+ * subclass.
+ */
 type EndpointError = NetworkError | UnexpectedResponseError;
 
 /**
  * Two-slot result tuple. A declared status with a valid body returns as a
  * typed response regardless of whether the status is 2xx or 4xx. Any other
- * outcome (network failure, undeclared status, body schema mismatch)
- * populates the error slot.
+ * outcome (network failure, undeclared status, unparseable body, body schema
+ * mismatch) populates the error slot.
+ *
+ * The client never rejects: every failure mode lands in the error slot.
  */
 type EndpointResult<S extends BaseRouteSchema> =
   | [response: EndpointResponse<S>, error: null]
@@ -51,10 +64,22 @@ type EndpointResult<S extends BaseRouteSchema> =
  * - Declared statuses with matching bodies -> typed response.
  * - Fetch rejects -> {@link NetworkError}.
  * - Any other status, or a body failing the declared schema -> {@link UnexpectedResponseError}.
+ * - A declared status whose body is not readable JSON at all ->
+ *   {@link InvalidResponseBodyError}, a subclass of
+ *   {@link UnexpectedResponseError}.
  *
- * Infrastructure statuses (429, 502, 503, 504) fall into
- * `UnexpectedResponseError` because routes don't declare them; callers
- * branch on `error.status` when they need to.
+ * Infrastructure statuses (502, 503, 504) fall into `UnexpectedResponseError`
+ * because routes don't declare them; callers branch on `error.status` when
+ * they need to. 429 is *not* in that list: session-manager's rate-limited
+ * routes declare it and return a canonical `ErrorReply` body, so it arrives
+ * as a typed response. Routes that opt into a rate limiter without declaring
+ * 429 are the exception, not the rule.
+ *
+ * Note this function returns only `{status, data}` — response *headers* are
+ * discarded, so `Retry-After` on a 429 is not reachable from here.
+ *
+ * The returned function never rejects. Every failure - including a body that
+ * cannot be parsed - is reported through the error slot of the tuple.
  *
  * @param schema BaseRouteSchema for this endpoint.
  * @param route HTTP method + URL pattern.
@@ -121,7 +146,16 @@ function createEndpointClient<S extends BaseRouteSchema>(
       return [{ status, data: null } as EndpointResponse<S>, null];
     }
 
-    const body: unknown = await response.json();
+    // A declared status is no guarantee the service produced the body: a
+    // proxy can serve an HTML 500, a 400 can arrive empty, and a dropped
+    // connection leaves truncated JSON. Parsing must not escape the tuple.
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch (cause: unknown) {
+      return [null, new InvalidResponseBodyError(status, cause)];
+    }
+
     if (!Value.Check(responseSchema, body)) {
       return [null, new UnexpectedResponseError(status)];
     }

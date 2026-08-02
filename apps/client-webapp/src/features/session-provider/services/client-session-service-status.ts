@@ -60,5 +60,17 @@ export enum JoinError {
   JOIN_CODE_NOT_FOUND = 'JOIN_CODE_NOT_FOUND',
   JOIN_CODE_EXPIRED = 'JOIN_CODE_EXPIRED',
   SESSION_NOT_CURRENTLY_ACTIVE = 'SESSION_NOT_CURRENTLY_ACTIVE',
+  /**
+   * session-manager's per-IP rate limit on `exchange-join-code` fired. Its own
+   * case because it is the one join failure where nothing is wrong with the
+   * join code, the session, or this device: a lecture hall behind one campus
+   * NAT shares a single client IP and trips the limit collectively. It used to
+   * land in {@link JoinError.UNKNOWN} - "Unable to join session. Please try
+   * again." - which instructs the entire room to retry into more 429s.
+   *
+   * Transient and self-clearing, so it is rendered as `warning`, not `error`
+   * (see the severity convention on {@link JoinNotice}).
+   */
+  RATE_LIMITED = 'RATE_LIMITED',
   UNKNOWN = 'UNKNOWN',
 }

@@ -23,7 +23,6 @@ import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
-import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
 import { useNavigate } from 'react-router-dom';
@@ -31,6 +30,7 @@ import { useNavigate } from 'react-router-dom';
 import type { Device } from '@scribear/session-manager-schema';
 
 import { ActivationCodeDisplay } from '#src/components/activation-code-display';
+import { DevicePresenceChip } from '#src/components/device-presence-chip';
 import { KioskUrlInstructions } from '#src/components/kiosk-url-instructions';
 import { NameWithUid } from '#src/components/name-with-uid';
 import { TimezoneNote } from '#src/components/timezone-note';
@@ -350,20 +350,11 @@ export const DevicesListPage = () => {
                     {/* Distinct from Status: a device can be activated and
                         still be unplugged. `online` is derived server-side so
                         every view agrees on the cutoff. */}
-                    <Tooltip
-                      title={
-                        device.lastSeenAt === null
-                          ? 'Never seen'
-                          : `Last seen ${new Date(device.lastSeenAt).toLocaleString()}`
-                      }
-                    >
-                      <Chip
-                        size="small"
-                        label={device.online ? 'Online' : 'Offline'}
-                        color={device.online ? 'success' : 'default'}
-                        variant="outlined"
-                      />
-                    </Tooltip>
+                    <DevicePresenceChip
+                      active={device.active}
+                      online={device.online}
+                      lastSeenAt={device.lastSeenAt}
+                    />
                   </TableCell>
                   <TableCell>{renderRoomCell(device.roomUid)}</TableCell>
                   <TableCell>

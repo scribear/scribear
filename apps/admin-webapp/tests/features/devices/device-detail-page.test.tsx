@@ -155,6 +155,81 @@ describe('DeviceDetailPage', () => {
     });
   });
 
+  describe('Presence', (it) => {
+    // §4.5: the device detail page previously had no presence field at all —
+    // the deepest page in the console carried strictly less information than
+    // the devices list. These pin that the fact is now visible, and that it
+    // reads plainly (not only inside a hover tooltip, unlike the list/room
+    // table) since this is the page an operator lands on to answer "is this
+    // kiosk plugged in?".
+    it('shows Online and when it was last seen for a device currently connected', async () => {
+      // Arrange
+      vi.mocked(adminApi.getDevice).mockResolvedValue(
+        buildDevice({
+          uid: DEVICE_UID,
+          online: true,
+          lastSeenAt: '2026-01-01T12:00:00.000Z',
+        }),
+      );
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      expect(screen.getByText('Online')).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          `Last seen ${new Date('2026-01-01T12:00:00.000Z').toLocaleString()}`,
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('shows Offline and the last time it was seen for a device that has disconnected', async () => {
+      // Arrange
+      vi.mocked(adminApi.getDevice).mockResolvedValue(
+        buildDevice({
+          uid: DEVICE_UID,
+          active: true,
+          online: false,
+          lastSeenAt: '2026-01-01T08:00:00.000Z',
+        }),
+      );
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      expect(screen.getByText('Offline')).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          `Last seen ${new Date('2026-01-01T08:00:00.000Z').toLocaleString()}`,
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('shows "Never seen" for a device that has never connected — distinct from having gone offline after being seen', async () => {
+      // Arrange
+      vi.mocked(adminApi.getDevice).mockResolvedValue(
+        buildDevice({
+          uid: DEVICE_UID,
+          active: false,
+          online: false,
+          lastSeenAt: null,
+        }),
+      );
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      expect(screen.getByText('Offline')).toBeInTheDocument();
+      expect(screen.getByText('Never seen')).toBeInTheDocument();
+    });
+  });
+
   describe('Re-register device dialog — kiosk URL', (it) => {
     afterEach(() => {
       vi.unstubAllGlobals();

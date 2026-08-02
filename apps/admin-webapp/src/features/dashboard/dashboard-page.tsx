@@ -23,6 +23,7 @@ import { ApiError, isApiErrorCode } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 
+import { AlertsPanel } from './alerts-panel';
 import { DemoRoomCard } from './demo-room-card';
 import { FleetPanel } from './fleet-panel';
 
@@ -184,6 +185,7 @@ export const DashboardPage = () => {
           Health status unavailable.
         </Typography>
       )}
+      <AlertsPanel />
       <DemoRoomCard />
       <FleetPanel />
       <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
