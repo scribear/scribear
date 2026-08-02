@@ -226,7 +226,7 @@ services:
       # Not `:?`-guarded, like DEPLOYMENT_ENV below and unlike the secrets: it
       # changes what is *reported*, never what runs, and must not be able to
       # stop a stack from starting.
-      COMPOSE_FILE_VERSION: "14"
+      COMPOSE_FILE_VERSION: "15"
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
@@ -738,6 +738,16 @@ services:
       # The wiki's "Transcription on CPU-Only Hardware" page carries measured
       # values per model and thread count.
       ALERT_ASR_DUTY_RATIO: ${MONITORING_ASR_DUTY_RATIO:-}
+      # The CPU duty-ratio threshold. The service reports each provider's
+      # inference device (`providerDevice` on /metrics/status), and the sidecar
+      # selects this threshold for a CPU provider instead of the GPU default
+      # (0.45). A healthy CPU stack running `small`/4 measured 0.471 — sitting
+      # exactly on the GPU alarm — while `base`/4 measured 0.173. 0.7 clears the
+      # worst measured healthy CPU value (0.745, speech-dense `small`/8).
+      #
+      # MONITORING_ASR_DUTY_RATIO above, if set, wins over both — the existing
+      # flat override. Empty means "use the sidecar default" (0.7).
+      ALERT_ASR_DUTY_RATIO_CPU: ${MONITORING_ASR_DUTY_RATIO_CPU:-}
       # The T1 warning and the T1 CRITICAL, both the share of scheduled job
       # periods in which no pass ran. The CRITICAL is keyed here rather than on
       # p95 RTF because RTF *falls* as the shared worker saturates - measured

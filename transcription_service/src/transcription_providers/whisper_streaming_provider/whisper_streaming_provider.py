@@ -199,6 +199,14 @@ class WhisperStreamingProvider(TranscriptionProviderInterface):
         # one.
         return self.config.job_period_ms
 
+    @property
+    def context_tags(self) -> list[str]:
+        # The registry resolves this tag against its tag-to-device map to
+        # report `providerDevice` on /metrics/status — the provider itself
+        # does not have access to the context's config, so the registry does
+        # the lookup rather than the provider.
+        return [self.config.whisper_context_tag]
+
     def create_session(
         self,
         session_config: object,
