@@ -3,6 +3,7 @@ import { Type } from 'typebox';
 import {
   type BaseRouteDefinition,
   type BaseRouteSchema,
+  RATE_LIMITED_REPLY_SCHEMA,
   STANDARD_ERROR_REPLIES,
 } from '@scribear/base-schema';
 
@@ -12,7 +13,7 @@ import { SESSION_AUTH_TAG } from '#src/tags.js';
 
 const EXCHANGE_JOIN_CODE_SCHEMA = {
   description:
-    "Exchange a join code for a session token and session refresh token. No prior authentication required - the join code itself is the credential. Scopes granted are the session's joinCodeScopes.",
+    "Exchange a join code for a session token and session refresh token. No prior authentication required - the join code itself is the credential. Scopes granted are the session's joinCodeScopes. Rate-limited per client IP, so a 429 is expected whenever a whole room joins from behind one NAT; it is transient and clears when the window rolls over.",
   tags: [SESSION_AUTH_TAG],
   body: Type.Object({
     joinCode: Type.String(),
@@ -43,6 +44,12 @@ const EXCHANGE_JOIN_CODE_SCHEMA = {
       code: Type.Literal('JOIN_CODE_EXPIRED'),
       message: Type.String(),
     }),
+    // Declared because this route opts into a per-IP rate limit (see the
+    // session-auth router). Undeclared, it arrived at the client as an
+    // `UnexpectedResponseError`, collapsed into "Unable to join session.
+    // Please try again." and told a lecture hall on one NAT to do the exact
+    // thing that produced the 429.
+    429: RATE_LIMITED_REPLY_SCHEMA,
   },
 } satisfies BaseRouteSchema;
 

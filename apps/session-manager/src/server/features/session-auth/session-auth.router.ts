@@ -41,6 +41,14 @@ export function sessionAuthRouter(fastify: BaseFastifyInstance) {
   // The next two routes are intentionally unauthenticated: the join code and
   // the refresh token themselves serve as the credential. They are the
   // credential-guessing surface, so they are rate-limited per client IP.
+  //
+  // These are the *only* rate-limited routes in this service - the plugin is
+  // registered with `global: false` (see create-server.ts) - which is why 429
+  // is declared on exactly these two response schemas and not in
+  // STANDARD_ERROR_REPLIES. If you add `config.rateLimit` to another route,
+  // add `429: RATE_LIMITED_REPLY_SCHEMA` to its schema in the same commit, or
+  // its callers will see the limit as an unexplained `UnexpectedResponseError`
+  // again.
   fastify.route({
     ...EXCHANGE_JOIN_CODE_ROUTE,
     schema: EXCHANGE_JOIN_CODE_SCHEMA,

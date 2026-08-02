@@ -254,6 +254,16 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
   private _authFailures = 0;
 
   /**
+   * Whether the most recent refresh failure was session-manager's per-IP rate
+   * limit (429). Only used to word the terminal message once the retry budget
+   * is spent: a rate-limited viewer must not be told to "join again with a new
+   * join code", because a new join code is exchanged over a rate-limited route
+   * too - the advice reproduces the problem, and does it from every seat in
+   * the room at once.
+   */
+  private _refreshRateLimited = false;
+
+  /**
    * Set once the session has been declared unrecoverable, to keep the
    * transition one-way for the remainder of this session.
    */
@@ -402,6 +412,7 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
     const epoch = ++this._epoch;
     this._terminal = false;
     this._refreshFailures = 0;
+    this._refreshRateLimited = false;
     this._authFailures = 0;
     this._setLifecycle(ClientLifecycle.ACTIVE);
     this.emit('connectionStatus', SessionConnectionStatus.CONNECTING);
@@ -598,8 +609,14 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
       if (token !== null) return token;
 
       if (this._refreshFailures >= REFRESH_MAX_CONSECUTIVE_FAILURES) {
+        // The generic message sends the user to fetch a new join code. That is
+        // the wrong instruction after a rate limit and an actively harmful one
+        // when a whole room shares the IP that tripped it, so 429 gets its own
+        // wording: the credential is fine, the window just has to roll over.
         this._enterTerminal(
-          'Lost access to this session and could not restore it. Leave the session and join again with a new join code.',
+          this._refreshRateLimited
+            ? 'Too many people are reconnecting at once, so this session could not renew its access. Wait a minute, then reload this page — you do not need a new join code.'
+            : 'Lost access to this session and could not restore it. Leave the session and join again with a new join code.',
         );
         return null;
       }
@@ -620,6 +637,11 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
    * session is unrecoverable - clear stored identity and fall back to IDLE.
    * Any other failure returns `null` after charging the consecutive-failure
    * budget; retrying and giving up is {@link _refreshWithBackoff}'s job.
+   *
+   * A 429 is charged like any other transient failure - the budget is what
+   * stops the loop hammering a server that is already telling us to slow down
+   * - but it is also recorded in {@link _refreshRateLimited}, because it is the
+   * one failure whose terminal advice has to differ.
    */
   private async _refreshSessionToken(
     identity: SessionIdentity,
@@ -637,12 +659,14 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
     // only thing worth telling the user is the point at which retrying stops.
     if (error !== null) {
       this._refreshFailures++;
+      this._refreshRateLimited = false;
       return null;
     }
 
     switch (response.status) {
       case 200:
         this._refreshFailures = 0;
+        this._refreshRateLimited = false;
         return response.data.sessionToken;
       // 401 INVALID_REFRESH_TOKEN: refresh token is no longer usable. Drop
       // the stored identity and return to IDLE so the user can join a new
@@ -659,8 +683,17 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
       case 409:
         this._endSession(JoinNotice.SESSION_ENDED);
         return null;
+      // 429 RATE_LIMITED: session-manager's per-IP limit on
+      // `refresh-session-token`. Transient by construction, so it keeps
+      // retrying like any other transient failure - it only changes what the
+      // user is told if the budget runs out first.
+      case 429:
+        this._refreshFailures++;
+        this._refreshRateLimited = true;
+        return null;
       default:
         this._refreshFailures++;
+        this._refreshRateLimited = false;
         return null;
     }
   }
@@ -759,6 +792,12 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
         return JoinError.JOIN_CODE_EXPIRED;
       case 409:
         return JoinError.SESSION_NOT_CURRENTLY_ACTIVE;
+      // 429 RATE_LIMITED: session-manager's per-IP limit on
+      // `exchange-join-code`. Only reaches here because the route now declares
+      // 429; while it was undeclared the endpoint client reported it as an
+      // `UnexpectedResponseError` and it never got as far as this switch.
+      case 429:
+        return JoinError.RATE_LIMITED;
       default:
         return JoinError.UNKNOWN;
     }

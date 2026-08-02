@@ -41,7 +41,30 @@ const JOIN_ERROR_MESSAGES: Record<JoinError, string> = {
     'This join code has expired. Ask for a new one.',
   [JoinError.SESSION_NOT_CURRENTLY_ACTIVE]:
     'The session is not currently active.',
+  // Names the cause (the room, not this person), and gives a next action that
+  // does not reproduce it: no immediate retry, and explicitly no new join
+  // code. "Please try again." here was advice a whole lecture hall would take
+  // simultaneously, producing the next round of 429s.
+  [JoinError.RATE_LIMITED]:
+    'Too many people are joining at once. Wait a minute, then try the same join code again — this clears on its own.',
   [JoinError.UNKNOWN]: 'Unable to join session. Please try again.',
+};
+
+/**
+ * Severity per failure, following the convention `info` = expected, no action;
+ * `warning` = degraded/transient, no action yet; `error` = terminal, action
+ * required. Everything here is a genuine failure to join except the rate
+ * limit, which is a self-clearing condition the user did not cause and cannot
+ * fix - painting the join field red for it says "your code is wrong" about a
+ * code that is perfectly good.
+ */
+const JOIN_ERROR_SEVERITY: Record<JoinError, 'error' | 'warning'> = {
+  [JoinError.NETWORK_ERROR]: 'error',
+  [JoinError.JOIN_CODE_NOT_FOUND]: 'error',
+  [JoinError.JOIN_CODE_EXPIRED]: 'error',
+  [JoinError.SESSION_NOT_CURRENTLY_ACTIVE]: 'error',
+  [JoinError.RATE_LIMITED]: 'warning',
+  [JoinError.UNKNOWN]: 'error',
 };
 
 /**
@@ -60,6 +83,8 @@ export const JoinSessionModal = () => {
   const noticeId = useId();
 
   const isOpen = lifecycle === ClientLifecycle.IDLE;
+  const joinErrorSeverity =
+    joinError === null ? null : JOIN_ERROR_SEVERITY[joinError];
 
   const handleSubmit = (e: SyntheticEvent) => {
     e.preventDefault();
@@ -92,7 +117,9 @@ export const JoinSessionModal = () => {
             onChange={(e) => {
               setJoinCode(e.target.value.toUpperCase());
             }}
-            error={joinError !== null}
+            // Only a failure that says something is wrong with what was typed
+            // marks the field invalid; a rate limit does not.
+            error={joinErrorSeverity === 'error'}
             slotProps={{
               htmlInput: {
                 maxLength: 16,
@@ -102,10 +129,10 @@ export const JoinSessionModal = () => {
             }}
             sx={{ mb: 2 }}
           />
-          {joinError !== null && (
+          {joinError !== null && joinErrorSeverity !== null && (
             // role="alert" (MUI Alert default) announces it; the id ties it to
             // the field for follow-up navigation. SC 4.1.3, 3.3.1
-            <Alert id={errorId} severity="error" sx={{ mb: 2 }}>
+            <Alert id={errorId} severity={joinErrorSeverity} sx={{ mb: 2 }}>
               {JOIN_ERROR_MESSAGES[joinError]}
             </Alert>
           )}

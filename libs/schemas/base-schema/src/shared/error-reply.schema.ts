@@ -7,10 +7,10 @@ import { Type } from 'typebox';
  *
  * For the two statuses where the code is always the same, use the
  * specialized schemas below which narrow `code` with a literal. Statuses
- * emitted by infrastructure layers between the client and the service
- * (rate-limiter middleware, reverse proxy, load balancer) do not have a
- * service-owned schema at all; the client-side `UnexpectedResponseError`
- * in `@scribear/base-api-client` surfaces them based on status alone.
+ * emitted by layers outside the service entirely (reverse proxy, load
+ * balancer) do not have a service-owned schema at all; the client-side
+ * `UnexpectedResponseError` in `@scribear/base-api-client` surfaces them
+ * based on status alone.
  */
 export const ERROR_REPLY_SCHEMA = Type.Object(
   {
@@ -130,6 +130,37 @@ export const UNSUPPORTED_MEDIA_TYPE_REPLY_SCHEMA = Type.Object(
 );
 
 /**
+ * 429 Too Many Requests. Emitted by `@fastify/rate-limit` on a route that
+ * opted into a rate limit, via the `errorResponseBuilder` each service
+ * installs - which throws `HttpError.rateLimited(...)`, so the body lands in
+ * the canonical `ErrorReply` shape like any other thrown error. `code` is
+ * always `RATE_LIMITED`.
+ *
+ * Deliberately **not** in {@link STANDARD_ERROR_REPLIES}: rate limiting is
+ * opt-in per route, and declaring a status a route can never emit is worse
+ * than useless - it appears in the generated OpenAPI, and it adds an arm to
+ * every caller's `EndpointResponse` union that nothing can produce. Spread it
+ * into the `response` map of the routes that actually carry a
+ * `config.rateLimit`, and nowhere else.
+ *
+ * Note for callers: the plugin also sets a `retry-after` header (in seconds),
+ * but `createEndpointClient` returns only status + body, so that value is not
+ * reachable from a typed endpoint client today. Treat 429 as "wait, this
+ * clears on its own" rather than promising the user a specific countdown.
+ */
+export const RATE_LIMITED_REPLY_SCHEMA = Type.Object(
+  {
+    code: Type.Literal('RATE_LIMITED'),
+    message: Type.String({ description: 'Human-readable summary.' }),
+  },
+  {
+    $id: 'RateLimitedReply',
+    description:
+      '429 Too Many Requests. Emitted by the rate limiter on routes that opt into one. `code` is always `RATE_LIMITED`. Transient: the limit window expires on its own.',
+  },
+);
+
+/**
  * 500 Internal Server Error. Emitted when the server encountered an
  * unexpected exception. `code` is always `INTERNAL_ERROR`. Callers should
  * treat this as "retry with backoff; the issue is server-side."
@@ -157,11 +188,16 @@ export const INTERNAL_ERROR_REPLY_SCHEMA = Type.Object(
  * 401 is intentionally omitted: the expected `code` on a 401 depends on the
  * route's auth method(s) (e.g. `INVALID_ADMIN_KEY` vs `INVALID_DEVICE_TOKEN`).
  *
- * Infrastructure statuses (408, 413, 429, 502, 503, 504) are not declared
- * here because their response bodies are emitted by middleware (rate
- * limiters, body-size middleware, reverse proxies) rather than the service.
- * The client-side `UnexpectedResponseError` in `@scribear/base-api-client`
- * surfaces them based on status alone.
+ * Infrastructure statuses (408, 413, 502, 503, 504) are not declared here
+ * because their response bodies are emitted by middleware (body-size
+ * middleware, reverse proxies) rather than the service. The client-side
+ * `UnexpectedResponseError` in `@scribear/base-api-client` surfaces them
+ * based on status alone.
+ *
+ * 429 is the exception that proves the rule and is still not here: the body
+ * *is* service-owned (see {@link RATE_LIMITED_REPLY_SCHEMA}), but only routes
+ * carrying a `config.rateLimit` can ever emit it, so it is declared per route
+ * rather than globally.
  */
 export const STANDARD_ERROR_REPLIES = {
   400: VALIDATION_ERROR_REPLY_SCHEMA,

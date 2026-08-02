@@ -19,6 +19,7 @@ import type {
 } from '#src/features/session-provider/services/client-session-service';
 import {
   ClientLifecycle,
+  JoinError,
   JoinNotice,
   SessionConnectionStatus,
 } from '#src/features/session-provider/services/client-session-service-status';
@@ -541,5 +542,98 @@ describe('ClientSessionService resume after reload', () => {
     service.start(null);
 
     expect(identities).toEqual([]);
+  });
+});
+
+describe('ClientSessionService rate limiting', () => {
+  /** Response tuple for a 429 from either credential-exchange route. */
+  function rateLimited() {
+    return [
+      {
+        status: 429,
+        data: {
+          code: 'RATE_LIMITED',
+          message: 'Too many requests. Please retry shortly.',
+        },
+      },
+      null,
+    ];
+  }
+
+  it('gives a rate-limited join its own error rather than UNKNOWN', async () => {
+    exchangeJoinCode.mockResolvedValue(rateLimited());
+    const service = new ClientSessionService();
+    const joinErrors: (JoinError | null)[] = [];
+    service.on('joinError', (error) => joinErrors.push(error));
+
+    await service.joinSession('JOINCODE');
+
+    // A lecture hall behind one campus NAT shares a client IP and trips the
+    // limit collectively. Collapsed into UNKNOWN this read "Unable to join
+    // session. Please try again." - an instruction the whole room follows at
+    // once, producing the next round of 429s.
+    expect(joinErrors).toEqual([null, JoinError.RATE_LIMITED]);
+    expect(service.lifecycle).toBe(ClientLifecycle.IDLE);
+  });
+
+  it('still reports a genuinely unexpected join status as UNKNOWN', async () => {
+    exchangeJoinCode.mockResolvedValue([
+      { status: 500, data: { code: 'INTERNAL_ERROR', message: 'boom' } },
+      null,
+    ]);
+    const service = new ClientSessionService();
+    const joinErrors: (JoinError | null)[] = [];
+    service.on('joinError', (error) => joinErrors.push(error));
+
+    await service.joinSession('JOINCODE');
+
+    expect(joinErrors).toEqual([null, JoinError.UNKNOWN]);
+  });
+
+  it('does not tell a rate-limited viewer to fetch a new join code', async () => {
+    vi.useFakeTimers();
+    refreshSessionToken.mockResolvedValue(rateLimited());
+    const service = new ClientSessionService();
+    const errors: (string | null)[] = [];
+    service.on('error', (message) => errors.push(message));
+
+    service.start(IDENTITY);
+    fakeSocket.emit('open');
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    // Still bounded - 429 is charged to the same budget as any other
+    // transient failure, so the loop converges rather than hammering a server
+    // that is already asking it to stop.
+    expect(refreshSessionToken).toHaveBeenCalledTimes(5);
+    const terminal = errors.at(-1) ?? '';
+    // The load-bearing assertion: a new join code is exchanged over a
+    // rate-limited route too, so the old wording ("join again with a new join
+    // code") sent the user to reproduce the failure. The new wording may
+    // mention join codes, but only to rule them out.
+    expect(terminal).not.toMatch(/join again with a new join code/i);
+    expect(terminal).toMatch(/you do not need a new join code/i);
+    expect(terminal).toMatch(/too many people are reconnecting/i);
+    vi.useRealTimers();
+  });
+
+  it('keeps the generic terminal wording when the last failure was not a rate limit', async () => {
+    vi.useFakeTimers();
+    refreshSessionToken
+      .mockResolvedValueOnce(rateLimited())
+      .mockResolvedValueOnce(rateLimited())
+      .mockResolvedValue([null, new NetworkError('offline')]);
+    const service = new ClientSessionService();
+    const errors: (string | null)[] = [];
+    service.on('error', (message) => errors.push(message));
+
+    service.start(IDENTITY);
+    fakeSocket.emit('open');
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    // The flag describes the most recent failure, not "a 429 happened once":
+    // a session that started rate-limited and ended up genuinely offline must
+    // not be told to wait for a limit window that is no longer the problem.
+    expect(errors.at(-1)).toMatch(/could not restore it/i);
+    vi.useRealTimers();
   });
 });
