@@ -4107,4 +4107,366 @@ describe('ScheduleManagementService', () => {
       );
     });
   });
+  // BUG-1: `_doCreateWindow` had no `localStartTime !== localEndTime`
+  // pre-check, so the `auto_session_windows_local_times_distinct` CHECK fired
+  // inside the transaction and the operator got a 500 for the same typo
+  // `_doCreateSchedule` answers with a sentence.
+  describe('auto-session windows - INVALID_LOCAL_TIMES', (it) => {
+    async function seedOpenWindow(roomUid: string, now: Date) {
+      const win = await service.createAutoSessionWindow(
+        {
+          roomUid,
+          activeStart: new Date(now.getTime() + 86_400_000),
+          activeEnd: null,
+          localStartTime: '08:00',
+          localEndTime: '09:00',
+          daysOfWeek: ['MON'],
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+      if (typeof win === 'string')
+        throw new Error('seed window failed: ' + win);
+      return win;
+    }
+
+    it('returns INVALID_LOCAL_TIMES from createAutoSessionWindow instead of tripping the DB CHECK', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-02T12:00:00Z');
+
+      // Act
+      const result = await service.createAutoSessionWindow(
+        {
+          roomUid,
+          activeStart: new Date(now.getTime() + 86_400_000),
+          activeEnd: null,
+          localStartTime: '10:00',
+          localEndTime: '10:00',
+          daysOfWeek: ['MON'],
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+
+      // Assert - a typed refusal, and no row written.
+      expect(result).toBe('INVALID_LOCAL_TIMES');
+      const windows = await service.listAutoSessionWindowsForRoom(roomUid, {});
+      expect(windows).toEqual([]);
+    });
+
+    it('catches HH:MM against a stored HH:MM:SS on update, which a string compare misses', async () => {
+      // Arrange - the stored row reads back as `08:00:00`; the request says
+      // `08:00`. Same time of day, different strings - so a naive `===`
+      // pre-check would pass this straight through to the CHECK constraint.
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-02T12:00:00Z');
+      const win = await seedOpenWindow(roomUid, now);
+      expect(win.localStartTime).toBe('08:00:00');
+
+      // Act
+      const result = await service.updateAutoSessionWindow(
+        win.uid,
+        { localEndTime: '08:00' },
+        now,
+      );
+
+      // Assert - refused, and the close-and-reinsert rolled back so the
+      // original window is still open and unchanged.
+      expect(result).toBe('INVALID_LOCAL_TIMES');
+      const stillThere = await service.findAutoSessionWindowByUid(win.uid);
+      if (typeof stillThere === 'string')
+        throw new Error('window unexpectedly missing');
+      expect(stillThere.localEndTime).toBe('09:00:00');
+      expect(stillThere.activeEnd).toBeNull();
+    });
+
+    it('catches the same HH:MM / HH:MM:SS mismatch on a schedule update', async () => {
+      // Arrange - the schedule path had the identical hole; it was simply
+      // never reached because its `===` check caught the obvious typo first.
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-02T12:00:00Z');
+      const created = await service.createSchedule(
+        {
+          roomUid,
+          name: 'S',
+          activeStart: new Date(now.getTime() + 86_400_000),
+          activeEnd: null,
+          localStartTime: '08:00',
+          localEndTime: '09:00',
+          frequency: 'WEEKLY',
+          daysOfWeek: ['MON'],
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+      if (typeof created === 'string')
+        throw new Error('seed schedule failed: ' + created);
+
+      // Act
+      const result = await service.updateSchedule(
+        created.uid,
+        { localEndTime: '08:00' },
+        now,
+      );
+
+      // Assert
+      expect(result).toBe('INVALID_LOCAL_TIMES');
+    });
+  });
+
+  // BUG-2: `inRange` dropped an occurrence that straddled either end of the
+  // active range instead of clipping it. For the daily 00:00-23:59 window the
+  // admin console creates, every occurrence straddles both ends of any range
+  // that does not begin at midnight and finish at 23:59.
+  describe('active range clipping', (it) => {
+    const DAILY = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'] as const;
+
+    it('materializes an AUTO session ending at activeEnd rather than nothing at all', async () => {
+      // Arrange - "auto sessions every day, until 30 minutes from now".
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-05T14:00:00Z');
+      const activeEnd = new Date('2024-06-05T14:30:00Z');
+
+      // Act
+      const win = await service.createAutoSessionWindow(
+        {
+          roomUid,
+          activeStart: new Date('2024-06-05T00:00:00Z'),
+          activeEnd,
+          localStartTime: '00:00',
+          localEndTime: '23:59',
+          daysOfWeek: [...DAILY],
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+
+      // Assert - exactly one AUTO covering now and ending at activeEnd.
+      if (typeof win === 'string') throw new Error('create failed: ' + win);
+      const autos = (await listSessionsForRoom(roomUid)).filter(
+        (s) => s.type === 'AUTO',
+      );
+      expect(autos).toHaveLength(1);
+      expect(autos[0]!.scheduled_start_time).toEqual(now);
+      expect(autos[0]!.scheduled_end_time).toEqual(activeEnd);
+      const active = await service.findActiveSession(roomUid, now);
+      expect(active).not.toBeNull();
+    });
+
+    it('narrowing a live window ends the running AUTO at the requested instant, not now', async () => {
+      // Arrange - an AUTO running since midnight, as a backdated daily window
+      // produces. This is the "stop after this afternoon" request that used to
+      // stop the room mid-lecture.
+      const { uid: roomUid } = await insertRoom('UTC');
+      const createNow = new Date('2024-06-05T09:00:00Z');
+      const win = await service.createAutoSessionWindow(
+        {
+          roomUid,
+          activeStart: new Date('2024-05-29T00:00:00Z'),
+          activeEnd: null,
+          localStartTime: '00:00',
+          localEndTime: '23:59',
+          daysOfWeek: [...DAILY],
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        createNow,
+      );
+      if (typeof win === 'string') throw new Error('seed failed: ' + win);
+      const activeAuto = (await listSessionsForRoom(roomUid)).find(
+        (s) => s.type === 'AUTO' && s.scheduled_start_time <= createNow,
+      );
+      if (!activeAuto) throw new Error('expected a live AUTO session');
+
+      // Act - narrow the window to end 30 minutes from now.
+      const updateNow = new Date('2024-06-05T14:00:00Z');
+      const stopAt = new Date('2024-06-05T14:30:00Z');
+      const result = await service.updateAutoSessionWindow(
+        win.uid,
+        { activeEnd: stopAt },
+        updateNow,
+      );
+
+      // Assert - the same row survives, still running, ending at stopAt.
+      if (typeof result === 'string')
+        throw new Error('update failed: ' + result);
+      const sameRow = (await listSessionsForRoom(roomUid)).find(
+        (s) => s.uid === activeAuto.uid,
+      );
+      if (!sameRow) throw new Error('the live AUTO row was deleted');
+      expect(sameRow.end_override).toBeNull();
+      expect(sameRow.scheduled_end_time).toEqual(stopAt);
+      const active = await service.findActiveSession(roomUid, updateNow);
+      if (active === 'ROOM_NOT_FOUND') throw new Error('room vanished');
+      expect(active?.uid).toBe(activeAuto.uid);
+    });
+
+    it('produces a session covering now for a window whose activeStart is now', async () => {
+      // Arrange - the mirror-image failure: today's occurrence started at
+      // 00:00, before activeStart, so the whole day used to disappear and the
+      // first session appeared only on the next local day.
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-05T16:00:00Z');
+
+      // Act
+      const win = await service.createAutoSessionWindow(
+        {
+          roomUid,
+          activeStart: now,
+          activeEnd: null,
+          localStartTime: '00:00',
+          localEndTime: '23:59',
+          daysOfWeek: [...DAILY],
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+
+      // Assert
+      if (typeof win === 'string') throw new Error('create failed: ' + win);
+      const active = await service.findActiveSession(roomUid, now);
+      if (active === 'ROOM_NOT_FOUND') throw new Error('room vanished');
+      expect(active?.type).toBe('AUTO');
+      expect(active?.effectiveStart).toEqual(now);
+      expect(active?.effectiveEnd).toEqual(new Date('2024-06-05T23:59:00Z'));
+    });
+
+    it('clips a SCHEDULED occurrence to activeStart', async () => {
+      // Arrange - schedules go straight to `insertSessions` with no length
+      // check of their own, so this is the path the minimum-duration floor in
+      // the materializer exists for.
+      const { uid: roomUid } = await insertRoom('UTC', false);
+      const now = new Date('2024-06-04T12:00:00Z');
+      const activeStart = new Date('2024-06-05T10:00:00Z');
+
+      // Act
+      const created = await service.createSchedule(
+        {
+          roomUid,
+          name: 'All day',
+          activeStart,
+          activeEnd: new Date('2024-06-05T15:00:00Z'),
+          localStartTime: '00:00',
+          localEndTime: '23:59',
+          frequency: 'WEEKLY',
+          daysOfWeek: [...DAILY],
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+
+      // Assert - one SCHEDULED session, clipped at both ends.
+      if (typeof created === 'string')
+        throw new Error('create failed: ' + created);
+      const scheduled = (await listSessionsForRoom(roomUid)).filter(
+        (s) => s.type === 'SCHEDULED',
+      );
+      expect(scheduled).toHaveLength(1);
+      expect(scheduled[0]!.scheduled_start_time).toEqual(activeStart);
+      expect(scheduled[0]!.scheduled_end_time).toEqual(
+        new Date('2024-06-05T15:00:00Z'),
+      );
+    });
+
+    it('drops a residue shorter than the minimum instead of writing a degenerate session', async () => {
+      // Arrange - activeEnd 30 s after activeStart would leave a half-minute
+      // session; at exactly zero it would violate
+      // `sessions_scheduled_end_after_start` and surface as a 500.
+      const { uid: roomUid } = await insertRoom('UTC', false);
+      const now = new Date('2024-06-04T12:00:00Z');
+
+      // Act
+      const created = await service.createSchedule(
+        {
+          roomUid,
+          name: 'Sliver',
+          activeStart: new Date('2024-06-05T10:00:00Z'),
+          activeEnd: new Date('2024-06-05T10:00:30Z'),
+          localStartTime: '00:00',
+          localEndTime: '23:59',
+          frequency: 'WEEKLY',
+          daysOfWeek: [...DAILY],
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+
+      // Assert
+      if (typeof created === 'string')
+        throw new Error('create failed: ' + created);
+      const sessions = await listSessionsForRoom(roomUid);
+      expect(sessions).toEqual([]);
+    });
+
+    it('does not let a clipped occurrence overlap the session it abuts', async () => {
+      // Arrange - a clipped AUTO range must still respect the
+      // `sessions_no_overlap` exclusion constraint against a SCHEDULED
+      // session inside the same window.
+      const { uid: roomUid } = await insertRoom('UTC');
+      const now = new Date('2024-06-04T12:00:00Z');
+      const schedule = await service.createSchedule(
+        {
+          roomUid,
+          name: 'Lecture',
+          activeStart: new Date('2024-06-05T09:00:00Z'),
+          activeEnd: new Date('2024-06-05T11:00:00Z'),
+          localStartTime: '09:00',
+          localEndTime: '11:00',
+          frequency: 'WEEKLY',
+          daysOfWeek: [...DAILY],
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+      if (typeof schedule === 'string')
+        throw new Error('seed schedule failed: ' + schedule);
+
+      // Act - a daily window clipped to 08:00-15:00 on the same day.
+      const win = await service.createAutoSessionWindow(
+        {
+          roomUid,
+          activeStart: new Date('2024-06-05T08:00:00Z'),
+          activeEnd: new Date('2024-06-05T15:00:00Z'),
+          localStartTime: '00:00',
+          localEndTime: '23:59',
+          daysOfWeek: [...DAILY],
+          joinCodeScopes: [],
+          transcriptionProviderId: 'whisper',
+          transcriptionStreamConfig: {},
+        },
+        now,
+      );
+
+      // Assert - the transaction committed (the constraint is deferred to
+      // COMMIT, so a violation would surface as a throw here), and the AUTO
+      // sessions fill the window either side of the lecture.
+      if (typeof win === 'string') throw new Error('create failed: ' + win);
+      const sessions = await listSessionsForRoom(roomUid);
+      const autos = sessions.filter((s) => s.type === 'AUTO');
+      expect(
+        autos.map((a) => [a.scheduled_start_time, a.scheduled_end_time]),
+      ).toEqual([
+        [new Date('2024-06-05T08:00:00Z'), new Date('2024-06-05T09:00:00Z')],
+        [new Date('2024-06-05T11:00:00Z'), new Date('2024-06-05T15:00:00Z')],
+      ]);
+    });
+  });
 });

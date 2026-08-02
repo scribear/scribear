@@ -22,6 +22,7 @@ import type {
 import {
   ClientLifecycle,
   JoinError,
+  JoinNotice,
   SessionConnectionStatus,
 } from './client-session-service-status';
 
@@ -73,6 +74,12 @@ interface ClientSessionServiceEvents {
   transcript: (event: TranscriptEvent) => void;
   latency: (sample: LatencySample) => void;
   joinError: (error: JoinError | null) => void;
+  /**
+   * Why the join dialog is being shown, when the reason is not a failure, or
+   * `null` to clear. Today the only value is "the session ended normally";
+   * without it that case reopened the join dialog with nothing on it at all.
+   */
+  joinNotice: (notice: JoinNotice | null) => void;
   /**
    * Why this session is unrecoverable, or `null` to clear. Deliberately
    * narrow: it used to also carry transient blips ("Network error -
@@ -316,6 +323,9 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
     this._identity = null;
     this.emit('sessionIdentity', null);
     this.emit('joinError', null);
+    // A "the previous session ended" notice explains the dialog the user is
+    // looking at; the moment they act on it, it is stale.
+    this.emit('joinNotice', null);
 
     const [response, error] =
       await this._sessionManagerClient.sessionAuth.exchangeJoinCode({
@@ -359,11 +369,28 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
   /**
    * Disconnect from the current session and reset to {@link ClientLifecycle.IDLE}.
    * Persisted identity is cleared so a page reload won't try to resume.
+   *
+   * This is the *user-initiated* leave (the Leave button, and the internal
+   * paths where there is nothing to explain), so it carries no notice: the
+   * user knows why the join dialog is back. Ending because the session itself
+   * ended goes through {@link _endSession} with a {@link JoinNotice} instead.
    */
   leaveSession(): void {
+    this._endSession(null);
+  }
+
+  /**
+   * Return to {@link ClientLifecycle.IDLE}, optionally telling the user why.
+   * `notice` is emitted before the lifecycle change so the join dialog opens
+   * with its explanation already in the store rather than blank for a frame.
+   * Passing `null` also *clears* any stale notice, which is what makes a
+   * subsequent user-initiated leave not still claim the session ended.
+   */
+  private _endSession(notice: JoinNotice | null): void {
     this._teardownActiveSession();
     this._identity = null;
     this.emit('sessionIdentity', null);
+    this.emit('joinNotice', notice);
     this._enterIdle();
   }
 
@@ -458,9 +485,13 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
     socket.on('close', (code, reason) => {
       if (epoch !== this._epoch) return;
       // 1000 = normal close (sessionEnded message received) - session is
-      // over and the persisted identity should be cleared.
+      // over and the persisted identity should be cleared. This is the one
+      // close code that is *expected*, so it is also the one the user must be
+      // told about explicitly: everything else on screen is about to be
+      // replaced by the join dialog, and without the notice that dialog
+      // reopens blank and a normal end is indistinguishable from a crash.
       if (code === 1000) {
-        this.leaveSession();
+        this._endSession(JoinNotice.SESSION_ENDED);
         return;
       }
       // 1008 = auth failure. The cached session token was rejected; drop it
@@ -613,12 +644,20 @@ export class ClientSessionService extends EventEmitter<ClientSessionServiceEvent
       case 200:
         this._refreshFailures = 0;
         return response.data.sessionToken;
-      // 401 INVALID_REFRESH_TOKEN or 409 SESSION_ENDED: refresh token is no
-      // longer usable. Drop the stored identity and return to IDLE so the
-      // user can join a new session.
+      // 401 INVALID_REFRESH_TOKEN: refresh token is no longer usable. Drop
+      // the stored identity and return to IDLE so the user can join a new
+      // session. Nothing specific to say - the cause is a credential the user
+      // never saw - so this keeps the bare join dialog it always had.
       case 401:
-      case 409:
         this.leaveSession();
+        return null;
+      // 409 SESSION_ENDED: session-manager saying the same thing the 1000
+      // close says, over the other channel (this path is how a viewer whose
+      // socket died first learns of it). Same event, so the same notice -
+      // otherwise which of the two channels noticed first would decide
+      // whether the user gets an explanation.
+      case 409:
+        this._endSession(JoinNotice.SESSION_ENDED);
         return null;
       default:
         this._refreshFailures++;

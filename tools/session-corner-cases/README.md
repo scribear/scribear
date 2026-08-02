@@ -75,93 +75,108 @@ has sat at 5/6 ever since.
 
 ## Bugs this suite found
 
-### BUG-1 — an auto-session window with equal local times answers 500
+All three were fixed in `2026-08-01-SessionBugFixes`; the assertions that used
+to pin the broken behaviour now assert the correct behaviour, which is what
+turned them red and forced this section to be rewritten. They are kept here
+because the defect explains why the check is shaped the way it is.
 
-`create-auto-session-window` and `update-auto-session-window` have **no
-`localStartTime !== localEndTime` pre-check**. `_doCreateSchedule` has one
+### Numbering
+
+`BUG-n` / `QUIRK-n` are stable identifiers, not a sequence: they are not
+renumbered when one is fixed, so a label in an old run log or commit message
+still resolves. `QUIRK-4` being the only surviving pin is expected.
+
+### BUG-1 — an auto-session window with equal local times answered 500
+
+`create-auto-session-window` and `update-auto-session-window` had **no
+`localStartTime !== localEndTime` pre-check**. `_doCreateSchedule` had one
 (`INVALID_LOCAL_TIMES` → `400`, with a sentence naming the problem); the window
-path (`_doCreateWindow`) validates only `activeEnd`, so the
-`auto_session_windows_local_times_distinct` CHECK fires inside the transaction
-and the operator gets an opaque `500 INTERNAL_ERROR` for the same typo.
+path (`_doCreateWindow`) validated only `activeEnd`, so the
+`auto_session_windows_local_times_distinct` CHECK fired inside the transaction
+and the operator got an opaque `500 INTERNAL_ERROR` for the same typo.
 
-Minimal reproduction:
+Both window paths now mirror the schedule path exactly:
+`400 VALIDATION_ERROR` with `"localStartTime and localEndTime must not be
+equal."`. No schema change was needed — `400 VALIDATION_ERROR` is already
+declared on every route through `STANDARD_ERROR_REPLIES`, which is also all the
+schedule route ever declared for it.
 
-```bash
-curl -sk -X POST https://localhost:8443/api/session-manager/v1/schedule-management/create-auto-session-window \
-  -H "authorization: Bearer $SESSION_MANAGER_API_KEY" -H 'content-type: application/json' \
-  -d '{"roomUid":"<room>","localStartTime":"10:00","localEndTime":"10:00",
-       "daysOfWeek":["MON"],"activeStart":"2026-08-02T00:00:00Z","activeEnd":null,
-       "joinCodeScopes":["RECEIVE_TRANSCRIPTIONS"],"transcriptionProviderId":"whisper",
-       "transcriptionStreamConfig":{}}'
-# {"code":"INTERNAL_ERROR","message":"Server encountered an unexpected error..."}
-```
+The comparison is on time-of-day, not on the string: `HH:MM` and `HH:MM:SS` are
+both accepted on the wire and the database stores either as `TIME`, so a row
+written as `08:00` reads back as `08:00:00` and an update merging a request's
+`08:00` against it is exactly the collision the CHECK fires on. A string
+`===` misses that, which is why the schedule path had the same hole one level
+deeper; both are fixed.
 
-session-manager logs the cause:
+Asserted by `equal-local-start-and-end-times-are-refused-on-schedules-and-windows`,
+whose update leg deliberately sends `08:00` against a stored `08:00:00`.
 
-```
-error: new row for relation "auto_session_windows" violates check constraint
-       "auto_session_windows_local_times_distinct"
-```
+### BUG-2 — an occurrence straddling either end of the active range was dropped, not clipped
 
-The same request against `create-schedule` returns
-`400 "localStartTime and localEndTime must not be equal."`.
-
-Suggested fix: mirror the schedule path's check at the top of `_doCreateWindow`
-and add an `INVALID_LOCAL_TIMES` reply to the two window schemas. Pinned by
-`equal-local-start-and-end-times-are-refused-on-schedules-and-windows`.
-
-Not fixed here — the brief was to find and report, not to change behaviour.
-
-### BUG-2 — `activeEnd` inside an occurrence deletes the occurrence instead of clipping it
-
-`inRange` (`schedule-materializer.ts`) rejects an occurrence outright when
-`occ.endUtc > schedule.activeEnd`:
+`inRange` (`schedule-materializer.ts`) rejected an occurrence outright at both
+ends of the schedule's active range:
 
 ```ts
+if (occ.startUtc < schedule.activeStart) return false;
 if (schedule.activeEnd && occ.endUtc > schedule.activeEnd) return false;
 ```
 
-For the shape the admin console actually creates — a daily `00:00–23:59` window
-— that means **any** `activeEnd` before `23:59` removes the whole day, not the
-tail of it. Two operator-visible consequences, both reproduced by the suite:
+For the shape the admin console actually creates — a daily `00:00-23:59` window
+— _every_ occurrence straddles both ends of any active range that does not
+begin at midnight and finish at 23:59. Three operator-visible consequences, all
+reproduced by the suite before the fix:
 
-1. Creating "auto sessions every day, until 30 minutes from now" produces **no
+1. Creating "auto sessions every day, until 30 minutes from now" produced **no
    auto session at all**, not a 30-minute one.
 2. Narrowing a **live** window (`update-auto-session-window` with an `activeEnd`
-   later today) **ends the AUTO session that is running right now**. The
-   reconciler finds no window occurrence covering the active session's start, so
-   it takes the `end_override = now` branch. An operator asking for "stop after
-   this afternoon" stops the room mid-lecture.
+   later today) **ended the AUTO session that was running right then**. The
+   reconciler found no window occurrence covering the active session's start, so
+   it took the `end_override = now` branch. An operator asking for "stop after
+   this afternoon" stopped the room mid-lecture.
+3. The mirror image at the other end: a window with `activeStart = now` lost
+   today's occurrence (it started at 00:00) and first materialized at tomorrow's
+   midnight. This was tracked separately as QUIRK-3, and is the reason
+   `tools/demo-e2e` backdates `activeStart` a week and the admin dialog forces
+   `activeStart` into the future.
 
-Minimal reproduction: create an auto-enabled room, a `00:00–23:59` window
-backdated a week (so it covers now), confirm `get-active-session` returns an
-AUTO session, then
+Occurrences are now **clipped** to `[activeStart, activeEnd]` —
+`startUtc = max(startUtc, activeStart)`, `endUtc = min(endUtc, activeEnd)` —
+which is what the field names imply and what `materializeAutoSessions` already
+did when filling a window around a blocking session. Clipping is arithmetic on
+absolute UTC instants, so a DST-adjusted occurrence keeps whichever instants
+`buildOccurrence` resolved.
 
-```bash
-curl -sk -X POST .../schedule-management/update-auto-session-window \
-  -H "authorization: Bearer $KEY" -H 'content-type: application/json' \
-  -d '{"windowUid":"<w>","activeEnd":"<now+30min>"}'      # 200 OK
-curl -sk .../schedule-management/get-active-session/<room> -H "authorization: Bearer $KEY"
-# null
-```
+A clipped residue shorter than `MIN_SESSION_DURATION_SECONDS` (60 s, the
+existing AUTO-slot floor) is dropped instead of materialized. The floor applies
+to clipped residues only, not to a short occurrence the operator asked for
+explicitly, and it applies to SCHEDULED occurrences as well as AUTO ones:
+SCHEDULED occurrences go straight to `insertSessions` with no other length
+check, so a zero-length residue would violate
+`sessions_scheduled_end_after_start` and come back as a 500 — the very failure
+mode BUG-1 is about. AUTO occurrences pass through `materializeAutoSessions`,
+which already applies the same floor to every slot.
 
-Whether clipping or dropping is _correct_ is a product decision — clipping is
-what the wording of the field implies and what the reconciler's own
-`materializeAutoSessions` does for blocker sessions — but silently ending a live
-session is not defensible either way. Pinned by
-`an-activeEnd-inside-an-occurrence-drops-the-occurrence-instead-of-clipping-it`.
+Asserted by `an-activeEnd-inside-an-occurrence-clips-it-instead-of-dropping-it`
+(both the fresh-window and narrow-a-live-window cases, including that the live
+session keeps its uid and ends at the requested instant) and by
+`an-auto-window-starting-now-covers-the-rest-of-today` for the `activeStart`
+half.
 
-### BUG-3 — `add-device-to-room` silently demotes a room's source device
+`a-fall-back-ambiguous-local-time-resolves-to-the-standard-time-instant` used
+the old drop behaviour as its discriminator and had to be rebuilt around
+clipping — see "What is checked" below.
 
-`add-device-to-room` **publishes a `409 TOO_MANY_SOURCE_DEVICES` reply that
-nothing can produce**: that code is only ever returned by `createRoom`.
-`RoomManagementService.addDeviceToRoom` runs no "this room already has a source"
+### BUG-3 — `add-device-to-room` silently demoted a room's source device
+
+`add-device-to-room` **published a `409 TOO_MANY_SOURCE_DEVICES` reply that
+nothing could produce**: that code was only ever returned by `createRoom`.
+`RoomManagementService.addDeviceToRoom` ran no "this room already has a source"
 check, and `RoomManagementRepository.addDeviceToRoom` clears `is_source` across
-the entire room before inserting when `asSource` is true. So the call succeeds
-with `204` and swaps the room's source out from under the operator.
+the entire room before inserting when `asSource` is true. So the call succeeded
+with `204` and swapped the room's source out from under the operator.
 
-The victim keeps its room membership and its long-lived `DEVICE_TOKEN`, still
-sees the session through `my-schedule`, and still gets a session token — with
+The victim kept its room membership and its long-lived `DEVICE_TOKEN`, still
+saw the session through `my-schedule`, and still got a session token — with
 `["RECEIVE_TRANSCRIPTIONS"]` instead of `["SEND_AUDIO","RECEIVE_TRANSCRIPTIONS"]`.
 That is a kiosk that starts, connects, shows a join code, and sends no audio,
 with nothing anywhere reporting a fault.
@@ -171,43 +186,24 @@ the reserved rooms — "Promoting some other device to source silently demotes t
 synthetic source, which then still authenticates and still finds the session but
 is no longer granted SEND_AUDIO, so the operator sees a device that starts and
 sends nothing" — and guards `TEST_AUDIO_ROOM_NOT_ASSIGNABLE` /
-`CANARY_ROOM_NOT_ASSIGNABLE` against. Ordinary teaching rooms have no such
-guard.
+`CANARY_ROOM_NOT_ASSIGNABLE` against. Ordinary teaching rooms had no such guard.
 
-Minimal reproduction:
+`asSource` on a room that already has a source is now refused with the 409 the
+route always published. Replacing a source is a real operator need — kiosk
+hardware breaks — so it keeps working, as the two deliberate calls it always
+should have been: attach with `asSource: false`, then `set-source-device`. Both
+admin-console callers (the kiosk wizard's "add to an existing room" and the room
+detail page's "add as source device") now do exactly that, because every room
+has a source and so both of those were _always_ swaps.
 
-```bash
-# room R with source device D1, live session S; D2 registered and activated, in no room
-curl -sk -X POST .../room-management/add-device-to-room -H "authorization: Bearer $KEY" \
-  -H 'content-type: application/json' \
-  -d '{"roomUid":"R","deviceUid":"D2","asSource":true}'          # 204
-
-curl -sk -X POST .../session-auth/exchange-device-token -H "cookie: DEVICE_TOKEN=<D1>" \
-  -H 'content-type: application/json' -d '{"sessionUid":"S"}'
-# 200 {"scopes":["RECEIVE_TRANSCRIPTIONS"]}      <- was ["SEND_AUDIO", ...]
-```
-
-Suggested fix: return the already-published `TOO_MANY_SOURCE_DEVICES` when
-`asSource` is true and the room has a source, and leave deliberate swaps to
-`set-source-device`. Pinned by `a-room-takes-exactly-one-source-device`.
+Asserted by `a-room-takes-exactly-one-source-device`, which checks the 409, that
+the incumbent keeps `SEND_AUDIO` afterwards, and that the attach-then-promote
+path completes the swap (new device gains `SEND_AUDIO`, old one loses it).
 
 ## Questionable-but-current behaviour also pinned
 
 These are not bugs so much as sharp edges. They are pinned so that changing them
 is a deliberate act.
-
-### QUIRK-3 — a window starting "now" produces nothing until tomorrow
-
-`inRange` also drops an occurrence whose **start** precedes `activeStart`. A
-daily `00:00–23:59` window created at 16:00 with `activeStart = now` loses
-today's occurrence (it started at 00:00) and first materializes at tomorrow's
-midnight. The admin dialog forces `activeStart` into the future, so an operator
-creating "auto sessions, every day, from now" gets nothing for the rest of the
-day and no explanation. `tools/demo-e2e` backdates `activeStart` a week for
-exactly this reason, with an hour of debugging recorded in its comments.
-
-Pinned by `an-auto-window-must-start-before-the-occurrence-to-cover-today`,
-which also asserts the backdated control case does work.
 
 ### QUIRK-4 — a schedule beyond a ranged listing is invisible to that range
 
@@ -216,6 +212,11 @@ A schedule starting 120 days out does not appear in a 90-day
 is the session-manager half of `SCHEDULE_BEYOND_90_DAY_WINDOW_INVISIBLE`, which
 `tools/admin-scheduling-e2e` documents as an accepted limitation of the admin
 console.
+
+### QUIRK-3 — retired
+
+"A window starting _now_ produces nothing until tomorrow" was the `activeStart`
+half of BUG-2 and was fixed with it. See BUG-2.
 
 ## What is checked
 
@@ -280,9 +281,13 @@ behaviour (BUG-1 ×2, BUG-2 ×2, BUG-3 ×3, QUIRK-3 ×2, QUIRK-4 ×1).
 - **fall-back**: ambiguous local times resolve to the **later, standard-time**
   instant. Conflict detection alone cannot see this (local→UTC is strictly
   increasing under either reading, so overlap decisions are identical) — the
-  check uses `inRange`'s `activeEnd` test as the discriminator instead: with
-  `activeEnd` placed _between_ the two candidate ends both occurrences are
-  dropped, and with it past the standard-time end they survive and conflict.
+  check uses where `activeEnd` cuts as the discriminator instead. Both
+  schedules sit wholly inside the ambiguous hour (`01:15–01:45` and
+  `01:20–01:40`) and `activeEnd` is the transition instant itself: under the
+  daylight reading they precede it, survive, and conflict; under the standard
+  reading they begin after it, clip to nothing, and vanish. A control with
+  `activeEnd` an hour later proves the pair really does conflict once inside
+  the range, so "no conflict" is a positive statement rather than an artefact.
 - DST transition instants are **computed from the host ICU database**, not
   hardcoded, so the checks keep working after the dates they were written
   against have passed — a hardcoded `2027-03-14` becomes an
@@ -294,7 +299,9 @@ behaviour (BUG-1 ×2, BUG-2 ×2, BUG-3 ×3, QUIRK-3 ×2, QUIRK-4 ×1).
   occurrence by a week).
 - the horizons: 90-day ranged listing (QUIRK-4), 7-day materialization, and
   `list-sessions` refusing a range over 31 days.
-- `activeEnd` mid-occurrence (BUG-2).
+- `activeEnd` and `activeStart` mid-occurrence **clip** rather than drop
+  (BUG-2), including that narrowing a live window keeps the running AUTO
+  session and moves its end.
 - toggling `autoSessionEnabled` off ends the live AUTO session and back on
   resumes from the untouched window.
 - deleting a window with a live AUTO session ends it (and is `404` the second
@@ -302,7 +309,9 @@ behaviour (BUG-1 ×2, BUG-2 ×2, BUG-3 ×3, QUIRK-3 ×2, QUIRK-4 ×1).
 
 ### Rooms / devices
 
-- exactly one source device per room (BUG-3).
+- exactly one source device per room: `add-device-to-room` with `asSource`
+  is `409 TOO_MANY_SOURCE_DEVICES` when the room has one, and the deliberate
+  swap through `set-source-device` still works (BUG-3).
 - a device cannot belong to two rooms.
 - a room's source device cannot be deleted or detached.
 - deleting a room with a live session cascades the session and kills its join
@@ -320,7 +329,8 @@ behaviour (BUG-1 ×2, BUG-2 ×2, BUG-3 ×3, QUIRK-3 ×2, QUIRK-4 ×1).
   including that the message names the deployment's configured providers.
 - an invalid timezone (`422`), an empty one, and that the `Etc/UTC` alias
   `Intl.supportedValuesOf` omits is still accepted.
-- equal local start/end times (BUG-1).
+- equal local start/end times on schedules **and** windows, including the
+  `HH:MM` vs stored `HH:MM:SS` form a string compare misses (BUG-1).
 - malformed vs unknown UUIDs, distinguished per resource.
 - `frequency`/`daysOfWeek` disagreement — including `daysOfWeek: []`, which the
   DB CHECK cannot catch (`array_length()` is `NULL` for an empty array, so the
@@ -330,9 +340,10 @@ behaviour (BUG-1 ×2, BUG-2 ×2, BUG-3 ×3, QUIRK-3 ×2, QUIRK-4 ×1).
 
 - **Activation-code expiry** is asserted from the advertised `expiry` timestamp,
   not by waiting five minutes for a code to lapse.
-- **Fall-back occurrence duration** is pinned indirectly, through `inRange`.
-  Observing the two-hour `00:30–01:30` occurrence directly would need the
-  transition inside the 7-day materialization horizon, which is true for a few
-  days a year.
+- **Fall-back occurrence duration** is not asserted. The check proves the
+  ambiguous local time resolves to the instant _after_ the transition;
+  observing the resulting two-hour `00:30–01:30` occurrence directly would need
+  the transition inside the 7-day materialization horizon, which is true for a
+  few days a year.
 - The suite asserts **session-manager and node-server** behaviour. The admin
   console's rendering of any of it is `tools/admin-scheduling-e2e`'s job.

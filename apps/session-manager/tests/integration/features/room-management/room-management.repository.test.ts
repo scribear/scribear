@@ -81,7 +81,10 @@ describe('RoomManagementRepository', () => {
       expect(result.uid).toBe(FIXED_UID);
       expect(result.name).toBe('Demo Room');
 
-      const all = await dbContext.db.selectFrom('rooms').select('uid').execute();
+      const all = await dbContext.db
+        .selectFrom('rooms')
+        .select('uid')
+        .execute();
       expect(all).toHaveLength(1);
     });
   });
@@ -357,6 +360,35 @@ describe('RoomManagementRepository', () => {
 
       // Act
       const result = await repository.findRoomMembership(deviceUid);
+
+      // Assert
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe('findSourceDeviceUid', (it) => {
+    it("returns the source device's uid", async () => {
+      // Arrange - one source and one plain member, so the query has to
+      // discriminate rather than just return the first membership row.
+      const { uid: roomUid } = await insertRoom();
+      const { uid: sourceUid } = await insertDevice();
+      const { uid: memberUid } = await insertDevice();
+      await repository.addDeviceToRoom(roomUid, sourceUid, true);
+      await repository.addDeviceToRoom(roomUid, memberUid, false);
+
+      // Act
+      const result = await repository.findSourceDeviceUid(roomUid);
+
+      // Assert
+      expect(result).toBe(sourceUid);
+    });
+
+    it('returns undefined for a room with no source device', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom();
+
+      // Act
+      const result = await repository.findSourceDeviceUid(roomUid);
 
       // Assert
       expect(result).toBeUndefined();

@@ -6,6 +6,10 @@ import type { Static } from 'typebox';
 import { BUILD_INFO_PATH, LogLevel } from '@scribear/base-fastify-server';
 
 import type { AdminDbClientConfig } from '#src/db/admin-db-client.js';
+import {
+  BACKUP_DIRECTORY_PATH,
+  type BackupDirectoryConfig,
+} from '#src/server/features/config-check/backup-directory.service.js';
 import type { ConfigCheckConfig } from '#src/server/features/config-check/config-check.service.js';
 import type { DeploymentVersionsConfig } from '#src/server/features/deployment-versions/deployment-versions.service.js';
 import type { HealthCheckerConfig } from '#src/server/features/health/health.service.js';
@@ -106,6 +110,15 @@ const CONFIG_SCHEMA = Type.Object({
   // never stop the stack from starting.
   ADMIN_GRAFANA_BASE_URL: Type.String({ default: '' }),
   ADMIN_PROMETHEUS_BASE_URL: Type.String({ default: '' }),
+
+  // db-backup's own settings (deployment/compose.yml v10), passed through
+  // unchanged so Config Check can report on them directly rather than
+  // inferring them - the same "none" default as db-backup itself, so a
+  // deployment that has not touched either variable reports consistently
+  // with what is actually running.
+  BACKUP_OFFSITE_METHOD: Type.String({ default: 'none' }),
+  BACKUP_INTERVAL_SECONDS: Type.Integer({ minimum: 1, default: 14_400 }),
+  BACKUP_ENABLED: Type.Boolean({ default: true }),
 
   // Operator test-audio devices (PLAN-TestAudioDevices §3). Empty base URL is
   // the default and means the feature is off: the panel reads
@@ -338,6 +351,9 @@ export class AppConfig {
       grafanaBaseUrl: this._env.ADMIN_GRAFANA_BASE_URL,
       prometheusBaseUrl: this._env.ADMIN_PROMETHEUS_BASE_URL,
       monitoringSidecarBaseUrl: this._env.MONITORING_SIDECAR_BASE_URL,
+      backupOffsiteMethod: this._env.BACKUP_OFFSITE_METHOD,
+      backupIntervalSeconds: this._env.BACKUP_INTERVAL_SECONDS,
+      backupEnabled: this._env.BACKUP_ENABLED,
       azureTenantId: this._env.AZURE_TENANT_ID,
       azureClientId: this._env.AZURE_CLIENT_ID,
       azureClientSecret: this._env.AZURE_CLIENT_SECRET,
@@ -346,6 +362,17 @@ export class AppConfig {
       // question an operator is waiting on, so one knob should bound both.
       upstreamTimeoutMs: this._env.HEALTH_CHECK_TIMEOUT_SEC * SECOND_MS,
     };
+  }
+
+  /**
+   * Fixed rather than driven by an environment variable: the container path
+   * is this image's own implementation detail, wired to db-backup's shared
+   * output only through `deployment/compose.yml`'s bind mount, which is free
+   * to change on either side without exposing a variable that would only
+   * ever be worth setting once.
+   */
+  get backupDirectoryConfig(): BackupDirectoryConfig {
+    return { path: BACKUP_DIRECTORY_PATH };
   }
 
   get sessionManagerGatewayConfig(): SessionManagerGatewayConfig {

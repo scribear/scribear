@@ -468,6 +468,27 @@ export class RoomManagementRepository {
   }
 
   /**
+   * Returns the UID of the room's current source device, if it has one.
+   *
+   * The partial index `idx_room_devices_source` covers exactly this predicate.
+   * At most one row can match: `room_devices_single_source` is a deferred
+   * constraint trigger, so a transaction can transiently hold two, but nothing
+   * outside a transaction ever observes that state.
+   *
+   * @param roomUid The room to look up.
+   * @returns The source device's UID, or `undefined` if the room has no source.
+   */
+  async findSourceDeviceUid(roomUid: string): Promise<string | undefined> {
+    const row = await this._dbClient.db
+      .selectFrom('room_devices')
+      .select('device_uid')
+      .where('room_uid', '=', roomUid)
+      .where('is_source', '=', true)
+      .executeTakeFirst();
+    return row?.device_uid;
+  }
+
+  /**
    * Checks whether a room with the given UID exists.
    * @param roomUid The room UID to check.
    * @returns `true` if the room exists, `false` otherwise.

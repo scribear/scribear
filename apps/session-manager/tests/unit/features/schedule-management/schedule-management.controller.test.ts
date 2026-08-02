@@ -414,6 +414,27 @@ describe('ScheduleManagementController', () => {
         ),
       ).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT' });
     });
+
+    // Matches the schedule path exactly: 400 VALIDATION_ERROR with a sentence
+    // naming the problem, rather than the 500 the DB CHECK used to produce.
+    it("throws 400 when service returns 'INVALID_LOCAL_TIMES'", async () => {
+      // Arrange
+      mockScheduleService.createAutoSessionWindow.mockResolvedValue(
+        'INVALID_LOCAL_TIMES',
+      );
+
+      // Act + Assert
+      await expect(
+        controller.createAutoSessionWindow(
+          { body: makeBody() } as never,
+          mockRes as never,
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'VALIDATION_ERROR',
+        message: 'localStartTime and localEndTime must not be equal.',
+      });
+    });
   });
 
   describe('getAutoSessionWindow', (it) => {
@@ -500,6 +521,25 @@ describe('ScheduleManagementController', () => {
           mockRes as never,
         ),
       ).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT' });
+    });
+
+    it("throws 400 when service returns 'INVALID_LOCAL_TIMES'", async () => {
+      // Arrange
+      mockScheduleService.updateAutoSessionWindow.mockResolvedValue(
+        'INVALID_LOCAL_TIMES',
+      );
+
+      // Act + Assert
+      await expect(
+        controller.updateAutoSessionWindow(
+          { body: { windowUid: 'win-1' } } as never,
+          mockRes as never,
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'VALIDATION_ERROR',
+        message: 'localStartTime and localEndTime must not be equal.',
+      });
     });
   });
 

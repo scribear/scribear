@@ -48,11 +48,18 @@ import { AutoWindowDialog } from './auto-window-dialog';
 import { OnDemandDialog } from './on-demand-dialog';
 import { ScheduleDialog } from './schedule-dialog';
 
+// Forward bound for the Sessions table only. Schedules and auto-session
+// windows are listed with no upper bound (see the listSchedules/
+// listAutoWindows calls below) so a far-future one is never hidden from the
+// page that manages it (QUIRK-4) — only materialized *sessions* are worth
+// capping, since those can accumulate without limit over time.
 const RANGE_DAYS = 90;
-// How far back the scheduling page looks. The session listing uses an overlap
-// predicate, so a session that started before page-load (e.g. an active
-// on-demand session) still appears. The schedule/window listing filters on
-// `active_start <= to`, so this primarily governs sessions.
+// How far back the scheduling page looks, for all three tables. The session
+// listing uses an overlap predicate, so a session that started before
+// page-load (e.g. an active on-demand session) still appears. The
+// schedule/window listing filters on `active_end IS NULL OR active_end >=
+// from`, so this excludes only schedules/windows that were already over a
+// week ago.
 const LOOKBACK_DAYS = 7;
 // The scheduling page has no server-push; poll the session list so a session
 // created or started elsewhere (e.g. by the auto-session reconciler, or by
@@ -125,8 +132,11 @@ export const RoomSchedulingPage = () => {
     () =>
       roomUid === undefined
         ? Promise.resolve([])
-        : adminApi
-            .listSchedules({ roomUid, from: rangeFrom, to: rangeTo })
+        : // No `to`: this table manages every schedule the room has, however
+          // far out it starts, not just the ones landing in the Sessions
+          // table's occurrence window below (QUIRK-4).
+          adminApi
+            .listSchedules({ roomUid, from: rangeFrom })
             .then((res) => res.items),
     [roomUid],
   );
@@ -141,8 +151,9 @@ export const RoomSchedulingPage = () => {
     () =>
       roomUid === undefined
         ? Promise.resolve([])
-        : adminApi
-            .listAutoWindows({ roomUid, from: rangeFrom, to: rangeTo })
+        : // No `to`, same reasoning as listSchedules above.
+          adminApi
+            .listAutoWindows({ roomUid, from: rangeFrom })
             .then((res) => res.items),
     [roomUid],
   );
@@ -408,10 +419,10 @@ export const RoomSchedulingPage = () => {
               color: 'text.secondary',
             }}
           >
-            Showing occurrences between{' '}
-            {formatInTimeZone(rangeFrom, room.timezone)} and{' '}
-            {formatInTimeZone(rangeTo, room.timezone)} (last {LOOKBACK_DAYS}{' '}
-            days and next {RANGE_DAYS} days).
+            Every schedule active since{' '}
+            {formatInTimeZone(rangeFrom, room.timezone)} (last {LOOKBACK_DAYS}{' '}
+            days), with no upper bound — including ones starting further out
+            than the Sessions table below shows.
           </Typography>
         </Box>
         <Button
@@ -453,7 +464,7 @@ export const RoomSchedulingPage = () => {
                       color: 'text.secondary',
                     }}
                   >
-                    No schedules in this range.
+                    No schedules for this room.
                   </Typography>
                 </TableCell>
               </TableRow>
@@ -528,10 +539,9 @@ export const RoomSchedulingPage = () => {
               color: 'text.secondary',
             }}
           >
-            Showing occurrences between{' '}
-            {formatInTimeZone(rangeFrom, room.timezone)} and{' '}
-            {formatInTimeZone(rangeTo, room.timezone)} (last {LOOKBACK_DAYS}{' '}
-            days and next {RANGE_DAYS} days).
+            Every auto-session window active since{' '}
+            {formatInTimeZone(rangeFrom, room.timezone)} (last {LOOKBACK_DAYS}{' '}
+            days), with no upper bound.
           </Typography>
         </Box>
         <Button
@@ -545,6 +555,16 @@ export const RoomSchedulingPage = () => {
           New window
         </Button>
       </Box>
+      {/* A window on a room whose master switch is off is stored, listed, and
+          completely inert — the reconciler reads zero windows. Without this the
+          table below looks entirely healthy while producing nothing. */}
+      {!room.autoSessionEnabled && windows.length > 0 && (
+        <Alert severity="warning" sx={{ mb: 1 }}>
+          These windows are not producing sessions — auto-sessions are disabled
+          for this room. Turn on the Auto-sessions switch above to start
+          producing sessions.
+        </Alert>
+      )}
       <TableContainer component={Paper} sx={{ mb: 3 }}>
         <Table>
           <TableHead>
@@ -574,7 +594,7 @@ export const RoomSchedulingPage = () => {
                       color: 'text.secondary',
                     }}
                   >
-                    No auto-session windows in this range.
+                    No auto-session windows for this room.
                   </Typography>
                 </TableCell>
               </TableRow>
@@ -742,6 +762,8 @@ export const RoomSchedulingPage = () => {
       {scheduleDialogOpen && (
         <ScheduleDialog
           roomUid={room.uid}
+          roomName={room.name}
+          roomTimezone={room.timezone}
           schedule={editingSchedule}
           onClose={() => {
             setScheduleDialogOpen(false);
@@ -755,6 +777,9 @@ export const RoomSchedulingPage = () => {
       {windowDialogOpen && (
         <AutoWindowDialog
           roomUid={room.uid}
+          roomName={room.name}
+          roomTimezone={room.timezone}
+          autoSessionEnabled={room.autoSessionEnabled}
           window={editingWindow}
           onClose={() => {
             setWindowDialogOpen(false);
@@ -762,6 +787,9 @@ export const RoomSchedulingPage = () => {
           onSaved={() => {
             setWindowDialogOpen(false);
             reloadWindows();
+            // The dialog can flip the room's auto-session master switch as
+            // part of its save, so the switch above has to be re-read.
+            reloadRoom();
           }}
         />
       )}

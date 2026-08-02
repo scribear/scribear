@@ -21,6 +21,7 @@ import {
   setLifecycle,
   setRegistrationError,
   setRoom,
+  setScheduleSyncError,
   setSessionStatus,
   setSessions,
 } from './kiosk-slice';
@@ -95,8 +96,11 @@ export const createKioskMiddleware =
     kioskService.on('registrationError', (message) => {
       store.dispatch(setRegistrationError(message));
     });
-    kioskService.on('error', (message) => {
-      store.dispatch(setError(message));
+    kioskService.on('error', (fault) => {
+      store.dispatch(setError(fault));
+    });
+    kioskService.on('scheduleSyncError', (fault) => {
+      store.dispatch(setScheduleSyncError(fault));
     });
 
     return (next) => (action) => {

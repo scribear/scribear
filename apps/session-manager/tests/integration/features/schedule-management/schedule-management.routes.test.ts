@@ -726,6 +726,40 @@ describe('Schedule Management Routes', () => {
       expect(windows).toHaveLength(0);
     });
 
+    it('returns 400 with a sentence when localStartTime equals localEndTime', async () => {
+      // Arrange - the same typo `create-schedule` answers with a sentence used
+      // to reach the `auto_session_windows_local_times_distinct` CHECK inside
+      // the transaction and come back as an opaque 500 INTERNAL_ERROR. 400
+      // VALIDATION_ERROR is already declared on this route via
+      // STANDARD_ERROR_REPLIES, exactly as on the schedule route, so nothing
+      // about the published contract changes.
+      const { roomUid } = await setupRoom();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/create-auto-session-window`,
+        headers: { authorization: ADMIN_HEADER },
+        body: defaultWindowBody(roomUid, {
+          localStartTime: '10:00',
+          localEndTime: '10:00',
+        }),
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(400);
+      const body = res.json<{ code: string; message: string }>();
+      expect(body.code).toBe('VALIDATION_ERROR');
+      expect(body.message).toBe(
+        'localStartTime and localEndTime must not be equal.',
+      );
+      const created = await dbContext.db
+        .selectFrom('auto_session_windows')
+        .select('uid')
+        .execute();
+      expect(created).toHaveLength(0);
+    });
+
     it('returns 404 when the room does not exist', async () => {
       // Arrange / Act
       const res = await server.fastify.inject({
@@ -851,6 +885,44 @@ describe('Schedule Management Routes', () => {
       expect(res.json<{ localStartTime: string }>().localStartTime).toBe(
         '08:00:00',
       );
+    });
+
+    it('returns 400 when the merged local times are equal', async () => {
+      // Arrange - the stored row reads back as `09:00:00`, so this also
+      // exercises the HH:MM / HH:MM:SS comparison a string `===` would miss.
+      const { roomUid } = await setupRoom();
+      const create = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/create-auto-session-window`,
+        headers: { authorization: ADMIN_HEADER },
+        body: defaultWindowBody(roomUid),
+      });
+      const { uid: windowUid } = create.json<{ uid: string }>();
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${SCHEDULE_BASE}/update-auto-session-window`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { windowUid, localEndTime: '09:00' },
+      });
+
+      // Assert - refused, and the original window survives the rollback.
+      expect(res.statusCode).toBe(400);
+      const body = res.json<{ code: string; message: string }>();
+      expect(body.code).toBe('VALIDATION_ERROR');
+      expect(body.message).toBe(
+        'localStartTime and localEndTime must not be equal.',
+      );
+      const survived = await server.fastify.inject({
+        method: 'GET',
+        url: `${SCHEDULE_BASE}/get-auto-session-window/${windowUid}`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+      expect(survived.statusCode).toBe(200);
+      expect(
+        survived.json<{ localEndTime: string; activeEnd: string | null }>(),
+      ).toMatchObject({ localEndTime: '17:00:00', activeEnd: null });
     });
 
     it('returns 404 when the window does not exist', async () => {

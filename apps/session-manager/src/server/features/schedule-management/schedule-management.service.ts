@@ -25,7 +25,10 @@ import { assertCancelable, assertUncancelable } from './utils/cancellation.js';
 import type { CancelEligibility } from './utils/cancellation.js';
 import { detectConflict } from './utils/conflict-detector.js';
 import { buildScheduledSessionRow } from './utils/occurrence-to-session.js';
-import { materializeSchedule } from './utils/schedule-materializer.js';
+import {
+  MIN_SESSION_DURATION_SECONDS,
+  materializeSchedule,
+} from './utils/schedule-materializer.js';
 import type { ScheduleForMaterialization } from './utils/schedule-materializer.js';
 import { materializeWindow } from './utils/window-materializer.js';
 
@@ -67,7 +70,6 @@ export class MaterializationFailedError extends Error {
 }
 
 const MATERIALIZATION_WINDOW_DAYS = 7;
-const MIN_AUTO_SESSION_DURATION_SECONDS = 60;
 const CONFLICT_CHECK_HORIZON_DAYS = 14;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -187,6 +189,26 @@ function scheduleToMaterializationRecord(
     frequency: s.frequency,
     daysOfWeek: s.daysOfWeek,
   };
+}
+
+/**
+ * Whether two local wall-clock times denote the same time of day.
+ *
+ * A string comparison is not enough. `HH:MM` and `HH:MM:SS` are both accepted
+ * on the wire and the database stores either as `TIME`, so a row written as
+ * `08:00` reads back as `08:00:00`. An update that merges a request's `08:00`
+ * against that stored value is exactly the collision the
+ * `*_local_times_distinct` CHECK constraints fire on, and `'08:00:00' ===
+ * '08:00'` is false - so a naive pre-check passes the request straight through
+ * to the constraint and the operator gets a 500 for a plain input error.
+ */
+function localTimesEqual(a: string, b: string): boolean {
+  return toSecondsOfDay(a) === toSecondsOfDay(b);
+}
+
+function toSecondsOfDay(time: string): number {
+  const [h = 0, m = 0, s = 0] = time.split(':').map(Number);
+  return h * 3600 + m * 60 + s;
 }
 
 /**
@@ -349,7 +371,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         newAutoEnabled,
         collector.sessionBumps,
       );
@@ -468,7 +490,7 @@ export class ScheduleManagementService {
       room.timezone,
       now,
       windowEnd,
-      MIN_AUTO_SESSION_DURATION_SECONDS,
+      MIN_SESSION_DURATION_SECONDS,
       room.autoSessionEnabled,
       collector.sessionBumps,
     );
@@ -665,6 +687,7 @@ export class ScheduleManagementService {
     | 'ROOM_NOT_FOUND'
     | 'CONFLICT'
     | 'INVALID_ACTIVE_END'
+    | 'INVALID_LOCAL_TIMES'
     | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
   > {
     if (!this._isKnownTranscriptionProvider(data.transcriptionProviderId)) {
@@ -754,6 +777,7 @@ export class ScheduleManagementService {
     | 'NOT_FOUND'
     | 'CONFLICT'
     | 'INVALID_ACTIVE_END'
+    | 'INVALID_LOCAL_TIMES'
     | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
   > {
     if (!this._isKnownTranscriptionProvider(data.transcriptionProviderId)) {
@@ -813,7 +837,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );
@@ -1003,7 +1027,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );
@@ -1092,7 +1116,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );
@@ -1150,7 +1174,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );
@@ -1202,7 +1226,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );
@@ -1295,7 +1319,7 @@ export class ScheduleManagementService {
     }
 
     // Validate before the DB CHECK fires (local_times_distinct constraint).
-    if (data.localStartTime === data.localEndTime) {
+    if (localTimesEqual(data.localStartTime, data.localEndTime)) {
       return 'INVALID_LOCAL_TIMES';
     }
 
@@ -1388,7 +1412,7 @@ export class ScheduleManagementService {
       room.timezone,
       now,
       windowEnd,
-      MIN_AUTO_SESSION_DURATION_SECONDS,
+      MIN_SESSION_DURATION_SECONDS,
       room.autoSessionEnabled,
       collector.sessionBumps,
     );
@@ -1448,7 +1472,7 @@ export class ScheduleManagementService {
       room.timezone,
       now,
       windowEnd,
-      MIN_AUTO_SESSION_DURATION_SECONDS,
+      MIN_SESSION_DURATION_SECONDS,
       room.autoSessionEnabled,
       collector.sessionBumps,
     );
@@ -1476,10 +1500,24 @@ export class ScheduleManagementService {
     now: Date,
     collector: EventCollector,
     options: { skipReconcile?: boolean } = {},
-  ): Promise<AutoSessionWindow | 'CONFLICT' | 'INVALID_ACTIVE_END'> {
+  ): Promise<
+    | AutoSessionWindow
+    | 'CONFLICT'
+    | 'INVALID_ACTIVE_END'
+    | 'INVALID_LOCAL_TIMES'
+  > {
     const { activeStart, activeEnd } = data;
     if (activeEnd !== null && activeEnd.getTime() <= activeStart.getTime()) {
       return 'INVALID_ACTIVE_END';
+    }
+
+    // Validate before the DB CHECK fires
+    // (auto_session_windows_local_times_distinct constraint), exactly as
+    // `_doCreateSchedule` does. Without it the CHECK raises inside the
+    // transaction and the operator gets an opaque 500 for the same typo the
+    // schedule path answers with a sentence.
+    if (localTimesEqual(data.localStartTime, data.localEndTime)) {
+      return 'INVALID_LOCAL_TIMES';
     }
 
     const windowEnd = addDays(now, MATERIALIZATION_WINDOW_DAYS);
@@ -1547,7 +1585,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );
@@ -1591,7 +1629,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );

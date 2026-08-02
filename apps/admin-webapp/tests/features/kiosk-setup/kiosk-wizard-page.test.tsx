@@ -17,6 +17,7 @@ vi.mock('#src/lib/admin-api', () => ({
     listRooms: vi.fn(),
     createRoom: vi.fn(),
     addDeviceToRoom: vi.fn(),
+    setSourceDevice: vi.fn(),
     getDevice: vi.fn(),
   },
 }));
@@ -177,7 +178,11 @@ describe('KioskWizardPage', () => {
         ],
         nextCursor: null,
       });
+      // Attaching and promoting are two calls: `add-device-to-room` refuses
+      // `asSource` on a room that already has a source, so the wizard adds the
+      // kiosk as a member and then promotes it with `set-source-device`.
       vi.mocked(adminApi.addDeviceToRoom).mockResolvedValue(null);
+      vi.mocked(adminApi.setSourceDevice).mockResolvedValue(null);
       renderWithProviders(<KioskWizardPage />);
       await registerDevice(user);
       await clickNext(user);

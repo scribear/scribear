@@ -34,6 +34,23 @@ export enum SessionConnectionStatus {
 }
 
 /**
+ * Why the join dialog is being shown, when the reason is *not* a failure.
+ * Sits alongside {@link JoinError} on the same dialog and is deliberately
+ * separate from it: these are expected outcomes, rendered as `info` per the
+ * severity convention (`info` = expected, no action; `warning` = degraded,
+ * retrying; `error` = terminal, action required), so they must not paint the
+ * join field red or read as something the user did wrong.
+ *
+ * It exists because a session ending normally used to be indistinguishable
+ * from a crash: node-server closes the viewer's socket 1000, the client drops
+ * back to `IDLE`, and the join dialog reopened completely blank - the
+ * captions simply vanished with no explanation anywhere on screen.
+ */
+export enum JoinNotice {
+  SESSION_ENDED = 'SESSION_ENDED',
+}
+
+/**
  * Outcome of the most recent join-code submission. Surfaces a specific
  * failure mode to the UI without polluting the lifecycle state machine -
  * `JOIN_ERROR` lives alongside `IDLE`, not as its own lifecycle phase.

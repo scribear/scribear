@@ -271,6 +271,10 @@ export class ScheduleManagementController {
         'INVALID_ACTIVE_END',
         'activeEnd must be strictly after activeStart.',
       );
+    if (result === 'INVALID_LOCAL_TIMES')
+      throw HttpError.badRequest(
+        'localStartTime and localEndTime must not be equal.',
+      );
 
     res.code(201).send(this._mapWindow(result));
   }
@@ -336,6 +340,10 @@ export class ScheduleManagementController {
       throw HttpError.unprocessable(
         'INVALID_ACTIVE_END',
         'activeEnd must be strictly after activeStart.',
+      );
+    if (result === 'INVALID_LOCAL_TIMES')
+      throw HttpError.badRequest(
+        'localStartTime and localEndTime must not be equal.',
       );
 
     res.code(200).send(this._mapWindow(result));

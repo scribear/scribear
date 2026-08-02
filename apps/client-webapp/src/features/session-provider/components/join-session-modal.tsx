@@ -13,12 +13,25 @@ import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 import {
   ClientLifecycle,
   JoinError,
+  JoinNotice,
 } from '../services/client-session-service-status';
 import {
   joinSession,
   selectJoinError,
+  selectJoinNotice,
   selectLifecycle,
 } from '../stores/client-session-service-slice';
+
+/**
+ * Why the dialog is open, when nothing failed. Rendered above the join field
+ * as `info`: expected, no fault, nothing red. Before this existed a session
+ * ending normally simply made the captions disappear behind a blank join
+ * prompt, which is exactly what a crash looks like.
+ */
+const JOIN_NOTICE_MESSAGES: Record<JoinNotice, string> = {
+  [JoinNotice.SESSION_ENDED]:
+    'This session has ended. Enter a new join code to watch another session.',
+};
 
 const JOIN_ERROR_MESSAGES: Record<JoinError, string> = {
   [JoinError.NETWORK_ERROR]:
@@ -40,9 +53,11 @@ export const JoinSessionModal = () => {
   const dispatch = useAppDispatch();
   const lifecycle = useAppSelector(selectLifecycle);
   const joinError = useAppSelector(selectJoinError);
+  const joinNotice = useAppSelector(selectJoinNotice);
   const [joinCode, setJoinCode] = useState('');
   const titleId = useId();
   const errorId = useId();
+  const noticeId = useId();
 
   const isOpen = lifecycle === ClientLifecycle.IDLE;
 
@@ -54,9 +69,20 @@ export const JoinSessionModal = () => {
   };
 
   return (
-    <Dialog open={isOpen} aria-labelledby={titleId}>
+    <Dialog
+      open={isOpen}
+      aria-labelledby={titleId}
+      // Describes the dialog, so the reason it appeared is announced with the
+      // title on open rather than only if the user happens to navigate to it.
+      aria-describedby={joinNotice !== null ? noticeId : undefined}
+    >
       <DialogTitle id={titleId}>Join Session</DialogTitle>
       <DialogContent>
+        {joinNotice !== null && (
+          <Alert id={noticeId} severity="info" sx={{ mt: 1 }}>
+            {JOIN_NOTICE_MESSAGES[joinNotice]}
+          </Alert>
+        )}
         <Box component="form" onSubmit={handleSubmit} sx={{ pt: 1 }}>
           <TextField
             autoFocus

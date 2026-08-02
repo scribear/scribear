@@ -17,7 +17,11 @@ import type {
   SessionIdentity,
   SessionStatusSnapshot,
 } from '#src/features/session-provider/services/client-session-service';
-import { SessionConnectionStatus } from '#src/features/session-provider/services/client-session-service-status';
+import {
+  ClientLifecycle,
+  JoinNotice,
+  SessionConnectionStatus,
+} from '#src/features/session-provider/services/client-session-service-status';
 
 vi.mock('@scribear/node-server-client', async (importOriginal) => {
   const actual =
@@ -385,6 +389,132 @@ describe('ClientSessionService terminal states', () => {
     expect(statuses).not.toContain(SessionConnectionStatus.TERMINAL);
     expect(authenticatedTokens()).toEqual([token]);
     vi.useRealTimers();
+  });
+});
+
+describe('ClientSessionService normal session end', () => {
+  function trackEnd(service: ClientSessionService) {
+    const notices: (JoinNotice | null)[] = [];
+    const lifecycles: ClientLifecycle[] = [];
+    service.on('joinNotice', (notice) => notices.push(notice));
+    service.on('lifecycleChange', (lifecycle) => lifecycles.push(lifecycle));
+    return { notices, lifecycles };
+  }
+
+  it('tells the user the session ended when the socket closes 1000', () => {
+    const service = new ClientSessionService();
+    const { notices, lifecycles } = trackEnd(service);
+
+    service.start(IDENTITY);
+    fakeSocket.emit('close', 1000, '', 1000);
+
+    // The join dialog is about to reopen over a suddenly-empty caption pane.
+    // Without this it reopened blank, and a session ending exactly as
+    // intended was indistinguishable from the app breaking.
+    expect(notices).toEqual([JoinNotice.SESSION_ENDED]);
+    expect(lifecycles.at(-1)).toBe(ClientLifecycle.IDLE);
+  });
+
+  it('emits the notice before dropping to IDLE, so the dialog is never blank', () => {
+    const service = new ClientSessionService();
+    const order: string[] = [];
+    service.on('joinNotice', () => order.push('notice'));
+    service.on('lifecycleChange', (lifecycle) => {
+      if (lifecycle === ClientLifecycle.IDLE) order.push('idle');
+    });
+
+    service.start(IDENTITY);
+    fakeSocket.emit('close', 1000, '', 1000);
+
+    expect(order).toEqual(['notice', 'idle']);
+  });
+
+  it('says nothing when the user leaves the session themselves', () => {
+    const service = new ClientSessionService();
+    const { notices, lifecycles } = trackEnd(service);
+
+    service.start(IDENTITY);
+    service.leaveSession();
+
+    // The user pressed Leave; "This session has ended." would be a lie about
+    // who ended it. The explicit `null` also clears any earlier notice.
+    expect(notices).toEqual([null]);
+    expect(lifecycles.at(-1)).toBe(ClientLifecycle.IDLE);
+  });
+
+  it('does not claim the session ended for any other close code', () => {
+    const service = new ClientSessionService();
+    const { notices } = trackEnd(service);
+
+    service.start(IDENTITY);
+    // Abnormal (1006), server error (1011), restarting (1012) and auth
+    // (1008) all keep their existing behaviour: the transport retries, and
+    // the connection banner - not the join dialog - does the explaining.
+    fakeSocket.emit('close', 1006, '', 1000);
+    fakeSocket.emit('close', 1011, '', 1000);
+    fakeSocket.emit('close', 1012, '', 1000);
+    fakeSocket.emit('close', 1008, 'token-expired', 1000);
+
+    expect(notices).toEqual([]);
+  });
+
+  it('does not claim the session ended when a 1008 turns terminal', () => {
+    const service = new ClientSessionService();
+    const { notices } = trackEnd(service);
+
+    service.start(IDENTITY);
+    fakeSocket.emit('close', 1008, 'missing-scope', 1000);
+
+    // Terminal states explain themselves through `error` and the banner's
+    // terminal branch; the session did not "end", the client gave up on it.
+    expect(notices).toEqual([]);
+  });
+
+  it('clears the notice as soon as the user submits another join code', async () => {
+    exchangeJoinCode.mockResolvedValue(joinOk('payload.signature'));
+    const service = new ClientSessionService();
+    const { notices } = trackEnd(service);
+
+    service.start(IDENTITY);
+    fakeSocket.emit('close', 1000, '', 1000);
+    await service.joinSession('JOINCODE');
+
+    expect(notices).toEqual([JoinNotice.SESSION_ENDED, null]);
+  });
+
+  it('reports a 409 SESSION_ENDED refresh the same way as the 1000 close', async () => {
+    refreshSessionToken.mockResolvedValue([
+      { status: 409, data: { code: 'SESSION_ENDED' } },
+      null,
+    ]);
+    const service = new ClientSessionService();
+    const { notices } = trackEnd(service);
+
+    service.start(IDENTITY);
+    fakeSocket.emit('open');
+
+    // Same event as the 1000 close, learned over the other channel - which of
+    // the two noticed first must not decide whether the user is told.
+    await vi.waitFor(() => {
+      expect(notices).toEqual([JoinNotice.SESSION_ENDED]);
+    });
+  });
+
+  it('stays silent on a 401 refresh, which is not the session ending', async () => {
+    refreshSessionToken.mockResolvedValue([
+      { status: 401, data: { code: 'INVALID_REFRESH_TOKEN' } },
+      null,
+    ]);
+    const service = new ClientSessionService();
+    const { notices, lifecycles } = trackEnd(service);
+
+    service.start(IDENTITY);
+    fakeSocket.emit('open');
+
+    await vi.waitFor(() => {
+      expect(lifecycles.at(-1)).toBe(ClientLifecycle.IDLE);
+    });
+    expect(notices).toEqual([null]);
   });
 });
 

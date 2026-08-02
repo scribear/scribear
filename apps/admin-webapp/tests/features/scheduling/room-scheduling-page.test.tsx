@@ -9,6 +9,7 @@ import { ApiError } from '#src/lib/api-error';
 
 import { renderWithProviders } from '../../utils/render-with-providers';
 import {
+  buildRoom,
   buildRoomDetail,
   buildSchedule,
   buildSession,
@@ -48,6 +49,14 @@ function mockDefaultLoad(
   vi.mocked(adminApi.listSchedules).mockResolvedValue({ items: schedules });
   vi.mocked(adminApi.listAutoWindows).mockResolvedValue({ items: windows });
   vi.mocked(adminApi.listSessions).mockResolvedValue({ items: [] });
+  // The window dialog chains this after a save whenever the room's
+  // auto-session master switch is off and the operator leaves the
+  // "Enable auto-sessions for this room" box ticked (its default), which the
+  // fixture room is. Resolved by default so tests that are not about the
+  // master switch do not have to know about it.
+  vi.mocked(adminApi.updateRoomScheduleConfig).mockResolvedValue(
+    buildRoom({ ...roomOverrides, autoSessionEnabled: true }),
+  );
 }
 
 async function waitForLoad() {
@@ -282,6 +291,246 @@ describe('RoomSchedulingPage', () => {
         transcriptionProviderId: 'whisper',
         transcriptionStreamConfig: {},
       });
+    });
+  });
+
+  // A window on a room whose auto-session master switch is off is stored,
+  // listed and completely inert — the reconciler reads zero windows — so both
+  // the dialog and the page have to say so. Ported from the kiosk wizard's
+  // schedule step, which already got this right.
+  describe('auto-session master switch', (it) => {
+    /** Opens "New window" and fills the two fields Save validates. */
+    async function openNewWindow(autoSessionEnabled: boolean) {
+      mockDefaultLoad({ roomOverrides: { autoSessionEnabled } });
+      renderPage();
+      await waitForLoad();
+      const user = userEvent.setup();
+      await user.click(screen.getByRole('button', { name: /new window/i }));
+      await screen.findByLabelText('Local start time');
+      await toggleMultiSelectOption(user, 'Days of week', 'MON');
+      fireEvent.change(screen.getByLabelText('Active start'), {
+        target: { value: '2030-01-01T09:00' },
+      });
+      vi.mocked(adminApi.createAutoWindow).mockResolvedValue(buildWindow());
+      return user;
+    }
+
+    it('warns and offers a pre-ticked checkbox when the switch is off, then enables it after the save', async () => {
+      // Arrange
+      const user = await openNewWindow(false);
+
+      // Assert: both halves of the signal are up before the operator saves.
+      expect(
+        screen.getByText(/auto-sessions are turned off for this room/i),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('checkbox', {
+          name: /enable auto-sessions for this room/i,
+        }),
+      ).toBeChecked();
+
+      // Act
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      // Assert
+      await waitFor(() => {
+        expect(adminApi.createAutoWindow).toHaveBeenCalledTimes(1);
+        expect(adminApi.updateRoomScheduleConfig).toHaveBeenCalledTimes(1);
+      });
+      expect(adminApi.updateRoomScheduleConfig).toHaveBeenCalledWith({
+        roomUid: ROOM_UID,
+        autoSessionEnabled: true,
+      });
+      // The switch is what makes the window live, so it must be flipped only
+      // once the window it is being flipped for actually exists.
+      const windowOrder = vi.mocked(adminApi.createAutoWindow).mock
+        .invocationCallOrder[0]!;
+      const configOrder = vi.mocked(adminApi.updateRoomScheduleConfig).mock
+        .invocationCallOrder[0]!;
+      expect(windowOrder).toBeLessThan(configOrder);
+    });
+
+    it('reassures instead of warning, and leaves the switch alone, when it is already on', async () => {
+      // Arrange
+      const user = await openNewWindow(true);
+
+      // Assert
+      expect(
+        screen.getByText(/auto-sessions are enabled for this room/i),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(/auto-sessions are turned off for this room/i),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('checkbox', {
+          name: /enable auto-sessions for this room/i,
+        }),
+      ).not.toBeInTheDocument();
+
+      // Act
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      // Assert
+      await waitFor(() => {
+        expect(adminApi.createAutoWindow).toHaveBeenCalledTimes(1);
+      });
+      expect(adminApi.updateRoomScheduleConfig).not.toHaveBeenCalled();
+    });
+
+    it('leaves the switch alone when the operator unticks the checkbox', async () => {
+      // Arrange
+      const user = await openNewWindow(false);
+
+      // Act
+      await user.click(
+        screen.getByRole('checkbox', {
+          name: /enable auto-sessions for this room/i,
+        }),
+      );
+
+      // Assert: the caption swaps to spell out what unticking costs.
+      expect(
+        screen.getByText(
+          /leaving this off saves the window but produces no sessions/i,
+        ),
+      ).toBeInTheDocument();
+
+      // Act
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      // Assert
+      await waitFor(() => {
+        expect(adminApi.createAutoWindow).toHaveBeenCalledTimes(1);
+      });
+      expect(adminApi.updateRoomScheduleConfig).not.toHaveBeenCalled();
+    });
+
+    it('banners the windows table when the switch is off and windows exist', async () => {
+      // Arrange
+      mockDefaultLoad({
+        windows: [buildWindow()],
+        roomOverrides: { autoSessionEnabled: false },
+      });
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      expect(
+        screen.getByText(/these windows are not producing sessions/i),
+      ).toBeInTheDocument();
+    });
+
+    it('does not banner an empty windows table', async () => {
+      // Arrange: nothing listed yet — there is no dead window to warn about.
+      mockDefaultLoad({ roomOverrides: { autoSessionEnabled: false } });
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      expect(
+        screen.queryByText(/these windows are not producing sessions/i),
+      ).not.toBeInTheDocument();
+    });
+
+    it('does not banner windows on a room whose switch is on', async () => {
+      // Arrange
+      mockDefaultLoad({
+        windows: [buildWindow()],
+        roomOverrides: { autoSessionEnabled: true },
+      });
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      expect(
+        screen.queryByText(/these windows are not producing sessions/i),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  // The two clocks a scheduling dialog uses at once: "Local start/end time"
+  // is resolved server-side in the *room's* zone, "Active start" client-side
+  // in the browser's. Both are labeled so an operator administering a room in
+  // another timezone can see which is which — a mismatch is otherwise silent,
+  // since every value is individually valid.
+  describe('local-time fields name the room timezone', (it) => {
+    it('labels the window dialog with the room name and IANA zone', async () => {
+      // Arrange
+      mockDefaultLoad({
+        roomOverrides: { name: 'Siebel 1404', timezone: 'Europe/London' },
+      });
+      renderPage();
+      await waitForLoad();
+      const user = userEvent.setup();
+
+      // Act
+      await user.click(screen.getByRole('button', { name: /new window/i }));
+      await screen.findByLabelText('Local start time');
+
+      // Assert
+      expect(
+        screen.getByText(
+          "Interpreted in Siebel 1404's timezone (Europe/London), not your browser's.",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "Must be in the future. Interpreted in your browser's local time zone.",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('labels the schedule dialog with the room name and IANA zone', async () => {
+      // Arrange
+      mockDefaultLoad({
+        roomOverrides: { name: 'Siebel 1404', timezone: 'Europe/London' },
+      });
+      renderPage();
+      await waitForLoad();
+      const user = userEvent.setup();
+
+      // Act
+      await user.click(screen.getByRole('button', { name: /new schedule/i }));
+      await screen.findByLabelText('Local start time');
+
+      // Assert
+      expect(
+        screen.getByText(
+          "Interpreted in Siebel 1404's timezone (Europe/London), not your browser's.",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('points both local-time inputs at that caption for screen readers', async () => {
+      // Arrange
+      mockDefaultLoad({
+        roomOverrides: { name: 'Siebel 1404', timezone: 'Europe/London' },
+      });
+      renderPage();
+      await waitForLoad();
+      const user = userEvent.setup();
+
+      // Act
+      await user.click(screen.getByRole('button', { name: /new window/i }));
+      const start = await screen.findByLabelText('Local start time');
+
+      // Assert
+      const helperId = start.getAttribute('aria-describedby');
+      expect(helperId).not.toBeNull();
+      expect(
+        screen
+          .getByLabelText('Local end time')
+          .getAttribute('aria-describedby'),
+      ).toBe(helperId);
+      expect(document.getElementById(helperId ?? '')).toHaveTextContent(
+        "Interpreted in Siebel 1404's timezone (Europe/London), not your browser's.",
+      );
     });
   });
 

@@ -446,6 +446,24 @@ describe('RoomManagementController', () => {
       });
     });
 
+    it("throws 409 naming set-source-device when service returns 'TOO_MANY_SOURCE_DEVICES'", async () => {
+      // Arrange - the operator has to be told which call does what they meant,
+      // or the refusal just looks like a bug in the console.
+      mockService.addDeviceToRoom.mockResolvedValue('TOO_MANY_SOURCE_DEVICES');
+      const mockReq = {
+        body: { roomUid: 'room-1', deviceUid: 'device-1', asSource: true },
+      };
+
+      // Act + Assert
+      await expect(
+        controller.addDeviceToRoom(mockReq as never, mockRes as never),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'TOO_MANY_SOURCE_DEVICES',
+        message: expect.stringContaining('set-source-device') as string,
+      });
+    });
+
     it("throws 409 with a message naming the missing audio path when service returns 'DEMO_ROOM_NOT_ASSIGNABLE'", async () => {
       // Arrange - the refusal is only useful if the operator learns *why*, so
       // the message (not just the code) is asserted here.
