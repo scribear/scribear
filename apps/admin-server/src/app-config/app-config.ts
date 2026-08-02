@@ -163,7 +163,8 @@ const CONFIG_SCHEMA = Type.Object({
   DB_USER: Type.String(),
   DB_PASSWORD: Type.String(),
 
-  // Future Azure Entra ID SSO. Presence enables the provider; empty = disabled.
+  // Azure Entra ID SSO. All five must be set (AzureOidcAuthService.isEnabled())
+  // for the provider to turn on; any left empty keeps it disabled.
   AZURE_TENANT_ID: Type.String({ default: '' }),
   AZURE_CLIENT_ID: Type.String({ default: '' }),
   AZURE_CLIENT_SECRET: Type.String({ default: '' }),
@@ -357,6 +358,7 @@ export class AppConfig {
       azureTenantId: this._env.AZURE_TENANT_ID,
       azureClientId: this._env.AZURE_CLIENT_ID,
       azureClientSecret: this._env.AZURE_CLIENT_SECRET,
+      azureRedirectUri: this._env.AZURE_REDIRECT_URI,
       allowedGroup: this._env.ADMIN_ALLOWED_GROUP,
       // Shared with the health rollup deliberately: both ask a sibling service a
       // question an operator is waiting on, so one knob should bound both.

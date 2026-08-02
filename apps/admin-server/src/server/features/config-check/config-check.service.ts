@@ -190,6 +190,8 @@ export interface ConfigCheckConfig {
   azureTenantId: string;
   azureClientId: string;
   azureClientSecret: string;
+  /** Never previously read here — see `sso-incomplete-config`'s history. */
+  azureRedirectUri: string;
   allowedGroup: string;
   /**
    * Bound on asking session-manager what schema version it expects. Shared with
@@ -433,10 +435,65 @@ export function evaluateStaticChecks(
 
   // ---- access ----
   const localLoginEnabled = config.adminLocalCredentials.trim() !== '';
+  // Loose "has an operator started down the SSO path" signal (3 of 5 vars) —
+  // deliberately looser than `isEnabled()`, since `local-login-only`'s job is
+  // "nudge someone who hasn't started" rather than "is SSO actually live."
   const ssoConfigured =
     config.azureTenantId !== '' &&
     config.azureClientId !== '' &&
     config.azureClientSecret !== '';
+
+  // Mirrors AzureOidcAuthService.isEnabled() exactly (all five vars) — this
+  // is the one that must answer "can someone actually complete SSO login,"
+  // not just "has an operator started configuring it." `no-login-method`
+  // below used to check the looser `ssoConfigured` and could report a
+  // deployment as having a working login method while local login was off
+  // and SSO was three-of-five-vars configured — i.e. actually unusable,
+  // silently. Fixed here rather than left as a footnote: this is exactly the
+  // "guard inherits the defect it's guarding" shape this deployment's own
+  // conventions call out elsewhere.
+  const azureVars = {
+    AZURE_TENANT_ID: config.azureTenantId,
+    AZURE_CLIENT_ID: config.azureClientId,
+    AZURE_CLIENT_SECRET: config.azureClientSecret,
+    AZURE_REDIRECT_URI: config.azureRedirectUri,
+    ADMIN_ALLOWED_GROUP: config.allowedGroup,
+  };
+  const azureVarsSet = Object.values(azureVars).filter((v) => v !== '').length;
+  const ssoFullyConfigured = azureVarsSet === 5;
+
+  const missingAzureVars = Object.entries(azureVars)
+    .filter(([, value]) => value === '')
+    .map(([key]) => key);
+  // Excludes the case where ADMIN_ALLOWED_GROUP is the ONLY thing missing:
+  // `sso-no-group-restriction` below already reports that specific,
+  // actionable case (and at a higher severity) — firing both here would be
+  // two findings naming the same root cause.
+  const missingBeyondGroup = missingAzureVars.filter(
+    (key) => key !== 'ADMIN_ALLOWED_GROUP',
+  );
+
+  if (azureVarsSet > 0 && azureVarsSet < 5 && missingBeyondGroup.length > 0) {
+    const missing = missingAzureVars;
+    findings.push(
+      finding(
+        {
+          id: 'sso-incomplete-config',
+          category: 'access',
+          title: 'Azure SSO configuration is incomplete',
+          detail:
+            `${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} ` +
+            'empty while other AZURE_*/ADMIN_ALLOWED_GROUP variables are ' +
+            'set. AzureOidcAuthService.isEnabled() requires all five, so SSO ' +
+            'stays disabled — the only visible symptom is the "Sign in with ' +
+            'Illinois" button not appearing, with nothing pointing at why.',
+          remediation: `Set ${missing.join(', ')}, or clear the other Azure variables if SSO isn't intended yet.`,
+        },
+        { development: 'advisory', staging: 'warning', production: 'warning' },
+        env,
+      ),
+    );
+  }
 
   if (localLoginEnabled && isPlaceholder(config.adminLocalCredentials)) {
     findings.push(
@@ -460,8 +517,12 @@ export function evaluateStaticChecks(
     );
   }
 
-  if (!localLoginEnabled && !ssoConfigured) {
-    // Not a hardening nit: nobody can sign in at all.
+  if (!localLoginEnabled && !ssoFullyConfigured) {
+    // Not a hardening nit: nobody can sign in at all. Checks the same
+    // 5-var completeness as `isEnabled()`, not the looser `ssoConfigured` —
+    // a deployment with 3-of-5 Azure vars set does NOT have a working SSO
+    // login, so it must not read as "fine" here just because it looks
+    // SSO-configured to the looser check above.
     findings.push(
       finding(
         {
@@ -469,9 +530,9 @@ export function evaluateStaticChecks(
           category: 'access',
           title: 'No admin login method is configured',
           detail:
-            'ADMIN_LOCAL_CREDENTIALS is empty and Azure SSO is not configured, so no one can sign in to this console.',
+            'ADMIN_LOCAL_CREDENTIALS is empty and Azure SSO is not fully configured (or not configured at all), so no one can sign in to this console.',
           remediation:
-            'Set ADMIN_LOCAL_CREDENTIALS, or configure AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET.',
+            'Set ADMIN_LOCAL_CREDENTIALS, or configure all five: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_REDIRECT_URI and ADMIN_ALLOWED_GROUP.',
         },
         {
           development: 'critical',

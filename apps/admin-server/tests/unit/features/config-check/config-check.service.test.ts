@@ -50,6 +50,7 @@ const CLEAN: ConfigCheckConfig = {
   azureTenantId: 'tenant-1',
   azureClientId: 'client-1',
   azureClientSecret: '0b4e8d2a7f16c395',
+  azureRedirectUri: 'https://example.edu/api/admin/v1/auth/sso/callback',
   allowedGroup: 'scribear-admins',
   upstreamTimeoutMs: 3_000,
 };
@@ -514,6 +515,66 @@ describe('evaluateStaticChecks', () => {
 
     it('flags SSO left open to the whole tenant', () => {
       expect(ids({ allowedGroup: '' })).toContain('sso-no-group-restriction');
+    });
+
+    // Regression test: `no-login-method` used to check the loose 3-of-5-var
+    // `ssoConfigured` instead of mirroring `isEnabled()`'s 5-var requirement,
+    // so a deployment with local login off and SSO merely "started" (not
+    // actually functional) read as having a working login method. It did not.
+    it('flags a deployment nobody can sign in to when SSO is only partially configured', () => {
+      expect(
+        ids({
+          adminLocalCredentials: '',
+          azureRedirectUri: '',
+          allowedGroup: '',
+        }),
+      ).toContain('no-login-method');
+    });
+
+    it('does not flag no-login-method when SSO is fully configured', () => {
+      expect(
+        ids({ adminLocalCredentials: '' }), // CLEAN's Azure vars are all set
+      ).not.toContain('no-login-method');
+    });
+
+    it('flags an incomplete SSO configuration missing more than just the group', () => {
+      const found = ids({ azureRedirectUri: '' });
+      expect(found).toContain('sso-incomplete-config');
+      expect(found).not.toContain('no-login-method'); // local login still covers access
+    });
+
+    it('names every missing variable in the incomplete-config finding', () => {
+      const [finding] = check({
+        azureRedirectUri: '',
+        allowedGroup: '',
+      }).filter((f) => f.id === 'sso-incomplete-config');
+      expect(finding?.detail).toContain('AZURE_REDIRECT_URI');
+      expect(finding?.detail).toContain('ADMIN_ALLOWED_GROUP');
+    });
+
+    it('does not flag sso-incomplete-config when ADMIN_ALLOWED_GROUP is the only thing missing', () => {
+      // sso-no-group-restriction already reports this specific, more
+      // actionable case - firing both would name the same root cause twice.
+      const found = ids({ allowedGroup: '' });
+      expect(found).toContain('sso-no-group-restriction');
+      expect(found).not.toContain('sso-incomplete-config');
+    });
+
+    it('does not flag sso-incomplete-config when no Azure vars are set at all', () => {
+      // Not "started and broken" - just "not configured yet", already
+      // covered by no-login-method/local-login-only as appropriate.
+      const found = ids({
+        azureTenantId: '',
+        azureClientId: '',
+        azureClientSecret: '',
+        azureRedirectUri: '',
+        allowedGroup: '',
+      });
+      expect(found).not.toContain('sso-incomplete-config');
+    });
+
+    it('does not flag sso-incomplete-config when all five vars are set', () => {
+      expect(ids({})).not.toContain('sso-incomplete-config');
     });
 
     it('treats a shared local account as a production concern only', () => {

@@ -53,7 +53,10 @@ export function authRouter(
     handler: resolveHandler('authController', 'logout'),
   });
 
-  // SSO stubs (return 404 until Azure is configured).
+  // SSO routes: run the full OIDC flow when AZURE_* config is present, 404
+  // SSO_NOT_AVAILABLE when it isn't. No rate limit (the redirect to Azure is
+  // not a guessing surface), no session/CSRF preHandler (these are the
+  // endpoints that *establish* a session).
   fastify.route({
     ...SSO_LOGIN_ROUTE,
     handler: resolveHandler('authController', 'ssoLogin'),
