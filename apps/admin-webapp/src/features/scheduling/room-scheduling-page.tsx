@@ -48,11 +48,18 @@ import { AutoWindowDialog } from './auto-window-dialog';
 import { OnDemandDialog } from './on-demand-dialog';
 import { ScheduleDialog } from './schedule-dialog';
 
+// Forward bound for the Sessions table only. Schedules and auto-session
+// windows are listed with no upper bound (see the listSchedules/
+// listAutoWindows calls below) so a far-future one is never hidden from the
+// page that manages it (QUIRK-4) — only materialized *sessions* are worth
+// capping, since those can accumulate without limit over time.
 const RANGE_DAYS = 90;
-// How far back the scheduling page looks. The session listing uses an overlap
-// predicate, so a session that started before page-load (e.g. an active
-// on-demand session) still appears. The schedule/window listing filters on
-// `active_start <= to`, so this primarily governs sessions.
+// How far back the scheduling page looks, for all three tables. The session
+// listing uses an overlap predicate, so a session that started before
+// page-load (e.g. an active on-demand session) still appears. The
+// schedule/window listing filters on `active_end IS NULL OR active_end >=
+// from`, so this excludes only schedules/windows that were already over a
+// week ago.
 const LOOKBACK_DAYS = 7;
 // The scheduling page has no server-push; poll the session list so a session
 // created or started elsewhere (e.g. by the auto-session reconciler, or by
@@ -125,8 +132,11 @@ export const RoomSchedulingPage = () => {
     () =>
       roomUid === undefined
         ? Promise.resolve([])
-        : adminApi
-            .listSchedules({ roomUid, from: rangeFrom, to: rangeTo })
+        : // No `to`: this table manages every schedule the room has, however
+          // far out it starts, not just the ones landing in the Sessions
+          // table's occurrence window below (QUIRK-4).
+          adminApi
+            .listSchedules({ roomUid, from: rangeFrom })
             .then((res) => res.items),
     [roomUid],
   );
@@ -141,8 +151,9 @@ export const RoomSchedulingPage = () => {
     () =>
       roomUid === undefined
         ? Promise.resolve([])
-        : adminApi
-            .listAutoWindows({ roomUid, from: rangeFrom, to: rangeTo })
+        : // No `to`, same reasoning as listSchedules above.
+          adminApi
+            .listAutoWindows({ roomUid, from: rangeFrom })
             .then((res) => res.items),
     [roomUid],
   );
@@ -408,10 +419,10 @@ export const RoomSchedulingPage = () => {
               color: 'text.secondary',
             }}
           >
-            Showing occurrences between{' '}
-            {formatInTimeZone(rangeFrom, room.timezone)} and{' '}
-            {formatInTimeZone(rangeTo, room.timezone)} (last {LOOKBACK_DAYS}{' '}
-            days and next {RANGE_DAYS} days).
+            Every schedule active since{' '}
+            {formatInTimeZone(rangeFrom, room.timezone)} (last {LOOKBACK_DAYS}{' '}
+            days), with no upper bound — including ones starting further out
+            than the Sessions table below shows.
           </Typography>
         </Box>
         <Button
@@ -453,7 +464,7 @@ export const RoomSchedulingPage = () => {
                       color: 'text.secondary',
                     }}
                   >
-                    No schedules in this range.
+                    No schedules for this room.
                   </Typography>
                 </TableCell>
               </TableRow>
@@ -528,10 +539,9 @@ export const RoomSchedulingPage = () => {
               color: 'text.secondary',
             }}
           >
-            Showing occurrences between{' '}
-            {formatInTimeZone(rangeFrom, room.timezone)} and{' '}
-            {formatInTimeZone(rangeTo, room.timezone)} (last {LOOKBACK_DAYS}{' '}
-            days and next {RANGE_DAYS} days).
+            Every auto-session window active since{' '}
+            {formatInTimeZone(rangeFrom, room.timezone)} (last {LOOKBACK_DAYS}{' '}
+            days), with no upper bound.
           </Typography>
         </Box>
         <Button
@@ -574,7 +584,7 @@ export const RoomSchedulingPage = () => {
                       color: 'text.secondary',
                     }}
                   >
-                    No auto-session windows in this range.
+                    No auto-session windows for this room.
                   </Typography>
                 </TableCell>
               </TableRow>
