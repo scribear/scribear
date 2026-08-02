@@ -12,6 +12,7 @@ export default mergeConfig(
           extends: true,
           test: {
             name: 'unit',
+            environment: 'jsdom',
           },
         },
       ],

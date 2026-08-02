@@ -173,15 +173,37 @@ function base64UrlDecode(value: string): string {
   return atob(value.replaceAll('-', '+').replaceAll('_', '/'));
 }
 
+/** A ScribeAR session token has exactly two segments: payload, then HMAC. */
+const SESSION_TOKEN_SEGMENTS = 2;
+
 /**
- * Decode the `exp` claim of a JWT. Returns `null` if the token can't be
- * parsed (malformed or unsigned).
+ * Read the `exp` claim out of a session token. Returns `null` if the token
+ * can't be parsed.
+ *
+ * A ScribeAR session token is NOT a JWT, despite looking like one: it is
+ * `base64url(payloadJSON).base64url(HMAC-SHA256)` - **two** segments, payload
+ * first (see session-manager's `SessionTokenService.sign`). This previously
+ * read `parts[1]` as a JWT's payload would be, so it fed the raw HMAC
+ * signature to `JSON.parse` and returned `null` for every token ever issued.
+ * Nothing crashed, because both callers treat `null` as "unknown expiry" -
+ * which silently meant `_scheduleTokenRefresh` never armed a proactive
+ * refresh on any connection. A socket that stayed open never noticed (auth is
+ * only checked at AUTH time, not continuously), but any reconnect after the
+ * token's 5-minute lifetime - a tab reload, a network blip, a service
+ * restart - presented the same stale, never-refreshed token and was closed
+ * 1008 `token-expired`, dropping the source to IDLE with nothing surfaced.
+ * client-webapp had the identical bug, fixed in `8ff4582`.
+ *
+ * The signature is not checked here; only session-manager and node-server
+ * hold the signing key. This is a scheduling hint, not an authorization
+ * decision - a tampered `exp` can only make this kiosk refresh at the wrong
+ * time, never make a bad token acceptable.
  */
-function decodeJwtExpiryMs(token: string): number | null {
+function decodeSessionTokenExpiryMs(token: string): number | null {
   const parts = token.split('.');
-  if (parts.length < 2) return null;
+  if (parts.length !== SESSION_TOKEN_SEGMENTS) return null;
   try {
-    const payload = JSON.parse(base64UrlDecode(parts[1] ?? '')) as {
+    const payload = JSON.parse(base64UrlDecode(parts[0] ?? '')) as {
       exp?: number;
     };
     if (typeof payload.exp !== 'number') return null;
@@ -937,7 +959,7 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
       this._tokenRefreshTimer = null;
     }
 
-    const expiryMs = decodeJwtExpiryMs(token);
+    const expiryMs = decodeSessionTokenExpiryMs(token);
     if (expiryMs === null) return;
 
     const remainingMs = expiryMs - Date.now();
