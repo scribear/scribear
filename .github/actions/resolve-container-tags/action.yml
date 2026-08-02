@@ -6,10 +6,11 @@ inputs:
     required: true
   publish_pr_images:
     description: >
-      Override for whether a pull_request build publishes a PR-<n> image.
-      Leave empty (the default) to use the base-branch rule: PRs into main or
-      staging publish, anything else does not. "false" switches PR images off
-      entirely; "true" publishes them whatever the base branch is. Wired to the
+      Override for whether a pull_request build publishes a staging-pr<n>/
+      production-pr<n> preview image. Leave empty (the default) to use the
+      base-branch rule: PRs into main or staging publish, anything else does
+      not. "false" switches PR images off entirely; "true" publishes them
+      whatever the base branch is (tagged <base-branch>-pr<n>). Wired to the
       repository variable PUBLISH_PR_IMAGES (Settings > Secrets and variables >
       Actions > Variables), so either override is a one-field change with no
       code edit - which is what you want when the registry needs draining in a
@@ -86,18 +87,31 @@ runs:
         PR_IMAGE_BASE_BRANCHES = {"main", "staging"}
 
         def publishes_pr_image() -> bool:
-            """Whether this PR build should push a PR-<n> image."""
+            """Whether this PR build should push a preview image."""
             override = os.environ.get("PUBLISH_PR_IMAGES", "").strip().lower()
             if override in ("true", "false"):
                 return override == "true"
             return os.environ.get("PR_BASE_REF", "") in PR_IMAGE_BASE_BRANCHES
+
+        # Named for the environment a merge would land in, not just the PR
+        # number: `docker pull ...:PR-157` alone doesn't say whether that's
+        # a staging or a production candidate, and telling them apart
+        # otherwise means cross-referencing the PR on GitHub. `staging`/`main`
+        # map to the two real environments; anything else only reaches here
+        # at all when PUBLISH_PR_IMAGES=true overrides the base-branch rule
+        # above, so it falls back to the branch's own name rather than
+        # inventing an environment label for it.
+        def pr_image_tag(pr_number: str) -> str:
+            base = os.environ.get("PR_BASE_REF", "")
+            environment = {"staging": "staging", "main": "production"}.get(base, base)
+            return f"{environment}-pr{pr_number}" if environment else f"PR-{pr_number}"
 
         if event_name == "pull_request":
             # No tags means "build but do not publish" - see build-container.
             # A fork PR resolves a tag here and still does not push: its
             # GITHUB_TOKEN is read-only, which build-container detects.
             if pr_number and publishes_pr_image():
-                tags.append(f"PR-{pr_number}")
+                tags.append(pr_image_tag(pr_number))
         elif event_name == "push" and github_ref == "refs/heads/staging":
             tags.extend(["staging", f"staging-{short_sha}"])
         elif event_name == "push" and github_ref == "refs/heads/main":

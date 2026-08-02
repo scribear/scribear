@@ -8,6 +8,13 @@ services:
     volumes:
       - ${SSL_CERT_PATH}:/etc/nginx/ssl/pub.cert:ro
       - ${SSL_KEY_PATH}:/etc/nginx/ssl/priv.key:ro
+      # Onsite-only access gate (nginx.conf's `$onsite`). Defaults are real,
+      # live files checked into this directory - not `.template`s to copy
+      # first, unlike PROVIDER_CONFIG_PATH - because "nobody is restricted"
+      # is a sane universal default here. Point both at real files (see
+      # onsite-allowlist.example.conf) to actually restrict access.
+      - ${ONSITE_ALLOWLIST_PATH:-./onsite/allowlist.default.conf}:/etc/nginx/onsite/config/allowlist.conf:ro
+      - ${ONSITE_CONTENT_PATH:-./onsite/content-default}:/usr/share/nginx/onsite/content:ro
     depends_on:
       client-webapp:
         condition: service_healthy
@@ -219,7 +226,7 @@ services:
       # Not `:?`-guarded, like DEPLOYMENT_ENV below and unlike the secrets: it
       # changes what is *reported*, never what runs, and must not be able to
       # stop a stack from starting.
-      COMPOSE_FILE_VERSION: "12"
+      COMPOSE_FILE_VERSION: "13"
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
