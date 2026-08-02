@@ -416,6 +416,7 @@ export const RoomCalendarPage = () => {
           roomUid={room.uid}
           roomName={room.name}
           roomTimezone={room.timezone}
+          autoSessionEnabled={room.autoSessionEnabled}
           window={null}
           onClose={() => {
             setWindowDialogOpen(false);

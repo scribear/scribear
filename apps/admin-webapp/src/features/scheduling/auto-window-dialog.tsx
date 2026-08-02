@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import Dialog from '@mui/material/Dialog';
@@ -9,6 +10,7 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
 
 import type { AutoSessionWindow } from '@scribear/session-manager-schema';
 
@@ -70,6 +72,13 @@ export interface AutoWindowDialogProps {
   roomName: string;
   /** The room's IANA zone — the clock the local start/end times are read in. */
   roomTimezone: string;
+  /**
+   * The room's auto-session master switch. A window on a room with this off is
+   * stored and listed but produces no sessions at all (the reconciler reads
+   * zero windows), so the dialog has to say which of the two states the room
+   * is in — and offer to flip it — rather than saving in silence.
+   */
+  autoSessionEnabled: boolean;
   window: AutoSessionWindow | null;
   onClose: () => void;
   onSaved: () => void;
@@ -79,6 +88,7 @@ export const AutoWindowDialog = ({
   roomUid,
   roomName,
   roomTimezone,
+  autoSessionEnabled,
   window: autoWindow,
   onClose,
   onSaved,
@@ -98,6 +108,12 @@ export const AutoWindowDialog = ({
           transcriptionProviderId: 'whisper',
           transcriptionStreamConfig: '{}',
         },
+  );
+  // Seeded from the room, same as the kiosk wizard's schedule step: when the
+  // master switch is off the offer to turn it on is pre-accepted, since a
+  // window saved without it does nothing.
+  const [enableAutoSessions, setEnableAutoSessions] = useState(
+    () => !autoSessionEnabled,
   );
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [daysError, setDaysError] = useState(false);
@@ -143,6 +159,8 @@ export const AutoWindowDialog = ({
     setSubmitting(true);
     setMisconfigured(false);
 
+    const creating = autoWindow === null;
+    let saved: Promise<AutoSessionWindow>;
     if (autoWindow === null) {
       const body: CreateAutoWindowBody = {
         roomUid,
@@ -155,22 +173,7 @@ export const AutoWindowDialog = ({
         transcriptionProviderId: form.transcriptionProviderId,
         transcriptionStreamConfig,
       };
-      adminApi
-        .createAutoWindow(body)
-        .then(() => {
-          showSuccess('Auto-session window created.');
-          onSaved();
-        })
-        .catch((err: unknown) => {
-          if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
-            setMisconfigured(true);
-          } else {
-            showError(errorMessage(err, 'Failed to create window.'));
-          }
-        })
-        .finally(() => {
-          setSubmitting(false);
-        });
+      saved = adminApi.createAutoWindow(body);
     } else {
       const body: UpdateAutoWindowBody = {
         windowUid: autoWindow.uid,
@@ -185,23 +188,53 @@ export const AutoWindowDialog = ({
           transcriptionStreamConfig,
         }),
       };
-      adminApi
-        .updateAutoWindow(body)
-        .then(() => {
-          showSuccess('Auto-session window updated.');
-          onSaved();
-        })
-        .catch((err: unknown) => {
-          if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
-            setMisconfigured(true);
-          } else {
-            showError(errorMessage(err, 'Failed to update window.'));
-          }
-        })
-        .finally(() => {
-          setSubmitting(false);
-        });
+      saved = adminApi.updateAutoWindow(body);
     }
+    const alsoEnable = enableAutoSessions && !autoSessionEnabled;
+
+    saved
+      .then(() => {
+        if (!alsoEnable) return null;
+        // The master switch is what actually makes the window produce
+        // sessions, so a failure here is reported on its own.
+        return adminApi
+          .updateRoomScheduleConfig({ roomUid, autoSessionEnabled: true })
+          .then(() => null)
+          .catch((err: unknown) => {
+            showError(
+              errorMessage(
+                err,
+                'Window saved, but auto-sessions could not be enabled for the room.',
+              ),
+            );
+            return null;
+          });
+      })
+      .then(() => {
+        showSuccess(
+          creating
+            ? 'Auto-session window created.'
+            : 'Auto-session window updated.',
+        );
+        onSaved();
+      })
+      .catch((err: unknown) => {
+        if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
+          setMisconfigured(true);
+        } else {
+          showError(
+            errorMessage(
+              err,
+              creating
+                ? 'Failed to create window.'
+                : 'Failed to update window.',
+            ),
+          );
+        }
+      })
+      .finally(() => {
+        setSubmitting(false);
+      });
   };
 
   return (
@@ -303,6 +336,41 @@ export const AutoWindowDialog = ({
           }}
           error={jsonError}
         />
+        {autoSessionEnabled ? (
+          <Alert severity="success" sx={{ mt: 2 }}>
+            Auto-sessions are enabled for this room, so this window takes effect
+            as soon as you save.
+          </Alert>
+        ) : (
+          <Box sx={{ mt: 2 }}>
+            <Alert severity="warning">
+              Auto-sessions are turned off for this room, so this window will
+              not produce any sessions until they are turned on.
+            </Alert>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={enableAutoSessions}
+                  onChange={(e) => {
+                    setEnableAutoSessions(e.target.checked);
+                  }}
+                />
+              }
+              label="Enable auto-sessions for this room"
+            />
+            <Typography
+              variant="caption"
+              sx={{
+                display: 'block',
+                color: 'text.secondary',
+              }}
+            >
+              {enableAutoSessions
+                ? "This room's master switch is off. Saving will turn it on."
+                : 'Leaving this off saves the window but produces no sessions until the master switch is turned on from this page.'}
+            </Typography>
+          </Box>
+        )}
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={submitting}>

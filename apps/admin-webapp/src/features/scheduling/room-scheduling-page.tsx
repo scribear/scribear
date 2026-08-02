@@ -555,6 +555,16 @@ export const RoomSchedulingPage = () => {
           New window
         </Button>
       </Box>
+      {/* A window on a room whose master switch is off is stored, listed, and
+          completely inert — the reconciler reads zero windows. Without this the
+          table below looks entirely healthy while producing nothing. */}
+      {!room.autoSessionEnabled && windows.length > 0 && (
+        <Alert severity="warning" sx={{ mb: 1 }}>
+          These windows are not producing sessions — auto-sessions are disabled
+          for this room. Turn on the Auto-sessions switch above to start
+          producing sessions.
+        </Alert>
+      )}
       <TableContainer component={Paper} sx={{ mb: 3 }}>
         <Table>
           <TableHead>
@@ -769,6 +779,7 @@ export const RoomSchedulingPage = () => {
           roomUid={room.uid}
           roomName={room.name}
           roomTimezone={room.timezone}
+          autoSessionEnabled={room.autoSessionEnabled}
           window={editingWindow}
           onClose={() => {
             setWindowDialogOpen(false);
@@ -776,6 +787,9 @@ export const RoomSchedulingPage = () => {
           onSaved={() => {
             setWindowDialogOpen(false);
             reloadWindows();
+            // The dialog can flip the room's auto-session master switch as
+            // part of its save, so the switch above has to be re-read.
+            reloadRoom();
           }}
         />
       )}
