@@ -1,4 +1,8 @@
-export { NetworkError, UnexpectedResponseError } from './errors.js';
+export {
+  InvalidResponseBodyError,
+  NetworkError,
+  UnexpectedResponseError,
+} from './errors.js';
 export { createEndpointClient } from './create-endpoint-client.js';
 export type {
   EndpointParams,
