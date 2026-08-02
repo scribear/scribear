@@ -1,7 +1,11 @@
 import { EventEmitter } from 'eventemitter3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { NetworkError } from '@scribear/base-api-client';
+import {
+  NetworkError,
+  UnexpectedResponseError,
+} from '@scribear/base-api-client';
+import { SchemaValidationError as WsSchemaValidationError } from '@scribear/base-websocket-client';
 import type { MicrophoneService } from '@scribear/microphone-store';
 import type { NodeServerClient } from '@scribear/node-server-client';
 import { createNodeServerClient } from '@scribear/node-server-client';
@@ -13,8 +17,12 @@ import type { SessionManagerClient } from '@scribear/session-manager-client';
 import { createSessionManagerClient } from '@scribear/session-manager-client';
 import type { Session } from '@scribear/session-manager-schema';
 
+import type { KioskFault } from '#src/features/kiosk-provider/services/kiosk-service';
 import { KioskService } from '#src/features/kiosk-provider/services/kiosk-service';
-import { KioskLifecycle } from '#src/features/kiosk-provider/services/kiosk-service-status';
+import {
+  KioskLifecycle,
+  SessionConnectionStatus,
+} from '#src/features/kiosk-provider/services/kiosk-service-status';
 
 vi.mock('@scribear/node-server-client', async (importOriginal) => {
   const actual =
@@ -191,6 +199,7 @@ let getMyRoom: ReturnType<typeof vi.fn>;
 let mySchedule: ReturnType<typeof vi.fn>;
 let exchangeDeviceToken: ReturnType<typeof vi.fn>;
 let activateDevice: ReturnType<typeof vi.fn>;
+let transcriptionStreamClient: ReturnType<typeof vi.fn>;
 let fetchJoinCode: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -204,7 +213,14 @@ beforeEach(() => {
   fakePoll = createFakePoll();
   getMyDevice = vi.fn().mockResolvedValue(deviceOk());
   getMyRoom = vi.fn().mockResolvedValue(roomOk());
-  mySchedule = vi.fn(() => fakePoll);
+  // A fresh poll per call, as the real client does. `_enterIdle` starts a new
+  // one on every drop out of a session, and reusing one emitter across those
+  // cycles would stack listeners and make the reconnect-loop tests below
+  // count each failure several times over.
+  mySchedule = vi.fn(() => {
+    fakePoll = createFakePoll();
+    return fakePoll;
+  });
   exchangeDeviceToken = vi.fn();
   activateDevice = vi.fn();
   fetchJoinCode = vi.fn().mockResolvedValue([
@@ -218,8 +234,9 @@ beforeEach(() => {
     null,
   ]);
 
+  transcriptionStreamClient = vi.fn(() => fakeSocket);
   vi.mocked(createNodeServerClient).mockReturnValue({
-    transcriptionStreamClient: vi.fn(() => fakeSocket),
+    transcriptionStreamClient,
     transcriptionStreamSource: vi.fn(() => fakeSourceSocket),
   } as unknown as NodeServerClient);
 
@@ -247,6 +264,16 @@ async function bringToIdle(
   return service;
 }
 
+/** Deliver a schedule long-poll response on whichever poll is currently live
+ * (`_enterIdle` replaces it every time the kiosk drops out of a session). */
+async function deliverSchedule(sessions: Session[]): Promise<void> {
+  fakePoll.emit('data', {
+    serverTime: new Date(NOW_MS).toISOString(),
+    sessions,
+  });
+  await vi.advanceTimersByTimeAsync(0);
+}
+
 /** Drive a fresh KioskService from `start()` through to a live, open socket
  * for the given session (defaults to a non-source display kiosk). */
 async function bringSessionActive(
@@ -255,16 +282,29 @@ async function bringSessionActive(
 ): Promise<{ service: KioskService; socket: typeof fakeSocket }> {
   const service = await bringToIdle(microphoneService);
 
-  fakePoll.emit('data', {
-    serverTime: new Date(NOW_MS).toISOString(),
-    sessions: [session],
-  });
-  await vi.advanceTimersByTimeAsync(0);
+  await deliverSchedule([session]);
 
   const socket = fakeSocket;
   socket.emit('open');
   await vi.advanceTimersByTimeAsync(0);
   return { service, socket };
+}
+
+/**
+ * Record every fault, connection status and lifecycle change a service emits
+ * from this point on. Most assertions below are about what the room was
+ * *told*, which is precisely what these three streams carry.
+ */
+function observe(service: KioskService) {
+  const faults: (KioskFault | null)[] = [];
+  const scheduleFaults: (KioskFault | null)[] = [];
+  const statuses: SessionConnectionStatus[] = [];
+  const lifecycles: KioskLifecycle[] = [];
+  service.on('error', (f) => faults.push(f));
+  service.on('scheduleSyncError', (f) => scheduleFaults.push(f));
+  service.on('connectionStatus', (s) => statuses.push(s));
+  service.on('lifecycleChange', (l) => lifecycles.push(l));
+  return { faults, scheduleFaults, statuses, lifecycles };
 }
 
 describe('KioskService session-token refresh (regression: decodeSessionTokenExpiryMs)', () => {
@@ -328,35 +368,66 @@ describe('KioskService session-token refresh (regression: decodeSessionTokenExpi
     expect(exchangeDeviceToken).toHaveBeenCalledTimes(2);
   });
 
-  it('falls back to IDLE when a refresh fails, instead of authing with a stale token', async () => {
+  it('keeps the working socket when a proactive refresh fails, and retries instead of dropping the session', async () => {
     const first = await mintSessionToken(NOW_MS / 1000 + 600);
     exchangeDeviceToken
       .mockResolvedValueOnce(exchangeOk(first))
-      .mockResolvedValueOnce([null, new NetworkError('offline')]);
+      .mockResolvedValue([null, new NetworkError('offline')]);
 
-    const { service } = await bringSessionActive();
-    const lifecycles: KioskLifecycle[] = [];
-    service.on('lifecycleChange', (l) => lifecycles.push(l));
+    const { service, socket } = await bringSessionActive();
+    const { faults, lifecycles } = observe(service);
 
+    // Halfway through the token's lifetime the proactive refresh fires and
+    // fails. The socket is still open and still authenticated on the current
+    // token, so tearing the session down (as this used to) would throw away a
+    // working connection over a blip.
     await vi.advanceTimersByTimeAsync(301_000);
 
-    expect(lifecycles).toContain(KioskLifecycle.IDLE);
+    expect(lifecycles).not.toContain(KioskLifecycle.IDLE);
+    expect(socket.terminate).not.toHaveBeenCalled();
+    expect(faults.at(-1)).toEqual({
+      severity: 'warning',
+      message: expect.stringMatching(/cannot reach/i),
+    });
   });
 
-  it('falls back to IDLE, without opening a socket, when the initial token fetch fails', async () => {
+  it('goes TERMINAL when the refresh retry budget is exhausted', async () => {
+    const first = await mintSessionToken(NOW_MS / 1000 + 600);
+    exchangeDeviceToken
+      .mockResolvedValueOnce(exchangeOk(first))
+      .mockResolvedValue([null, new NetworkError('offline')]);
+
+    const { service } = await bringSessionActive();
+    const { faults, statuses } = observe(service);
+
+    // 300 s to the refresh, then 500 + 1000 + 2000 + 4000 ms of backoff
+    // across the five allowed attempts.
+    await vi.advanceTimersByTimeAsync(301_000 + 7_600);
+
+    expect(statuses.at(-1)).toBe(SessionConnectionStatus.TERMINAL);
+    expect(faults.at(-1)?.severity).toBe('error');
+    expect(faults.at(-1)?.message).toMatch(/stopped retrying/i);
+    // Still ACTIVE: the captions already on the wall stay up and the panel
+    // keeps naming the session, rather than claiming the room is idle.
+    expect(service.lifecycle).toBe(KioskLifecycle.ACTIVE);
+  });
+
+  it('never reports CONNECTED, or opens a socket at all, when the initial token fetch fails', async () => {
     exchangeDeviceToken.mockResolvedValue([null, new NetworkError('offline')]);
     const service = await bringToIdle();
-    const lifecycles: KioskLifecycle[] = [];
-    service.on('lifecycleChange', (l) => lifecycles.push(l));
+    const { faults, statuses } = observe(service);
 
-    fakePoll.emit('data', {
-      serverTime: new Date(NOW_MS).toISOString(),
-      sessions: [activeSession()],
-    });
-    await vi.advanceTimersByTimeAsync(0);
+    await deliverSchedule([activeSession()]);
 
+    // The handshake used to resolve with no AUTH sent, so the socket reached
+    // OPEN, the banner closed, and the room read "connected" with no captions
+    // until node-server's auth watchdog closed it five seconds later.
     expect(fakeSocket.start).not.toHaveBeenCalled();
-    expect(lifecycles).toContain(KioskLifecycle.IDLE);
+    expect(statuses).not.toContain(SessionConnectionStatus.CONNECTED);
+    expect(faults.at(-1)).toEqual({
+      severity: 'warning',
+      message: 'Cannot reach the ScribeAR session service. Retrying…',
+    });
   });
 });
 
@@ -530,18 +601,385 @@ describe('KioskService socket close / error handling', () => {
     expect(lifecycles).toContain(KioskLifecycle.IDLE);
   });
 
-  it('returns to IDLE on a 1008 auth failure and lets schedule sync rediscover the session', async () => {
+  it('returns to IDLE on a single 1008 auth failure and lets schedule sync rediscover the session', async () => {
     exchangeDeviceToken.mockResolvedValue(
       exchangeOk(await mintSessionToken(NOW_MS / 1000 + 600)),
     );
     const { service, socket } = await bringSessionActive();
-    const lifecycles: KioskLifecycle[] = [];
-    service.on('lifecycleChange', (l) => lifecycles.push(l));
+    const { lifecycles, statuses } = observe(service);
 
+    // A merely-stale token also closes 1008 and is genuinely fixed by the
+    // refetch on the next attempt, so the first one is not terminal.
     socket.emit('close', 1008, 'token-expired', 1000);
     await vi.advanceTimersByTimeAsync(0);
 
     expect(lifecycles).toContain(KioskLifecycle.IDLE);
+    expect(statuses).not.toContain(SessionConnectionStatus.TERMINAL);
+  });
+
+  it('goes TERMINAL immediately on a 1008 whose reason can never succeed on a retry', async () => {
+    exchangeDeviceToken.mockResolvedValue(
+      exchangeOk(await mintSessionToken(NOW_MS / 1000 + 600)),
+    );
+    const { service, socket } = await bringSessionActive();
+    const { faults, statuses, lifecycles } = observe(service);
+    const tokenCallsBefore = exchangeDeviceToken.mock.calls.length;
+
+    socket.emit('close', 1008, 'missing-scope', 1000);
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(statuses.at(-1)).toBe(SessionConnectionStatus.TERMINAL);
+    expect(faults.at(-1)?.severity).toBe('error');
+    expect(faults.at(-1)?.message).toMatch(/not permitted to join/i);
+    // Nothing keeps trying: no fresh token is fetched, and the kiosk does not
+    // bounce through IDLE claiming to be waiting for a session to start.
+    expect(exchangeDeviceToken.mock.calls.length).toBe(tokenCallsBefore);
+    expect(lifecycles).not.toContain(KioskLifecycle.IDLE);
+  });
+
+  it('goes TERMINAL after three 1008 closes whose reason is unfamiliar, counting across reconnects', async () => {
+    const session = activeSession();
+    exchangeDeviceToken.mockResolvedValue(
+      exchangeOk(await mintSessionToken(NOW_MS / 1000 + 600)),
+    );
+    const { service, socket } = await bringSessionActive(session);
+    const { faults, statuses } = observe(service);
+
+    // Each close drops the kiosk to IDLE, where schedule sync immediately
+    // rediscovers the same still-active session and reconnects. A per-socket
+    // counter would be refilled by that very loop; this budget is not.
+    socket.emit('close', 1008, '', 1000);
+    await vi.advanceTimersByTimeAsync(0);
+    await deliverSchedule([session]);
+    expect(statuses).not.toContain(SessionConnectionStatus.TERMINAL);
+
+    socket.emit('close', 1008, '', 1000);
+    await vi.advanceTimersByTimeAsync(0);
+    await deliverSchedule([session]);
+    expect(statuses).not.toContain(SessionConnectionStatus.TERMINAL);
+
+    socket.emit('close', 1008, '', 1000);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(statuses.at(-1)).toBe(SessionConnectionStatus.TERMINAL);
+    expect(faults.at(-1)?.message).toMatch(/3 times in a row/);
+    expect(service.lifecycle).toBe(KioskLifecycle.ACTIVE);
+  });
+
+  it('clears the 1008 budget on AUTH_OK, so an accepted credential resets the count', async () => {
+    const session = activeSession();
+    exchangeDeviceToken.mockResolvedValue(
+      exchangeOk(await mintSessionToken(NOW_MS / 1000 + 600)),
+    );
+    const { service, socket } = await bringSessionActive(session);
+    const { statuses } = observe(service);
+
+    socket.emit('close', 1008, '', 1000);
+    await vi.advanceTimersByTimeAsync(0);
+    await deliverSchedule([session]);
+    socket.emit('close', 1008, '', 1000);
+    await vi.advanceTimersByTimeAsync(0);
+    await deliverSchedule([session]);
+
+    // The server accepts this one - the only proof the credential was good.
+    socket.emit('message', {
+      type: TranscriptionStreamServerMessageType.AUTH_OK,
+    });
+
+    socket.emit('close', 1008, '', 1000);
+    await vi.advanceTimersByTimeAsync(0);
+    await deliverSchedule([session]);
+    socket.emit('close', 1008, '', 1000);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(statuses).not.toContain(SessionConnectionStatus.TERMINAL);
+  });
+
+  it('starts a genuinely different session with a full 1008 budget', async () => {
+    const first = activeSession();
+    const second: Session = { ...activeSession(), uid: 'other-session' };
+    exchangeDeviceToken.mockResolvedValue(
+      exchangeOk(await mintSessionToken(NOW_MS / 1000 + 600)),
+    );
+    const { service, socket } = await bringSessionActive(first);
+    const { statuses } = observe(service);
+
+    socket.emit('close', 1008, '', 1000);
+    await vi.advanceTimersByTimeAsync(0);
+    await deliverSchedule([first]);
+    socket.emit('close', 1008, '', 1000);
+    await vi.advanceTimersByTimeAsync(0);
+
+    // A new session is a new credential and a new configuration; the previous
+    // session's failures say nothing about it.
+    await deliverSchedule([second]);
+    socket.emit('close', 1008, '', 1000);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(statuses).not.toContain(SessionConnectionStatus.TERMINAL);
+  });
+
+  it('goes TERMINAL on a schema mismatch rather than silently dropping to IDLE', async () => {
+    exchangeDeviceToken.mockResolvedValue(
+      exchangeOk(await mintSessionToken(NOW_MS / 1000 + 600)),
+    );
+    const { service, socket } = await bringSessionActive();
+    const { faults, statuses, lifecycles } = observe(service);
+
+    socket.emit('error', new WsSchemaValidationError('bad message'));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(statuses.at(-1)).toBe(SessionConnectionStatus.TERMINAL);
+    expect(faults.at(-1)?.message).toMatch(/protocol mismatch/i);
+    expect(lifecycles).not.toContain(KioskLifecycle.IDLE);
+  });
+
+  it('clears a terminal session once it disappears from the schedule', async () => {
+    const session = activeSession();
+    exchangeDeviceToken.mockResolvedValue(
+      exchangeOk(await mintSessionToken(NOW_MS / 1000 + 600)),
+    );
+    const { service, socket } = await bringSessionActive(session);
+    const { faults, lifecycles } = observe(service);
+
+    socket.emit('close', 1008, 'session-mismatch', 1000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(service.lifecycle).toBe(KioskLifecycle.ACTIVE);
+
+    // Terminal is scoped to one session: when that session ends, the kiosk
+    // goes back to a clean IDLE rather than staying stuck on a stale message.
+    await deliverSchedule([]);
+
+    expect(lifecycles).toContain(KioskLifecycle.IDLE);
+    expect(faults.at(-1)).toBeNull();
+  });
+});
+
+describe('KioskService session-token failures (2.4)', () => {
+  it('goes TERMINAL immediately, without retrying, when the device is not in the session room', async () => {
+    exchangeDeviceToken.mockResolvedValue([
+      { status: 403, data: { code: 'DEVICE_NOT_IN_SESSION_ROOM' } },
+      null,
+    ]);
+    const service = await bringToIdle();
+    const { faults, statuses } = observe(service);
+
+    await deliverSchedule([activeSession()]);
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(exchangeDeviceToken).toHaveBeenCalledTimes(1);
+    expect(statuses.at(-1)).toBe(SessionConnectionStatus.TERMINAL);
+    expect(faults.at(-1)?.message).toMatch(/not assigned to the room/i);
+  });
+
+  it('names the HTTP status when the session service refuses with an undeclared one', async () => {
+    exchangeDeviceToken.mockResolvedValue([
+      null,
+      new UnexpectedResponseError(429),
+    ]);
+    const service = await bringToIdle();
+    const { faults } = observe(service);
+
+    await deliverSchedule([activeSession()]);
+
+    // 429, 500 and "session-manager is down" used to be one indistinguishable
+    // silence; a room full of devices behind one NAT is a real 429 source.
+    expect(faults.at(-1)?.message).toMatch(/HTTP 429/);
+    expect(faults.at(-1)?.severity).toBe('warning');
+  });
+
+  it('rejects the handshake, rather than reporting OPEN, when no token is available', async () => {
+    exchangeDeviceToken.mockResolvedValue(
+      exchangeOk(await mintSessionToken(NOW_MS / 1000 + 600)),
+    );
+    const { service } = await bringSessionActive();
+    const options = transcriptionStreamClient.mock.calls[0]?.[1] as {
+      onHandshake: (sender: unknown, messages: unknown) => Promise<void>;
+    };
+
+    // Teardown drops the token. A reconnect that ran the handshake anyway
+    // used to *return*, resolving it without sending AUTH - so the client
+    // reported OPEN and the banner closed with nothing authenticated.
+    service.stop();
+    const sender = { send: vi.fn(), sendBinary: vi.fn() };
+
+    await expect(
+      options.onHandshake(sender, new EventEmitter()),
+    ).rejects.toThrow(/session token/i);
+    expect(sender.send).not.toHaveBeenCalled();
+  });
+
+  it('abandons an in-flight token fetch when a newer session takes over', async () => {
+    const token = await mintSessionToken(NOW_MS / 1000 + 600);
+    // One slow, shared in-flight response, so both sessions' fetches are
+    // still pending when the second one takes over.
+    const pending = new Promise((resolve) => {
+      setTimeout(() => {
+        resolve(exchangeOk(token));
+      }, 1_000);
+    });
+    exchangeDeviceToken.mockReturnValue(pending);
+    const service = await bringToIdle();
+    const other: Session = { ...activeSession(), uid: 'other-session' };
+
+    // Both fetches are in flight at once; only the newer session may act on
+    // its result, or the superseded one leaks a second socket over it.
+    fakePoll.emit('data', {
+      serverTime: new Date(NOW_MS).toISOString(),
+      sessions: [activeSession()],
+    });
+    fakePoll.emit('data', {
+      serverTime: new Date(NOW_MS).toISOString(),
+      sessions: [other],
+    });
+    await vi.advanceTimersByTimeAsync(1_100);
+
+    expect(fakeSocket.start).toHaveBeenCalledTimes(1);
+    expect(service.lifecycle).toBe(KioskLifecycle.ACTIVE);
+  });
+
+  it('abandons a backing-off retry when a newer session takes over', async () => {
+    exchangeDeviceToken.mockResolvedValue([null, new NetworkError('offline')]);
+    const service = await bringToIdle();
+    const { statuses } = observe(service);
+    const other: Session = { ...activeSession(), uid: 'other-session' };
+
+    await deliverSchedule([activeSession()]);
+    await deliverSchedule([other]);
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    // Exactly one terminal declaration: the abandoned loop woke from its
+    // backoff, saw it had been superseded, and stopped without spending the
+    // new session's budget or announcing a failure that no longer applies.
+    expect(
+      statuses.filter((s) => s === SessionConnectionStatus.TERMINAL),
+    ).toHaveLength(1);
+  });
+
+  it('recovers, connects and clears the fault when a transient failure stops', async () => {
+    exchangeDeviceToken
+      .mockResolvedValueOnce([null, new NetworkError('offline')])
+      .mockResolvedValue(
+        exchangeOk(await mintSessionToken(NOW_MS / 1000 + 600)),
+      );
+    const service = await bringToIdle();
+    const { faults, statuses } = observe(service);
+
+    await deliverSchedule([activeSession()]);
+    expect(faults.at(-1)?.severity).toBe('warning');
+
+    await vi.advanceTimersByTimeAsync(600);
+    fakeSocket.emit('open');
+    fakeSocket.emit('stateChange', 'OPEN');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(fakeSocket.start).toHaveBeenCalled();
+    expect(faults.at(-1)).toBeNull();
+    expect(statuses.at(-1)).toBe(SessionConnectionStatus.CONNECTED);
+  });
+});
+
+describe('KioskService schedule long-poll health (2.5)', () => {
+  it('says nothing about a single transient poll failure', async () => {
+    const service = await bringToIdle();
+    const { scheduleFaults } = observe(service);
+
+    fakePoll.emit('error', new NetworkError('offline'));
+    fakePoll.emit('error', new NetworkError('offline'));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(scheduleFaults).toEqual([]);
+  });
+
+  it('reports a sustained schedule-sync outage, naming the cause and the consequence', async () => {
+    const service = await bringToIdle();
+    const { scheduleFaults } = observe(service);
+
+    for (let i = 0; i < 3; i++) {
+      fakePoll.emit('error', new NetworkError('offline'));
+    }
+    await vi.advanceTimersByTimeAsync(0);
+
+    // The whole point: this used to be `poll.on('error', () => {})`, so
+    // schedule sync could be dead for hours behind "Inactive, waiting for a
+    // session to start." - the same sentence a healthy kiosk shows.
+    expect(scheduleFaults.at(-1)).toEqual({
+      severity: 'warning',
+      message:
+        'Cannot reach the ScribeAR schedule service. Scheduled sessions may not start or end on time on this kiosk.',
+    });
+  });
+
+  it('distinguishes a failing schedule service from an unreachable one', async () => {
+    const service = await bringToIdle();
+    const { scheduleFaults } = observe(service);
+
+    for (let i = 0; i < 3; i++) {
+      fakePoll.emit('error', new UnexpectedResponseError(500));
+    }
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(scheduleFaults.at(-1)?.message).toMatch(/HTTP 500/);
+  });
+
+  it('clears the schedule-sync fault as soon as a response arrives', async () => {
+    const service = await bringToIdle();
+    const { scheduleFaults } = observe(service);
+
+    for (let i = 0; i < 3; i++) {
+      fakePoll.emit('error', new NetworkError('offline'));
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    expect(scheduleFaults.at(-1)).not.toBeNull();
+
+    await deliverSchedule([]);
+
+    expect(scheduleFaults.at(-1)).toBeNull();
+  });
+});
+
+describe('KioskService device-info failures (2.2)', () => {
+  it('reports an unreachable server while it retries initialization', async () => {
+    getMyDevice.mockResolvedValue([null, new NetworkError('offline')]);
+    const service = new KioskService(createFakeMicrophoneService());
+    const { faults } = observe(service);
+
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(faults.at(-1)).toEqual({
+      severity: 'warning',
+      message: 'Cannot reach the ScribeAR server. Retrying…',
+    });
+  });
+
+  it('names the HTTP status when device info is refused, and clears it on recovery', async () => {
+    getMyDevice
+      .mockResolvedValueOnce([null, new UnexpectedResponseError(500)])
+      .mockResolvedValue(deviceOk());
+    const service = new KioskService(createFakeMicrophoneService());
+    const { faults } = observe(service);
+
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(faults.at(-1)?.message).toMatch(/HTTP 500/);
+
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(faults.at(-1)).toBeNull();
+  });
+
+  it('says nothing extra when the device is simply unregistered', async () => {
+    getMyDevice.mockResolvedValue([{ status: 401, data: null }, null]);
+    const service = new KioskService(createFakeMicrophoneService());
+    const { faults } = observe(service);
+
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // The activation form this drops to is itself the explanation; a banner
+    // on top of it would be noise, not information.
+    expect(faults.filter(Boolean)).toEqual([]);
   });
 });
 

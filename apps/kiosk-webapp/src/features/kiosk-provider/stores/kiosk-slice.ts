@@ -13,6 +13,7 @@ import type { RootState } from '#src/store/store';
 import type {
   DeviceInfo,
   JoinCodeEntry,
+  KioskFault,
   RoomInfo,
   SessionStatusSnapshot,
 } from '../services/kiosk-service';
@@ -41,7 +42,14 @@ export interface KioskSliceState {
     nextJoinCode: JoinCodeEntry | null;
   } | null;
   registrationError: string | null;
-  error: string | null;
+  /** Why the kiosk is degraded or stuck. Rendered by the connection banner. */
+  error: KioskFault | null;
+  /**
+   * Health of the schedule long-poll. Separate from {@link error} because
+   * they are independent failure domains - the schedule can be dead while a
+   * session runs fine, and vice versa - and one must not overwrite the other.
+   */
+  scheduleSyncError: KioskFault | null;
 }
 
 const initialState: KioskSliceState = {
@@ -52,6 +60,7 @@ const initialState: KioskSliceState = {
   activeSession: null,
   registrationError: null,
   error: null,
+  scheduleSyncError: null,
 };
 
 export const selectLifecycle = (state: RootState) => state.kiosk.lifecycle;
@@ -63,6 +72,8 @@ export const selectActiveSession = (state: RootState) =>
 export const selectRegistrationError = (state: RootState) =>
   state.kiosk.registrationError;
 export const selectError = (state: RootState) => state.kiosk.error;
+export const selectScheduleSyncError = (state: RootState) =>
+  state.kiosk.scheduleSyncError;
 
 /**
  * Result of {@link deriveConnectionBanner}: either the banner should be
@@ -76,29 +87,64 @@ export type ConnectionBannerState =
 
 /**
  * Pure derivation of what the kiosk's `ConnectionStatusBanner` should show,
- * given the two independent signals the kiosk tracks while a session is
- * active: the kiosk's own socket to node-server (`connectionStatus`), and
- * node-server's upstream link to the transcription service
- * (`sessionStatus.transcriptionServiceConnected`).
+ * given the four independent signals the kiosk tracks: whatever the service
+ * has named as the current fault (`error`), the kiosk's own socket to
+ * node-server (`connectionStatus`), node-server's upstream link to the
+ * transcription service (`sessionStatus.transcriptionServiceConnected`), and
+ * the health of the schedule long-poll (`scheduleSyncError`).
  *
- * Priority: a broken `connectionStatus` explains everything else (no session
- * data is flowing at all, regardless of what the last-known `sessionStatus`
- * said), so it's checked first. Only once the kiosk's own socket is
- * confirmed `CONNECTED` does a stale-but-still-informative
- * `sessionStatus.transcriptionServiceConnected === false` matter.
+ * Priority, most explanatory first:
+ * 1. `TERMINAL` - the kiosk has stopped retrying. Always an `'error'`, and it
+ *    renders the service's own explanation rather than a generic string,
+ *    because the whole point of a terminal state is naming *which*
+ *    unrecoverable thing happened and who has to fix it.
+ * 2. Any other named fault (`error`), at the severity the service chose. This
+ *    is what makes `selectError` real: `'Failed to fetch device info…'` and
+ *    friends were dispatched into Redux on every failure and read by nothing,
+ *    so the code looked like it reported errors and the wall stayed silent.
+ *    A named cause outranks the generic "Connection lost" below because it
+ *    says the same thing with the reason attached.
+ * 3. A broken `connectionStatus`, which explains everything under it - no
+ *    session data is flowing at all, regardless of what the last-known
+ *    `sessionStatus` said.
+ * 4. node-server's upstream link, only once the kiosk's own socket is
+ *    confirmed `CONNECTED` and a stale-but-informative snapshot can be
+ *    trusted.
+ * 5. Degraded schedule sync. Last because it does not stop a running session
+ *    from working; it stops the *next* one from starting, which is invisible
+ *    behind an idle kiosk's perfectly calm status panel.
  *
  * No session (`connectionStatus === null`) means there is nothing to report
- * - the kiosk isn't participating in a session, so there's no connection to
- * be lost. Almost every case here is a retrying/transient state (matching
- * this feature's fail-open philosophy elsewhere) and so is a `'warning'`. The
- * one exception is `INVALID_REQUEST`: the transcription service rejected this
- * session's configuration and will reject the identical retry forever, so
- * there is nothing to wait for and it is reported as an `'error'`.
+ * about a session - but the kiosk can still be broken in the other three
+ * ways, all of which are reachable while `IDLE` or `INITIALIZING`.
+ *
+ * Almost every case here is a retrying/transient state (matching this
+ * feature's fail-open philosophy elsewhere) and so is a `'warning'`. The
+ * exceptions are `TERMINAL`, a fault the service itself marked `'error'`, and
+ * `INVALID_REQUEST`: the transcription service rejected this session's
+ * configuration and will reject the identical retry forever, so there is
+ * nothing to wait for.
  */
 export function deriveConnectionBanner(
   connectionStatus: SessionConnectionStatus | null,
   sessionStatus: SessionStatusSnapshot | null,
+  error: KioskFault | null = null,
+  scheduleSyncError: KioskFault | null = null,
 ): ConnectionBannerState {
+  if (connectionStatus === SessionConnectionStatus.TERMINAL) {
+    return {
+      open: true,
+      severity: 'error',
+      message:
+        error?.message ??
+        'This kiosk cannot connect to the session running in this room and has stopped trying. An administrator needs to check it.',
+    };
+  }
+
+  if (error !== null) {
+    return { open: true, severity: error.severity, message: error.message };
+  }
+
   if (
     connectionStatus !== null &&
     connectionStatus !== SessionConnectionStatus.CONNECTED
@@ -147,14 +193,26 @@ export function deriveConnectionBanner(
     };
   }
 
+  if (scheduleSyncError !== null) {
+    return {
+      open: true,
+      severity: scheduleSyncError.severity,
+      message: scheduleSyncError.message,
+    };
+  }
+
   return { open: false };
 }
 
 /**
  * Selector wrapping {@link deriveConnectionBanner} over the active session's
- * `connectionStatus`/`sessionStatus`. `null` for both when there is no
- * active session, which `deriveConnectionBanner` treats as "nothing to
- * report".
+ * `connectionStatus`/`sessionStatus` plus the two service-reported faults.
+ * The session pair is `null` when there is no active session, which
+ * `deriveConnectionBanner` treats as "nothing to report about a session" -
+ * the faults are still reported, since both can occur with no session at all.
+ *
+ * This is the sole consumer of `selectError`, and the reason that slice field
+ * exists.
  */
 export const selectConnectionBanner = (
   state: RootState,
@@ -162,6 +220,8 @@ export const selectConnectionBanner = (
   deriveConnectionBanner(
     state.kiosk.activeSession?.connectionStatus ?? null,
     state.kiosk.activeSession?.sessionStatus ?? null,
+    selectError(state),
+    selectScheduleSyncError(state),
   );
 
 export const kioskSlice = createSlice({
@@ -224,8 +284,11 @@ export const kioskSlice = createSlice({
     setRegistrationError: (state, action: PayloadAction<string | null>) => {
       state.registrationError = action.payload;
     },
-    setError: (state, action: PayloadAction<string | null>) => {
+    setError: (state, action: PayloadAction<KioskFault | null>) => {
       state.error = action.payload;
+    },
+    setScheduleSyncError: (state, action: PayloadAction<KioskFault | null>) => {
+      state.scheduleSyncError = action.payload;
     },
   },
 });
@@ -243,6 +306,7 @@ export const {
   setJoinCodes,
   setRegistrationError,
   setError,
+  setScheduleSyncError,
 } = kioskSlice.actions;
 
 /**
