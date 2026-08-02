@@ -752,6 +752,8 @@ export const RoomSchedulingPage = () => {
       {scheduleDialogOpen && (
         <ScheduleDialog
           roomUid={room.uid}
+          roomName={room.name}
+          roomTimezone={room.timezone}
           schedule={editingSchedule}
           onClose={() => {
             setScheduleDialogOpen(false);
@@ -765,6 +767,8 @@ export const RoomSchedulingPage = () => {
       {windowDialogOpen && (
         <AutoWindowDialog
           roomUid={room.uid}
+          roomName={room.name}
+          roomTimezone={room.timezone}
           window={editingWindow}
           onClose={() => {
             setWindowDialogOpen(false);

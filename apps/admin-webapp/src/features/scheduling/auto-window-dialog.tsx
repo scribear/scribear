@@ -8,7 +8,6 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import FormControlLabel from '@mui/material/FormControlLabel';
-import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 
 import type { AutoSessionWindow } from '@scribear/session-manager-schema';
@@ -23,7 +22,11 @@ import { adminApi } from '#src/lib/admin-api';
 import { isApiErrorCode } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
 
-import { JsonConfigField, MultiSelectField } from './scheduling-form-fields';
+import {
+  JsonConfigField,
+  LocalTimeRangeFields,
+  MultiSelectField,
+} from './scheduling-form-fields';
 import {
   DAYS_OF_WEEK,
   SCOPES,
@@ -63,6 +66,10 @@ function windowToFormState(w: AutoSessionWindow): AutoWindowFormState {
 
 export interface AutoWindowDialogProps {
   roomUid: string;
+  /** Room name, shown alongside its timezone on the local-time fields. */
+  roomName: string;
+  /** The room's IANA zone — the clock the local start/end times are read in. */
+  roomTimezone: string;
   window: AutoSessionWindow | null;
   onClose: () => void;
   onSaved: () => void;
@@ -70,6 +77,8 @@ export interface AutoWindowDialogProps {
 
 export const AutoWindowDialog = ({
   roomUid,
+  roomName,
+  roomTimezone,
   window: autoWindow,
   onClose,
   onSaved,
@@ -209,30 +218,18 @@ export const AutoWindowDialog = ({
             server&apos;s ADMIN_API_KEY.
           </Alert>
         )}
-        <Stack direction="row" spacing={2}>
-          <TextField
-            label="Local start time"
-            type="time"
-            value={form.localStartTime}
-            onChange={(e) => {
-              setForm((f) => ({ ...f, localStartTime: e.target.value }));
-            }}
-            margin="normal"
-            fullWidth
-            slotProps={{ inputLabel: { shrink: true } }}
-          />
-          <TextField
-            label="Local end time"
-            type="time"
-            value={form.localEndTime}
-            onChange={(e) => {
-              setForm((f) => ({ ...f, localEndTime: e.target.value }));
-            }}
-            margin="normal"
-            fullWidth
-            slotProps={{ inputLabel: { shrink: true } }}
-          />
-        </Stack>
+        <LocalTimeRangeFields
+          startTime={form.localStartTime}
+          endTime={form.localEndTime}
+          onStartChange={(v) => {
+            setForm((f) => ({ ...f, localStartTime: v }));
+          }}
+          onEndChange={(v) => {
+            setForm((f) => ({ ...f, localEndTime: v }));
+          }}
+          roomName={roomName}
+          roomTimezone={roomTimezone}
+        />
         <MultiSelectField
           label="Days of week"
           options={DAYS_OF_WEEK}

@@ -285,6 +285,86 @@ describe('RoomSchedulingPage', () => {
     });
   });
 
+  // The two clocks a scheduling dialog uses at once: "Local start/end time"
+  // is resolved server-side in the *room's* zone, "Active start" client-side
+  // in the browser's. Both are labeled so an operator administering a room in
+  // another timezone can see which is which — a mismatch is otherwise silent,
+  // since every value is individually valid.
+  describe('local-time fields name the room timezone', (it) => {
+    it('labels the window dialog with the room name and IANA zone', async () => {
+      // Arrange
+      mockDefaultLoad({
+        roomOverrides: { name: 'Siebel 1404', timezone: 'Europe/London' },
+      });
+      renderPage();
+      await waitForLoad();
+      const user = userEvent.setup();
+
+      // Act
+      await user.click(screen.getByRole('button', { name: /new window/i }));
+      await screen.findByLabelText('Local start time');
+
+      // Assert
+      expect(
+        screen.getByText(
+          "Interpreted in Siebel 1404's timezone (Europe/London), not your browser's.",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "Must be in the future. Interpreted in your browser's local time zone.",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('labels the schedule dialog with the room name and IANA zone', async () => {
+      // Arrange
+      mockDefaultLoad({
+        roomOverrides: { name: 'Siebel 1404', timezone: 'Europe/London' },
+      });
+      renderPage();
+      await waitForLoad();
+      const user = userEvent.setup();
+
+      // Act
+      await user.click(screen.getByRole('button', { name: /new schedule/i }));
+      await screen.findByLabelText('Local start time');
+
+      // Assert
+      expect(
+        screen.getByText(
+          "Interpreted in Siebel 1404's timezone (Europe/London), not your browser's.",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('points both local-time inputs at that caption for screen readers', async () => {
+      // Arrange
+      mockDefaultLoad({
+        roomOverrides: { name: 'Siebel 1404', timezone: 'Europe/London' },
+      });
+      renderPage();
+      await waitForLoad();
+      const user = userEvent.setup();
+
+      // Act
+      await user.click(screen.getByRole('button', { name: /new window/i }));
+      const start = await screen.findByLabelText('Local start time');
+
+      // Assert
+      const helperId = start.getAttribute('aria-describedby');
+      expect(helperId).not.toBeNull();
+      expect(
+        screen
+          .getByLabelText('Local end time')
+          .getAttribute('aria-describedby'),
+      ).toBe(helperId);
+      expect(document.getElementById(helperId ?? '')).toHaveTextContent(
+        "Interpreted in Siebel 1404's timezone (Europe/London), not your browser's.",
+      );
+    });
+  });
+
   describe('BACKEND_MISCONFIGURATION handling', (it) => {
     it('shows the in-dialog alert instead of a toast when updating a schedule hits BACKEND_MISCONFIGURATION', async () => {
       // Arrange
