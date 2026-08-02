@@ -36,6 +36,7 @@ import { DEMO_ROOM_UID } from '@scribear/session-manager-schema';
 import type { Device, Room, Session } from '@scribear/session-manager-schema';
 
 import { ConfirmDialog } from '#src/components/confirm-dialog';
+import { DevicePresenceChip } from '#src/components/device-presence-chip';
 import { NameWithUid } from '#src/components/name-with-uid';
 import { TimezoneNote } from '#src/components/timezone-note';
 import type { RoomDetail } from '#src/lib/admin-api';
@@ -704,6 +705,7 @@ export const RoomDetailPage = () => {
             <TableRow>
               <TableCell>Name</TableCell>
               <TableCell>Status</TableCell>
+              <TableCell>Presence</TableCell>
               <TableCell>Role</TableCell>
               <TableCell align="right">Actions</TableCell>
             </TableRow>
@@ -711,7 +713,7 @@ export const RoomDetailPage = () => {
           <TableBody>
             {devices.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                   <Typography
                     sx={{
                       color: 'text.secondary',
@@ -737,6 +739,17 @@ export const RoomDetailPage = () => {
                       label={device.active ? 'Active' : 'Pending'}
                       color={device.active ? 'success' : 'warning'}
                       variant="outlined"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {/* Distinct from Status: activation and presence are two
+                        different facts. A device can be Active and Offline at
+                        the same time (registered, currently unplugged) — the
+                        exact case the silent-room runbook asks about. */}
+                    <DevicePresenceChip
+                      active={device.active}
+                      online={device.online}
+                      lastSeenAt={device.lastSeenAt}
                     />
                   </TableCell>
                   <TableCell>

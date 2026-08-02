@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, vi } from 'vitest';
 
@@ -367,6 +367,125 @@ describe('RoomDetailPage', () => {
       expect(
         screen.queryByText(/there is no audio path/i),
       ).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Presence', (it) => {
+    // §4.5: room-detail-page previously showed only Active/Pending
+    // (activation state) in the devices table, with no online/offline or
+    // lastSeenAt — "is the kiosk plugged in?" was unanswerable here. These pin
+    // that presence now renders alongside, not instead of, activation state.
+    it('shows Online for a device currently connected', async () => {
+      // Arrange
+      vi.mocked(adminApi.roomDetail).mockResolvedValue(
+        buildRoomDetail({
+          room: { uid: ROOM_UID },
+          devices: [
+            buildDevice({
+              uid: 'device-1',
+              name: 'Kiosk 1',
+              online: true,
+              lastSeenAt: '2026-01-01T12:00:00.000Z',
+            }),
+          ],
+        }),
+      );
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      expect(screen.getByText('Online')).toBeInTheDocument();
+    });
+
+    it('flags an activated device that has gone offline as a real problem, distinct from a merely-pending one', async () => {
+      // Arrange: Active + Offline is exactly the "silent room" case — the
+      // device was set up and is expected to be reachable, so its absence
+      // needs a `warning`, not the neutral color an unactivated device gets.
+      vi.mocked(adminApi.roomDetail).mockResolvedValue(
+        buildRoomDetail({
+          room: { uid: ROOM_UID },
+          devices: [
+            buildDevice({
+              uid: 'device-1',
+              name: 'Kiosk 1',
+              active: true,
+              online: false,
+              lastSeenAt: '2026-01-01T08:00:00.000Z',
+            }),
+          ],
+        }),
+      );
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      expect(screen.getByText('Offline').closest('.MuiChip-root')).toHaveClass(
+        'MuiChip-colorWarning',
+      );
+      // Activation state is unaffected — both facts are visible at once.
+      expect(screen.getByText('Active')).toBeInTheDocument();
+    });
+
+    it('does not flag a not-yet-activated device that has never connected as a problem', async () => {
+      // Arrange
+      vi.mocked(adminApi.roomDetail).mockResolvedValue(
+        buildRoomDetail({
+          room: { uid: ROOM_UID },
+          devices: [
+            buildDevice({
+              uid: 'device-1',
+              name: 'Kiosk 1',
+              active: false,
+              online: false,
+              lastSeenAt: null,
+            }),
+          ],
+        }),
+      );
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      expect(screen.getByText('Offline').closest('.MuiChip-root')).toHaveClass(
+        'MuiChip-colorDefault',
+      );
+      expect(screen.getByText('Pending')).toBeInTheDocument();
+    });
+
+    it('shows the last-seen time on hover, distinguishing "seen before" from "never seen"', async () => {
+      // Arrange
+      vi.mocked(adminApi.roomDetail).mockResolvedValue(
+        buildRoomDetail({
+          room: { uid: ROOM_UID },
+          devices: [
+            buildDevice({
+              uid: 'device-1',
+              name: 'Kiosk 1',
+              active: true,
+              online: false,
+              lastSeenAt: '2026-01-01T08:00:00.000Z',
+            }),
+          ],
+        }),
+      );
+      renderPage();
+      await waitForLoad();
+
+      // Act
+      fireEvent.mouseOver(screen.getByText('Offline'));
+
+      // Assert
+      expect(
+        await screen.findByText(
+          `Last seen ${new Date('2026-01-01T08:00:00.000Z').toLocaleString()}`,
+        ),
+      ).toBeInTheDocument();
     });
   });
 });

@@ -141,6 +141,110 @@ describe('DevicesListPage', () => {
     });
   });
 
+  describe('Presence', (it) => {
+    it('shows Online for a device currently connected', async () => {
+      // Arrange
+      vi.mocked(adminApi.listDevices).mockResolvedValue({
+        items: [
+          buildDevice({
+            uid: 'device-1',
+            name: 'Kiosk 1',
+            online: true,
+            lastSeenAt: '2026-01-01T12:00:00.000Z',
+          }),
+        ],
+        nextCursor: null,
+      });
+
+      // Act
+      renderWithProviders(<DevicesListPage />);
+      await waitForLoad();
+
+      // Assert
+      expect(screen.getByText('Online')).toBeInTheDocument();
+    });
+
+    it('flags an activated device that has gone offline as a real problem, distinct from a merely-pending one', async () => {
+      // Arrange: Active + Offline is the "unplugged kiosk" case — the device
+      // was set up and is expected to be reachable, so this gets a `warning`
+      // color rather than the neutral one an unactivated device gets.
+      vi.mocked(adminApi.listDevices).mockResolvedValue({
+        items: [
+          buildDevice({
+            uid: 'device-1',
+            name: 'Kiosk 1',
+            active: true,
+            online: false,
+            lastSeenAt: '2026-01-01T08:00:00.000Z',
+          }),
+        ],
+        nextCursor: null,
+      });
+
+      // Act
+      renderWithProviders(<DevicesListPage />);
+      await waitForLoad();
+
+      // Assert
+      expect(screen.getByText('Offline').closest('.MuiChip-root')).toHaveClass(
+        'MuiChip-colorWarning',
+      );
+    });
+
+    it('does not flag a not-yet-activated device that has never connected as a problem', async () => {
+      // Arrange
+      vi.mocked(adminApi.listDevices).mockResolvedValue({
+        items: [
+          buildDevice({
+            uid: 'device-1',
+            name: 'Kiosk 1',
+            active: false,
+            online: false,
+            lastSeenAt: null,
+          }),
+        ],
+        nextCursor: null,
+      });
+
+      // Act
+      renderWithProviders(<DevicesListPage />);
+      await waitForLoad();
+
+      // Assert
+      expect(screen.getByText('Offline').closest('.MuiChip-root')).toHaveClass(
+        'MuiChip-colorDefault',
+      );
+    });
+
+    it('shows the last-seen time on hover, distinguishing "seen before" from "never seen"', async () => {
+      // Arrange
+      vi.mocked(adminApi.listDevices).mockResolvedValue({
+        items: [
+          buildDevice({
+            uid: 'device-1',
+            name: 'Kiosk 1',
+            active: true,
+            online: false,
+            lastSeenAt: '2026-01-01T08:00:00.000Z',
+          }),
+        ],
+        nextCursor: null,
+      });
+      renderWithProviders(<DevicesListPage />);
+      await waitForLoad();
+
+      // Act
+      fireEvent.mouseOver(screen.getByText('Offline'));
+
+      // Assert
+      expect(
+        await screen.findByText(
+          `Last seen ${new Date('2026-01-01T08:00:00.000Z').toLocaleString()}`,
+        ),
+      ).toBeInTheDocument();
+    });
+  });
+
   describe('Register device dialog — kiosk URL', (it) => {
     afterEach(() => {
       vi.unstubAllGlobals();
