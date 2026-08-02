@@ -36,6 +36,7 @@ export interface TestAppConfigOverrides {
   fleetTelemetryConfig?: Partial<AppConfig['fleetTelemetryConfig']>;
   testAudioConfig?: Partial<AppConfig['testAudioConfig']>;
   configCheckConfig?: Partial<AppConfig['configCheckConfig']>;
+  backupDirectoryConfig?: Partial<AppConfig['backupDirectoryConfig']>;
   cookieSecret?: string;
 }
 
@@ -188,7 +189,20 @@ export function buildTestAppConfig(
       // stubbed, so a real timeout would only ever be hit by a test that
       // meant to hit it.
       upstreamTimeoutMs: 500,
+      // Off ("none") by default, like the monitoring profile above - most
+      // deployments have not set this either. Tests that care about
+      // `_checkBackup`'s freshness findings pass `backupDirectoryConfig`
+      // explicitly.
+      backupOffsiteMethod: 'none',
+      backupIntervalSeconds: 14_400,
       ...overrides.configCheckConfig,
+    },
+    // No real db-backup runs in this test environment, so this deliberately
+    // points nowhere - `backup-none-found` is as true here as
+    // `schema-never-migrated` above, for the same reason.
+    backupDirectoryConfig: {
+      path: '/nonexistent-in-tests',
+      ...overrides.backupDirectoryConfig,
     },
     cookieSecret: overrides.cookieSecret ?? TEST_COOKIE_SECRET,
   } as unknown as AppConfig;

@@ -12,6 +12,32 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — Deployment Check reports on Postgres backups (`compose.yml` v11)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. A
+stock deployment needs to do nothing new — this only wires up reporting on
+the `db-backup` service from v10, above; no new required variable.
+
+`admin-server` gains a read-only bind mount of `db-backup`'s output directory
+and reads `BACKUP_OFFSITE_METHOD`/`BACKUP_INTERVAL_SECONDS` directly. `db-backup`
+has no HTTP surface for Config Check to probe the way every other dependency
+on that page is probed — it is a cron loop, not a service — so the shared
+bind mount is the only channel between the two containers. Deployment Check's
+**Config Check** now reports, under a new `backups` category:
+
+- **`backup-offsite-not-configured`** (advisory in development/staging,
+  warning in production) — `BACKUP_OFFSITE_METHOD` is still `none`, so
+  backups do not survive losing this host.
+- **`backup-none-found`** (advisory/warning/warning) — no `.dump` file has
+  landed yet. Expected for a short time after first bringing the stack up;
+  otherwise check `docker compose logs db-backup`.
+- **`backup-stale`** (warning in development, critical in staging/production)
+  — the newest backup is older than `BACKUP_INTERVAL_SECONDS` plus an hour of
+  grace, the same threshold `infra/scribear-db/backup-healthcheck.sh` uses, so
+  this finding and that container's `docker compose ps` health status agree.
+
+---
+
 ## Unreleased — periodic Postgres backups ship with the stack (`compose.yml` v10)
 
 **Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. Unlike

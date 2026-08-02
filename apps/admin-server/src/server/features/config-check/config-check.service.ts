@@ -30,7 +30,8 @@ export type CheckCategory =
   | 'telemetry'
   | 'services'
   | 'environment'
-  | 'monitoring';
+  | 'monitoring'
+  | 'backups';
 
 /**
  * Severity of one finding in each environment.
@@ -180,6 +181,10 @@ export interface ConfigCheckConfig {
    * never needs to.
    */
   monitoringSidecarBaseUrl: string;
+  /** db-backup's own `BACKUP_OFFSITE_METHOD` — "none", "scp" or "rsync". */
+  backupOffsiteMethod: string;
+  /** db-backup's own `BACKUP_INTERVAL_SECONDS` — how stale is too stale. */
+  backupIntervalSeconds: number;
   azureTenantId: string;
   azureClientId: string;
   azureClientSecret: string;
@@ -636,6 +641,7 @@ export class ConfigCheckService {
   private _healthCheckerService: AppDependencies['healthCheckerService'];
   private _dbClient: AppDependencies['dbClient'];
   private _sessionManagerGatewayService: AppDependencies['sessionManagerGatewayService'];
+  private _backupDirectoryService: AppDependencies['backupDirectoryService'];
 
   constructor(
     configCheckConfig: ConfigCheckConfig,
@@ -643,25 +649,28 @@ export class ConfigCheckService {
     healthCheckerService: AppDependencies['healthCheckerService'],
     dbClient: AppDependencies['dbClient'],
     sessionManagerGatewayService: AppDependencies['sessionManagerGatewayService'],
+    backupDirectoryService: AppDependencies['backupDirectoryService'],
   ) {
     this._config = configCheckConfig;
     this._fleetTelemetryService = fleetTelemetryService;
     this._healthCheckerService = healthCheckerService;
     this._dbClient = dbClient;
     this._sessionManagerGatewayService = sessionManagerGatewayService;
+    this._backupDirectoryService = backupDirectoryService;
   }
 
   async check(): Promise<ConfigCheckReport> {
     const { environment, environmentSource, declaredButInvalid } =
       resolveEnvironment(this._config);
 
-    const [telemetry, services, database, monitoring, secretPlaceholders] =
+    const [telemetry, services, database, monitoring, secretPlaceholders, backup] =
       await Promise.all([
         this._checkTelemetryBackplane(environment),
         this._checkServiceReachability(environment),
         this._checkDatabase(environment),
         this._checkMonitoring(environment),
         this._checkSecretPlaceholders(environment),
+        this._checkBackup(environment),
       ]);
 
     const findings = [
@@ -671,6 +680,7 @@ export class ConfigCheckService {
       ...services,
       ...monitoring,
       ...secretPlaceholders,
+      ...backup,
     ];
 
     const summary: Record<CheckSeverity, number> = {
@@ -974,6 +984,98 @@ export class ConfigCheckService {
             staging: 'critical',
             production: 'critical',
           },
+          env,
+        ),
+      );
+    }
+
+    return findings;
+  }
+
+  /**
+   * Is `db-backup` (deployment/compose.yml v10) actually completing, and is a
+   * copy leaving this host.
+   *
+   * `db-backup` has no HTTP surface to probe like every other dependency
+   * above — it is a cron loop, not a service — so this reads the one channel
+   * that exists: the bind-mounted directory both containers share.
+   * `backupDirectoryService` reports the newest `*.dump` file's age, or
+   * `null` when none exists yet. Both "db-backup has never run" and "the bind
+   * mount is missing" read as `null` to that class, and are reported the same
+   * way here — an operator's next step (check the container) is the same
+   * either way.
+   *
+   * The staleness threshold — `backupIntervalSeconds` plus an hour of grace —
+   * mirrors `infra/scribear-db/backup-healthcheck.sh` exactly, so this
+   * finding and that container's `docker compose ps` health status agree.
+   *
+   * Off-host copy is checked directly rather than inferred, unlike most of
+   * this page: `BACKUP_OFFSITE_METHOD` is admin-server's own environment
+   * variable (passed through unchanged, never a secret), not another
+   * service's. `none` is reported as advisory/warning rather than left
+   * silent, the same "worth a nudge, not a defect" treatment
+   * `monitoring-not-configured` gets — a deployment that has never lost a
+   * host has not yet learned why this matters.
+   */
+  private async _checkBackup(env: DeploymentEnv): Promise<ConfigFinding[]> {
+    const findings: ConfigFinding[] = [];
+
+    if (this._config.backupOffsiteMethod === 'none') {
+      findings.push(
+        finding(
+          {
+            id: 'backup-offsite-not-configured',
+            category: 'backups',
+            title: 'Off-host backup copy is not configured',
+            detail:
+              'BACKUP_OFFSITE_METHOD is "none", so Postgres backups are kept only on this host and do not survive losing it.',
+            remediation:
+              'Set BACKUP_OFFSITE_METHOD to scp or rsync in deployment/.env — see deployment/UPGRADING.md.',
+            docUrl: DOC.postgres,
+          },
+          { development: 'advisory', staging: 'advisory', production: 'warning' },
+          env,
+        ),
+      );
+    }
+
+    const ageMs = await this._backupDirectoryService.newestDumpAgeMs();
+
+    if (ageMs === null) {
+      findings.push(
+        finding(
+          {
+            id: 'backup-none-found',
+            category: 'backups',
+            title: 'No Postgres backup has completed yet',
+            detail:
+              'No .dump file was found under the backup directory. Expected for the first BACKUP_INTERVAL_SECONDS after this stack was brought up; otherwise db-backup may not be running, or its backup volume may not be mounted the same way here.',
+            remediation:
+              'Check `docker compose ps db-backup` and `docker compose logs db-backup`.',
+            docUrl: DOC.postgres,
+          },
+          { development: 'advisory', staging: 'warning', production: 'warning' },
+          env,
+        ),
+      );
+      return findings;
+    }
+
+    const maxAgeMs = (this._config.backupIntervalSeconds + 3600) * 1000;
+    if (ageMs > maxAgeMs) {
+      const ageHours = Math.round(ageMs / (60 * 60 * 1000));
+      findings.push(
+        finding(
+          {
+            id: 'backup-stale',
+            category: 'backups',
+            title: 'Postgres backups have stopped completing',
+            detail: `The newest backup is ${String(ageHours)}h old, older than the configured BACKUP_INTERVAL_SECONDS (${String(this._config.backupIntervalSeconds)}s) plus an hour of grace. db-backup may be failing silently.`,
+            remediation:
+              "Check `docker compose logs db-backup` and db-backup's health status in `docker compose ps`.",
+            docUrl: DOC.postgres,
+          },
+          { development: 'warning', staging: 'critical', production: 'critical' },
           env,
         ),
       );

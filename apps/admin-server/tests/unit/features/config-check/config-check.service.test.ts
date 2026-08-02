@@ -41,6 +41,11 @@ const CLEAN: ConfigCheckConfig = {
   grafanaBaseUrl: '',
   prometheusBaseUrl: '',
   monitoringSidecarBaseUrl: SIDECAR_TEST_URL,
+  // Off ("none") by default, like a deployment that never turns on the
+  // monitoring profile above - `the backup service` describe block below
+  // turns it on with its own overrides.
+  backupOffsiteMethod: 'none',
+  backupIntervalSeconds: 14_400,
   azureTenantId: 'tenant-1',
   azureClientId: 'client-1',
   azureClientSecret: '0b4e8d2a7f16c395',
@@ -94,6 +99,14 @@ const REACHABLE_DB: DbClientLike = {
 };
 
 /**
+ * A backup directory with a dump that just landed - so `_checkBackup`'s
+ * freshness findings (`backup-none-found`/`backup-stale`) stay quiet in every
+ * helper below except `backupService`, which cares about them directly and
+ * overrides this.
+ */
+const FRESH_BACKUP = { newestDumpAgeMs: () => Promise.resolve(0) };
+
+/**
  * A `ConfigCheckService` whose only live dependency is the database: fleet
  * telemetry is off, every probed service answers, and session-manager reports the
  * same schema version this build expects, so the findings from `check()` are
@@ -114,6 +127,7 @@ function dbService(
     { check: () => Promise.resolve([]) } as unknown as Args[2],
     dbClient as unknown as Args[3],
     gateway(reportedLatest) as unknown as Args[4],
+    FRESH_BACKUP as unknown as Args[5],
   );
 }
 
@@ -163,6 +177,7 @@ function healthService(components: HealthComponentLike[]): ConfigCheckService {
     { check: () => Promise.resolve(components) } as unknown as Args[2],
     REACHABLE_DB as unknown as Args[3],
     gateway(LATEST_MIGRATION) as unknown as Args[4],
+    FRESH_BACKUP as unknown as Args[5],
   );
 }
 
@@ -279,6 +294,7 @@ function monitoringService(
     { check: () => Promise.resolve([]) } as unknown as Args[2],
     REACHABLE_DB as unknown as Args[3],
     gateway(LATEST_MIGRATION) as unknown as Args[4],
+    FRESH_BACKUP as unknown as Args[5],
   );
 }
 
@@ -287,6 +303,47 @@ async function monitoringIds(
 ): Promise<string[]> {
   const report = await monitoringService(overrides).check();
   return report.findings.map((f) => f.id);
+}
+
+/** What `backupDirectoryService.newestDumpAgeMs()` returns. */
+interface BackupDirectoryLike {
+  newestDumpAgeMs: () => Promise<number | null>;
+}
+
+/**
+ * A `ConfigCheckService` with every other dependency healthy, so `check()`'s
+ * `backup-*` findings are exactly what `_checkBackup` made of `overrides` and
+ * `backupDirectory`.
+ */
+function backupService(
+  overrides: Partial<ConfigCheckConfig> = {},
+  backupDirectory: BackupDirectoryLike = FRESH_BACKUP,
+): ConfigCheckService {
+  type Args = ConstructorParameters<typeof ConfigCheckService>;
+  return new ConfigCheckService(
+    { ...CLEAN, ...overrides },
+    { enabled: false } as unknown as Args[1],
+    { check: () => Promise.resolve([]) } as unknown as Args[2],
+    REACHABLE_DB as unknown as Args[3],
+    gateway(LATEST_MIGRATION) as unknown as Args[4],
+    backupDirectory as unknown as Args[5],
+  );
+}
+
+async function backupIds(
+  overrides: Partial<ConfigCheckConfig> = {},
+  backupDirectory?: BackupDirectoryLike,
+): Promise<string[]> {
+  const report = await backupService(overrides, backupDirectory).check();
+  return report.findings.map((f) => f.id);
+}
+
+async function backupFindings(
+  overrides: Partial<ConfigCheckConfig> = {},
+  backupDirectory?: BackupDirectoryLike,
+) {
+  const report = await backupService(overrides, backupDirectory).check();
+  return report.findings.filter((f) => f.category === 'backups');
 }
 
 describe('resolveEnvironment', () => {
@@ -1123,6 +1180,96 @@ describe('the monitoring probes', () => {
         false,
       );
     });
+  });
+});
+
+describe('the backup service (compose.yml v11)', (it) => {
+  describe('off-host copy', (it) => {
+    it('is only advisory in development, warning in production', async () => {
+      const found = await backupFindings({ backupOffsiteMethod: 'none' });
+      const offsite = found.find(
+        (f) => f.id === 'backup-offsite-not-configured',
+      );
+
+      expect(offsite).toBeTruthy();
+      expect(offsite?.productionSeverity).toBe('warning');
+    });
+
+    it('reports nothing when scp or rsync is configured', async () => {
+      const scp = await backupIds({ backupOffsiteMethod: 'scp' });
+      const rsync = await backupIds({ backupOffsiteMethod: 'rsync' });
+
+      expect(scp).not.toContain('backup-offsite-not-configured');
+      expect(rsync).not.toContain('backup-offsite-not-configured');
+    });
+  });
+
+  describe('freshness', (it) => {
+    it('reports nothing when a backup just landed', async () => {
+      const found = await backupIds(
+        { backupOffsiteMethod: 'scp' },
+        { newestDumpAgeMs: () => Promise.resolve(0) },
+      );
+
+      expect(found.filter((id) => id.startsWith('backup-'))).toEqual([]);
+    });
+
+    it('flags none found without also calling it stale', async () => {
+      const found = await backupIds(
+        { backupOffsiteMethod: 'scp' },
+        { newestDumpAgeMs: () => Promise.resolve(null) },
+      );
+
+      expect(found).toContain('backup-none-found');
+      expect(found).not.toContain('backup-stale');
+    });
+
+    it('accepts a backup within the interval plus an hour of grace', async () => {
+      const found = await backupIds(
+        { backupOffsiteMethod: 'scp', backupIntervalSeconds: 14_400 },
+        // Interval + grace exactly: still fresh, since the threshold is
+        // exclusive - one tick later is what "stale" tests.
+        { newestDumpAgeMs: () => Promise.resolve((14_400 + 3600) * 1000) },
+      );
+
+      expect(found).not.toContain('backup-stale');
+    });
+
+    it('flags a backup older than the interval plus an hour of grace as critical in staging/production', async () => {
+      const found = await backupFindings(
+        { backupOffsiteMethod: 'scp', backupIntervalSeconds: 14_400 },
+        { newestDumpAgeMs: () => Promise.resolve((14_400 + 3600) * 1000 + 1) },
+      );
+      const stale = found.find((f) => f.id === 'backup-stale');
+
+      expect(stale?.severity).toBe('critical');
+      expect(stale?.detail).toContain('14400s');
+    });
+
+    it('is only a warning in development', async () => {
+      const found = await backupFindings(
+        {
+          backupOffsiteMethod: 'scp',
+          isDevelopment: true,
+          declaredEnv: 'development',
+        },
+        { newestDumpAgeMs: () => Promise.resolve(999_999_999) },
+      );
+      const stale = found.find((f) => f.id === 'backup-stale');
+
+      expect(stale?.severity).toBe('warning');
+      expect(stale?.productionSeverity).toBe('critical');
+    });
+  });
+
+  it('never names db-backup findings outside the backups category', async () => {
+    const found = await backupFindings(
+      { backupOffsiteMethod: 'none' },
+      { newestDumpAgeMs: () => Promise.resolve(null) },
+    );
+
+    expect(found.length).toBeGreaterThan(0);
+    for (const f of found) expect(f.category).toBe('backups');
   });
 });
 

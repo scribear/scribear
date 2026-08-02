@@ -16,6 +16,7 @@ import {
 import { AdminDbClient } from '#src/db/admin-db-client.js';
 import { AuditController } from '#src/server/features/audit/audit.controller.js';
 import { AuthController } from '#src/server/features/auth/auth.controller.js';
+import { BackupDirectoryService } from '#src/server/features/config-check/backup-directory.service.js';
 import { ConfigCheckController } from '#src/server/features/config-check/config-check.controller.js';
 import { ConfigCheckService } from '#src/server/features/config-check/config-check.service.js';
 import { DemoRoomController } from '#src/server/features/demo-room/demo-room.controller.js';
@@ -106,8 +107,14 @@ function registerDependencies(
 
     // Config check. Depends on fleetTelemetryService and healthCheckerService
     // rather than re-probing: everything it needs about the backplane and the
-    // other containers is already observable through those two.
+    // other containers is already observable through those two. db-backup has
+    // no HTTP surface to probe the same way, so backupDirectoryService reads
+    // the bind mount they share instead.
     configCheckConfig: asValue(config.configCheckConfig),
+    backupDirectoryConfig: asValue(config.backupDirectoryConfig),
+    backupDirectoryService: asClass(BackupDirectoryService, {
+      lifetime: Lifetime.SINGLETON,
+    }),
     configCheckService: asClass(ConfigCheckService, {
       lifetime: Lifetime.SINGLETON,
     }),

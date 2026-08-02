@@ -219,7 +219,7 @@ services:
       # Not `:?`-guarded, like DEPLOYMENT_ENV below and unlike the secrets: it
       # changes what is *reported*, never what runs, and must not be able to
       # stop a stack from starting.
-      COMPOSE_FILE_VERSION: "10"
+      COMPOSE_FILE_VERSION: "11"
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
@@ -273,6 +273,20 @@ services:
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
+      # db-backup's own settings (compose.yml v10), read directly rather than
+      # inferred: neither is a secret, and Config Check can state db-backup's
+      # actual configuration instead of guessing at it the way it has to for
+      # values that live only in another container's environment.
+      BACKUP_OFFSITE_METHOD: ${BACKUP_OFFSITE_METHOD:-none}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-14400}
+    volumes:
+      # Read-only: the only channel Config Check has into db-backup's health,
+      # since that container has no HTTP surface of its own to probe the way
+      # every other dependency on this page is probed. Same host path as
+      # db-backup/db-restore's own mount below, deliberately - three services
+      # agreeing on one bind mount rather than a fourth variable to keep in
+      # sync with it.
+      - ${BACKUP_OUTPUT_PATH:-./db-backups}:/backups:ro
     depends_on:
       session-manager:
         condition: service_healthy
