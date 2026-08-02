@@ -198,6 +198,18 @@ export const INTERNAL_ERROR_REPLY_SCHEMA = Type.Object(
  * *is* service-owned (see {@link RATE_LIMITED_REPLY_SCHEMA}), but only routes
  * carrying a `config.rateLimit` can ever emit it, so it is declared per route
  * rather than globally.
+ *
+ * Not a counter-example: **admin-server registers its limiter with
+ * `global: true`**, so every one of its routes really can answer 429. Adding
+ * 429 here would still be wrong, and would not help it. This constant is
+ * spread by 92 route schemas, all of them in session-manager and node-server —
+ * services whose limiters are `global: false` — so widening it adds an
+ * unreachable arm to every one of their `EndpointResponse` unions. admin-server
+ * gains nothing either way: it is a BFF that declares no `response` map for any
+ * error status and serializes failures as its own
+ * `{ ok: false, error: { code, message, requestId, details } }` envelope, which
+ * `ErrorReply` does not describe. Its 429 contract is pinned by
+ * `apps/admin-server/tests/integration/rate-limit.routes.test.ts` instead.
  */
 export const STANDARD_ERROR_REPLIES = {
   400: VALIDATION_ERROR_REPLY_SCHEMA,

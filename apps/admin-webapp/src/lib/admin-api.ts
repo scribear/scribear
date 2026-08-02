@@ -804,7 +804,14 @@ interface EnvelopeOk<T> {
 }
 interface EnvelopeErr {
   ok: false;
-  error: { code: string; message: string; requestId?: string };
+  error: {
+    code: string;
+    message: string;
+    requestId?: string;
+    /** Per-code context. `RATE_LIMITED` carries `retryAfter` here — see
+     *  `rateLimitMessage` in `./api-error`. */
+    details?: Record<string, unknown>;
+  };
 }
 
 type QueryValue = string | number | boolean | null | undefined | string[];
@@ -893,11 +900,17 @@ export class AdminApiClient {
       );
     }
 
-    const err =
+    const err: EnvelopeErr['error'] =
       json && !json.ok
         ? json.error
         : { code: 'UNKNOWN', message: 'The request failed.' };
-    throw new ApiError(err.code, err.message, res.status, err.requestId);
+    throw new ApiError(
+      err.code,
+      err.message,
+      res.status,
+      err.requestId,
+      err.details,
+    );
   }
 
   // ---- Auth ----

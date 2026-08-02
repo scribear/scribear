@@ -6,6 +6,7 @@ import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import Snackbar from '@mui/material/Snackbar';
 
+import { errorMessage, errorSeverity } from './api-error';
 import {
   type ToastAction,
   type ToastApi,
@@ -51,6 +52,12 @@ export const ToastProvider = ({ children }: React.PropsWithChildren) => {
       },
       showInfo: (m) => {
         show(m, 'info');
+      },
+      showWarning: (m) => {
+        show(m, 'warning');
+      },
+      showApiError: (err, fallback) => {
+        show(errorMessage(err, fallback), errorSeverity(err));
       },
     }),
     [show],

@@ -36,7 +36,7 @@ import { NameWithUid } from '#src/components/name-with-uid';
 import { TimezoneNote } from '#src/components/timezone-note';
 import type { RegisterDeviceResult } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
-import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { isApiErrorCode } from '#src/lib/api-error';
 import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncList } from '#src/lib/use-async-list';
@@ -46,10 +46,6 @@ const PAGE_LIMIT = 25;
 
 type StatusFilter = 'all' | 'active' | 'pending';
 type RoomFilter = 'all' | 'unassigned';
-
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof ApiError ? err.message : fallback;
-}
 
 interface RegisterDeviceDialogProps {
   open: boolean;
@@ -67,7 +63,7 @@ const RegisterDeviceDialog = ({
   onClose,
   onRegistered,
 }: RegisterDeviceDialogProps) => {
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showApiError } = useToast();
   const [name, setName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [misconfigured, setMisconfigured] = useState(false);
@@ -87,7 +83,7 @@ const RegisterDeviceDialog = ({
         if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
           setMisconfigured(true);
         } else {
-          showError(errorMessage(err, 'Failed to register device.'));
+          showApiError(err, 'Failed to register device.');
         }
       })
       .finally(() => {
@@ -157,7 +153,7 @@ const RegisterDeviceDialog = ({
 
 export const DevicesListPage = () => {
   const navigate = useNavigate();
-  const { showError } = useToast();
+  const { showApiError } = useToast();
   const { showUuids } = useSettings();
   const roomNames = useRoomNameLookup();
   const [search, setSearch] = useState('');
@@ -199,7 +195,7 @@ export const DevicesListPage = () => {
   // Any non-misconfiguration load failure is surfaced as a toast, once per error.
   useEffect(() => {
     if (error !== null && !isApiErrorCode(error, 'BACKEND_MISCONFIGURATION')) {
-      showError(errorMessage(error, 'Failed to load devices.'));
+      showApiError(error, 'Failed to load devices.');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [error]);

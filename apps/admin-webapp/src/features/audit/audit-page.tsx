@@ -20,18 +20,14 @@ import Typography from '@mui/material/Typography';
 
 import { TimezoneNote } from '#src/components/timezone-note';
 import { adminApi } from '#src/lib/admin-api';
-import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { isApiErrorCode } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 
 const LIMIT_OPTIONS = [50, 100, 200] as const;
 
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof ApiError ? err.message : fallback;
-}
-
 export const AuditPage = () => {
-  const { showError } = useToast();
+  const { showApiError } = useToast();
   const [limit, setLimit] = useState<number>(50);
 
   const { data, loading, error } = useAsyncData(
@@ -44,7 +40,7 @@ export const AuditPage = () => {
   // Any load failure that isn't misconfiguration is surfaced as a toast.
   useEffect(() => {
     if (error !== null && !isApiErrorCode(error, 'BACKEND_MISCONFIGURATION')) {
-      showError(errorMessage(error, 'Failed to load audit log.'));
+      showApiError(error, 'Failed to load audit log.');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [error]);

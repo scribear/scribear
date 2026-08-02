@@ -7,7 +7,6 @@ import type {
   TestAudioParamsPatch,
 } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
-import { ApiError } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 
@@ -102,10 +101,6 @@ export interface DeviceRunControls {
   retune: (patch: TestAudioParamsPatch) => void;
 }
 
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof ApiError ? err.message : fallback;
-}
-
 /**
  * The three mutations for one device, with their toasts and their in-flight
  * flag. Deliberately knows nothing about the shape of `params` — the two
@@ -116,7 +111,7 @@ export function useDeviceRun(
   deviceId: TestAudioDeviceId,
   refresh: () => void,
 ): DeviceRunControls {
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showApiError } = useToast();
   const [busy, setBusy] = useState(false);
 
   const run = (
@@ -130,7 +125,7 @@ export function useDeviceRun(
         showSuccess(success);
       })
       .catch((err: unknown) => {
-        showError(errorMessage(err, failure));
+        showApiError(err, failure);
       })
       .finally(() => {
         setBusy(false);
@@ -161,9 +156,7 @@ export function useDeviceRun(
       // still needs saying — silently ignoring it would leave the operator
       // watching a meter for an effect that was never applied.
       adminApi.updateTestAudioParams(deviceId, patch).catch((err: unknown) => {
-        showError(
-          errorMessage(err, `Failed to retune the ${deviceId} source.`),
-        );
+        showApiError(err, `Failed to retune the ${deviceId} source.`);
       });
     },
   };

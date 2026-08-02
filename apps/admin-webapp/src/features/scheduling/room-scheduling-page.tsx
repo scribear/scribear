@@ -39,7 +39,7 @@ import type {
 import { ConfirmDialog } from '#src/components/confirm-dialog';
 import { TimezoneNote } from '#src/components/timezone-note';
 import { adminApi } from '#src/lib/admin-api';
-import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { ApiError, errorMessage, isApiErrorCode } from '#src/lib/api-error';
 import { formatInTimeZone } from '#src/lib/timezone';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
@@ -67,14 +67,10 @@ const LOOKBACK_DAYS = 7;
 // in the effect below.
 const SESSION_POLL_MS = 15_000;
 
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof ApiError ? err.message : fallback;
-}
-
 export const RoomSchedulingPage = () => {
   const { roomUid } = useParams<{ roomUid: string }>();
   const navigate = useNavigate();
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showApiError } = useToast();
 
   const [autoToggling, setAutoToggling] = useState(false);
 
@@ -213,7 +209,7 @@ export const RoomSchedulingPage = () => {
       roomError !== null &&
       !isApiErrorCode(roomError, 'BACKEND_MISCONFIGURATION')
     ) {
-      showError(errorMessage(roomError, 'Failed to load room.'));
+      showApiError(roomError, 'Failed to load room.');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [roomError]);
@@ -222,7 +218,7 @@ export const RoomSchedulingPage = () => {
       schedulesError !== null &&
       !isApiErrorCode(schedulesError, 'BACKEND_MISCONFIGURATION')
     ) {
-      showError(errorMessage(schedulesError, 'Failed to load schedules.'));
+      showApiError(schedulesError, 'Failed to load schedules.');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [schedulesError]);
@@ -231,9 +227,7 @@ export const RoomSchedulingPage = () => {
       windowsError !== null &&
       !isApiErrorCode(windowsError, 'BACKEND_MISCONFIGURATION')
     ) {
-      showError(
-        errorMessage(windowsError, 'Failed to load auto-session windows.'),
-      );
+      showApiError(windowsError, 'Failed to load auto-session windows.');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [windowsError]);
@@ -252,7 +246,7 @@ export const RoomSchedulingPage = () => {
     const message = errorMessage(sessionsError, 'Failed to load sessions.');
     if (lastSessionsErrorRef.current === message) return;
     lastSessionsErrorRef.current = message;
-    showError(message);
+    showApiError(sessionsError, 'Failed to load sessions.');
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [sessionsError]);
 
@@ -268,7 +262,7 @@ export const RoomSchedulingPage = () => {
         );
       })
       .catch((err: unknown) => {
-        showError(errorMessage(err, 'Failed to update auto-session setting.'));
+        showApiError(err, 'Failed to update auto-session setting.');
       })
       .finally(() => {
         setAutoToggling(false);
@@ -285,7 +279,7 @@ export const RoomSchedulingPage = () => {
         reloadSchedules();
       })
       .catch((err: unknown) => {
-        showError(errorMessage(err, 'Failed to delete schedule.'));
+        showApiError(err, 'Failed to delete schedule.');
       })
       .finally(() => {
         setDeletingSchedule(false);
@@ -303,7 +297,7 @@ export const RoomSchedulingPage = () => {
         reloadWindows();
       })
       .catch((err: unknown) => {
-        showError(errorMessage(err, 'Failed to delete window.'));
+        showApiError(err, 'Failed to delete window.');
       })
       .finally(() => {
         setDeletingWindow(false);

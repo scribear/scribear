@@ -29,7 +29,6 @@ import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 import { useSelectedRooms } from '#src/lib/use-selected-rooms';
 
-import { errorMessage } from '../scheduling/scheduling-form-helpers';
 import { RoomPicker } from './room-picker';
 import {
   type CalendarColumn,
@@ -47,7 +46,7 @@ function startOfLocalDay(d: Date): Date {
 
 export const SessionsOverviewPage = () => {
   const navigate = useNavigate();
-  const { showError } = useToast();
+  const { showApiError } = useToast();
   const { showUuids } = useSettings();
 
   const [selectedRooms, setSelectedRooms] = useSelectedRooms();
@@ -133,7 +132,7 @@ export const SessionsOverviewPage = () => {
       sessionsError !== null &&
       !isApiErrorCode(sessionsError, 'BACKEND_MISCONFIGURATION')
     ) {
-      showError(errorMessage(sessionsError, 'Failed to load sessions.'));
+      showApiError(sessionsError, 'Failed to load sessions.');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [sessionsError]);

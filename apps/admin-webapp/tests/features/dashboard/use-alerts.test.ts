@@ -91,6 +91,35 @@ describe('useAlerts', (it) => {
     expect(result.current.state).toEqual({
       status: 'unavailable',
       message: 'sidecar did not answer',
+      severity: 'error',
+    });
+  });
+
+  it('classifies a 429 as a warning with retry copy, not as an unavailable pipeline', async () => {
+    // admin-server's limiter is `global: true` and this hook polls every 15 s,
+    // so a 429 is a reachable state here. It means "ask again shortly" — the
+    // sidecar was never asked, and nothing about the pipeline is known to be
+    // wrong.
+    vi.mocked(adminApi.alerts).mockRejectedValue(
+      new ApiError(
+        'RATE_LIMITED',
+        'Too many requests. Please retry after 1 minute.',
+        429,
+        'req-1',
+        { retryAfter: '1 minute' },
+      ),
+    );
+
+    const { result } = renderHook(() => useAlerts());
+
+    await waitFor(() => {
+      expect(result.current.state.status).toBe('unavailable');
+    });
+    expect(result.current.state).toEqual({
+      status: 'unavailable',
+      message:
+        'Too many requests — the admin server is rate limiting this browser. Nothing was changed; wait 1 minute, then try again.',
+      severity: 'warning',
     });
   });
 
@@ -105,6 +134,7 @@ describe('useAlerts', (it) => {
     expect(result.current.state).toEqual({
       status: 'unavailable',
       message: 'Could not reach the admin server.',
+      severity: 'error',
     });
   });
 

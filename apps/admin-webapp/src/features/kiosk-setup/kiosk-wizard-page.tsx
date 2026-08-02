@@ -30,7 +30,7 @@ import { ActivationCodeDisplay } from '#src/components/activation-code-display';
 import { KioskUrlInstructions } from '#src/components/kiosk-url-instructions';
 import { ScheduleStep } from '#src/features/kiosk-setup/schedule-step';
 import { adminApi } from '#src/lib/admin-api';
-import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { isApiErrorCode } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 
@@ -39,10 +39,6 @@ const POLL_MS = 3000;
 const STEPS = ['Device', 'Room', 'Schedule', 'Verify'];
 
 type RoomChoice = 'new' | 'existing';
-
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof ApiError ? err.message : fallback;
-}
 
 interface DeviceStepProps {
   deviceName: string;
@@ -341,7 +337,7 @@ const VerifyStep = ({ deviceUid, roomUid, deviceActive }: VerifyStepProps) => {
  * the kiosk has activated using the code.
  */
 export const KioskWizardPage = () => {
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showApiError } = useToast();
   const [activeStep, setActiveStep] = useState(0);
 
   // Step 0: device
@@ -408,7 +404,7 @@ export const KioskWizardPage = () => {
         if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
           setDeviceMisconfigured(true);
         } else {
-          showError(errorMessage(err, 'Failed to register device.'));
+          showApiError(err, 'Failed to register device.');
         }
       })
       .finally(() => {
@@ -427,7 +423,7 @@ export const KioskWizardPage = () => {
         showSuccess('New activation code generated.');
       })
       .catch((err: unknown) => {
-        showError(errorMessage(err, 'Failed to re-register device.'));
+        showApiError(err, 'Failed to re-register device.');
       })
       .finally(() => {
         setReregistering(false);
@@ -441,7 +437,7 @@ export const KioskWizardPage = () => {
       existingRoomsError !== null &&
       !isApiErrorCode(existingRoomsError, 'BACKEND_MISCONFIGURATION')
     ) {
-      showError(errorMessage(existingRoomsError, 'Failed to load rooms.'));
+      showApiError(existingRoomsError, 'Failed to load rooms.');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [existingRoomsError]);
@@ -465,7 +461,7 @@ export const KioskWizardPage = () => {
         if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
           setRoomMisconfigured(true);
         } else {
-          showError(errorMessage(err, 'Failed to create room.'));
+          showApiError(err, 'Failed to create room.');
         }
       })
       .finally(() => {
@@ -496,7 +492,7 @@ export const KioskWizardPage = () => {
         if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
           setRoomMisconfigured(true);
         } else {
-          showError(errorMessage(err, 'Failed to add device to room.'));
+          showApiError(err, 'Failed to add device to room.');
         }
       })
       .finally(() => {

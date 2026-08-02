@@ -29,7 +29,6 @@ import { useAsyncData } from '#src/lib/use-async-data';
 import { AutoWindowDialog } from '../scheduling/auto-window-dialog';
 import { OnDemandDialog } from '../scheduling/on-demand-dialog';
 import { ScheduleDialog } from '../scheduling/schedule-dialog';
-import { errorMessage } from '../scheduling/scheduling-form-helpers';
 import {
   type CalendarColumn,
   SessionCalendarGrid,
@@ -77,7 +76,7 @@ export const RoomCalendarPage = () => {
   const { roomUid } = useParams<{ roomUid: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { showError } = useToast();
+  const { showApiError } = useToast();
   const { showUuids } = useSettings();
 
   const [view, setView] = useState<ViewMode>('week');
@@ -138,7 +137,7 @@ export const RoomCalendarPage = () => {
       roomError !== null &&
       !isApiErrorCode(roomError, 'BACKEND_MISCONFIGURATION')
     ) {
-      showError(errorMessage(roomError, 'Failed to load room.'));
+      showApiError(roomError, 'Failed to load room.');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [roomError]);
@@ -147,7 +146,7 @@ export const RoomCalendarPage = () => {
       sessionsError !== null &&
       !isApiErrorCode(sessionsError, 'BACKEND_MISCONFIGURATION')
     ) {
-      showError(errorMessage(sessionsError, 'Failed to load sessions.'));
+      showApiError(sessionsError, 'Failed to load sessions.');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [sessionsError]);
