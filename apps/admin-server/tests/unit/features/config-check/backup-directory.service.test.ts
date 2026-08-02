@@ -1,7 +1,6 @@
 import { mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
 import { afterEach, beforeEach, describe, expect } from 'vitest';
 
 import { BackupDirectoryService } from '#src/server/features/config-check/backup-directory.service.js';
@@ -43,8 +42,8 @@ describe('BackupDirectoryService', (it) => {
     // guaranteed to agree to sub-millisecond precision, so a dump written
     // moments ago can read as a hair negative. The real invariant is "small",
     // not "non-negative" - staleness is judged in hours, not milliseconds.
-    expect(age as number).toBeGreaterThanOrEqual(-1000);
-    expect(age as number).toBeLessThan(5000);
+    expect(age!).toBeGreaterThanOrEqual(-1000);
+    expect(age!).toBeLessThan(5000);
   });
 
   it('reports the newest of several dumps, not the oldest', async () => {
@@ -62,8 +61,8 @@ describe('BackupDirectoryService', (it) => {
 
     // ~1h, not ~1 week - the newest file's age, comfortably inside a margin
     // for however long the test itself takes to run.
-    expect(age as number).toBeGreaterThan(59 * 60 * 1000);
-    expect(age as number).toBeLessThan(61 * 60 * 1000);
+    expect(age!).toBeGreaterThan(59 * 60 * 1000);
+    expect(age!).toBeLessThan(61 * 60 * 1000);
   });
 
   it('ignores files that are not .dump', async () => {

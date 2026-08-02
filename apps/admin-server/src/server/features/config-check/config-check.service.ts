@@ -665,15 +665,21 @@ export class ConfigCheckService {
     const { environment, environmentSource, declaredButInvalid } =
       resolveEnvironment(this._config);
 
-    const [telemetry, services, database, monitoring, secretPlaceholders, backup] =
-      await Promise.all([
-        this._checkTelemetryBackplane(environment),
-        this._checkServiceReachability(environment),
-        this._checkDatabase(environment),
-        this._checkMonitoring(environment),
-        this._checkSecretPlaceholders(environment),
-        this._checkBackup(environment),
-      ]);
+    const [
+      telemetry,
+      services,
+      database,
+      monitoring,
+      secretPlaceholders,
+      backup,
+    ] = await Promise.all([
+      this._checkTelemetryBackplane(environment),
+      this._checkServiceReachability(environment),
+      this._checkDatabase(environment),
+      this._checkMonitoring(environment),
+      this._checkSecretPlaceholders(environment),
+      this._checkBackup(environment),
+    ]);
 
     const findings = [
       ...evaluateStaticChecks(this._config, environment, declaredButInvalid),
@@ -1039,7 +1045,11 @@ export class ConfigCheckService {
               'No action needed if another backup mechanism covers this database. Otherwise set BACKUP_ENABLED=true in deployment/.env.',
             docUrl: DOC.postgres,
           },
-          { development: 'advisory', staging: 'advisory', production: 'advisory' },
+          {
+            development: 'advisory',
+            staging: 'advisory',
+            production: 'advisory',
+          },
           env,
         ),
       ];
@@ -1060,7 +1070,11 @@ export class ConfigCheckService {
               'Set BACKUP_OFFSITE_METHOD to scp or rsync in deployment/.env — see deployment/UPGRADING.md.',
             docUrl: DOC.postgres,
           },
-          { development: 'advisory', staging: 'advisory', production: 'warning' },
+          {
+            development: 'advisory',
+            staging: 'advisory',
+            production: 'warning',
+          },
           env,
         ),
       );
@@ -1081,7 +1095,11 @@ export class ConfigCheckService {
               'Check `docker compose ps db-backup` and `docker compose logs db-backup`.',
             docUrl: DOC.postgres,
           },
-          { development: 'advisory', staging: 'warning', production: 'warning' },
+          {
+            development: 'advisory',
+            staging: 'warning',
+            production: 'warning',
+          },
           env,
         ),
       );
@@ -1102,7 +1120,11 @@ export class ConfigCheckService {
               "Check `docker compose logs db-backup` and db-backup's health status in `docker compose ps`.",
             docUrl: DOC.postgres,
           },
-          { development: 'warning', staging: 'critical', production: 'critical' },
+          {
+            development: 'warning',
+            staging: 'critical',
+            production: 'critical',
+          },
           env,
         ),
       );
