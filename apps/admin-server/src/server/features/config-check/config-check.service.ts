@@ -185,6 +185,8 @@ export interface ConfigCheckConfig {
   backupOffsiteMethod: string;
   /** db-backup's own `BACKUP_INTERVAL_SECONDS` — how stale is too stale. */
   backupIntervalSeconds: number;
+  /** db-backup's own `BACKUP_ENABLED` — false means deliberately idling. */
+  backupEnabled: boolean;
   azureTenantId: string;
   azureClientId: string;
   azureClientSecret: string;
@@ -1016,8 +1018,33 @@ export class ConfigCheckService {
    * silent, the same "worth a nudge, not a defect" treatment
    * `monitoring-not-configured` gets — a deployment that has never lost a
    * host has not yet learned why this matters.
+   *
+   * `backupEnabled: false` short-circuits everything else below: a
+   * deployment on managed Postgres (RDS and similar) that has deliberately
+   * turned db-backup off is not missing a backup, and reporting
+   * `backup-none-found` at it forever would be exactly the false alarm this
+   * variable exists to prevent.
    */
   private async _checkBackup(env: DeploymentEnv): Promise<ConfigFinding[]> {
+    if (!this._config.backupEnabled) {
+      return [
+        finding(
+          {
+            id: 'backup-disabled',
+            category: 'backups',
+            title: 'Automated Postgres backups are disabled',
+            detail:
+              'BACKUP_ENABLED is false, so db-backup is idling rather than dumping. Expected for a deployment on managed Postgres with its own backup mechanism.',
+            remediation:
+              'No action needed if another backup mechanism covers this database. Otherwise set BACKUP_ENABLED=true in deployment/.env.',
+            docUrl: DOC.postgres,
+          },
+          { development: 'advisory', staging: 'advisory', production: 'advisory' },
+          env,
+        ),
+      ];
+    }
+
     const findings: ConfigFinding[] = [];
 
     if (this._config.backupOffsiteMethod === 'none') {

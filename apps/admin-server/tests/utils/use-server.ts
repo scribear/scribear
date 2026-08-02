@@ -195,6 +195,7 @@ export function buildTestAppConfig(
       // explicitly.
       backupOffsiteMethod: 'none',
       backupIntervalSeconds: 14_400,
+      backupEnabled: true,
       ...overrides.configCheckConfig,
     },
     // No real db-backup runs in this test environment, so this deliberately

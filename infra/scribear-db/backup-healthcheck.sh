@@ -5,8 +5,12 @@
 # anything.
 set -eu
 
+# Always healthy while idling: BACKUP_ENABLED=false means db-backup is
+# deliberately not dumping, so there is nothing here to be stuck on.
+[ "${BACKUP_ENABLED:-true}" = "false" ] && exit 0
+
 BACKUP_DIR="${BACKUP_DIR:-/backups}"
 INTERVAL="${BACKUP_INTERVAL_SECONDS:-14400}"
 MAX_AGE_MIN=$(( (INTERVAL + 3600) / 60 ))
 
-find "$BACKUP_DIR" -name '*.dump' -mmin "-${MAX_AGE_MIN}" 2>/dev/null | grep -q .
+find "$BACKUP_DIR" \( -name '*.dump' -o -name '*.dump.gpg' \) -mmin "-${MAX_AGE_MIN}" 2>/dev/null | grep -q .

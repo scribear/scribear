@@ -12,6 +12,59 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — db-backup hardening: retry, integrity check, opt-out, encryption (`compose.yml` v12)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. A
+stock deployment needs to do nothing new — every variable below defaults to
+today's behavior.
+
+A round of hardening on the backup service from v10/v11, from a code review
+after it shipped:
+
+- **Failed off-host pushes now retry.** Previously, a push that failed (the
+  offsite host down, say) was never retried — the next cycle pushed only its
+  own fresh dump, silently leaving the failed one un-pushed forever until
+  local retention pruned it. Each cycle now retries every not-yet-pushed dump
+  first, so a sustained outage closes the gap entirely once the offsite host
+  is reachable again, rather than leaving a permanent hole in the off-host
+  history.
+- **Every dump is integrity-checked before being kept.** `pg_dump` can exit 0
+  on an archive nothing can actually read back (catalog corruption, OOM
+  mid-dump). `pg_restore -l` now runs against every dump immediately, and a
+  dump that fails it is discarded rather than kept and pushed.
+- **`pg_dumpall --globals-only` runs alongside the main dump.** `pg_dump`
+  never covered roles; this closes that gap. Small and fast next to the main
+  dump, so it's not worth its own schedule.
+- **`BACKUP_ENABLED`** (default `true`) — set to `false` for a deployment on
+  managed Postgres (RDS and similar) that already has its own backups.
+  db-backup idles instead of dumping, and Deployment Check reports the choice
+  explicitly instead of "no backup found" forever.
+- **`BACKUP_ENCRYPTION_KEY`** (empty/off by default) — optional GPG AES256
+  encryption for every dump, at rest and in the offsite copy. Without it,
+  dumps are compressed but not encrypted — readable by anyone with
+  filesystem access to either host. db-restore needs the same value to read
+  an encrypted dump back.
+- **`start_period` on db-backup's healthcheck is now 30 minutes**, up from 2.
+  `pg_dump` is single-threaded, so a multi-GB database's first dump can
+  easily outrun a 2-minute grace period, which read an in-progress backup as
+  a failed container.
+- The `db-restore` comment claiming `--clean --if-exists` "overwrites" the
+  target database was wrong: it drops and recreates only what the dump
+  itself contains, not the whole database. Corrected; see the comment above
+  that service for what that means for a forward-migrated target.
+
+**Not changed, and worth knowing:** this remains a periodic logical backup
+(`pg_dump`), not continuous WAL archiving — the recovery point is up to
+`BACKUP_INTERVAL_SECONDS` old, by design, not an emergent property of a
+tuning knob. If that gap is too wide for your data, the alternative is a
+PITR tool (pgBackRest, Barman), not a shorter interval — `pg_dump`'s cost
+scales with database size. Also unchanged: the first connection to a new
+`BACKUP_OFFSITE_HOST` trusts its host key on faith
+(`StrictHostKeyChecking=accept-new`); pre-populate `known_hosts` yourself if
+that is not acceptable for your threat model.
+
+---
+
 ## Unreleased — Deployment Check reports on Postgres backups (`compose.yml` v11)
 
 **Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. A

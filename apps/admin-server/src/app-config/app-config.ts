@@ -118,6 +118,7 @@ const CONFIG_SCHEMA = Type.Object({
   // with what is actually running.
   BACKUP_OFFSITE_METHOD: Type.String({ default: 'none' }),
   BACKUP_INTERVAL_SECONDS: Type.Integer({ minimum: 1, default: 14_400 }),
+  BACKUP_ENABLED: Type.Boolean({ default: true }),
 
   // Operator test-audio devices (PLAN-TestAudioDevices §3). Empty base URL is
   // the default and means the feature is off: the panel reads
@@ -352,6 +353,7 @@ export class AppConfig {
       monitoringSidecarBaseUrl: this._env.MONITORING_SIDECAR_BASE_URL,
       backupOffsiteMethod: this._env.BACKUP_OFFSITE_METHOD,
       backupIntervalSeconds: this._env.BACKUP_INTERVAL_SECONDS,
+      backupEnabled: this._env.BACKUP_ENABLED,
       azureTenantId: this._env.AZURE_TENANT_ID,
       azureClientId: this._env.AZURE_CLIENT_ID,
       azureClientSecret: this._env.AZURE_CLIENT_SECRET,

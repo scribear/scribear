@@ -46,6 +46,7 @@ const CLEAN: ConfigCheckConfig = {
   // turns it on with its own overrides.
   backupOffsiteMethod: 'none',
   backupIntervalSeconds: 14_400,
+  backupEnabled: true,
   azureTenantId: 'tenant-1',
   azureClientId: 'client-1',
   azureClientSecret: '0b4e8d2a7f16c395',
@@ -1183,7 +1184,27 @@ describe('the monitoring probes', () => {
   });
 });
 
-describe('the backup service (compose.yml v11)', (it) => {
+describe('the backup service (compose.yml v12)', (it) => {
+  describe('BACKUP_ENABLED=false', (it) => {
+    it('reports one advisory finding instead of any freshness or offsite finding', async () => {
+      const found = await backupFindings(
+        { backupEnabled: false, backupOffsiteMethod: 'none' },
+        { newestDumpAgeMs: () => Promise.resolve(null) },
+      );
+
+      expect(found.map((f) => f.id)).toEqual(['backup-disabled']);
+      expect(found[0]?.severity).toBe('advisory');
+      expect(found[0]?.productionSeverity).toBe('advisory');
+    });
+
+    it('never asks the backup directory anything', async () => {
+      const newestDumpAgeMs = vi.fn(() => Promise.resolve(0));
+      await backupIds({ backupEnabled: false }, { newestDumpAgeMs });
+
+      expect(newestDumpAgeMs).not.toHaveBeenCalled();
+    });
+  });
+
   describe('off-host copy', (it) => {
     it('is only advisory in development, warning in production', async () => {
       const found = await backupFindings({ backupOffsiteMethod: 'none' });

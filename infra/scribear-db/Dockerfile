@@ -19,9 +19,10 @@ RUN apk add --no-cache \
     && apk del build-base clang19 llvm19-dev curl
 
 # openssh-client + rsync for db-backup's optional off-host push (scp or
-# rsync-over-ssh, see deployment/compose.yml). Kept in the final image, unlike
-# the build-only deps above - this same image also runs as db-backup.
-RUN apk add --no-cache openssh-client rsync
+# rsync-over-ssh), gnupg for its optional at-rest encryption (BACKUP_ENCRYPTION_KEY)
+# - see deployment/compose.yml. Kept in the final image, unlike the build-only
+# deps above - this same image also runs as db-backup/db-restore.
+RUN apk add --no-cache openssh-client rsync gnupg
 
 COPY entrypoint.sh /usr/local/bin/scribear-entrypoint.sh
 COPY backup-entrypoint.sh /usr/local/bin/scribear-backup-entrypoint.sh
