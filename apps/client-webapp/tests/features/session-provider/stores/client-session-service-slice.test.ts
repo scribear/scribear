@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { SessionConnectionStatus } from '#src/features/session-provider/services/client-session-service-status';
+import {
+  ClientLifecycle,
+  JoinNotice,
+  SessionConnectionStatus,
+} from '#src/features/session-provider/services/client-session-service-status';
 import {
   clientSessionServiceReducer,
   setActiveSession,
+  setJoinNotice,
+  setLifecycle,
   setSessionStatus,
 } from '#src/features/session-provider/stores/client-session-service-slice';
 
@@ -42,6 +48,39 @@ describe('clientSessionServiceSlice', () => {
       transcriptionServiceConnected: false,
       sourceDeviceConnected: false,
     });
+  });
+
+  it('keeps the join notice across the drop to IDLE that reopens the dialog', () => {
+    const ended = clientSessionServiceReducer(
+      undefined,
+      setJoinNotice(JoinNotice.SESSION_ENDED),
+    );
+    const state = clientSessionServiceReducer(
+      ended,
+      setLifecycle(ClientLifecycle.IDLE),
+    );
+
+    // `setLifecycle` deliberately drops `session`; if it dropped the notice
+    // too, the explanation would die one action before the dialog that has to
+    // render it opens.
+    expect(state.joinNotice).toBe(JoinNotice.SESSION_ENDED);
+    expect(state.session).toBeNull();
+  });
+
+  it('starts with no join notice and clears it on setJoinNotice(null)', () => {
+    const initial = clientSessionServiceReducer(
+      undefined,
+      setLifecycle(ClientLifecycle.INITIALIZING),
+    );
+    expect(initial.joinNotice).toBeNull();
+
+    const ended = clientSessionServiceReducer(
+      initial,
+      setJoinNotice(JoinNotice.SESSION_ENDED),
+    );
+    expect(
+      clientSessionServiceReducer(ended, setJoinNotice(null)).joinNotice,
+    ).toBeNull();
   });
 
   it('clears the session on setActiveSession(null)', () => {

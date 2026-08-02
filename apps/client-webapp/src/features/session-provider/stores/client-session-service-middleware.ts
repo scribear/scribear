@@ -26,6 +26,7 @@ import {
   setConnectionStatus,
   setError,
   setJoinError,
+  setJoinNotice,
   setLifecycle,
   setSessionStatus,
 } from './client-session-service-slice';
@@ -82,6 +83,9 @@ export const createClientSessionServiceMiddleware =
     });
     service.on('joinError', (joinError) => {
       store.dispatch(setJoinError(joinError));
+    });
+    service.on('joinNotice', (joinNotice) => {
+      store.dispatch(setJoinNotice(joinNotice));
     });
     service.on('error', (message) => {
       store.dispatch(setError(message));

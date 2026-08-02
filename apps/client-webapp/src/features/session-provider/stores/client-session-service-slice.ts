@@ -10,6 +10,7 @@ import type { SessionStatusSnapshot } from '../services/client-session-service';
 import {
   ClientLifecycle,
   type JoinError,
+  type JoinNotice,
   SessionConnectionStatus,
 } from '../services/client-session-service-status';
 
@@ -36,6 +37,13 @@ export interface ClientSessionServiceSliceState {
   } | null;
   joinError: JoinError | null;
   /**
+   * Why the join dialog is open when nothing went wrong (today: the session
+   * ended), or `null`. Rendered by `JoinSessionModal` as an `info` alert,
+   * alongside - and deliberately not merged into - `joinError`, which is what
+   * turns the join field red.
+   */
+  joinNotice: JoinNotice | null;
+  /**
    * Why the current session is unrecoverable, or `null`. Rendered by
    * `selectConnectionBanner`'s terminal branch - its only consumer, and the
    * only reason to write anything here. It used to also collect transient
@@ -48,6 +56,7 @@ const initialState: ClientSessionServiceSliceState = {
   lifecycle: ClientLifecycle.INITIALIZING,
   session: null,
   joinError: null,
+  joinNotice: null,
   error: null,
 };
 
@@ -57,6 +66,8 @@ export const selectSession = (state: RootState) =>
   state.clientSessionService.session;
 export const selectJoinError = (state: RootState) =>
   state.clientSessionService.joinError;
+export const selectJoinNotice = (state: RootState) =>
+  state.clientSessionService.joinNotice;
 export const selectError = (state: RootState) =>
   state.clientSessionService.error;
 
@@ -98,6 +109,9 @@ export const clientSessionServiceSlice = createSlice({
     setJoinError: (state, action: PayloadAction<JoinError | null>) => {
       state.joinError = action.payload;
     },
+    setJoinNotice: (state, action: PayloadAction<JoinNotice | null>) => {
+      state.joinNotice = action.payload;
+    },
     setError: (state, action: PayloadAction<string | null>) => {
       state.error = action.payload;
     },
@@ -112,6 +126,7 @@ export const {
   setConnectionStatus,
   setSessionStatus,
   setJoinError,
+  setJoinNotice,
   setError,
 } = clientSessionServiceSlice.actions;
 
