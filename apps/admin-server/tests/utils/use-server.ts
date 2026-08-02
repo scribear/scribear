@@ -179,6 +179,7 @@ export function buildTestAppConfig(
       azureTenantId: 'test-tenant',
       azureClientId: 'test-client',
       azureClientSecret: 'test-client-secret',
+      azureRedirectUri: 'https://example.edu/api/admin/v1/auth/sso/callback',
       allowedGroup: 'test-admins',
       // Was missing entirely until Phase 2: every prior caller of `_probe`
       // (`_checkMonitoring`) was gated behind `grafanaBaseUrl`/
