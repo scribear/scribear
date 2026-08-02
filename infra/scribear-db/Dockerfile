@@ -18,8 +18,17 @@ RUN apk add --no-cache \
     && rm -rf /tmp/pg_cron.tar.gz "/tmp/pg_cron-${PG_CRON_VERSION}" \
     && apk del build-base clang19 llvm19-dev curl
 
+# openssh-client + rsync for db-backup's optional off-host push (scp or
+# rsync-over-ssh, see deployment/compose.yml). Kept in the final image, unlike
+# the build-only deps above - this same image also runs as db-backup.
+RUN apk add --no-cache openssh-client rsync
+
 COPY entrypoint.sh /usr/local/bin/scribear-entrypoint.sh
-RUN chmod +x /usr/local/bin/scribear-entrypoint.sh
+COPY backup-entrypoint.sh /usr/local/bin/scribear-backup-entrypoint.sh
+COPY backup-healthcheck.sh /usr/local/bin/scribear-backup-healthcheck.sh
+RUN chmod +x /usr/local/bin/scribear-entrypoint.sh \
+             /usr/local/bin/scribear-backup-entrypoint.sh \
+             /usr/local/bin/scribear-backup-healthcheck.sh
 ENTRYPOINT ["scribear-entrypoint.sh"]
 CMD []
 

@@ -219,7 +219,7 @@ services:
       # Not `:?`-guarded, like DEPLOYMENT_ENV below and unlike the secrets: it
       # changes what is *reported*, never what runs, and must not be able to
       # stop a stack from starting.
-      COMPOSE_FILE_VERSION: "9"
+      COMPOSE_FILE_VERSION: "10"
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
@@ -356,6 +356,115 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # Periodic Postgres backups (compose.yml v10).
+  #
+  # Ships in the scribear-db image so `docker compose pull && up -d` alone
+  # keeps it current on every box, rather than a host crontab an operator has
+  # to remember to set up (and keep in sync) on every deployment separately -
+  # that was run-migrator.sh's failure mode, see the comment on db-migrate
+  # above. Runs by default: unlike most variables in this file, leaving
+  # everything below at its default does not make this a no-op - it starts
+  # writing dumps into BACKUP_OUTPUT_PATH on the first `up -d`.
+  #
+  # Reuses the scribear-db image, with a different entrypoint, rather than a
+  # stock postgres/alpine client image: pg_dump must track the server version
+  # it backs up, and a client pulled from a different tag or package repo
+  # could drift and fail a version check silently. Reaches Postgres over the
+  # `backend` network with the same DB_* variables every other service in
+  # this file already uses - no `docker exec`, no Docker socket.
+  #
+  # Not pg_cron, despite that extension already being loaded into this same
+  # image (see infra/scribear-db/entrypoint.sh): pg_cron schedules SQL
+  # statements executed BY Postgres. It has no way to shell out to the
+  # external pg_dump client, which is what actually walks the catalogs to
+  # produce a dump.
+  db-backup:
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/scribear-db:${IMAGE_TAG:-latest}
+    entrypoint: ["scribear-backup-entrypoint.sh"]
+    environment:
+      DB_HOST: ${DB_HOST:-scribear-db}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      # How often to dump, and how long to keep local copies. The 6x/day
+      # cadence (`10 */4 * * *`) this replaces is the default, so a deployment
+      # copying that schedule in sees no change.
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-14400}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      # Local retention shares a disk with postgres_data: it protects against
+      # a bad migration or an operator mistake, not against losing this host.
+      # Set BACKUP_OFFSITE_METHOD to also push each dump somewhere else -
+      # see deployment/UPGRADING.md and .env.example.
+      BACKUP_OFFSITE_METHOD: ${BACKUP_OFFSITE_METHOD:-none} # none | scp | rsync
+      BACKUP_OFFSITE_HOST: ${BACKUP_OFFSITE_HOST:-}
+      BACKUP_OFFSITE_PORT: ${BACKUP_OFFSITE_PORT:-22}
+      BACKUP_OFFSITE_USER: ${BACKUP_OFFSITE_USER:-}
+      BACKUP_OFFSITE_PATH: ${BACKUP_OFFSITE_PATH:-}
+    volumes:
+      - ${BACKUP_OUTPUT_PATH:-./db-backups}:/backups
+      # Harmless empty directory when BACKUP_OFFSITE_METHOD is "none" (the
+      # default) - the entrypoint only reads this path when it is scp or
+      # rsync. Point BACKUP_SSH_KEY_PATH at a real private key to use either.
+      - ${BACKUP_SSH_KEY_PATH:-./db-backup-ssh-key}:/keys/backup_key:ro
+    depends_on:
+      scribear-db:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "scribear-backup-healthcheck.sh"]
+      interval: 5m
+      timeout: 10s
+      retries: 1
+      start_period: 2m
+
+  # Manual, one-shot restore from a dump db-backup produced. Never started by
+  # `up -d` - profile-gated so an untested restore path does not sit there
+  # looking like coverage it has not earned. Run it once after setting this
+  # up, against a scratch database, to find out whether it actually works
+  # before the day it has to.
+  #
+  # `pg_restore --clean --if-exists` DROPS existing objects before recreating
+  # them - this overwrites whatever is currently in DB_NAME. Point DB_NAME (or
+  # a compose.override.yml) at a scratch database for a restore drill.
+  #
+  # `--no-owner` because the dump's ALTER OWNER commands name whatever DB_USER
+  # produced it - restoring under a differently-named role (a scratch DB on
+  # another box, say) fails every one of them otherwise. DB_USER is this
+  # stack's only role, so tables ending up owned by whichever role runs this
+  # restore is already correct here, not merely tolerated. Verified against a
+  # scratch database as part of building this: `--clean --if-exists` alone
+  # exits 1 on 20 ALTER OWNER errors even though every table and row restores
+  # correctly; adding `--no-owner` exits 0.
+  #
+  # Usage:
+  #   RESTORE_FILE=scribear-db-20260802T040000Z.dump \
+  #     docker compose --profile restore run --rm db-restore
+  db-restore:
+    profiles: ["restore"]
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/scribear-db:${IMAGE_TAG:-latest}
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -eu
+        : "$${RESTORE_FILE:?Set RESTORE_FILE to a filename under /backups, e.g. RESTORE_FILE=scribear-db-20260802T040000Z.dump}"
+        echo "Restoring /backups/$$RESTORE_FILE into $$DB_NAME @ $$DB_HOST - this OVERWRITES existing data there."
+        PGPASSWORD="$$DB_PASSWORD" pg_restore -h "$$DB_HOST" -p "$$DB_PORT" -U "$$DB_USER" -d "$$DB_NAME" --clean --if-exists --no-owner "/backups/$$RESTORE_FILE"
+    environment:
+      DB_HOST: ${DB_HOST:-scribear-db}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      RESTORE_FILE: ${RESTORE_FILE:-}
+    volumes:
+      - ${BACKUP_OUTPUT_PATH:-./db-backups}:/backups:ro
+    networks:
+      - backend
+    restart: "no"
 
   # Telemetry backplane for the fleet dashboard (B1.7).
   #

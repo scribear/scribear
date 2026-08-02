@@ -12,6 +12,62 @@ lists every key the current `compose.yml` understands.
 
 ---
 
+## Unreleased — periodic Postgres backups ship with the stack (`compose.yml` v10)
+
+**Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. Unlike
+most entries below, a stock deployment is not a no-op here: a new `db-backup`
+service starts `pg_dump`ing `DB_NAME` every four hours and keeping 14 days of
+it under `./db-backups` (next to this file), from the moment you bring the new
+file up. Nothing else changes — no new required variable, no `:?`-guard.
+
+There is no external host script or crontab to set up. `db-backup` runs
+straight off the `scribear-db` image over the `backend` network with the same
+`DB_HOST`/`DB_USER`/`DB_PASSWORD` every other service already uses — no
+`docker exec`, no Docker socket. That was a deliberate choice over the more
+familiar shape (a cron entry on the host, `docker exec db pg_dumpall`): a host
+script has to be remembered and kept in sync on every box separately — the
+exact failure mode `run-migrator.sh` used to have, see `db-migrate` above —
+where anything in `compose.yml` reaches every environment the same way a
+`docker compose pull` already does.
+
+It reuses the `scribear-db` image rather than a generic Postgres client image
+so `pg_dump`'s version can never drift from the server it's backing up, and it
+does **not** use the `pg_cron` extension already loaded into that same image —
+`pg_cron` schedules SQL run *by* Postgres; it has no way to shell out to the
+external `pg_dump` client, which is what actually walks the catalogs to
+produce a dump.
+
+Six variables, all optional, tune it — see
+[`.env.example`](.env.example#L69) for the full set with defaults:
+
+| `.env` key | Default | What it does |
+| --- | --- | --- |
+| `BACKUP_INTERVAL_SECONDS` | `14400` (4h) | How often to dump |
+| `BACKUP_RETENTION_DAYS` | `14` | How long to keep local copies |
+| `BACKUP_OUTPUT_PATH` | `./db-backups` | Where dumps land on the host |
+| `BACKUP_OFFSITE_METHOD` | `none` | `none`, `scp`, or `rsync` — push each dump off this host too |
+| `BACKUP_OFFSITE_HOST` / `_PORT` / `_USER` / `_PATH` | *(empty)* | Where to push it, when the above is not `none` |
+| `BACKUP_SSH_KEY_PATH` | `./db-backup-ssh-key` | Private key for the offsite account |
+
+**Local retention alone does not survive losing this host** — it shares a disk
+with `postgres_data`. Set `BACKUP_OFFSITE_METHOD` to `scp` or `rsync` (the
+latter needs the `rsync` binary on the *receiving* host too) to also copy each
+dump somewhere else — another box you control, or anywhere else reachable over
+SSH. `db-backup`'s own healthcheck reports unhealthy in `docker compose ps` if
+no backup has landed in `BACKUP_OUTPUT_PATH` within one interval plus an hour
+of grace, so a stuck or misconfigured push shows up rather than failing
+silently.
+
+A profile-gated `db-restore` service ships alongside it —
+`RESTORE_FILE=<name>.dump docker compose --profile restore run --rm
+db-restore` — for restore drills and the real thing. It is not started by
+`up -d`; run it once against a scratch database (a separate `DB_NAME`, or a
+`compose.override.yml` pointed at a throwaway Postgres) to find out the
+restore path actually works before the day it has to. `pg_restore --clean
+--if-exists` **overwrites** whatever is already in the target database.
+
+---
+
 ## Unreleased — the capacity estimator's knobs are reachable from `.env` (`compose.yml` v9)
 
 **Copy the new [`compose.yml`](compose.yml)** and `docker compose up -d`. **A
