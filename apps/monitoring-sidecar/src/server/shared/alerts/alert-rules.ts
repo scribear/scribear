@@ -379,19 +379,6 @@ function dutyRatioThresholdFor(
   providerDevices: ReadonlyMap<string, string>,
   providerKey: string,
 ): number {
-  // The flat override: if set, it wins for every provider regardless of device.
-  // The app-config layer sets this to `NaN` when the env var is empty, and the
-  // actual number when it is set. NaN is never a valid threshold, so the
-  // `isNaN` check is the "no override" path.
-  //
-  // Actually, the app-config layer uses `threshold(value, fallback)` which
-  // returns the fallback (a real number) when the env var is empty — so the
-  // override is always a real number. The "flat override wins" logic is
-  // implemented in app-config: if ALERT_ASR_DUTY_RATIO is set, it populates
-  // BOTH asrDutyRatio and asrDutyRatioCpu with that value, so both paths
-  // return the same number. No special-casing needed here.
-  //
-  // This function just selects between the two per-device defaults.
   return providerDevices.get(providerKey) === 'cpu'
     ? thresholds.asrDutyRatioCpu
     : thresholds.asrDutyRatio;
@@ -732,6 +719,16 @@ export const transcriptionFallingBehindRule: AlertRule = (ctx) => {
     );
     if (ratio < dutyRatioThreshold) continue;
 
+    // When the device is unknown (rolling upgrade, or the provider's tag did
+    // not resolve), the GPU default was used — which is exactly the failure
+    // this feature exists to fix. Surface it in the alert so the operator
+    // knows the threshold may be wrong for their hardware, rather than
+    // silently false-alarming or silently missing.
+    const deviceKnown = ctx.providerDevices.has(providerKey);
+    const deviceNote = deviceKnown
+      ? ''
+      : ' Note: the inference device for this provider was not reported, so the GPU threshold was used. If this is a CPU deployment, upgrade transcription-service so it reports providerDevice, or set MONITORING_ASR_DUTY_RATIO to override.';
+
     // Same `{service, providerKey}` label set, so this matches the overflow
     // series for exactly this provider.
     const overflowSeconds =
@@ -754,7 +751,7 @@ export const transcriptionFallingBehindRule: AlertRule = (ctx) => {
       severity: AlertSeverity.WARNING,
       stage: PipelineStage.TRANSCRIPTION,
       summary: `Transcription for ${providerKey} is using ${String(Math.round(ratio * 100))}% of its realtime budget (mean RTF ${ratio.toFixed(2)} over ${windowSec}s, threshold ${dutyRatioThreshold.toFixed(2)}, ${String(Math.round(jobs))} jobs)${overflowNote}.`,
-      likelyCause: `${providerKey} cannot comfortably keep up: each pass costs ${ratio.toFixed(2)}s of compute per second of audio it ingests, and a period the job overruns is dropped rather than queued — so the only symptom is captions falling further behind while every counter and probe stays green. The levers are provider config, not capacity: raise job_period_ms (fewer, larger passes), lower max_buffer_len_sec (each pass re-transcribes the whole unfinalized buffer, so cost tracks its length), or run a smaller model. Adding workers or CPU will not help — one stream is one job, and its passes run one at a time.`,
+      likelyCause: `${providerKey} cannot comfortably keep up: each pass costs ${ratio.toFixed(2)}s of compute per second of audio it ingests, and a period the job overruns is dropped rather than queued — so the only symptom is captions falling further behind while every counter and probe stays green. The levers are provider config, not capacity: raise job_period_ms (fewer, larger passes), lower max_buffer_len_sec (each pass re-transcribes the whole unfinalized buffer, so cost tracks its length), or run a smaller model. Adding workers or CPU will not help — one stream is one job, and its passes run one at a time.${deviceNote}`,
       value: ratio,
       threshold: dutyRatioThreshold,
     });

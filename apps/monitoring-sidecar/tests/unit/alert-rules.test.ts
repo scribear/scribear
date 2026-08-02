@@ -986,6 +986,30 @@ describe('alert rules', () => {
       // Assert
       expect(alerts).toHaveLength(0);
     });
+
+    it('uses the CPU threshold for mean-based suppression, not the GPU one', () => {
+      // Arrange — a CPU provider with a mean of 0.5 and enough dropped
+      // periods to fire the tail rule. The mean is past the GPU threshold
+      // (0.45) but under the CPU threshold (0.7), so
+      // suppressedByColderRule must NOT suppress the tail alert — if it
+      // used the GPU threshold, it would suppress (0.5 >= 0.45) and the
+      // operator would never see the tail warning.
+      const metrics = new MetricsRegistry();
+      observeDutyRatio(metrics, { meanRtf: 0.5 });
+      reportsDroppedPeriods(metrics);
+      metrics.asrDroppedPeriodsTotal.inc(providerLabels(), DEGRADED_DROPS, NOW);
+      const devices = new Map([['whisper', 'cpu']]);
+
+      // Act
+      const tail = transcriptionTailOverrunRule(
+        context(metrics, [], {}, null, devices),
+      );
+
+      // Assert — the tail alert fires because the mean (0.5) is under the
+      // CPU threshold (0.7), so suppression does not kick in.
+      expect(tail).toHaveLength(1);
+      expect(tail[0]?.id).toBe('asr-tail-overrun:whisper');
+    });
   });
 
   describe('dead transcription worker (T9)', (it) => {

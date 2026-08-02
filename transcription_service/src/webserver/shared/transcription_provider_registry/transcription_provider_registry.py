@@ -172,23 +172,11 @@ class TranscriptionProviderRegistry:
                 case JobContextDefinitionUID.FASTER_WHISPER:
                     from src.transcription_contexts.faster_whisper_context import (
                         FasterWhisperContext,
-                        FasterWhisperContextConfig,
                     )
 
                     context: Any = FasterWhisperContext(
                         config.context_config, config.tags
                     )
-                    # FasterWhisperContextConfig carries `device` ("cuda" or
-                    # "cpu"). Each tag maps to the device its context was
-                    # configured with, so a provider that references the tag
-                    # (via `whisper_context_tag`) can be resolved to its device
-                    # without the provider itself having access to the context
-                    # config.
-                    validated = FasterWhisperContextConfig.model_validate(
-                        config.context_config
-                    )
-                    for tag in config.tags:
-                        self._context_device_by_tag[tag] = validated.device
                 case JobContextDefinitionUID.SILERO_VAD:
                     from src.transcription_contexts.silero_vad_context import (
                         SileroVadContext,
@@ -197,6 +185,18 @@ class TranscriptionProviderRegistry:
                     context = SileroVadContext(
                         config.context_config, config.tags
                     )
+
+            # Record the context's device under each of its tags, so a
+            # provider that references the tag (via `whisper_context_tag`)
+            # can be resolved to its device without the provider itself
+            # having access to the context's config. Asks the constructed
+            # context for its device rather than re-validating the raw
+            # config, so there is one source of truth — if the context ever
+            # normalises "auto" to "cuda" at construction time, this reports
+            # the resolved value.
+            if context.device is not None:
+                for tag in config.tags:
+                    self._context_device_by_tag[tag] = context.device
 
             assignments.append(
                 ContextAssignment(

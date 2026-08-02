@@ -63,6 +63,13 @@ class FasterWhisperContext(JobContextInterface[WhisperModel]):
             context_config
         )
 
+    @property
+    def device(self) -> str | None:
+        # The resolved device the context was configured with and will use in
+        # create() — the single source of truth, so the registry does not
+        # re-validate the raw config.
+        return self._config.device
+
     def create(self, log: Logger) -> WhisperModel:
         log.info(
             f"Creating {self._config.model} whisper model using device: {self._config.device}"
