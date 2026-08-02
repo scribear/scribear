@@ -14,6 +14,8 @@ import {
 } from '@scribear/scribear-redis';
 
 import { AdminDbClient } from '#src/db/admin-db-client.js';
+import { AlertsController } from '#src/server/features/alerts/alerts.controller.js';
+import { AlertsService } from '#src/server/features/alerts/alerts.service.js';
 import { AuditController } from '#src/server/features/audit/audit.controller.js';
 import { AuthController } from '#src/server/features/auth/auth.controller.js';
 import { BackupDirectoryService } from '#src/server/features/config-check/backup-directory.service.js';
@@ -208,6 +210,14 @@ function registerDependencies(
       { lifetime: Lifetime.SINGLETON },
     ),
     fleetController: asClass(FleetController, { lifetime: Lifetime.SCOPED }),
+
+    // Alerts. SINGLETON like `configCheckService`: it holds only the sidecar's
+    // base URL and a timeout, nothing per-request.
+    alertsConfig: asValue(config.alertsConfig),
+    alertsService: asClass(AlertsService, { lifetime: Lifetime.SINGLETON }),
+    alertsController: asClass(AlertsController, {
+      lifetime: Lifetime.SCOPED,
+    }),
   } as NameAndRegistrationPair<AppDependencies>);
 }
 

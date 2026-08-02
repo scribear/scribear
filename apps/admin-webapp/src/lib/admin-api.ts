@@ -621,6 +621,40 @@ export interface SessionStatusEvent {
 }
 export type FleetEvent = SessionStatusEvent;
 
+// ---- Monitoring sidecar alerts (PLAN-VisibleErrors §4.3) ----
+
+/**
+ * Mirrors `AlertSeverity` in the monitoring sidecar's `alert-rules.ts`. Only
+ * two — every rule fires only when something is actually wrong, so there is
+ * no `info` tier: an empty `alerts` array *is* the console's healthy state.
+ */
+export type MonitoringAlertSeverity = 'critical' | 'warning';
+
+/**
+ * One firing alert, proxied unchanged from the monitoring sidecar's
+ * `GET /api/monitoring/v1/alerts` through admin-server's `/alerts`. Mirrors
+ * `Alert` in `apps/monitoring-sidecar/.../alert-rules.ts` — restated here for
+ * the same reason `FleetSnapshot` above mirrors its Redis-side type rather
+ * than importing it.
+ */
+export interface MonitoringAlert {
+  id: string;
+  failureModes: string[];
+  severity: MonitoringAlertSeverity;
+  /** One-line human summary including the observed value. */
+  summary: string;
+  /** Cause, and — where the rule implies one — the next action to take. */
+  likelyCause: string;
+  stage: string;
+  value: number;
+  threshold: number;
+}
+
+export interface AlertsReport {
+  alerts: MonitoringAlert[];
+  generatedAt: string;
+}
+
 // ---- Test audio devices (PLAN-TestAudioDevices §2, via the §3 BFF) ----
 // Mirrors `DeviceState`, `GoodParams` and `FaultParams` from
 // apps/test-audio-generator. Restated here rather than imported for the same
@@ -911,6 +945,15 @@ export class AdminApiClient {
    *  fleet that is genuinely idle. */
   fleet(): Promise<FleetSnapshot> {
     return this._request('GET', '/fleet');
+  }
+
+  // ---- Monitoring sidecar alerts ----
+  /** Throws `ApiError` with code `ALERTS_UNAVAILABLE` when the monitoring
+   *  sidecar could not be asked — never resolves to an empty list for that
+   *  case, since that would be indistinguishable from nothing currently
+   *  firing (PLAN-VisibleErrors §4.3). */
+  alerts(): Promise<AlertsReport> {
+    return this._request('GET', '/alerts');
   }
 
   // ---- Test audio devices ----
