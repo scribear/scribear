@@ -6,7 +6,7 @@
             "worker_ids": [0],
             "tags": ["whisper_context"],
             "context_config": {
-                "model": "small",
+                "model": "base",
                 "device": "cpu"
             }
         },

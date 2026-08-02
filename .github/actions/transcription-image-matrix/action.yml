@@ -1,10 +1,26 @@
 name: "Transcription Image Matrix"
 description: "Builds the docker-build job matrix for transcription-service: the CPU image plus one entry per CUDA variant declared in transcription_service/cuda-variants.json."
+inputs:
+  workspaces:
+    description: "JSON array of affected workspace paths, from the detect-changes action. Currently unused — kept for interface symmetry with node-image-matrix so both matrix actions can be called the same way."
+    required: false
+    default: ""
 outputs:
   matrix:
     # No ${{ }} in this text: GitHub evaluates descriptions as expressions.
-    description: "JSON object with an `include` array, for use as a strategy.matrix via fromJSON."
+    description: "JSON object with an `include` array, for use as a strategy.matrix via fromJSON. One entry per image; `image_slug` is the image_name with '/' replaced by '-', for use in artifact names."
     value: ${{ steps.build.outputs.matrix }}
+  build_matrix:
+    description: >
+      JSON object with an `include` array, the cross product of the images
+      and the native runner for each published architecture. The CPU image
+      publishes both linux/amd64 and linux/arm64 (native runners, not QEMU
+      — see APPLE-SILICON-FINDINGS.md); the CUDA variants publish amd64
+      only, since no Mac can run them and no arm64 GPU deployment exists.
+      `platform_tag` is the platform with '/' replaced by '-' (the
+      buildcache tag suffix convention); `image_slug` is `image_name` with
+      '/' replaced by '-', for use in artifact names.
+    value: ${{ steps.build.outputs.build_matrix }}
 runs:
   using: "composite"
   steps:
@@ -35,6 +51,16 @@ runs:
                 "Each entry becomes an image name, so they must be unique."
             )
 
+        # Native arm64 runners, not QEMU (measured 9.9x slower on the CPU
+        # transcription image in APPLE-SILICON-FINDINGS.md). The CUDA variants
+        # stay amd64-only: no Mac can run them, and no arm64 GPU deployment
+        # (Grace/Jetson) exists for this project. Mirrors the PLATFORMS list
+        # in node-image-matrix for the images that do get both arches.
+        AMD64 = {"platform": "linux/amd64", "runs_on": "ubuntu-24.04"}
+        ARM64 = {"platform": "linux/arm64", "runs_on": "ubuntu-24.04-arm"}
+        CPU_PLATFORMS = [AMD64, ARM64]
+        CUDA_PLATFORMS = [AMD64]
+
         def entry(image_suffix: str, dockerfile: str, build_args: str) -> dict[str, str]:
             return {
                 "image_name": f"scribear/transcription-service-{image_suffix}",
@@ -44,8 +70,8 @@ runs:
                 "build_args": build_args,
             }
 
-        include = [entry("cpu", "Dockerfile_CPU", "")]
-        include += [
+        cpu_entry = entry("cpu", "Dockerfile_CPU", "")
+        cuda_entries = [
             entry(
                 variant["device"],
                 "Dockerfile_CUDA",
@@ -53,9 +79,35 @@ runs:
             )
             for variant in variants
         ]
+        include = [cpu_entry] + cuda_entries
+
+        # Per-image matrix (for docker-merge): one entry per image with
+        # image_slug for artifact naming.
+        for item in include:
+            item["image_slug"] = item["image_name"].replace("/", "-")
+
+        # Per-(image, arch) matrix (for docker-build): CPU gets both arches,
+        # CUDA variants get amd64 only. platform_tag follows the buildcache
+        # tag convention.
+        build_include = []
+        for item in include:
+            platforms = CPU_PLATFORMS if item is cpu_entry else CUDA_PLATFORMS
+            for plat in platforms:
+                build_include.append({
+                    **item,
+                    "platform": plat["platform"],
+                    "runs_on": plat["runs_on"],
+                    "platform_tag": plat["platform"].replace("/", "-"),
+                })
 
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output_file:
             output_file.write("matrix=" + json.dumps({"include": include}) + "\n")
+            output_file.write("build_matrix=" + json.dumps({"include": build_include}) + "\n")
 
         print(f"{len(include)} images: {', '.join(item['image_name'] for item in include)}")
+        arches = {item["image_name"]: [] for item in build_include}
+        for item in build_include:
+            arches[item["image_name"]].append(item["platform"])
+        for name, plats in arches.items():
+            print(f"  {name}: {', '.join(plats)}")
         PY
