@@ -226,8 +226,23 @@ describe('RoomDetailPage', () => {
   });
 
   describe('error / not-found state', (it) => {
-    it('shows a toast and a "Room not found." fallback on a non-ApiError rejection', async () => {
+    it('reserves "Room not found." for an actual 404', async () => {
       // Arrange
+      vi.mocked(adminApi.roomDetail).mockRejectedValue(
+        new ApiError('NOT_FOUND', 'No such room.', 404),
+      );
+
+      // Act
+      renderPage();
+      await waitForLoad();
+
+      // Assert
+      expect(screen.getByText('Room not found.')).toBeInTheDocument();
+    });
+
+    it('does not claim the room is missing when the load merely failed', async () => {
+      // Arrange - the §5 bug one level up from the lists: every failure used
+      // to render "Room not found.", i.e. a statement about the deployment.
       vi.mocked(adminApi.roomDetail).mockRejectedValue(
         new Error('network down'),
       );
@@ -238,9 +253,9 @@ describe('RoomDetailPage', () => {
 
       // Assert
       expect(
-        await screen.findByText('Failed to load room.'),
+        await screen.findByText('Could not load this room.'),
       ).toBeInTheDocument();
-      expect(screen.getByText('Room not found.')).toBeInTheDocument();
+      expect(screen.queryByText('Room not found.')).not.toBeInTheDocument();
     });
   });
 

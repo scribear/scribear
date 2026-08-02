@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
-import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -18,32 +17,20 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 
+import { ErrorState } from '#src/components/error-state';
 import { TimezoneNote } from '#src/components/timezone-note';
 import { adminApi } from '#src/lib/admin-api';
-import { isApiErrorCode } from '#src/lib/api-error';
-import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 
 const LIMIT_OPTIONS = [50, 100, 200] as const;
 
 export const AuditPage = () => {
-  const { showApiError } = useToast();
   const [limit, setLimit] = useState<number>(50);
 
-  const { data, loading, error } = useAsyncData(
+  const { state, reload } = useAsyncData(
     () => adminApi.listAudit(limit),
     [limit],
   );
-  const items = data?.items ?? [];
-  const misconfigured = isApiErrorCode(error, 'BACKEND_MISCONFIGURATION');
-
-  // Any load failure that isn't misconfiguration is surfaced as a toast.
-  useEffect(() => {
-    if (error !== null && !isApiErrorCode(error, 'BACKEND_MISCONFIGURATION')) {
-      showApiError(error, 'Failed to load audit log.');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
-  }, [error]);
 
   return (
     <Box>
@@ -76,12 +63,6 @@ export const AuditPage = () => {
           </Select>
         </FormControl>
       </Box>
-      {misconfigured && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          Admin backend misconfiguration — an operator must check the
-          server&apos;s ADMIN_API_KEY.
-        </Alert>
-      )}
       <TimezoneNote />
       <TableContainer component={Paper}>
         <Table size="small">
@@ -98,13 +79,25 @@ export const AuditPage = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {loading ? (
+            {/* Three outcomes, never two: an unread audit log is not an
+                empty one (PLAN-VisibleErrors §5). */}
+            {state.status === 'loading' ? (
               <TableRow>
                 <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                   <CircularProgress size={28} />
                 </TableCell>
               </TableRow>
-            ) : items.length === 0 ? (
+            ) : state.status === 'unavailable' ? (
+              <TableRow>
+                <TableCell colSpan={8} sx={{ py: 2 }}>
+                  <ErrorState
+                    title="Could not load the audit log."
+                    error={state.error}
+                    onRetry={reload}
+                  />
+                </TableCell>
+              </TableRow>
+            ) : state.data.items.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                   <Typography
@@ -117,7 +110,7 @@ export const AuditPage = () => {
                 </TableCell>
               </TableRow>
             ) : (
-              items.map((row) => {
+              state.data.items.map((row) => {
                 const isSuccess = row.result.toLowerCase() === 'success';
                 return (
                   <TableRow key={row.id}>

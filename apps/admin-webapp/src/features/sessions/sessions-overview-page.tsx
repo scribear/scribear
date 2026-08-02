@@ -16,8 +16,8 @@ import { useNavigate } from 'react-router-dom';
 
 import type { Session } from '@scribear/session-manager-schema';
 
+import { ErrorState } from '#src/components/error-state';
 import { adminApi } from '#src/lib/admin-api';
-import { isApiErrorCode } from '#src/lib/api-error';
 import {
   GRID_MAX_COLUMNS,
   defaultRoomSelection,
@@ -25,7 +25,6 @@ import {
   nextHourRangeIndex,
 } from '#src/lib/session-rules';
 import { useSettings } from '#src/lib/settings-context';
-import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 import { useSelectedRooms } from '#src/lib/use-selected-rooms';
 
@@ -46,7 +45,6 @@ function startOfLocalDay(d: Date): Date {
 
 export const SessionsOverviewPage = () => {
   const navigate = useNavigate();
-  const { showApiError } = useToast();
   const { showUuids } = useSettings();
 
   const [selectedRooms, setSelectedRooms] = useSelectedRooms();
@@ -60,6 +58,11 @@ export const SessionsOverviewPage = () => {
   );
   const [anchorDate, setAnchorDate] = useState(() => new Date());
   const [hourRangeIndex, setHourRangeIndex] = useState(0);
+  // Non-null once the default-selection fetch below has failed. Kept so the
+  // page can say why the picker is empty instead of telling the operator to
+  // select rooms from a list that could not be read.
+  const [defaultSelectionError, setDefaultSelectionError] =
+    useState<unknown>(null);
 
   const rangeStart = startOfLocalDay(anchorDate);
   const rangeEnd = new Date(rangeStart.getTime() + MS_PER_DAY);
@@ -73,23 +76,35 @@ export const SessionsOverviewPage = () => {
 
   // On first load with no persisted selection, default to "show everything"
   // for small deployments, or nothing for large ones (§4.5) — run once.
-  useEffect(() => {
-    if (defaultApplied) return;
-    const alive = { current: true };
+  //
+  // Also used as the "Retry" handler for the failure branch, so the operator
+  // has a way out that does not require reloading the whole console.
+  const applyDefaultSelection = (alive: { current: boolean }) => {
     adminApi
       .listRooms({ limit: GRID_MAX_COLUMNS + 1 })
       .then((res) => {
         if (!alive.current) return;
+        setDefaultSelectionError(null);
         setSelectedRooms(
           defaultRoomSelection(res.items, res.nextCursor !== null),
         );
       })
-      .catch(() => {
-        // Best-effort default; leave selection empty on error.
+      .catch((err: unknown) => {
+        // NOT swallowed (PLAN-VisibleErrors §10.5): with no selection and no
+        // message the page would show "Select rooms above to view their
+        // calendar." over a picker whose own search is failing for the same
+        // reason. The failure branch below states that instead.
+        if (alive.current) setDefaultSelectionError(err);
       })
       .finally(() => {
         if (alive.current) setDefaultApplied(true);
       });
+  };
+
+  useEffect(() => {
+    if (defaultApplied) return;
+    const alive = { current: true };
+    applyDefaultSelection(alive);
     return () => {
       alive.current = false;
     };
@@ -98,11 +113,9 @@ export const SessionsOverviewPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, []);
 
-  const {
-    data: sessionsData,
-    loading: sessionsLoading,
-    error: sessionsError,
-  } = useAsyncData<Session[]>(
+  const { state: sessionsState, reload: reloadSessions } = useAsyncData<
+    Session[]
+  >(
     () =>
       selectedRooms.length === 0
         ? Promise.resolve([])
@@ -115,27 +128,15 @@ export const SessionsOverviewPage = () => {
             .then((res) => res.items),
     [selectedRoomsKey, rangeStartMs, rangeEndMs],
   );
-  const sessions = sessionsData ?? [];
-  const misconfigured = isApiErrorCode(
-    sessionsError,
-    'BACKEND_MISCONFIGURATION',
-  );
+  // Only ever the sessions we actually read. A failed load reaches the
+  // `unavailable` branch below instead of rendering "No sessions today." in
+  // every room card (PLAN-VisibleErrors §5).
+  const sessions = sessionsState.status === 'ok' ? sessionsState.data : [];
   const sessionsOutsideHours = isGridMode
     ? sessions.filter((s) =>
         isOutsideHourWindow(s, hourRange.startHour, hourRange.endHour),
       ).length
     : 0;
-
-  // Non-misconfiguration load failures are surfaced as a toast, once per error.
-  useEffect(() => {
-    if (
-      sessionsError !== null &&
-      !isApiErrorCode(sessionsError, 'BACKEND_MISCONFIGURATION')
-    ) {
-      showApiError(sessionsError, 'Failed to load sessions.');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
-  }, [sessionsError]);
 
   const navigateDate = (direction: -1 | 0 | 1) => {
     setAnchorDate(
@@ -173,12 +174,6 @@ export const SessionsOverviewPage = () => {
           Sessions
         </Typography>
       </Stack>
-      {misconfigured && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          Admin backend misconfiguration — an operator must check the
-          server&apos;s ADMIN_API_KEY.
-        </Alert>
-      )}
       <Box sx={{ mb: 2, maxWidth: 600 }}>
         <RoomPicker selected={selectedRooms} onChange={setSelectedRooms} />
       </Box>
@@ -247,7 +242,15 @@ export const SessionsOverviewPage = () => {
           {sessionsOutsideHours === 1 ? 'it' : 'them'}.
         </Alert>
       )}
-      {selectedRooms.length === 0 ? (
+      {selectedRooms.length === 0 && defaultSelectionError !== null ? (
+        <ErrorState
+          title="Could not load the room list."
+          error={defaultSelectionError}
+          onRetry={() => {
+            applyDefaultSelection({ current: true });
+          }}
+        />
+      ) : selectedRooms.length === 0 ? (
         <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
           <Typography
             sx={{
@@ -257,10 +260,16 @@ export const SessionsOverviewPage = () => {
             Select rooms above to view their calendar.
           </Typography>
         </Paper>
-      ) : sessionsLoading ? (
+      ) : sessionsState.status === 'loading' ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
           <CircularProgress size={28} />
         </Box>
+      ) : sessionsState.status === 'unavailable' ? (
+        <ErrorState
+          title="Could not load sessions."
+          error={sessionsState.error}
+          onRetry={reloadSessions}
+        />
       ) : isGridMode ? (
         <SessionCalendarGrid
           columns={columns}
