@@ -138,8 +138,24 @@ const CONFIG_SCHEMA = Type.Object({
    * Mean RTF (duty ratio) over `ALERT_RATE_WINDOW_SEC` at or above which the T1
    * early warning fires. Must stay below `ALERT_RTF_P95` to be worth anything —
    * the point is to fire while captions are still on time.
+   *
+   * This is the **GPU** default. When set, it acts as a flat override that wins
+   * over `ALERT_ASR_DUTY_RATIO_CPU` for every provider — the existing escape
+   * hatch for a deployment that needs its own number.
    */
   ALERT_ASR_DUTY_RATIO: OPTIONAL_NUMBER,
+  /**
+   * Duty-ratio threshold for a provider the transcription service reports as
+   * running on CPU. Measured healthy CPU worst case: 0.745 (speech-dense
+   * `small`/8). The GPU default (0.45) sits on the healthy `small`/4 value
+   * (0.471), so without this a CPU deployment trips the rule in normal
+   * operation.
+   *
+   * Empty means "use the default" (0.7), the same convention as every other
+   * `OPTIONAL_NUMBER` threshold. Ignored entirely when
+   * `ALERT_ASR_DUTY_RATIO` is set, which is the flat override.
+   */
+  ALERT_ASR_DUTY_RATIO_CPU: OPTIONAL_NUMBER,
   ALERT_ASR_DUTY_RATIO_MIN_JOBS: OPTIONAL_NUMBER,
   /**
    * Share of a provider's job periods that may be dropped — no pass ran in them
@@ -363,16 +379,33 @@ export class AppConfig {
   }
 
   get alertThresholds(): AlertThresholds {
+    // The flat override: if ALERT_ASR_DUTY_RATIO is set (non-empty), it wins
+    // over both per-device defaults for every provider — the existing escape
+    // hatch. Setting both asrDutyRatio and asrDutyRatioCpu to the same value
+    // means the device-aware selection in the alert rule is a no-op, which is
+    // exactly the intended behaviour: the operator said "use this number
+    // everywhere" and it does.
+    const dutyRatioOverride = this._env.ALERT_ASR_DUTY_RATIO;
+    const asrDutyRatio = threshold(
+      dutyRatioOverride,
+      DEFAULT_THRESHOLDS.asrDutyRatio,
+    );
+    const asrDutyRatioCpu =
+      dutyRatioOverride !== ''
+        ? asrDutyRatio
+        : threshold(
+            this._env.ALERT_ASR_DUTY_RATIO_CPU,
+            DEFAULT_THRESHOLDS.asrDutyRatioCpu,
+          );
+
     return {
       rateWindowMs: this._env.ALERT_RATE_WINDOW_SEC * SECOND_MS,
       upstreamChurnCount: this._env.ALERT_UPSTREAM_CHURN_COUNT,
       decodeDropCount: this._env.ALERT_DECODE_DROP_COUNT,
       bufferOverflowCount: this._env.ALERT_BUFFER_OVERFLOW_COUNT,
       rtfP95: threshold(this._env.ALERT_RTF_P95, DEFAULT_THRESHOLDS.rtfP95),
-      asrDutyRatio: threshold(
-        this._env.ALERT_ASR_DUTY_RATIO,
-        DEFAULT_THRESHOLDS.asrDutyRatio,
-      ),
+      asrDutyRatio,
+      asrDutyRatioCpu,
       asrDutyRatioMinJobs: threshold(
         this._env.ALERT_ASR_DUTY_RATIO_MIN_JOBS,
         DEFAULT_THRESHOLDS.asrDutyRatioMinJobs,

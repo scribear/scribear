@@ -32,6 +32,12 @@ export interface FakeMetricsBody {
    * preference to its own config the moment it appears.
    */
   providerJobPeriodMs?: Record<string, number>;
+  /**
+   * Per-provider inference device (`"cuda"` or `"cpu"`). Optional and absent
+   * from the default body: a service too old to send it omits it, and the
+   * sidecar falls back to the GPU default threshold for every provider.
+   */
+  providerDevice?: Record<string, string>;
   workers: {
     workerId: number;
     utilization: number;

@@ -27,6 +27,25 @@ class JobContextInterface(ABC, Generic[JobContextInstance]):
         """
         return self._tags
 
+    @property
+    def device(self) -> str | None:
+        """
+        The inference device this context runs on, if it has one
+
+        Reported on ``/metrics/status`` via the provider registry's
+        ``provider_device`` property, so the monitoring sidecar can select
+        per-device alert thresholds. Defaults to ``None``: a context that has
+        no device concept (Silero VAD, which always runs on CPU) contributes
+        nothing to the device map.
+
+        Returning the *effective* device — the value the context was
+        configured with and actually uses — rather than re-validating the raw
+        config elsewhere keeps a single source of truth. If a future context
+        normalises ``"auto"`` to ``"cuda"`` at construction time, this
+        property reports the resolved value.
+        """
+        return None
+
     def __init__(self, tags: list[str]):
         """
         Args:

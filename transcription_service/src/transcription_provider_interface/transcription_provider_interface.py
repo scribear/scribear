@@ -169,6 +169,50 @@ class TranscriptionProviderInterface(ABC):
         return None
 
     @property
+    def device(self) -> str | None:
+        """
+        Gets the inference device this provider's context runs on, if it can
+        state one
+
+        Reported on `/metrics/status` as `providerDevice` so the monitoring
+        sidecar can select per-device alert thresholds — the same
+        reported-then-fallback shape as `job_period_ms`. The duty-ratio
+        threshold that fires on a healthy GPU (0.45) sits exactly on a healthy
+        CPU value (0.471 with `small`), so one global number cannot serve both
+        and every CPU deployment had to discover the override for itself.
+
+        Concrete and defaulting to None rather than abstract: a provider that
+        runs no local inference (`debug`, `lumen_granite`'s remote HTTP API)
+        has no device to state, and None means "omitted from the map" rather
+        than guessed at — the sidecar falls back to the GPU default for a
+        provider with no reported device, which is the existing behaviour.
+
+        The value is the device string the context was configured with
+        (`"cuda"` or `"cpu"`), not an environment probe: it is what the
+        deployment chose, which is what the alert threshold should match.
+        """
+        return None
+
+    @property
+    def context_tags(self) -> list[str]:
+        """
+        Gets the context tags this provider references, for registry-assisted
+        resolution of cross-context properties like ``device``
+
+        A provider like whisper-streaming references a context by tag but does
+        not own the context's config, so properties that live on the context
+        (such as inference device) cannot be returned from the provider's own
+        ``device`` property. The registry builds a tag-to-device map during
+        context loading and uses this property to look each provider's tags up
+        in it, without having to know any concrete provider's config shape.
+
+        Defaults to an empty list: a provider that references no contexts
+        (``debug``, ``lumen_granite``) contributes nothing to the device map,
+        which is the same as a provider whose ``device`` returns ``None``.
+        """
+        return []
+
+    @property
     def active_sessions(self) -> int:
         """
         Gets the number of sessions currently open against this provider

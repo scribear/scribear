@@ -134,6 +134,16 @@ class MetricsController:
             # and a provider that cannot state one honestly is omitted rather
             # than guessed at.
             "providerJobPeriodMs": self._providers.provider_job_period_ms,
+            # The inference device each provider's context runs on ("cuda" or
+            # "cpu"), reported so the monitoring sidecar can select per-device
+            # alert thresholds — a healthy GPU duty ratio (0.28-0.33) and a
+            # healthy CPU duty ratio (0.17-0.47) are an order of magnitude
+            # apart, and one global threshold cannot serve both. Same
+            # reported-then-fallback shape as providerJobPeriodMs: the sidecar
+            # prefers this, falls back to the GPU default for a service too
+            # old to send it. A provider with no local device (debug,
+            # lumen_granite) is omitted.
+            "providerDevice": self._providers.provider_device,
             "workers": [
                 {
                     **serialize_worker(snapshot),

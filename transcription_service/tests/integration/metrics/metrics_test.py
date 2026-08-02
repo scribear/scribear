@@ -201,6 +201,11 @@ def test_reports_workers_and_capacity(test_client: TestClient):
     # provider_config field, which is why the value is asked of the provider
     # instead of read off its config.
     assert body["providerJobPeriodMs"] == {"debug": DEBUG_JOB_PERIOD_MS}
+    # debug has no local device (no model, no inference), so it is omitted
+    # from providerDevice — same convention as providerJobPeriodMs for a
+    # provider that cannot state one. The sidecar falls back to the GPU
+    # default for a provider with no reported device.
+    assert body["providerDevice"] == {}
     assert len(body["workers"]) == NUM_WORKERS
     assert [worker["workerId"] for worker in body["workers"]] == [0, 1]
     for worker in body["workers"]:
