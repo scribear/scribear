@@ -58,13 +58,25 @@
       "path": "../../libs/store/transcription-display-store"
     },
     {
+      "path": "../../libs/store/transcript-export-store"
+    },
+    {
       "path": "../../libs/store/url-config-store"
+    },
+    {
+      "path": "../../libs/store/live-translation-store"
     },
     {
       "path": "../../libs/ui/core-ui"
     },
     {
+      "path": "../../libs/ui/live-translation-ui"
+    },
+    {
       "path": "../../libs/ui/theme-customization-ui"
+    },
+    {
+      "path": "../../libs/ui/transcript-export-ui"
     },
     {
       "path": "../../libs/ui/transcription-display-ui"

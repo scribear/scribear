@@ -3,6 +3,12 @@ import { rememberEnhancer, rememberReducer } from 'redux-remember';
 
 import { appLayoutPreferencesReducer } from '@scribear/app-layout-store';
 import {
+  TranslationService,
+  createLiveTranslationMiddleware,
+  liveTranslationPreferencesReducer,
+  liveTranslationServiceReducer,
+} from '@scribear/live-translation-store';
+import {
   createMicrophoneServiceMiddleware,
   microphonePreferencesReducer,
   microphoneServiceReducer,
@@ -42,6 +48,8 @@ const reducers = {
   microphoneService: microphoneServiceReducer,
   kiosk: kioskReducer,
   splitScreenPreferences: splitScreenPreferencesReducer,
+  liveTranslationPreferences: liveTranslationPreferencesReducer,
+  liveTranslationService: liveTranslationServiceReducer,
 };
 
 // Slice keys that are persisted to `localStorage` via redux-remember. The
@@ -53,6 +61,10 @@ export const rememberedKeys: (keyof typeof reducers)[] = [
   'splitScreenPreferences',
   'themePreferences',
   'transcriptionDisplayPreferences',
+  // Only the user's intent persists. `liveTranslationService` is absent
+  // because model availability and translator liveness are properties of this
+  // browser right now and must be re-derived on load.
+  'liveTranslationPreferences',
 ];
 
 // Combined root reducer with redux-remember support.
@@ -60,13 +72,19 @@ export const rootReducer = rememberReducer(reducers);
 
 // Creates and returns the configured Redux store for the kiosk webapp.
 export const createAppStore = (microphoneService: MicrophoneService) => {
+  // Safe to construct on any browser: it probes for the Translator API and
+  // reports itself unsupported when absent, which keeps the translation UI off
+  // screen everywhere except Chromium desktop.
+  const translationService = new TranslationService();
+
   const store = configureStore({
     reducer: rootReducer,
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware()
         .concat(createUrlConfigMiddleware(urlConfigSchemas))
         .concat(createMicrophoneServiceMiddleware(microphoneService))
-        .concat(createKioskMiddleware(microphoneService)),
+        .concat(createKioskMiddleware(microphoneService))
+        .concat(createLiveTranslationMiddleware(translationService)),
     enhancers: (getDefaultEnhancers) =>
       getDefaultEnhancers().prepend(
         rememberEnhancer(window.localStorage, rememberedKeys, {

@@ -32,7 +32,9 @@
     "e2e:demo": "node tools/demo-e2e/demo-e2e.mjs",
     "e2e:browser-demo": "node tools/browser-demo-e2e/browser-demo-e2e.mjs",
     "e2e:sessions": "node tools/session-corner-cases/session-corner-cases.mjs",
-    "asr:load": "node tools/asr-load/asr-load.mjs"
+    "asr:load": "node tools/asr-load/asr-load.mjs",
+    "e2e:translation": "node tools/translation-e2e/translation-e2e.mjs",
+    "e2e:export": "node tools/transcript-export-e2e/transcript-export-e2e.mjs"
   },
   "engines": {
     "node": ">=24.0.0"
