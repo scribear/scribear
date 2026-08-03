@@ -218,6 +218,10 @@ function keyService(
     dbClient as unknown as Args[3],
     gw as unknown as Args[4],
     FRESH_BACKUP as unknown as Args[5],
+    // Disabled so the test-audio key probe stays out of these findings — these
+    // cases are about cross-service key *agreement*, and the probe has its own
+    // suite.
+    { enabled: false } as unknown as Args[6],
   );
 }
 
