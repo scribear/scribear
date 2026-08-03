@@ -240,7 +240,7 @@ describe('Config check route', () => {
       expect(data.blockingForProduction).toBeGreaterThanOrEqual(1);
     });
 
-    it('reports unavailable rather than silence when the sidecar cannot answer', async () => {
+    it('names the sidecar, not node-server, when the sidecar cannot answer', async () => {
       vi.stubGlobal('fetch', (url: string) => {
         if (url.startsWith(CONFIG_AUDIT_URL)) {
           return Promise.reject(new Error('connect ECONNREFUSED'));
@@ -259,9 +259,11 @@ describe('Config check route', () => {
         headers: { cookie },
       });
 
-      expect(
-        res.json<ConfigCheckBody>().data.findings.map((f) => f.id),
-      ).toContain('secret-placeholder-audit-unavailable');
+      const ids = res.json<ConfigCheckBody>().data.findings.map((f) => f.id);
+      expect(ids).toContain('monitoring-sidecar-unreachable');
+      // Never silence, and never a clean bill of health for the secrets it
+      // could not read.
+      expect(ids.some((id) => id.endsWith('-placeholder'))).toBe(false);
     });
   });
 });

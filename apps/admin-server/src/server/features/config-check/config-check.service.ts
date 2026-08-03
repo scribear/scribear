@@ -121,6 +121,20 @@ const CONFIG_AUDIT_RESPONSE_SCHEMA = Type.Object({
 
 type ConfigAuditResponse = Static<typeof CONFIG_AUDIT_RESPONSE_SCHEMA>;
 
+/**
+ * The one value of `nodeServer.reason` that reports a *disagreement* rather
+ * than an outage: `AbsoluteStatusPoller`'s `POLL_ERROR_REASONS.UNAUTHORIZED`,
+ * which the sidecar sets when node-server answered its status poll 401 or 403.
+ *
+ * Restated here as a bare string for the same reason the response schema above
+ * is restated: the sidecar exports no package for admin-server to import, and
+ * `reason` crosses a version boundary as an open `Type.String()`. An older or
+ * newer sidecar that renamed the reason therefore degrades to the generic
+ * "could not check" finding rather than to a wrong claim — which is the safe
+ * direction for a string this file cannot typecheck against its producer.
+ */
+const SIDECAR_POLL_UNAUTHORIZED = 'unauthorized';
+
 export interface ConfigCheckReport {
   environment: DeploymentEnv;
   /**
@@ -376,6 +390,82 @@ export function evaluateStaticChecks(
           staging: 'critical',
           production: 'critical',
         },
+        env,
+      ),
+    );
+  }
+
+  // ---- secrets that are not set at all ----
+  // `isPlaceholder('')` is false and the loop above skips everything that is
+  // not a placeholder, so an *unset* secret used to produce no finding
+  // whatsoever — the quieter half of the same mistake, and the likelier one:
+  // compose substitutes a blank string for a variable an operator never set,
+  // renamed, or deleted, and nothing complains until the first request fails
+  // somewhere else. Kept as its own table rather than folded into the one
+  // above because "not set" and "still the example value" have different
+  // consequences and want different sentences; `describeSecret`'s 'not set'
+  // branch is finally reachable from here.
+  //
+  // Two deliberate absences. `ADMIN_SESSION_SECRET` has its own
+  // `admin-session-secret-missing` below, which says something more specific
+  // (admin-server mints an ephemeral secret rather than failing).
+  // `TEST_AUDIO_SERVICE_KEY` is left out because a static check is the weakest
+  // available evidence about it: it is the one key on this list whose peer
+  // fails closed and says so itself — test-audio-generator exits naming the
+  // variable — and whose agreement admin-server can establish by simply
+  // calling the generator, which is a separate check to make rather than a
+  // string comparison to add here.
+  const missingSecretChecks: {
+    id: string;
+    title: string;
+    value: string;
+    variable: string;
+    consequence: string;
+    severities: SeverityByEnv;
+  }[] = [
+    {
+      id: 'admin-api-key-missing',
+      title: 'ADMIN_API_KEY is not set',
+      value: config.adminApiKey,
+      variable: 'SESSION_MANAGER_API_KEY',
+      consequence:
+        'admin-server presents `Authorization: Bearer ` with nothing after it on every call to session-manager, which rejects it 401. This console answers 502 BACKEND_MISCONFIGURATION on every page that lists rooms, devices or sessions.',
+      severities: {
+        development: 'critical',
+        staging: 'critical',
+        production: 'critical',
+      },
+    },
+    {
+      id: 'db-password-missing',
+      title: 'DB_PASSWORD is not set',
+      value: config.dbPassword,
+      variable: 'DB_PASSWORD',
+      consequence:
+        'admin-server connects to Postgres with no password. That works only where the database is configured to trust the connection without one, which no deployed Postgres should be; otherwise the audit log and the admin session store are both unavailable.',
+      // Warning rather than critical in development because a throwaway dev
+      // Postgres on `trust` authentication genuinely works this way, and a
+      // developer who chose that has not misconfigured anything.
+      severities: {
+        development: 'warning',
+        staging: 'critical',
+        production: 'critical',
+      },
+    },
+  ];
+
+  for (const check of missingSecretChecks) {
+    if (check.value !== '') continue;
+    findings.push(
+      finding(
+        {
+          id: check.id,
+          category: 'secrets',
+          title: check.title,
+          detail: `${describeSecret(check.value)}. ${check.consequence}`,
+          remediation: `Set ${check.variable} in deployment/.env to a high-entropy secret, e.g. \`openssl rand -hex 32\`, and recreate the containers that read it.`,
+        },
+        check.severities,
         env,
       ),
     );
@@ -697,6 +787,27 @@ function redisUrlHasPlaceholderPassword(rawUrl: string): boolean {
  * behaviour for everything else. The inferences are deliberately phrased as
  * what was observed ("nothing is publishing") rather than as a conclusion about
  * a variable this process cannot see, because the observation is what is true.
+ *
+ * **How agreement between two services is established, and where it stops.**
+ * Nothing in this deployment exchanges digests of secrets, and nothing should
+ * start: the sidecar's `/config-audit` is unauthenticated on the backend
+ * network, so a fingerprint published there would be a slower way of
+ * disclosing a low-entropy secret to anything that can reach it. The only
+ * mechanism available is the one the sidecar's status poll already uses — a
+ * party holding one copy of a key presents it to the party holding the other,
+ * and the rejection is the proof. That covers exactly the pairs where a
+ * mutually-trusted party holds one side: sidecar↔node-server
+ * (`_nodeServerServiceKeyMismatch`) and admin-server↔session-manager
+ * (`_checkSessionManagerKey`).
+ *
+ * It does **not** cover `TRANSCRIPTION_API_KEY`, `NODE_SERVER_KEY` or
+ * `JWT_SECRET`. Each of those is held only by the two services that use it,
+ * neither of which exercises it until a real session starts, and none of them
+ * reports the outcome when it does — a rejected `TRANSCRIPTION_API_KEY` closes
+ * the upstream socket 1008 "Authentication Failed" and node-server records
+ * only a generic upstream flap. Closing that gap needs a new self-report from
+ * node-server, not a new check here, and it is deliberately not faked with an
+ * inference this page cannot stand behind.
  */
 export class ConfigCheckService {
   private _config: ConfigCheckConfig;
@@ -732,6 +843,7 @@ export class ConfigCheckService {
       database,
       monitoring,
       secretPlaceholders,
+      sessionManagerKey,
       backup,
     ] = await Promise.all([
       this._checkTelemetryBackplane(environment),
@@ -739,6 +851,7 @@ export class ConfigCheckService {
       this._checkDatabase(environment),
       this._checkMonitoring(environment),
       this._checkSecretPlaceholders(environment),
+      this._checkSessionManagerKey(environment),
       this._checkBackup(environment),
     ]);
 
@@ -749,6 +862,7 @@ export class ConfigCheckService {
       ...services,
       ...monitoring,
       ...secretPlaceholders,
+      ...sessionManagerKey,
       ...backup,
     ];
 
@@ -1208,6 +1322,17 @@ export class ConfigCheckService {
    * Unlike the Grafana/Prometheus checks above, this is never gated on an
    * optional profile: the sidecar is a core service, and all four secrets are
    * live in every deployment regardless of whether `monitoring` is on.
+   *
+   * Three outcomes, deliberately distinct, because collapsing them is how a
+   * console ends up implying a clean deployment it never managed to inspect:
+   *
+   * - the **sidecar** did not answer → `monitoring-sidecar-unreachable`. The
+   *   sidecar is the failure, not node-server, and it is the failure for the
+   *   alerts panel too;
+   * - the sidecar answered that **it** cannot currently vouch for node-server
+   *   → `secret-placeholder-audit-unavailable`, except for the one reason
+   *   that is not an outage at all (see `node-server-service-key-mismatch`);
+   * - the sidecar answered with a classification → the per-secret findings.
    */
   private async _checkSecretPlaceholders(
     env: DeploymentEnv,
@@ -1232,7 +1357,7 @@ export class ConfigCheckService {
           // before it can ever self-report on that specific key. Named here
           // so an operator does not have to discover it by reading logs.
           remediation:
-            "Check that monitoring-sidecar is running and reachable at monitoring-sidecar:80, and that its NODE_SERVER_SERVICE_API_KEY matches node-server's. If node-server is otherwise healthy, this can also mean NODE_SERVER_SERVICE_KEY itself is still the deployment/.env.example placeholder — node-server refuses to serve /status at all in that case, which this check cannot distinguish from an unrelated outage.",
+            'Check `docker compose logs node-server`. A node-server that refuses to start is the usual cause: it fails closed when NODE_SERVER_SERVICE_KEY is empty or still the deployment/.env.example placeholder, so it can never self-report on that particular key — which this check cannot distinguish from an unrelated outage.',
           docUrl: DOC.deployment,
         },
         { development: 'advisory', staging: 'warning', production: 'warning' },
@@ -1240,11 +1365,7 @@ export class ConfigCheckService {
       ),
     ];
 
-    if (!response?.ok) {
-      return unavailable(
-        `monitoring-sidecar's /api/monitoring/v1/config-audit ${probeFailure(response, this._config.upstreamTimeoutMs)}. JWT_SECRET, NODE_SERVER_KEY, NODE_SERVER_SERVICE_KEY and TRANSCRIPTION_API_KEY could not be checked.`,
-      );
-    }
+    if (!response?.ok) return this._sidecarUnreachable(response, env);
 
     // Parsing and shape-validating are both failures of the same kind from a
     // caller's point of view — "the sidecar cannot currently vouch for this" —
@@ -1274,6 +1395,13 @@ export class ConfigCheckService {
     const body: ConfigAuditResponse = parsed;
 
     if (body.nodeServer.status !== 'ok') {
+      // `unauthorized` is the one reason that is not an outage: node-server
+      // answered, and refused the key. That is a *proof* about two
+      // configuration values, not an inability to check one — see
+      // `_nodeServerServiceKeyMismatch`.
+      if (body.nodeServer.reason === SIDECAR_POLL_UNAUTHORIZED) {
+        return this._nodeServerServiceKeyMismatch(env);
+      }
       return unavailable(
         `monitoring-sidecar reports node-server status "${body.nodeServer.reason}" — JWT_SECRET, NODE_SERVER_KEY, NODE_SERVER_SERVICE_KEY and TRANSCRIPTION_API_KEY could not be checked.`,
       );
@@ -1335,6 +1463,155 @@ export class ConfigCheckService {
           env,
         ),
       );
+  }
+
+  /**
+   * The monitoring sidecar itself did not answer.
+   *
+   * First-class rather than a shade of "could not check node-server's
+   * secrets", which is how it used to be reported and which named the wrong
+   * subject: the sidecar is a core service that nothing else on this page
+   * covers — it is deliberately absent from `HealthCheckerService`'s probe
+   * targets, so `services-unreachable` never mentions it — and when it is
+   * down the console's alerts panel goes blank at the same moment, for the
+   * same reason. An operator reading "could not check node-server-held
+   * secrets" went looking at node-server, which was fine.
+   *
+   * The detail enumerates what is now *unknown* rather than leaving it
+   * implied. This is the same discipline the alerts panel adopted ("no alerts
+   * firing" and "we could not ask" are different sentences), and it matters
+   * more here because this check is the only thing that would have reported
+   * `node-server-service-key-mismatch`: if the sidecar is down, that pair is
+   * unverified, and saying nothing would read as agreement.
+   */
+  private _sidecarUnreachable(
+    response: Response | null,
+    env: DeploymentEnv,
+  ): ConfigFinding[] {
+    return [
+      finding(
+        {
+          id: 'monitoring-sidecar-unreachable',
+          category: 'monitoring',
+          title: 'The monitoring sidecar is not answering',
+          detail: `monitoring-sidecar's /api/monitoring/v1/config-audit ${probeFailure(response, this._config.upstreamTimeoutMs)}. While it is down this console cannot show alerts, and three things go unchecked rather than confirmed: node-server's classification of JWT_SECRET, NODE_SERVER_KEY, NODE_SERVER_SERVICE_KEY and TRANSCRIPTION_API_KEY; whether the sidecar and node-server agree on NODE_SERVER_SERVICE_KEY; and every fleet metric Prometheus scrapes from it.`,
+          remediation:
+            'Check `docker compose ps monitoring-sidecar` and `docker compose logs monitoring-sidecar`, and that ADMIN_MONITORING_SIDECAR_BASE_URL points at it on the backend network (monitoring-sidecar:80 by default).',
+          docUrl: DOC.monitoring,
+        },
+        { development: 'advisory', staging: 'warning', production: 'warning' },
+        env,
+      ),
+    ];
+  }
+
+  /**
+   * node-server refused the sidecar's key: the two copies of
+   * `NODE_SERVER_SERVICE_KEY` are different.
+   *
+   * This is the one *agreement* fact the deployment can already prove without
+   * anyone moving a secret, and it is proved the only way agreement is ever
+   * provable here — by a party that holds one copy presenting it to the party
+   * that holds the other, and reporting what came back. The sidecar polls
+   * node-server's `/status` with its `NODE_SERVER_SERVICE_API_KEY` every
+   * `NODE_STATUS_INTERVAL_SEC`; a 401 or 403 becomes the `unauthorized` poll
+   * reason, which `/config-audit` relays verbatim. Config Check reads it and
+   * says which two things disagree, rather than reporting the same string as
+   * one more way of not knowing.
+   *
+   * A rejection really is proof and not a guess, because both other
+   * explanations are closed off: node-server's `ServiceAuthService` refuses to
+   * construct when its own inbound key is empty or still `CHANGEME`, so a
+   * node-server that answers at all has a usable key, and the sidecar does not
+   * poll at all when its own copy is empty (it reports `disabled` instead).
+   * What remains is two different non-empty values — which is exactly the
+   * class of fault a placeholder check can never see.
+   */
+  private _nodeServerServiceKeyMismatch(env: DeploymentEnv): ConfigFinding[] {
+    return [
+      finding(
+        {
+          id: 'node-server-service-key-mismatch',
+          category: 'secrets',
+          title:
+            'monitoring-sidecar and node-server disagree on NODE_SERVER_SERVICE_KEY',
+          detail:
+            "node-server rejected the sidecar's status poll as unauthorized, so the two containers hold different values for NODE_SERVER_SERVICE_KEY — usually one of them was recreated after the .env changed and the other was not. Both values are real secrets rather than placeholders, so nothing else on this page reports them. While they disagree the sidecar publishes no node-server telemetry at all: the fleet dashboard's connection, upstream, auth and latency series stay empty, every alert rule built on them can never fire, and the secret classification above cannot be read.",
+          remediation:
+            'Set one NODE_SERVER_SERVICE_KEY in deployment/.env, then recreate both containers together: `docker compose up -d node-server monitoring-sidecar`. Restarting only one leaves them disagreeing.',
+          docUrl: DOC.deployment,
+        },
+        { development: 'advisory', staging: 'warning', production: 'critical' },
+        env,
+      ),
+    ];
+  }
+
+  /**
+   * Does session-manager accept the admin key this console presents?
+   *
+   * The second pair the deployment can prove today, and by the same mechanism
+   * as `_nodeServerServiceKeyMismatch`: admin-server holds one copy of
+   * `SESSION_MANAGER_API_KEY` and session-manager holds the other, so asking
+   * an admin-key-protected route and reading the status *is* the comparison.
+   * No secret is moved and no new credential is needed — this is the key the
+   * gateway already presents on every page of the console.
+   *
+   * Its own check rather than a branch of `_checkSharedSchemaVersion`, which
+   * makes the same call: that one is reached only after `dbClient.ping()`
+   * succeeds, so on a deployment whose Postgres is also down — the case where
+   * an operator most needs to know which faults are separate — a rejected
+   * admin key would go unmentioned. It costs one extra `GET` on a page that
+   * already makes several, and the endpoint is the cheapest authenticated
+   * read session-manager has.
+   *
+   * Deliberately silent in two cases. An empty `ADMIN_API_KEY` is reported by
+   * `admin-api-key-missing` instead, which is the better sentence for it (and
+   * would otherwise produce two findings for one mistake). A session-manager
+   * that does not answer at all is reported by `services-unreachable`; only an
+   * actual 401/403 — session-manager answering, and refusing — is evidence
+   * about the key.
+   */
+  private async _checkSessionManagerKey(
+    env: DeploymentEnv,
+  ): Promise<ConfigFinding[]> {
+    if (this._config.adminApiKey === '') return [];
+
+    let status: number | undefined;
+    try {
+      const [response] =
+        await this._sessionManagerGatewayService.getSchemaStatus({
+          signal: AbortSignal.timeout(this._config.upstreamTimeoutMs),
+        });
+      status = response?.status;
+    } catch {
+      // Unreachable, timed out, or an unreadable body. Not evidence about the
+      // key, and already reported by the health rollup.
+      return [];
+    }
+
+    if (status !== 401 && status !== 403) return [];
+
+    return [
+      finding(
+        {
+          id: 'session-manager-admin-key-mismatch',
+          category: 'secrets',
+          title:
+            'admin-server and session-manager disagree on SESSION_MANAGER_API_KEY',
+          detail: `session-manager answered HTTP ${String(status)} to this console's admin key, so the two containers hold different values for SESSION_MANAGER_API_KEY (admin-server reads it as ADMIN_API_KEY). session-manager refuses to start when its own copy is empty or still the CHANGEME placeholder, so both values are real secrets that simply differ — usually one container was recreated after the .env changed and the other was not. Until they match, every page of this console that lists or edits rooms, devices, schedules or sessions answers 502 BACKEND_MISCONFIGURATION.`,
+          remediation:
+            'Set one SESSION_MANAGER_API_KEY in deployment/.env, then recreate both containers together: `docker compose up -d admin-server session-manager`. Restarting only one leaves them disagreeing.',
+          docUrl: DOC.deployment,
+        },
+        {
+          development: 'critical',
+          staging: 'critical',
+          production: 'critical',
+        },
+        env,
+      ),
+    ];
   }
 
   /**
