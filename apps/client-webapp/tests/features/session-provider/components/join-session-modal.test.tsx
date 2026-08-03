@@ -110,6 +110,27 @@ describe('JoinSessionModal', () => {
     );
   });
 
+  it('names the service, not the join code, when the response had no readable body', () => {
+    renderIdleDialog({ joinError: JoinError.SERVICE_UNREACHABLE });
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/could not reach the session service/i);
+    expect(alert).toHaveTextContent(/not a problem with your join code/i);
+    expect(alert.className).toContain('MuiAlert-colorError');
+    expect(screen.getByLabelText('Join Code')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+  });
+
+  it('tells the user to reload, not just to retry, on a version mismatch', () => {
+    renderIdleDialog({ joinError: JoinError.VERSION_MISMATCH });
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/out of date/i);
+    expect(alert).toHaveTextContent(/reload the page/i);
+  });
+
   it('leaves a failed join attempt reading as an error', () => {
     renderIdleDialog({ joinError: JoinError.JOIN_CODE_NOT_FOUND });
 

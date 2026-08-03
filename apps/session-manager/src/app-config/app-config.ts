@@ -11,6 +11,7 @@ import {
   DEFAULT_MATERIALIZATION_WORKER_CONFIG,
   type MaterializationWorkerConfig,
 } from '#src/server/features/schedule-management/materialization.worker.js';
+import type { SessionAuthRateLimitConfig } from '#src/server/features/session-auth/session-auth.router.js';
 import type { AdminAuthConfig } from '#src/server/shared/services/admin-auth.service.js';
 import type { DevicePresenceConfig } from '#src/server/shared/services/device-presence.service.js';
 import type { ServiceAuthConfig } from '#src/server/shared/services/service-auth.service.js';
@@ -112,6 +113,41 @@ const CONFIG_SCHEMA = Type.Object({
     minLength: 1,
     default: SHIPPED_TRANSCRIPTION_PROVIDER_IDS.join(','),
   }),
+
+  // Per-client-IP rate limits on the two unauthenticated credential-exchange
+  // routes. Every default and the reasoning behind it lives on
+  // `SessionAuthRateLimitConfig` in the session-auth router, next to the routes
+  // they apply to; the short version is that these are volumetric/CPU backstops
+  // and one anti-guessing cap, not credential-guessing defences.
+  //
+  // The one an operator is most likely to need: a deployment whose viewers all
+  // egress through a single campus NAT should raise
+  // SESSION_AUTH_RATE_LIMIT_REFRESH_MAX, which the shipped default sizes for
+  // ~2,500 concurrent viewers behind one IP.
+  SESSION_AUTH_RATE_LIMIT_JOIN_CODE_MAX: Type.Integer({
+    minimum: 1,
+    default: 600,
+  }),
+  SESSION_AUTH_RATE_LIMIT_JOIN_CODE_WINDOW_SEC: Type.Integer({
+    minimum: 1,
+    default: 60,
+  }),
+  SESSION_AUTH_RATE_LIMIT_FAILED_JOIN_CODE_MAX: Type.Integer({
+    minimum: 1,
+    default: 100,
+  }),
+  SESSION_AUTH_RATE_LIMIT_FAILED_JOIN_CODE_WINDOW_SEC: Type.Integer({
+    minimum: 1,
+    default: 60,
+  }),
+  SESSION_AUTH_RATE_LIMIT_REFRESH_MAX: Type.Integer({
+    minimum: 1,
+    default: 1_000,
+  }),
+  SESSION_AUTH_RATE_LIMIT_REFRESH_WINDOW_SEC: Type.Integer({
+    minimum: 1,
+    default: 60,
+  }),
 });
 
 export interface BaseConfig {
@@ -158,6 +194,12 @@ export interface CanaryRoomConfig {
    */
   deviceSecret: string;
 }
+
+/**
+ * Seconds-to-milliseconds, for the env vars that are expressed in seconds
+ * because that is the unit an operator thinks in.
+ */
+const SECOND_MS = 1_000;
 
 export class AppConfig {
   private _isDevelopment: boolean;
@@ -233,6 +275,22 @@ export class AppConfig {
       transcriptionProviderIds: this._env.TRANSCRIPTION_PROVIDER_IDS.split(',')
         .map((id) => id.trim())
         .filter((id) => id !== ''),
+    };
+  }
+
+  get sessionAuthRateLimitConfig(): SessionAuthRateLimitConfig {
+    return {
+      exchangeJoinCodeMax: this._env.SESSION_AUTH_RATE_LIMIT_JOIN_CODE_MAX,
+      exchangeJoinCodeWindowMs:
+        this._env.SESSION_AUTH_RATE_LIMIT_JOIN_CODE_WINDOW_SEC * SECOND_MS,
+      failedExchangeJoinCodeMax:
+        this._env.SESSION_AUTH_RATE_LIMIT_FAILED_JOIN_CODE_MAX,
+      failedExchangeJoinCodeWindowMs:
+        this._env.SESSION_AUTH_RATE_LIMIT_FAILED_JOIN_CODE_WINDOW_SEC *
+        SECOND_MS,
+      refreshSessionTokenMax: this._env.SESSION_AUTH_RATE_LIMIT_REFRESH_MAX,
+      refreshSessionTokenWindowMs:
+        this._env.SESSION_AUTH_RATE_LIMIT_REFRESH_WINDOW_SEC * SECOND_MS,
     };
   }
 

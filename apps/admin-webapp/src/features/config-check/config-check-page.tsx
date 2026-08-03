@@ -25,7 +25,6 @@ import type {
   ConfigFinding,
 } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
-import { ApiError } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 
@@ -74,10 +73,6 @@ const ENVIRONMENT_COLOR: Record<
   staging: 'info',
   production: 'error',
 };
-
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof ApiError ? err.message : fallback;
-}
 
 /**
  * One finding.
@@ -178,7 +173,7 @@ const FindingCard = ({
  * requests to redraw an identical page.
  */
 export const ConfigCheckPage = () => {
-  const { showError } = useToast();
+  const { showApiError } = useToast();
   const {
     data: report,
     loading,
@@ -200,16 +195,14 @@ export const ConfigCheckPage = () => {
   // A failed run is surfaced as a toast; `report` keeps its last value (or null).
   useEffect(() => {
     if (error !== null) {
-      showError(errorMessage(error, 'Failed to run the config check.'));
+      showApiError(error, 'Failed to run the config check.');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [error]);
 
   useEffect(() => {
     if (versionsError !== null) {
-      showError(
-        errorMessage(versionsError, 'Failed to read the container versions.'),
-      );
+      showApiError(versionsError, 'Failed to read the container versions.');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [versionsError]);

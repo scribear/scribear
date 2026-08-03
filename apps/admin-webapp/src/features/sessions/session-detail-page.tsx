@@ -77,10 +77,6 @@ import { useAsyncData } from '#src/lib/use-async-data';
 // page refresh — mirrors the demo-room card's poll cadence.
 const JOIN_CODE_POLL_MS = 120_000;
 
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof ApiError ? err.message : fallback;
-}
-
 function formatDateTime(
   iso: string | null,
   timeZone: string | undefined,
@@ -886,7 +882,7 @@ const AudioHealthSection = ({ session }: { session: Session }) => {
 
 export const SessionDetailPage = () => {
   const { sessionUid } = useParams<{ sessionUid: string }>();
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showApiError } = useToast();
 
   const {
     data: session,
@@ -963,7 +959,7 @@ export const SessionDetailPage = () => {
       !isApiErrorCode(error, 'BACKEND_MISCONFIGURATION') &&
       !(error instanceof ApiError && error.status === 404)
     ) {
-      showError(errorMessage(error, 'Failed to load session.'));
+      showApiError(error, 'Failed to load session.');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [error]);
@@ -978,7 +974,7 @@ export const SessionDetailPage = () => {
         reload();
       })
       .catch((err: unknown) => {
-        showError(errorMessage(err, 'Failed to start session early.'));
+        showApiError(err, 'Failed to start session early.');
       })
       .finally(() => {
         setStarting(false);
@@ -996,7 +992,7 @@ export const SessionDetailPage = () => {
         reload();
       })
       .catch((err: unknown) => {
-        showError(errorMessage(err, 'Failed to end session early.'));
+        showApiError(err, 'Failed to end session early.');
       })
       .finally(() => {
         setEnding(false);
@@ -1025,7 +1021,7 @@ export const SessionDetailPage = () => {
                     "Can't undo — another session now occupies this time.",
                   );
                 } else {
-                  showError(errorMessage(err, 'Failed to undo cancellation.'));
+                  showApiError(err, 'Failed to undo cancellation.');
                 }
               });
           },
@@ -1033,7 +1029,7 @@ export const SessionDetailPage = () => {
         reload();
       })
       .catch((err: unknown) => {
-        showError(errorMessage(err, 'Failed to cancel session.'));
+        showApiError(err, 'Failed to cancel session.');
       })
       .finally(() => {
         setCancelling(false);

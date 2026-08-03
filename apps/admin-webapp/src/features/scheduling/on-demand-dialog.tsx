@@ -17,7 +17,7 @@ import { isApiErrorCode } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
 
 import { JsonConfigField, MultiSelectField } from './scheduling-form-fields';
-import { SCOPES, errorMessage } from './scheduling-form-helpers';
+import { SCOPES } from './scheduling-form-helpers';
 
 interface OnDemandFormState {
   name: string;
@@ -37,7 +37,7 @@ export const OnDemandDialog = ({
   onClose,
   onCreated,
 }: OnDemandDialogProps) => {
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showApiError } = useToast();
   const [form, setForm] = useState<OnDemandFormState>({
     name: '',
     joinCodeScopes: ['SEND_AUDIO', 'RECEIVE_TRANSCRIPTIONS'],
@@ -76,7 +76,7 @@ export const OnDemandDialog = ({
         if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
           setMisconfigured(true);
         } else {
-          showError(errorMessage(err, 'Failed to start session.'));
+          showApiError(err, 'Failed to start session.');
         }
       })
       .finally(() => {

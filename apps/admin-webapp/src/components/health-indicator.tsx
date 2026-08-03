@@ -17,12 +17,10 @@ const POLL_MS = 30_000;
  * hardcoded three names and would have reported "Healthy" while a newly-added
  * dependency was down.
  */
-function overall(report: HealthReport | null): {
+function overall(report: HealthReport): {
   color: 'success' | 'warning' | 'error' | 'default';
   label: string;
 } {
-  if (!report) return { color: 'default', label: 'Unknown' };
-
   // 'not-configured' components (e.g. redis with REDIS_URL unset) are an
   // intentional deployment choice, not a fault — excluded here so an operator
   // who never configured an optional dependency still sees "Healthy".
@@ -39,10 +37,27 @@ function overall(report: HealthReport | null): {
 }
 
 /**
+ * The three things this chip can honestly say, as a discriminated state —
+ * same `loading | ok | unavailable` vocabulary as `useAlerts` and
+ * `useAsyncList`.
+ *
+ * It replaces a single `HealthReport | null`, under which a dead admin server
+ * and a console that had simply not polled yet were both rendered as the same
+ * grey "Unknown" chip (PLAN-VisibleErrors §5). Worse, a *successful* first
+ * poll followed by failures reverted to "Unknown" — the console silently
+ * downgraded from knowing to not knowing, in the one widget an operator
+ * glances at to decide whether anything is wrong.
+ */
+type HealthState =
+  | { status: 'loading' }
+  | { status: 'ok'; report: HealthReport }
+  | { status: 'unavailable' };
+
+/**
  * Compact health chip that polls the BFF `/health` rollup. Hover for detail.
  */
 export const HealthIndicator = () => {
-  const [report, setReport] = useState<HealthReport | null>(null);
+  const [state, setState] = useState<HealthState>({ status: 'loading' });
 
   useEffect(() => {
     let cancelled = false;
@@ -50,10 +65,14 @@ export const HealthIndicator = () => {
       adminApi
         .health()
         .then((r) => {
-          if (!cancelled) setReport(r);
+          if (!cancelled) setState({ status: 'ok', report: r });
         })
         .catch(() => {
-          if (!cancelled) setReport(null);
+          // Not swallowed: `/health` is unauthenticated-adjacent and cheap, so
+          // a rejection means the admin server (or the network to it) is down.
+          // That is a harder fact than anything in the report, and the chip
+          // says so rather than reverting to grey.
+          if (!cancelled) setState({ status: 'unavailable' });
         });
     };
     poll();
@@ -64,21 +83,30 @@ export const HealthIndicator = () => {
     };
   }, []);
 
-  const { color, label } = overall(report);
-  const tip = report
-    ? [
-        `BFF: ${report.bff}`,
-        ...report.components.map((c) => {
-          // The cause beats the latency: a red "session-manager: fail" tells an
-          // operator nothing the detail ("database: fail") does not tell better.
-          const suffix =
-            c.detail !== undefined && c.detail !== ''
-              ? ` — ${c.detail}`
-              : ` (${String(c.latencyMs)}ms)`;
-          return `${c.name}: ${c.status}${suffix}`;
-        }),
-      ].join(' · ')
-    : 'Health unknown';
+  const { color, label } =
+    state.status === 'ok'
+      ? overall(state.report)
+      : state.status === 'loading'
+        ? ({ color: 'default', label: 'Checking…' } as const)
+        : ({ color: 'error', label: 'Unreachable' } as const);
+
+  const tip =
+    state.status === 'ok'
+      ? [
+          `BFF: ${state.report.bff}`,
+          ...state.report.components.map((c) => {
+            // The cause beats the latency: a red "session-manager: fail" tells an
+            // operator nothing the detail ("database: fail") does not tell better.
+            const suffix =
+              c.detail !== undefined && c.detail !== ''
+                ? ` — ${c.detail}`
+                : ` (${String(c.latencyMs)}ms)`;
+            return `${c.name}: ${c.status}${suffix}`;
+          }),
+        ].join(' · ')
+      : state.status === 'loading'
+        ? 'Reading the deployment health rollup…'
+        : 'Could not reach the admin server, so nothing here is known to be healthy. Check that the admin-server container is running and that this browser can reach it.';
 
   return (
     <Tooltip title={tip}>

@@ -13,7 +13,11 @@ import { useSearchParams } from 'react-router-dom';
 import { Navigate, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '#src/features/auth/auth-context';
-import { ApiError } from '#src/lib/api-error';
+import {
+  type ErrorSeverity,
+  errorSeverity,
+  loginErrorMessage,
+} from '#src/lib/api-error';
 
 export const LoginPage = () => {
   const { status, config, configError, login } = useAuth();
@@ -21,7 +25,15 @@ export const LoginPage = () => {
   const [searchParams] = useSearchParams();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  // Severity travels with the message: the login route is rate limited to 5
+  // attempts a minute, so the most likely repeat failure here is a 429 — which
+  // is transient and self-clearing, and must not be shown in the same red
+  // alert as "Invalid credentials." or the operator will keep guessing at a
+  // password that was never the problem.
+  const [error, setError] = useState<{
+    message: string;
+    severity: ErrorSeverity;
+  } | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const ssoError = searchParams.get('sso_error');
@@ -50,11 +62,10 @@ export const LoginPage = () => {
         void navigate('/', { replace: true });
       })
       .catch((err: unknown) => {
-        setError(
-          err instanceof ApiError
-            ? err.message
-            : 'Sign in failed. Please try again.',
-        );
+        setError({
+          message: loginErrorMessage(err),
+          severity: errorSeverity(err),
+        });
       })
       .finally(() => {
         setSubmitting(false);
@@ -87,8 +98,8 @@ export const LoginPage = () => {
           </Typography>
 
           {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
+            <Alert severity={error.severity} sx={{ mb: 2 }}>
+              {error.message}
             </Alert>
           )}
 

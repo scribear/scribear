@@ -2,7 +2,11 @@ import { useEffect, useState } from 'react';
 
 import type { MonitoringAlert } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
-import { ApiError } from '#src/lib/api-error';
+import {
+  type ErrorSeverity,
+  errorMessage,
+  errorSeverity,
+} from '#src/lib/api-error';
 
 /**
  * How often the dashboard re-reads `/alerts`. Independent of
@@ -21,7 +25,10 @@ export const ALERTS_POLL_INTERVAL_MS = 15_000;
 export type AlertsState =
   | { status: 'loading' }
   | { status: 'ok'; alerts: MonitoringAlert[]; generatedAt: string }
-  | { status: 'unavailable'; message: string };
+  /** `severity` travels with the message because admin-server rate limits
+   *  every route: a 429 here means "ask again shortly", not "the pipeline is
+   *  broken", and must not be painted the same red. */
+  | { status: 'unavailable'; message: string; severity: ErrorSeverity };
 
 export interface UseAlertsResult {
   state: AlertsState;
@@ -57,10 +64,8 @@ export function useAlerts(): UseAlertsResult {
         if (!alive.current) return;
         setState({
           status: 'unavailable',
-          message:
-            err instanceof ApiError
-              ? err.message
-              : 'Could not reach the admin server.',
+          message: errorMessage(err, 'Could not reach the admin server.'),
+          severity: errorSeverity(err),
         });
       });
 

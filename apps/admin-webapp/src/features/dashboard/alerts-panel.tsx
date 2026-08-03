@@ -115,7 +115,7 @@ export const AlertsPanel = () => {
 
   if (state.status === 'unavailable') {
     return (
-      <Alert severity="error" sx={{ mb: 3 }}>
+      <Alert severity={state.severity} sx={{ mb: 3 }}>
         Could not read monitoring-sidecar alerts — this is not the same as "no
         alerts firing"; the pipeline&apos;s health is currently unknown.{' '}
         {state.message}

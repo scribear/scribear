@@ -10,6 +10,7 @@ import {
   FLEET_STREAM_URL,
   adminApi,
 } from '#src/lib/admin-api';
+import { ApiError } from '#src/lib/api-error';
 
 vi.mock('#src/lib/admin-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('#src/lib/admin-api')>();
@@ -256,5 +257,195 @@ describe('useFleet poll timer', (it) => {
 
     // Assert: no additional fetches after unmount
     expect(vi.mocked(adminApi.fleet).mock.calls.length).toBe(fetchesAfterMount);
+  });
+});
+
+/**
+ * PLAN-VisibleErrors §4.4. `TELEMETRY_DEGRADED` used to fall through this
+ * hook's catch entirely: the last good snapshot stayed on screen with no chip,
+ * no toast and no staleness marker, behind a `reconnecting…` chip that only
+ * ever described the SSE connection. These pin both halves of the replacement —
+ * the snapshot is still kept, and the failure is now stated.
+ */
+describe('useFleet degraded telemetry', (it) => {
+  let originalEventSource: typeof globalThis.EventSource | undefined;
+  let originalHidden: boolean;
+
+  const populatedSnapshot: FleetSnapshot = {
+    ...emptySnapshot,
+    generatedAt: 42,
+  };
+
+  function degradedError(): ApiError {
+    return new ApiError(
+      'TELEMETRY_DEGRADED',
+      'Could not read live fleet telemetry.',
+      503,
+    );
+  }
+
+  /** Lets the mocked fetch's microtasks settle under fake timers. */
+  async function flush(): Promise<void> {
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  beforeEach(() => {
+    FakeEventSource.instances = [];
+    originalEventSource = globalThis.EventSource;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    globalThis.EventSource = FakeEventSource as any;
+    vi.useFakeTimers();
+    originalHidden = document.hidden;
+    Object.defineProperty(document, 'hidden', {
+      value: false,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    if (originalEventSource) {
+      globalThis.EventSource = originalEventSource;
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (globalThis as any).EventSource;
+    }
+    Object.defineProperty(document, 'hidden', {
+      value: originalHidden,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  it('keeps the last good snapshot and reports the poll as degraded', async () => {
+    // Arrange: one good read, then the backplane read starts failing.
+    vi.mocked(adminApi.fleet)
+      .mockResolvedValueOnce(populatedSnapshot)
+      .mockRejectedValue(degradedError());
+    const { result } = renderHook(() => useFleet());
+    await flush();
+    expect(result.current.poll.status).toBe('ok');
+
+    // Act
+    act(() => {
+      vi.advanceTimersByTime(FLEET_POLL_INTERVAL_MS);
+    });
+    await flush();
+
+    // Assert: stale-but-marked, not hidden — the snapshot survives, and the
+    // hook now says out loud that it is no longer being refreshed.
+    expect(result.current.snapshot).toBe(populatedSnapshot);
+    expect(result.current.poll).toMatchObject({
+      status: 'degraded',
+      code: 'TELEMETRY_DEGRADED',
+      message: 'Could not read live fleet telemetry.',
+      consecutiveFailures: 1,
+    });
+    // `available` stays true: a degraded read is not an unconfigured backplane.
+    expect(result.current.available).toBe(true);
+  });
+
+  it('retains the age of the snapshot it is still showing', async () => {
+    vi.mocked(adminApi.fleet)
+      .mockResolvedValueOnce(populatedSnapshot)
+      .mockRejectedValue(degradedError());
+    const { result } = renderHook(() => useFleet());
+    await flush();
+    const successAt =
+      result.current.poll.status === 'ok'
+        ? result.current.poll.lastSuccessAt
+        : null;
+    expect(successAt).not.toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(FLEET_POLL_INTERVAL_MS);
+    });
+    await flush();
+
+    // Carried through the failure — it is what makes "how old is what I am
+    // looking at" a statable question rather than a guess.
+    expect(
+      result.current.poll.status === 'degraded'
+        ? result.current.poll.lastSuccessAt
+        : null,
+    ).toBe(successAt);
+  });
+
+  it('keeps polling while degraded and counts consecutive failures', async () => {
+    vi.mocked(adminApi.fleet).mockRejectedValue(degradedError());
+    const { result } = renderHook(() => useFleet());
+    await flush();
+    const callsAfterMount = vi.mocked(adminApi.fleet).mock.calls.length;
+
+    act(() => {
+      vi.advanceTimersByTime(FLEET_POLL_INTERVAL_MS * 2);
+    });
+    await flush();
+
+    // A degraded read is exactly the case that recovers on its own, so the
+    // timer must survive it — unlike TELEMETRY_UNAVAILABLE below.
+    expect(vi.mocked(adminApi.fleet).mock.calls.length).toBeGreaterThan(
+      callsAfterMount,
+    );
+    expect(
+      result.current.poll.status === 'degraded'
+        ? result.current.poll.consecutiveFailures
+        : 0,
+    ).toBeGreaterThan(1);
+  });
+
+  it('recovers to ok, dropping the degraded state, once a read lands again', async () => {
+    vi.mocked(adminApi.fleet)
+      .mockRejectedValueOnce(degradedError())
+      .mockResolvedValue(populatedSnapshot);
+    const { result } = renderHook(() => useFleet());
+    await flush();
+    expect(result.current.poll.status).toBe('degraded');
+
+    act(() => {
+      vi.advanceTimersByTime(FLEET_POLL_INTERVAL_MS);
+    });
+    await flush();
+
+    expect(result.current.poll.status).toBe('ok');
+    expect(result.current.snapshot).toBe(populatedSnapshot);
+  });
+
+  it('stops polling for an unconfigured backplane, unlike a degraded one', async () => {
+    vi.mocked(adminApi.fleet).mockRejectedValue(
+      new ApiError(
+        'TELEMETRY_UNAVAILABLE',
+        'Live fleet telemetry is not configured (REDIS_URL unset).',
+        503,
+      ),
+    );
+    const { result } = renderHook(() => useFleet());
+    await flush();
+    const callsAfterMount = vi.mocked(adminApi.fleet).mock.calls.length;
+
+    act(() => {
+      vi.advanceTimersByTime(FLEET_POLL_INTERVAL_MS * 4);
+    });
+    await flush();
+
+    expect(result.current.available).toBe(false);
+    expect(result.current.poll.status).toBe('unavailable');
+    expect(vi.mocked(adminApi.fleet).mock.calls.length).toBe(callsAfterMount);
+  });
+
+  it('treats a bare network failure the same as TELEMETRY_DEGRADED, with no code', async () => {
+    vi.mocked(adminApi.fleet).mockRejectedValue(new TypeError('fetch failed'));
+    const { result } = renderHook(() => useFleet());
+    await flush();
+
+    expect(result.current.poll).toMatchObject({
+      status: 'degraded',
+      code: null,
+      message: 'Could not reach the admin server.',
+    });
   });
 });

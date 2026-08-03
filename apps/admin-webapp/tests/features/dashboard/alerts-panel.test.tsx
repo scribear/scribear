@@ -49,6 +49,7 @@ describe('AlertsPanel', (it) => {
       status: 'unavailable',
       message:
         "monitoring-sidecar's /api/monitoring/v1/alerts answered HTTP 500.",
+      severity: 'error',
     });
 
     const alert = screen.getByRole('alert');
@@ -135,10 +136,28 @@ describe('AlertsPanel', (it) => {
     expect(results.violations).toHaveLength(0);
   });
 
+  it('renders a rate-limited read as a warning, not as a broken pipeline', () => {
+    // admin-server rate limits every route globally, and this panel polls
+    // /alerts every 15 s — so a 429 here is "ask again shortly", not "the
+    // pipeline's health is unknown because something is broken".
+    mount({
+      status: 'unavailable',
+      message:
+        'Too many requests — the admin server is rate limiting this browser. Nothing was changed; wait 1 minute, then try again.',
+      severity: 'warning',
+    });
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/wait 1 minute, then try again/);
+    expect(alert.className).toContain('MuiAlert-colorWarning');
+    expect(alert.className).not.toContain('MuiAlert-colorError');
+  });
+
   it('has no a11y violations in the unavailable state', async () => {
     const container = mount({
       status: 'unavailable',
       message: 'did not answer within 3000ms.',
+      severity: 'error',
     });
 
     const results = await axe(container);

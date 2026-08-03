@@ -474,6 +474,7 @@ describe('SessionDetailPage', () => {
         sessionEvents: new Map(),
         connected: true,
         available: true,
+        poll: { status: 'ok', lastSuccessAt: Date.now() },
         refresh: vi.fn(),
       });
     }
@@ -787,6 +788,7 @@ describe('SessionDetailPage', () => {
         sessionEvents: new Map(),
         connected: true,
         available: true,
+        poll: { status: 'ok', lastSuccessAt: Date.now() },
         refresh: vi.fn(),
       });
     }

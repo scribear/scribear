@@ -30,10 +30,11 @@ import { useNavigate } from 'react-router-dom';
 import { DEMO_SOURCE_DEVICE_UID } from '@scribear/session-manager-schema';
 import type { Device, Room } from '@scribear/session-manager-schema';
 
+import { ErrorState } from '#src/components/error-state';
 import { NameWithUid } from '#src/components/name-with-uid';
 import { TimezoneNote } from '#src/components/timezone-note';
 import { adminApi } from '#src/lib/admin-api';
-import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { ApiError } from '#src/lib/api-error';
 import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncList } from '#src/lib/use-async-list';
@@ -213,42 +214,22 @@ const CreateRoomDialog = ({ onClose, onCreated }: CreateRoomDialogProps) => {
 
 export const RoomsListPage = () => {
   const navigate = useNavigate();
-  const { showError } = useToast();
   const { showUuids } = useSettings();
   const [search, setSearch] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
 
-  const {
-    items: rooms,
-    loading,
-    loadingMore,
-    error,
-    hasMore,
-    loadMore,
-    reload,
-  } = useAsyncList<Room>(
-    (cursor) => {
-      const query: { search?: string; cursor?: string; limit: number } = {
-        limit: PAGE_LIMIT,
-      };
-      if (search !== '') query.search = search;
-      if (cursor !== undefined) query.cursor = cursor;
-      return adminApi.listRooms(query);
-    },
-    [search],
-  );
-
-  const misconfigured = isApiErrorCode(error, 'BACKEND_MISCONFIGURATION');
-
-  // Any non-misconfiguration load failure is surfaced as a toast, once per error.
-  useEffect(() => {
-    if (error !== null && !isApiErrorCode(error, 'BACKEND_MISCONFIGURATION')) {
-      showError(
-        error instanceof ApiError ? error.message : 'Failed to load rooms.',
-      );
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
-  }, [error]);
+  const { state, loadingMore, loadMoreError, hasMore, loadMore, reload } =
+    useAsyncList<Room>(
+      (cursor) => {
+        const query: { search?: string; cursor?: string; limit: number } = {
+          limit: PAGE_LIMIT,
+        };
+        if (search !== '') query.search = search;
+        if (cursor !== undefined) query.cursor = cursor;
+        return adminApi.listRooms(query);
+      },
+      [search],
+    );
 
   const handleCreated = () => {
     setCreateOpen(false);
@@ -279,12 +260,6 @@ export const RoomsListPage = () => {
         </Button>
       </Box>
       <TimezoneNote />
-      {misconfigured && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          Admin backend misconfiguration — an operator must check the
-          server&apos;s ADMIN_API_KEY.
-        </Alert>
-      )}
       <TextField
         label="Search rooms"
         value={search}
@@ -306,13 +281,26 @@ export const RoomsListPage = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {loading ? (
+            {/* Three outcomes, never two: "No rooms found." is reachable only
+                from `ok`, so a failed load can no longer state that the
+                deployment has no rooms (PLAN-VisibleErrors §5). */}
+            {state.status === 'loading' ? (
               <TableRow>
                 <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
                   <CircularProgress size={28} />
                 </TableCell>
               </TableRow>
-            ) : rooms.length === 0 ? (
+            ) : state.status === 'unavailable' ? (
+              <TableRow>
+                <TableCell colSpan={4} sx={{ py: 2 }}>
+                  <ErrorState
+                    title="Could not load rooms."
+                    error={state.error}
+                    onRetry={reload}
+                  />
+                </TableCell>
+              </TableRow>
+            ) : state.items.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
                   <Typography
@@ -325,7 +313,7 @@ export const RoomsListPage = () => {
                 </TableCell>
               </TableRow>
             ) : (
-              rooms.map((room) => (
+              state.items.map((room) => (
                 <TableRow
                   key={room.uid}
                   hover
@@ -359,7 +347,15 @@ export const RoomsListPage = () => {
           </TableBody>
         </Table>
       </TableContainer>
-      {hasMore && !loading && (
+      {loadMoreError !== null && (
+        <ErrorState
+          title="Could not load the next page of rooms."
+          error={loadMoreError}
+          onRetry={loadMore}
+          sx={{ mt: 2 }}
+        />
+      )}
+      {state.status === 'ok' && hasMore && (
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
           <Button onClick={loadMore} disabled={loadingMore}>
             {loadingMore ? 'Loading…' : 'Load more'}

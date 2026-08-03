@@ -33,10 +33,6 @@ import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncData } from '#src/lib/use-async-data';
 
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof ApiError ? err.message : fallback;
-}
-
 interface RenameDeviceDialogProps {
   open: boolean;
   currentName: string;
@@ -52,7 +48,7 @@ const RenameDeviceDialog = ({
   onRenamed,
   deviceUid,
 }: RenameDeviceDialogProps) => {
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showApiError } = useToast();
   const [name, setName] = useState(currentName);
   const [submitting, setSubmitting] = useState(false);
   const [misconfigured, setMisconfigured] = useState(false);
@@ -70,7 +66,7 @@ const RenameDeviceDialog = ({
         if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
           setMisconfigured(true);
         } else {
-          showError(errorMessage(err, 'Failed to rename device.'));
+          showApiError(err, 'Failed to rename device.');
         }
       })
       .finally(() => {
@@ -148,7 +144,7 @@ const ReregisterResultDialog = ({
 export const DeviceDetailPage = () => {
   const { deviceUid } = useParams<{ deviceUid: string }>();
   const navigate = useNavigate();
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showApiError } = useToast();
   const { showUuids } = useSettings();
 
   const {
@@ -194,7 +190,7 @@ export const DeviceDetailPage = () => {
       !isApiErrorCode(error, 'BACKEND_MISCONFIGURATION') &&
       !(error instanceof ApiError && error.status === 404)
     ) {
-      showError(errorMessage(error, 'Failed to load device.'));
+      showApiError(error, 'Failed to load device.');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [error]);
@@ -214,7 +210,7 @@ export const DeviceDetailPage = () => {
             "Can't delete: this device is a room's source. Reassign the source first.",
           );
         } else {
-          showError(errorMessage(err, 'Failed to delete device.'));
+          showApiError(err, 'Failed to delete device.');
         }
       })
       .finally(() => {
@@ -234,7 +230,7 @@ export const DeviceDetailPage = () => {
         setReregisterConfirmOpen(false);
       })
       .catch((err: unknown) => {
-        showError(errorMessage(err, 'Failed to re-register device.'));
+        showApiError(err, 'Failed to re-register device.');
       })
       .finally(() => {
         setReregistering(false);

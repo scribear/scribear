@@ -8,15 +8,32 @@ export interface AsyncListPage<T> {
   nextCursor: string | null;
 }
 
+/**
+ * The first page's outcome, as a discriminated union (PLAN-VisibleErrors
+ * §10.2). `items` exist **only** in `ok`, so "the deployment has no rooms" and
+ * "we could not ask" cannot be rendered by the same branch — which is exactly
+ * what the previous `{ items: [], error }` shape let five pages do.
+ *
+ * `unavailable` (rather than `failed`/`error`) matches `useAlerts`'
+ * `loading | ok | unavailable`, so the console has one idiom for this.
+ */
+export type AsyncListLoad<T> =
+  | { status: 'loading' }
+  | { status: 'ok'; items: T[] }
+  | { status: 'unavailable'; error: unknown };
+
 export interface AsyncListState<T> {
-  /** All items loaded so far (first page plus any appended pages). */
-  items: T[];
-  /** True while the first page (mount / `deps` change / `reload`) is loading. */
-  loading: boolean;
+  /** First-page state. Callers must branch on `status` to reach `items`. */
+  state: AsyncListLoad<T>;
   /** True while a subsequent page is being appended via `loadMore`. */
   loadingMore: boolean;
-  /** Error from the most recent page load, else null. */
-  error: unknown;
+  /**
+   * Error from the most recent failed `loadMore`, else null. Kept separate
+   * from `state`: a failed *append* must not blank the pages already loaded,
+   * so the list stays `ok` and the caller reports the append failure beside
+   * the rows it already has.
+   */
+  loadMoreError: unknown;
   /** True when another page is available. */
   hasMore: boolean;
   /** Append the next page. No-op when exhausted or already appending. */
@@ -28,9 +45,7 @@ export interface AsyncListState<T> {
 /**
  * Cursor-paginated sibling of {@link useAsyncData}. Loads the first page on
  * mount and whenever `deps` change (replacing the list), and appends further
- * pages on `loadMore` (accumulating). Owns the mounted-guard and the two
- * loading flags; callers derive any branch (misconfiguration, ...) from
- * `error` during render.
+ * pages on `loadMore` (accumulating).
  *
  * `fetchPage` is called with `undefined` for the first page and with the prior
  * page's `nextCursor` for each subsequent page. It should read the current
@@ -44,29 +59,29 @@ export function useAsyncList<T>(
   fetchPage: (cursor: string | undefined) => Promise<AsyncListPage<T>>,
   deps: DependencyList,
 ): AsyncListState<T> {
-  const [items, setItems] = useState<T[]>([]);
+  const [state, setState] = useState<AsyncListLoad<T>>({ status: 'loading' });
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState<unknown>(null);
+  const [loadMoreError, setLoadMoreError] = useState<unknown>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
 
   useEffect(() => {
     const alive = { current: true };
-    // eslint-disable-next-line react-hooks/set-state-in-effect, @eslint-react/set-state-in-effect -- first-page loading flag before an async fetch; consolidated here so per-site suppressions aren't needed. See REVIEW-EFFECT-SETState.md.
-    setLoading(true);
+    // eslint-disable-next-line react-hooks/set-state-in-effect, @eslint-react/set-state-in-effect -- first-page loading state before an async fetch; consolidated here so per-site suppressions aren't needed. See REVIEW-EFFECT-SETState.md.
+    setState({ status: 'loading' });
     fetchPage(undefined)
       .then((page) => {
         if (!alive.current) return;
-        setError(null);
-        setItems(page.items);
+        setLoadMoreError(null);
+        setState({ status: 'ok', items: page.items });
         setNextCursor(page.nextCursor);
       })
       .catch((err: unknown) => {
-        if (alive.current) setError(err);
-      })
-      .finally(() => {
-        if (alive.current) setLoading(false);
+        if (!alive.current) return;
+        // No `items: []` fallback: the caller cannot reach an empty list from
+        // here, so it cannot say "No X found." about a load that failed.
+        setState({ status: 'unavailable', error: err });
+        setNextCursor(null);
       });
     return () => {
       alive.current = false;
@@ -80,12 +95,18 @@ export function useAsyncList<T>(
     setLoadingMore(true);
     fetchPage(nextCursor)
       .then((page) => {
-        setError(null);
-        setItems((prev) => [...prev, ...page.items]);
+        setLoadMoreError(null);
+        setState((prev) =>
+          // A first-page reload may have superseded this append; only extend a
+          // list that is still `ok`.
+          prev.status === 'ok'
+            ? { status: 'ok', items: [...prev.items, ...page.items] }
+            : prev,
+        );
         setNextCursor(page.nextCursor);
       })
       .catch((err: unknown) => {
-        setError(err);
+        setLoadMoreError(err);
       })
       .finally(() => {
         setLoadingMore(false);
@@ -97,10 +118,9 @@ export function useAsyncList<T>(
   };
 
   return {
-    items,
-    loading,
+    state,
     loadingMore,
-    error,
+    loadMoreError,
     hasMore: nextCursor !== null,
     loadMore,
     reload,

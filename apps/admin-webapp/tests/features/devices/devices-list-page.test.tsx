@@ -69,8 +69,10 @@ describe('DevicesListPage', () => {
     });
   });
 
-  describe('error state', (it) => {
-    it('shows a toast and falls back to the empty state on a non-ApiError rejection', async () => {
+  describe('failed state', (it) => {
+    // PLAN-VisibleErrors §5: "No devices found." is a claim about the
+    // deployment and must be unreachable when the load failed.
+    it('never says "No devices found." when the load failed', async () => {
       // Arrange
       vi.mocked(adminApi.listDevices).mockRejectedValue(
         new Error('network down'),
@@ -82,14 +84,42 @@ describe('DevicesListPage', () => {
 
       // Assert
       expect(
-        await screen.findByText('Failed to load devices.'),
+        await screen.findByText('Could not load devices.'),
       ).toBeInTheDocument();
-      expect(screen.getByText('No devices found.')).toBeInTheDocument();
+      expect(screen.queryByText('No devices found.')).not.toBeInTheDocument();
+    });
+
+    it('names the cause and the next action for an unreachable Session Manager', async () => {
+      // Arrange - what admin-server sends when session-manager is down
+      // (`session-manager-gateway.service.ts#classify`).
+      vi.mocked(adminApi.listDevices).mockRejectedValue(
+        new ApiError(
+          'UPSTREAM_UNREACHABLE',
+          'The admin backend is currently unreachable.',
+          503,
+          'req-abc',
+        ),
+      );
+
+      // Act
+      renderWithProviders(<DevicesListPage />);
+      await waitForLoad();
+
+      // Assert
+      expect(
+        await screen.findByText(
+          'The admin server could not reach Session Manager.',
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/session-manager service is running/),
+      ).toBeInTheDocument();
+      expect(screen.getByText('req-abc')).toBeInTheDocument();
     });
   });
 
   describe('BACKEND_MISCONFIGURATION', (it) => {
-    it('shows the ADMIN_API_KEY alert instead of a toast', async () => {
+    it('names ADMIN_API_KEY and offers no retry, because retrying cannot help', async () => {
       // Arrange
       vi.mocked(adminApi.listDevices).mockRejectedValue(
         new ApiError('BACKEND_MISCONFIGURATION', 'nope', 502),
@@ -103,6 +133,9 @@ describe('DevicesListPage', () => {
       expect(
         await screen.findByText(/admin backend misconfiguration/i),
       ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Retry' }),
+      ).not.toBeInTheDocument();
     });
   });
 

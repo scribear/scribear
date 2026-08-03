@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import HelpOutlineIcon from '@mui/icons-material/HelpOutlined';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import Alert from '@mui/material/Alert';
+import AlertTitle from '@mui/material/AlertTitle';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardActionArea from '@mui/material/CardActionArea';
 import CardContent from '@mui/material/CardContent';
@@ -53,6 +55,8 @@ import {
   sourceThroughputSeconds,
   useFilteredSessions,
 } from './fleet-status';
+import { NodeDiagnosticsPanel } from './node-diagnostics-panel';
+import { deriveFreshness, freshnessChipLabel } from './telemetry-freshness';
 import { useFleet } from './use-fleet';
 
 const STATUS_COLOR: Record<FleetStatus, StatusColor> = {
@@ -70,6 +74,24 @@ const PROVIDER_STATUS_COLOR: Record<MergedProvider['status'], StatusColor> = {
 
 const STATUS_ORDER: FleetStatus[] = ['crit', 'warn', 'good', 'idle'];
 const AUDIO_STATUS_ORDER: AudioStatus[] = ['crit', 'warn', 'unknown', 'good'];
+
+/**
+ * How often the panel re-derives the age of the snapshot it is showing.
+ *
+ * A dedicated ticker rather than relying on the poll's own re-renders: the two
+ * states that most need marking are exactly the two that produce no re-render.
+ * A request that hangs never resolves or rejects, and a tab left hidden pauses
+ * the poll entirely — in both cases the last render happened when the data was
+ * fresh, and without a clock of its own this panel would keep displaying that
+ * moment's verdict indefinitely.
+ */
+const FRESHNESS_TICK_MS = 1_000;
+
+const FRESHNESS_CHIP_COLOR = {
+  ok: 'default',
+  warning: 'warning',
+  error: 'error',
+} as const;
 
 /**
  * Audio conventions the roll-up must label on the surface
@@ -675,10 +697,27 @@ const FleetAudioRollup = ({
  * session-centric telemetry — see `fleet-status.ts`).
  */
 export const FleetPanel = () => {
-  const { snapshot, sessionEvents, connected, available } = useFleet();
+  const { snapshot, sessionEvents, connected, available, poll, refresh } =
+    useFleet();
   const [filter, setFilter] = useState<FleetFilter>({
     status: ['crit', 'warn'],
   });
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setNow(Date.now());
+    }, FRESHNESS_TICK_MS);
+    return () => {
+      window.clearInterval(id);
+    };
+  }, []);
+
+  const freshness = deriveFreshness(poll, now);
+  const frozenAtLabel =
+    freshness.lastSuccessAt === null
+      ? null
+      : new Date(freshness.lastSuccessAt).toLocaleTimeString();
 
   const sessions = snapshot?.sessions ?? [];
   const audioMap = useMemo(() => audioBySession(snapshot), [snapshot]);
@@ -720,41 +759,147 @@ export const FleetPanel = () => {
     <Box sx={{ mb: 3 }}>
       <Stack
         direction="row"
+        useFlexGap
         sx={{
           justifyContent: 'space-between',
           alignItems: 'center',
+          flexWrap: 'wrap',
+          rowGap: 0.5,
           mb: 1,
         }}
       >
+        {/*
+          The heading itself changes when the data is stale. A chip alone is
+          missable and a banner can be scrolled past; the title of the thing an
+          operator is reading cannot be either, and this is the one signal that
+          travels with the grid wherever it sits on the page.
+        */}
         <Typography variant="h6" component="h2">
-          Live fleet
+          {freshness.stale ? 'Live fleet — last known state' : 'Live fleet'}
         </Typography>
-        {!connected && (
-          <Chip size="small" label="reconnecting…" color="warning" />
-        )}
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+          {/*
+            Not inside any live region: this ticks once a second, and a live
+            region that re-announced the age every second would be unusable.
+            The one-off state change is announced by the banner below instead.
+          */}
+          <Chip
+            size="small"
+            label={freshnessChipLabel(freshness)}
+            color={FRESHNESS_CHIP_COLOR[freshness.severity]}
+            variant={freshness.stale ? 'filled' : 'outlined'}
+          />
+          {/*
+            Explicitly "stream", because this chip has only ever described the
+            SSE connection. Labelled "reconnecting…" beside a frozen grid it
+            read as a complete account of the panel's health, which is exactly
+            how a dead poll stayed invisible (PLAN-VisibleErrors §4.4).
+          */}
+          {!connected && (
+            <Chip
+              size="small"
+              label="live stream reconnecting…"
+              color="warning"
+              variant="outlined"
+            />
+          )}
+        </Stack>
       </Stack>
+      {freshness.headline !== null && (
+        <Alert
+          severity={freshness.severity === 'error' ? 'error' : 'warning'}
+          sx={{ mb: 2 }}
+          action={
+            <Button color="inherit" size="small" onClick={refresh}>
+              Retry now
+            </Button>
+          }
+        >
+          <AlertTitle>
+            {freshness.severity === 'error'
+              ? 'This is not the live fleet'
+              : 'This may be behind the live fleet'}
+          </AlertTitle>
+          {freshness.headline}
+          {frozenAtLabel !== null &&
+            ` Last successful update: ${frozenAtLabel}.`}
+          {freshness.cause !== null && ` Reported cause: ${freshness.cause}`}{' '}
+          {freshness.nextAction}
+        </Alert>
+      )}
       <Box sx={{ mb: 2 }}>
         <ProviderStatusRow providers={snapshot?.providers ?? []} />
       </Box>
       <ProviderCapacityRow providers={snapshot?.providers ?? []} />
+      <NodeDiagnosticsPanel
+        nodes={snapshot?.nodes ?? []}
+        hosts={snapshot?.transcriptionHosts ?? []}
+      />
       {snapshot === null ? (
-        <Typography
-          sx={{
-            color: 'text.secondary',
-          }}
-        >
-          Loading fleet…
-        </Typography>
+        // "Loading fleet…" is only true while a read is genuinely in flight.
+        // Once one has failed, the banner above is the whole story and this
+        // would be a spinner-shaped lie about a request that is not coming.
+        poll.status === 'degraded' ? null : (
+          <Typography
+            sx={{
+              color: 'text.secondary',
+            }}
+          >
+            Loading fleet…
+          </Typography>
+        )
       ) : sessions.length === 0 ? (
         <Typography
           sx={{
             color: 'text.secondary',
           }}
         >
-          No active sessions.
+          {/*
+            "No active sessions." is a claim about the fleet. From a frozen
+            snapshot it is only a claim about a moment that has passed, and
+            saying it flatly is the same mistake as "No rooms found." over a
+            failed load (PLAN-VisibleErrors §5).
+          */}
+          {freshness.stale
+            ? `No active sessions as of ${frozenAtLabel ?? 'the last update'} — this is the frozen snapshot, not the fleet now.`
+            : 'No active sessions.'}
         </Typography>
       ) : (
-        <>
+        // While stale, the grid is fenced and captioned in place. The banner
+        // above states the situation once; this keeps it attached to the data
+        // itself, for an operator who scrolled straight to a room's card.
+        <Box
+          sx={
+            freshness.stale
+              ? {
+                  border: 2,
+                  borderColor:
+                    freshness.severity === 'error'
+                      ? 'error.main'
+                      : 'warning.main',
+                  borderRadius: 1,
+                  p: 1.5,
+                }
+              : undefined
+          }
+        >
+          {freshness.stale && (
+            <Typography
+              variant="body2"
+              sx={{
+                fontWeight: 'bold',
+                mb: 1,
+                color:
+                  freshness.severity === 'error'
+                    ? 'error.main'
+                    : 'warning.main',
+              }}
+            >
+              Frozen snapshot — everything below is as of{' '}
+              {frozenAtLabel ?? 'the last successful update'} and is not
+              updating.
+            </Typography>
+          )}
           <FleetAudioRollup sessions={sessions} audioMap={audioMap} />
           <FleetFilterBar
             filter={filter}
@@ -778,7 +923,7 @@ export const FleetPanel = () => {
               ))}
             </Grid>
           )}
-        </>
+        </Box>
       )}
     </Box>
   );

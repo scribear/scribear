@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 import AddIcon from '@mui/icons-material/Add';
 import Alert from '@mui/material/Alert';
@@ -31,12 +31,13 @@ import type { Device } from '@scribear/session-manager-schema';
 
 import { ActivationCodeDisplay } from '#src/components/activation-code-display';
 import { DevicePresenceChip } from '#src/components/device-presence-chip';
+import { ErrorState } from '#src/components/error-state';
 import { KioskUrlInstructions } from '#src/components/kiosk-url-instructions';
 import { NameWithUid } from '#src/components/name-with-uid';
 import { TimezoneNote } from '#src/components/timezone-note';
 import type { RegisterDeviceResult } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
-import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { isApiErrorCode } from '#src/lib/api-error';
 import { useSettings } from '#src/lib/settings-context';
 import { useToast } from '#src/lib/toast-context';
 import { useAsyncList } from '#src/lib/use-async-list';
@@ -46,10 +47,6 @@ const PAGE_LIMIT = 25;
 
 type StatusFilter = 'all' | 'active' | 'pending';
 type RoomFilter = 'all' | 'unassigned';
-
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof ApiError ? err.message : fallback;
-}
 
 interface RegisterDeviceDialogProps {
   open: boolean;
@@ -67,7 +64,7 @@ const RegisterDeviceDialog = ({
   onClose,
   onRegistered,
 }: RegisterDeviceDialogProps) => {
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showApiError } = useToast();
   const [name, setName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [misconfigured, setMisconfigured] = useState(false);
@@ -87,7 +84,7 @@ const RegisterDeviceDialog = ({
         if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
           setMisconfigured(true);
         } else {
-          showError(errorMessage(err, 'Failed to register device.'));
+          showApiError(err, 'Failed to register device.');
         }
       })
       .finally(() => {
@@ -157,7 +154,6 @@ const RegisterDeviceDialog = ({
 
 export const DevicesListPage = () => {
   const navigate = useNavigate();
-  const { showError } = useToast();
   const { showUuids } = useSettings();
   const roomNames = useRoomNameLookup();
   const [search, setSearch] = useState('');
@@ -181,28 +177,11 @@ export const DevicesListPage = () => {
     return query;
   };
 
-  const {
-    items: devices,
-    loading,
-    loadingMore,
-    error,
-    hasMore,
-    loadMore,
-    reload,
-  } = useAsyncList<Device>(
-    (cursor) => adminApi.listDevices(buildQuery(cursor)),
-    [search, statusFilter, roomFilter],
-  );
-
-  const misconfigured = isApiErrorCode(error, 'BACKEND_MISCONFIGURATION');
-
-  // Any non-misconfiguration load failure is surfaced as a toast, once per error.
-  useEffect(() => {
-    if (error !== null && !isApiErrorCode(error, 'BACKEND_MISCONFIGURATION')) {
-      showError(errorMessage(error, 'Failed to load devices.'));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
-  }, [error]);
+  const { state, loadingMore, loadMoreError, hasMore, loadMore, reload } =
+    useAsyncList<Device>(
+      (cursor) => adminApi.listDevices(buildQuery(cursor)),
+      [search, statusFilter, roomFilter],
+    );
 
   const renderRoomCell = (roomUid: string | null) => {
     if (roomUid === null) return 'Unassigned';
@@ -236,12 +215,6 @@ export const DevicesListPage = () => {
         </Button>
         <TimezoneNote />
       </Box>
-      {misconfigured && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          Admin backend misconfiguration — an operator must check the
-          server&apos;s ADMIN_API_KEY.
-        </Alert>
-      )}
       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
         <TextField
           label="Search devices"
@@ -294,13 +267,25 @@ export const DevicesListPage = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {loading ? (
+            {/* Three outcomes, never two — "No devices found." is reachable
+                only from `ok` (PLAN-VisibleErrors §5). */}
+            {state.status === 'loading' ? (
               <TableRow>
                 <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                   <CircularProgress size={28} />
                 </TableCell>
               </TableRow>
-            ) : devices.length === 0 ? (
+            ) : state.status === 'unavailable' ? (
+              <TableRow>
+                <TableCell colSpan={5} sx={{ py: 2 }}>
+                  <ErrorState
+                    title="Could not load devices."
+                    error={state.error}
+                    onRetry={reload}
+                  />
+                </TableCell>
+              </TableRow>
+            ) : state.items.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                   <Typography
@@ -313,7 +298,7 @@ export const DevicesListPage = () => {
                 </TableCell>
               </TableRow>
             ) : (
-              devices.map((device) => (
+              state.items.map((device) => (
                 <TableRow
                   key={device.uid}
                   hover
@@ -366,7 +351,15 @@ export const DevicesListPage = () => {
           </TableBody>
         </Table>
       </TableContainer>
-      {hasMore && !loading && (
+      {loadMoreError !== null && (
+        <ErrorState
+          title="Could not load the next page of devices."
+          error={loadMoreError}
+          onRetry={loadMore}
+          sx={{ mt: 2 }}
+        />
+      )}
+      {state.status === 'ok' && hasMore && (
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
           <Button onClick={loadMore} disabled={loadingMore}>
             {loadingMore ? 'Loading…' : 'Load more'}

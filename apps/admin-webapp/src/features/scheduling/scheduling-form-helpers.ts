@@ -10,7 +10,6 @@ import type {
   UpdateAutoWindowBody,
   UpdateScheduleBody,
 } from '#src/lib/admin-api';
-import { ApiError } from '#src/lib/api-error';
 
 export const DAYS_OF_WEEK: readonly DayOfWeek[] = [
   'SUN',
@@ -25,10 +24,6 @@ export const SCOPES: readonly SessionScope[] = [
   'SEND_AUDIO',
   'RECEIVE_TRANSCRIPTIONS',
 ];
-
-export function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof ApiError ? err.message : fallback;
-}
 
 export function formatInRoomTz(iso: string, timezone: string): string {
   try {

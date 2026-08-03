@@ -14,6 +14,7 @@ import type {
 import type { DBClientConfig } from '#src/db/db-client.js';
 import createServer from '#src/server/create-server.js';
 import type { MaterializationWorkerConfig } from '#src/server/features/schedule-management/materialization.worker.js';
+import type { SessionAuthRateLimitConfig } from '#src/server/features/session-auth/session-auth.router.js';
 import type { AdminAuthConfig } from '#src/server/shared/services/admin-auth.service.js';
 import type { DevicePresenceConfig } from '#src/server/shared/services/device-presence.service.js';
 import type { ServiceAuthConfig } from '#src/server/shared/services/service-auth.service.js';
@@ -46,6 +47,7 @@ export interface TestAppConfigOverrides {
   testAudioRoomsConfig?: Partial<TestAudioRoomsConfig>;
   canaryRoomConfig?: Partial<CanaryRoomConfig>;
   scheduleManagementConfig?: Partial<ScheduleManagementConfig>;
+  sessionAuthRateLimitConfig?: Partial<SessionAuthRateLimitConfig>;
 }
 
 /**
@@ -129,6 +131,22 @@ export function buildTestAppConfig(
     scheduleManagementConfig: {
       transcriptionProviderIds: [...SHIPPED_TRANSCRIPTION_PROVIDER_IDS],
       ...overrides.scheduleManagementConfig,
+    },
+    // Effectively unlimited by default, so no ordinary suite can be made to
+    // 429 by an unrelated change to the shipped defaults. The suite that
+    // exercises the limiter overrides these with numbers small enough to reach
+    // in a handful of requests - which is the whole point of the limits living
+    // in config: the previous test spent 100 real requests per route to reach a
+    // hard-coded ceiling, and then left both routes limited for the rest of a
+    // real 60-second window.
+    sessionAuthRateLimitConfig: {
+      exchangeJoinCodeMax: 1_000_000,
+      exchangeJoinCodeWindowMs: 60_000,
+      failedExchangeJoinCodeMax: 1_000_000,
+      failedExchangeJoinCodeWindowMs: 60_000,
+      refreshSessionTokenMax: 1_000_000,
+      refreshSessionTokenWindowMs: 60_000,
+      ...overrides.sessionAuthRateLimitConfig,
     },
   } as unknown as AppConfig;
 }

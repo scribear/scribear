@@ -63,8 +63,10 @@ describe('RoomsListPage', () => {
     });
   });
 
-  describe('error state', (it) => {
-    it('shows a toast and falls back to the empty state on a non-ApiError rejection', async () => {
+  describe('failed state', (it) => {
+    // The whole point of PLAN-VisibleErrors §5: a failed load and a genuinely
+    // empty deployment must never render the same sentence.
+    it('never says "No rooms found." when the load failed', async () => {
       // Arrange
       vi.mocked(adminApi.listRooms).mockRejectedValue(
         new Error('network down'),
@@ -76,12 +78,12 @@ describe('RoomsListPage', () => {
 
       // Assert
       expect(
-        await screen.findByText('Failed to load rooms.'),
+        await screen.findByText('Could not load rooms.'),
       ).toBeInTheDocument();
-      expect(screen.getByText('No rooms found.')).toBeInTheDocument();
+      expect(screen.queryByText('No rooms found.')).not.toBeInTheDocument();
     });
 
-    it("shows the ApiError's own message in the toast for a non-misconfiguration ApiError", async () => {
+    it("shows the ApiError's own message as the cause", async () => {
       // Arrange
       vi.mocked(adminApi.listRooms).mockRejectedValue(
         new ApiError('SOME_OTHER_CODE', 'Something else went wrong.', 400),
@@ -96,10 +98,53 @@ describe('RoomsListPage', () => {
         await screen.findByText('Something else went wrong.'),
       ).toBeInTheDocument();
     });
+
+    it("shows the server's requestId so an operator can quote it", async () => {
+      // Arrange
+      vi.mocked(adminApi.listRooms).mockRejectedValue(
+        new ApiError(
+          'INTERNAL_ERROR',
+          'Server encountered an unexpected error.',
+          500,
+          '7b1f2c3d-0000-4000-8000-abcdefabcdef',
+        ),
+      );
+
+      // Act
+      renderWithProviders(<RoomsListPage />);
+      await waitForLoad();
+
+      // Assert
+      expect(
+        await screen.findByText('7b1f2c3d-0000-4000-8000-abcdefabcdef'),
+      ).toBeInTheDocument();
+    });
+
+    it('retries the load from the error state', async () => {
+      // Arrange
+      const user = userEvent.setup();
+      vi.mocked(adminApi.listRooms)
+        .mockRejectedValueOnce(new Error('network down'))
+        .mockResolvedValueOnce({
+          items: [buildRoom({ uid: 'room-1', name: 'Room 101' })],
+          nextCursor: null,
+        });
+      renderWithProviders(<RoomsListPage />);
+      await screen.findByText('Could not load rooms.');
+
+      // Act
+      await user.click(screen.getByRole('button', { name: 'Retry' }));
+
+      // Assert
+      expect(await screen.findByText('Room 101')).toBeInTheDocument();
+      expect(
+        screen.queryByText('Could not load rooms.'),
+      ).not.toBeInTheDocument();
+    });
   });
 
   describe('BACKEND_MISCONFIGURATION', (it) => {
-    it('shows the ADMIN_API_KEY alert instead of a toast', async () => {
+    it('names ADMIN_API_KEY and offers no retry, because retrying cannot help', async () => {
       // Arrange
       vi.mocked(adminApi.listRooms).mockRejectedValue(
         new ApiError('BACKEND_MISCONFIGURATION', 'nope', 502),
@@ -113,6 +158,10 @@ describe('RoomsListPage', () => {
       expect(
         await screen.findByText(/admin backend misconfiguration/i),
       ).toBeInTheDocument();
+      expect(screen.getByText(/ADMIN_API_KEY/)).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Retry' }),
+      ).not.toBeInTheDocument();
     });
   });
 

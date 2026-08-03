@@ -33,7 +33,6 @@ import {
   DAYS_OF_WEEK,
   SCOPES,
   diffAutoWindowUpdate,
-  errorMessage,
   isoToLocalInput,
   localInputToIso,
 } from './scheduling-form-helpers';
@@ -93,7 +92,7 @@ export const AutoWindowDialog = ({
   onClose,
   onSaved,
 }: AutoWindowDialogProps) => {
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showApiError } = useToast();
   const [form, setForm] = useState<AutoWindowFormState>(() =>
     autoWindow
       ? windowToFormState(autoWindow)
@@ -201,11 +200,9 @@ export const AutoWindowDialog = ({
           .updateRoomScheduleConfig({ roomUid, autoSessionEnabled: true })
           .then(() => null)
           .catch((err: unknown) => {
-            showError(
-              errorMessage(
-                err,
-                'Window saved, but auto-sessions could not be enabled for the room.',
-              ),
+            showApiError(
+              err,
+              'Window saved, but auto-sessions could not be enabled for the room.',
             );
             return null;
           });
@@ -222,13 +219,9 @@ export const AutoWindowDialog = ({
         if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
           setMisconfigured(true);
         } else {
-          showError(
-            errorMessage(
-              err,
-              creating
-                ? 'Failed to create window.'
-                : 'Failed to update window.',
-            ),
+          showApiError(
+            err,
+            creating ? 'Failed to create window.' : 'Failed to update window.',
           );
         }
       })
