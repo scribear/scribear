@@ -2,6 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, vi } from 'vitest';
 
 import type { ConfigCheckReport } from '#src/server/features/config-check/config-check.service.js';
 import {
+  TEST_AUDIO_BASE_URL,
   TEST_MONITORING_SIDECAR_BASE_URL,
   TEST_NODE_BASE_URL,
   TEST_SM_BASE_URL,
@@ -113,7 +114,13 @@ describe('Config check route', () => {
       const res = await server.fastify.inject({
         method: 'GET',
         url: URL,
-        headers: { cookie },
+        // `light-my-request` defaults the Host header to `localhost` when
+        // none is given — exactly the address `public-origin-not-
+        // externally-resolvable` (config-check.service.test.ts) exists to
+        // flag, and unrelated to what this test is asserting. A normal-
+        // looking public host keeps this list to the five findings the test
+        // name promises.
+        headers: { cookie, host: 'admin.example.edu' },
       });
 
       expect(
@@ -156,6 +163,36 @@ describe('Config check route', () => {
       expect(
         res.json<ConfigCheckBody>().data.findings.map((f) => f.id),
       ).not.toContain('schema-version-skew');
+    });
+  });
+
+  // End-to-end coverage for the `req.hostname` wiring itself
+  // (`config-check.controller.ts`) - `evaluatePublicOriginCheck`'s own logic
+  // is exhaustively unit-tested; this only proves the Host header a real
+  // request carries actually reaches it.
+  describe('the public origin', (it) => {
+    it('flags the address reached when no Host header looks public (light-my-request defaults to "localhost")', async () => {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: URL,
+        headers: { cookie },
+      });
+
+      expect(
+        res.json<ConfigCheckBody>().data.findings.map((f) => f.id),
+      ).toContain('public-origin-not-externally-resolvable');
+    });
+
+    it('reports nothing when reached on a normal-looking public host', async () => {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: URL,
+        headers: { cookie, host: 'scribear.example.edu' },
+      });
+
+      expect(
+        res.json<ConfigCheckBody>().data.findings.map((f) => f.id),
+      ).not.toContain('public-origin-not-externally-resolvable');
     });
   });
 
@@ -240,7 +277,7 @@ describe('Config check route', () => {
       expect(data.blockingForProduction).toBeGreaterThanOrEqual(1);
     });
 
-    it('reports unavailable rather than silence when the sidecar cannot answer', async () => {
+    it('names the sidecar, not node-server, when the sidecar cannot answer', async () => {
       vi.stubGlobal('fetch', (url: string) => {
         if (url.startsWith(CONFIG_AUDIT_URL)) {
           return Promise.reject(new Error('connect ECONNREFUSED'));
@@ -259,9 +296,162 @@ describe('Config check route', () => {
         headers: { cookie },
       });
 
-      expect(
-        res.json<ConfigCheckBody>().data.findings.map((f) => f.id),
-      ).toContain('secret-placeholder-audit-unavailable');
+      const ids = res.json<ConfigCheckBody>().data.findings.map((f) => f.id);
+      expect(ids).toContain('monitoring-sidecar-unreachable');
+      // Never silence, and never a clean bill of health for the secrets it
+      // could not read.
+      expect(ids.some((id) => id.endsWith('-placeholder'))).toBe(false);
     });
+  });
+});
+
+// A separate server, not a describe block inside the one above: this is the
+// only fixture in the file with `testAudioConfig.baseUrl` set at all (every
+// other test's is the default `''`, i.e. the feature turned off), so the
+// live probe exists to be end-to-end tested. `TestAudioGatewayService`
+// itself is unit-tested directly; this only proves the DI wiring — the new
+// constructor parameter and the `Promise.all` member in `check()` — actually
+// runs it.
+describe('Config check route - the test audio service key probe', (it) => {
+  const TEST_AUDIO_DEVICES_URL = `${TEST_AUDIO_BASE_URL}/api/test-audio/v1/devices`;
+
+  const server = useServer({
+    configCheckConfig: { redisUrl: '' },
+    testAudioConfig: { baseUrl: TEST_AUDIO_BASE_URL },
+  });
+  let cookie = '';
+
+  beforeAll(async () => {
+    cookie = (await login(server.fastify)).cookie;
+  });
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', (url: string) => {
+      if (
+        url.startsWith(
+          `${TEST_MONITORING_SIDECAR_BASE_URL}/api/monitoring/v1/config-audit`,
+        )
+      ) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              nodeServer: {
+                status: 'ok',
+                secretPlaceholders: {
+                  sessionTokenSigningKeyIsPlaceholder: false,
+                  sessionManagerServiceApiKeyIsPlaceholder: false,
+                  nodeServerServiceApiKeyIsPlaceholder: false,
+                  transcriptionServiceApiKeyIsPlaceholder: false,
+                },
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      }
+      const known = [TEST_SM_BASE_URL, TEST_NODE_BASE_URL, TEST_TS_BASE_URL];
+      if (!known.some((base) => url.startsWith(base))) {
+        return Promise.reject(new Error('connect ECONNREFUSED'));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ status: 'ok' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('reports nothing when the generator accepts the key', async () => {
+    vi.stubGlobal('fetch', (url: string) => {
+      if (url.startsWith(TEST_AUDIO_DEVICES_URL)) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ devices: [] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ status: 'ok' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    });
+
+    const res = await server.fastify.inject({
+      method: 'GET',
+      url: URL,
+      headers: { cookie, host: 'scribear.example.edu' },
+    });
+
+    expect(
+      res.json<ConfigCheckBody>().data.findings.map((f) => f.id),
+    ).not.toContain('test-audio-service-key-mismatch');
+  });
+
+  it('flags a rejected key as a mismatch, not a silent pass', async () => {
+    vi.stubGlobal('fetch', (url: string) => {
+      if (url.startsWith(TEST_AUDIO_DEVICES_URL)) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ code: 'UNAUTHORIZED' }), {
+            status: 401,
+            headers: { 'content-type': 'application/json' },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ status: 'ok' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    });
+
+    const res = await server.fastify.inject({
+      method: 'GET',
+      url: URL,
+      headers: { cookie, host: 'scribear.example.edu' },
+    });
+
+    const { data } = res.json<ConfigCheckBody>();
+    const found = data.findings.find(
+      (f) => f.id === 'test-audio-service-key-mismatch',
+    );
+    expect(found?.severity).toBe('critical');
+    expect(data.blockingForProduction).toBeGreaterThanOrEqual(1);
+  });
+
+  it('reports "could not verify", not a pass, when the generator does not answer', async () => {
+    vi.stubGlobal('fetch', (url: string) => {
+      if (url.startsWith(TEST_AUDIO_DEVICES_URL)) {
+        return Promise.reject(new Error('connect ECONNREFUSED'));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ status: 'ok' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    });
+
+    const res = await server.fastify.inject({
+      method: 'GET',
+      url: URL,
+      headers: { cookie, host: 'scribear.example.edu' },
+    });
+
+    const findings = res.json<ConfigCheckBody>().data.findings;
+    expect(findings.map((f) => f.id)).toContain(
+      'test-audio-service-key-probe-unavailable',
+    );
+    expect(findings.map((f) => f.id)).not.toContain(
+      'test-audio-service-key-mismatch',
+    );
   });
 });

@@ -1,3 +1,4 @@
+import { isIPv4, isIPv6 } from 'node:net';
 import { Type } from 'typebox';
 import type { Static } from 'typebox';
 import { Value } from 'typebox/value';
@@ -121,6 +122,20 @@ const CONFIG_AUDIT_RESPONSE_SCHEMA = Type.Object({
 
 type ConfigAuditResponse = Static<typeof CONFIG_AUDIT_RESPONSE_SCHEMA>;
 
+/**
+ * The one value of `nodeServer.reason` that reports a *disagreement* rather
+ * than an outage: `AbsoluteStatusPoller`'s `POLL_ERROR_REASONS.UNAUTHORIZED`,
+ * which the sidecar sets when node-server answered its status poll 401 or 403.
+ *
+ * Restated here as a bare string for the same reason the response schema above
+ * is restated: the sidecar exports no package for admin-server to import, and
+ * `reason` crosses a version boundary as an open `Type.String()`. An older or
+ * newer sidecar that renamed the reason therefore degrades to the generic
+ * "could not check" finding rather than to a wrong claim — which is the safe
+ * direction for a string this file cannot typecheck against its producer.
+ */
+const SIDECAR_POLL_UNAUTHORIZED = 'unauthorized';
+
 export interface ConfigCheckReport {
   environment: DeploymentEnv;
   /**
@@ -138,6 +153,19 @@ export interface ConfigCheckReport {
    */
   blockingForProduction: number;
   checkedAt: string;
+}
+
+/**
+ * The one logging call this service makes, narrowed to what it needs.
+ *
+ * Passed into `check()` rather than injected, deliberately: `configCheckService`
+ * is a SINGLETON and the useful logger here is the *request-scoped* one (it
+ * carries `reqId`), so injecting it would pin whichever request happened to
+ * build the singleton first. The controller already threads `req.hostname`
+ * through for the same reason, and `req.log` rides along with it.
+ */
+export interface CheckLogger {
+  debug: (obj: Record<string, unknown>, msg: string) => void;
 }
 
 /**
@@ -200,6 +228,9 @@ export interface ConfigCheckConfig {
    */
   upstreamTimeoutMs: number;
 }
+
+/** See `evaluateStaticChecks`'s "local admin password strength" section. */
+const MIN_LOCAL_PASSWORD_LENGTH = 8;
 
 const PLACEHOLDER_MARKER = 'CHANGEME';
 
@@ -271,6 +302,26 @@ export function resolveEnvironment(config: ConfigCheckConfig): {
     environmentSource: 'inferred',
     declaredButInvalid: declared !== '',
   };
+}
+
+/**
+ * Splits `ADMIN_LOCAL_CREDENTIALS` into its password half, mirroring
+ * `LocalAuthService`'s own parse rule exactly — split on the FIRST space
+ * only, so the password may itself contain spaces — so this check and
+ * boot-time parsing can never disagree about what the password actually is.
+ * Deliberately duplicated rather than imported: `LocalAuthService`'s parse is
+ * private to its constructor, and re-deriving three characters of `indexOf`
+ * logic here is cheaper and lower-risk than exporting it and coupling the two
+ * files together for a one-line rule.
+ *
+ * Returns `null` for anything `LocalAuthService` itself treats as malformed —
+ * no space, an empty username, or an empty password — which is reported as
+ * its own finding rather than measured as a (nonexistent) password.
+ */
+function parseLocalCredentialsPassword(raw: string): string | null {
+  const spaceIdx = raw.indexOf(' ');
+  if (spaceIdx <= 0 || spaceIdx === raw.length - 1) return null;
+  return raw.slice(spaceIdx + 1);
 }
 
 /**
@@ -376,6 +427,82 @@ export function evaluateStaticChecks(
           staging: 'critical',
           production: 'critical',
         },
+        env,
+      ),
+    );
+  }
+
+  // ---- secrets that are not set at all ----
+  // `isPlaceholder('')` is false and the loop above skips everything that is
+  // not a placeholder, so an *unset* secret used to produce no finding
+  // whatsoever — the quieter half of the same mistake, and the likelier one:
+  // compose substitutes a blank string for a variable an operator never set,
+  // renamed, or deleted, and nothing complains until the first request fails
+  // somewhere else. Kept as its own table rather than folded into the one
+  // above because "not set" and "still the example value" have different
+  // consequences and want different sentences; `describeSecret`'s 'not set'
+  // branch is finally reachable from here.
+  //
+  // Two deliberate absences. `ADMIN_SESSION_SECRET` has its own
+  // `admin-session-secret-missing` below, which says something more specific
+  // (admin-server mints an ephemeral secret rather than failing).
+  // `TEST_AUDIO_SERVICE_KEY` is left out because a static check is the weakest
+  // available evidence about it: it is the one key on this list whose peer
+  // fails closed and says so itself — test-audio-generator exits naming the
+  // variable — and whose agreement admin-server can establish by simply
+  // calling the generator, which is a separate check to make rather than a
+  // string comparison to add here.
+  const missingSecretChecks: {
+    id: string;
+    title: string;
+    value: string;
+    variable: string;
+    consequence: string;
+    severities: SeverityByEnv;
+  }[] = [
+    {
+      id: 'admin-api-key-missing',
+      title: 'ADMIN_API_KEY is not set',
+      value: config.adminApiKey,
+      variable: 'SESSION_MANAGER_API_KEY',
+      consequence:
+        'admin-server presents `Authorization: Bearer ` with nothing after it on every call to session-manager, which rejects it 401. This console answers 502 BACKEND_MISCONFIGURATION on every page that lists rooms, devices or sessions.',
+      severities: {
+        development: 'critical',
+        staging: 'critical',
+        production: 'critical',
+      },
+    },
+    {
+      id: 'db-password-missing',
+      title: 'DB_PASSWORD is not set',
+      value: config.dbPassword,
+      variable: 'DB_PASSWORD',
+      consequence:
+        'admin-server connects to Postgres with no password. That works only where the database is configured to trust the connection without one, which no deployed Postgres should be; otherwise the audit log and the admin session store are both unavailable.',
+      // Warning rather than critical in development because a throwaway dev
+      // Postgres on `trust` authentication genuinely works this way, and a
+      // developer who chose that has not misconfigured anything.
+      severities: {
+        development: 'warning',
+        staging: 'critical',
+        production: 'critical',
+      },
+    },
+  ];
+
+  for (const check of missingSecretChecks) {
+    if (check.value !== '') continue;
+    findings.push(
+      finding(
+        {
+          id: check.id,
+          category: 'secrets',
+          title: check.title,
+          detail: `${describeSecret(check.value)}. ${check.consequence}`,
+          remediation: `Set ${check.variable} in deployment/.env to a high-entropy secret, e.g. \`openssl rand -hex 32\`, and recreate the containers that read it.`,
+        },
+        check.severities,
         env,
       ),
     );
@@ -517,6 +644,81 @@ export function evaluateStaticChecks(
     );
   }
 
+  // ---- local admin password strength ----
+  // Guarded on `!isPlaceholder` for the same reason the session-secret length
+  // check is: a placeholder value is already reported once, above, and
+  // reporting it a second time here (as "too short") would be a second
+  // finding for one cause. `ADMIN_LOCAL_CREDENTIALS` is not itself the
+  // secret — it is `"<username> <password>"`, parsed by `LocalAuthService`
+  // (split on the FIRST space only, so the password may contain spaces) — so
+  // measuring `config.adminLocalCredentials.length` directly would be
+  // measuring the username too, and would never fall to zero even for a
+  // one-character password. `parseLocalCredentialsPassword` mirrors that
+  // parse rule exactly so this check and boot-time parsing can never
+  // disagree about what the password actually is.
+  if (localLoginEnabled && !isPlaceholder(config.adminLocalCredentials)) {
+    const parsedPassword = parseLocalCredentialsPassword(
+      config.adminLocalCredentials,
+    );
+
+    if (parsedPassword === null) {
+      // No space, an empty username, or an empty password:
+      // `LocalAuthService` treats this as malformed and disables local login
+      // entirely (with a warn-level log), which `localLoginEnabled` above
+      // does not know — it is only `.trim() !== ''`. Worth its own finding
+      // rather than folding into `no-login-method` below: that check already
+      // has its own SSO-completeness reasoning, and conflating "local login
+      // is configured but broken" with "local login was never configured"
+      // would point the operator at the wrong fix (configure SSO) instead of
+      // the actual one (fix the format).
+      findings.push(
+        finding(
+          {
+            id: 'admin-local-credentials-malformed',
+            category: 'access',
+            title: 'ADMIN_LOCAL_CREDENTIALS is set but malformed',
+            detail:
+              'The value has no space separating a username from a password (or an empty username/password), so LocalAuthService disables local login entirely at boot. The admin console silently falls back to SSO only, with nothing on the sign-in page saying why.',
+            remediation:
+              'Set ADMIN_LOCAL_CREDENTIALS in deployment/.env to "<username> <password>" (one space between the two), or clear it entirely to disable local login on purpose.',
+          },
+          {
+            development: 'advisory',
+            staging: 'critical',
+            production: 'critical',
+          },
+          env,
+        ),
+      );
+    } else if (parsedPassword.length < MIN_LOCAL_PASSWORD_LENGTH) {
+      // The bar here is deliberately not the 32-character random-secret
+      // minimum `ADMIN_SESSION_SECRET` gets above: that value is generated
+      // once and never typed by a human, so asking for high entropy costs
+      // nothing. This one is a memorized password behind a login form, where
+      // NIST SP 800-63B's guidance is a length floor rather than a forced
+      // high-entropy string — 8 characters, the same floor OWASP ASVS L1
+      // uses. Below that, a password is guessable in a practical number of
+      // attempts even behind the login route's own rate limit.
+      findings.push(
+        finding(
+          {
+            id: 'admin-local-credentials-weak',
+            category: 'access',
+            title: `The local admin password is shorter than ${String(MIN_LOCAL_PASSWORD_LENGTH)} characters`,
+            detail: `${describeSecret(parsedPassword)}, below the ${String(MIN_LOCAL_PASSWORD_LENGTH)}-character minimum (NIST SP 800-63B / OWASP ASVS L1) for a password protecting full read-write admin access.`,
+            remediation: `Set ADMIN_LOCAL_CREDENTIALS in deployment/.env to "<username> <password>" with a password of at least ${String(MIN_LOCAL_PASSWORD_LENGTH)} characters — a short passphrase of a few random words is both easy to remember and long enough.`,
+          },
+          {
+            development: 'advisory',
+            staging: 'warning',
+            production: 'critical',
+          },
+          env,
+        ),
+      );
+    }
+  }
+
   if (!localLoginEnabled && !ssoFullyConfigured) {
     // Not a hardening nit: nobody can sign in at all. Checks the same
     // 5-var completeness as `isEnabled()`, not the looser `ssoConfigured` —
@@ -643,6 +845,133 @@ export function evaluateStaticChecks(
 }
 
 /**
+ * Whether a dotted-quad IPv4 address is one that cannot be reached from
+ * outside the network that handed it out. Split out so the IPv4-mapped IPv6
+ * form (`::ffff:10.1.2.3`) is judged by exactly the same rules rather than by
+ * a second, drifting copy of them.
+ */
+function isUnroutableIPv4(host: string): boolean {
+  const [a, b] = host.split('.').map(Number);
+  if (a === undefined || b === undefined) return false;
+  return (
+    a === 127 || // loopback
+    a === 10 || // RFC1918
+    (a === 172 && b >= 16 && b <= 31) || // RFC1918
+    (a === 192 && b === 168) || // RFC1918
+    (a === 169 && b === 254) || // link-local
+    a === 0 // "this network"
+  );
+}
+
+/**
+ * True when `host` (a Host-header hostname — no port, no brackets) certainly
+ * cannot be resolved by a device outside this host/network: loopback,
+ * RFC1918/link-local IPv4, loopback/unique-local/link-local IPv6, `.local`
+ * mDNS, or a bare single-label name — the shape of a Docker Compose service
+ * name or a LAN machine's own hostname, which resolves only on that specific
+ * network's DNS.
+ *
+ * Deliberately one-directional. A host that passes this (has a dot, isn't a
+ * private/loopback IP) is merely *not ruled out* — admin-server sits inside
+ * the backend network and has no way to dial out and confirm anything
+ * resolves from a device that isn't itself, so a normal-looking public FQDN
+ * is reported as "nothing to say", never as "reachable". Overstating that
+ * confidence is exactly the failure mode this check exists to avoid; see
+ * `evaluatePublicOriginCheck`'s doc.
+ */
+function looksUnreachableExternally(host: string): boolean {
+  const h = host.toLowerCase();
+  if (h === 'localhost' || h.endsWith('.localhost')) return true;
+  if (h.endsWith('.local')) return true;
+
+  if (isIPv4(h)) return isUnroutableIPv4(h);
+
+  if (isIPv6(h)) {
+    // An IPv4-mapped address (`::ffff:127.0.0.1`) is IPv6 by syntax and IPv4 by
+    // reach, and none of the prefix tests below match one — so without this it
+    // would fall through as "not ruled out" while being literally loopback.
+    // Node hands these out for a v4 peer on a dual-stack socket, so it is a
+    // plausible Host header, not a curiosity.
+    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(h);
+    if (mapped?.[1] !== undefined && isIPv4(mapped[1])) {
+      return isUnroutableIPv4(mapped[1]);
+    }
+
+    return (
+      h === '::1' || // loopback
+      h === '::' || // unspecified
+      h.startsWith('fc') || // unique-local fc00::/7
+      h.startsWith('fd') ||
+      h.startsWith('fe8') || // link-local fe80::/10
+      h.startsWith('fe9') ||
+      h.startsWith('fea') ||
+      h.startsWith('feb')
+    );
+  }
+
+  // No dot at all: not a real FQDN, so it can only be a bare label — a
+  // Compose service name (`admin-server`), an unqualified LAN hostname, or
+  // similar. None of those resolve outside the network that hands them out.
+  return !h.includes('.');
+}
+
+/**
+ * Is the address this request reached admin-server on one that certainly
+ * will not resolve for the audience a QR code is meant for?
+ *
+ * There is no `PUBLIC_ORIGIN` (or equivalent) variable anywhere in this
+ * deployment for admin-server to read and check — confirmed by reading
+ * `deployment/compose.yml` and `infra/scribear-nginx/nginx.conf`: nginx's own
+ * `server_name` is the wildcard `_` (matches any Host), and the one `ORIGIN`
+ * value in `deployment/.env.example` is read only by the demo curl scripts
+ * (`deployment/create-room.sh` and siblings), never by nginx or any service.
+ * `apps/admin-webapp/src/lib/join-url.ts` and `kiosk-url.ts` build every join
+ * link and kiosk QR code from `window.location.origin` — literally whatever
+ * host the operator's own browser used to reach the admin console — so the
+ * *only* place this fact exists is the Host header of the request that
+ * asked for this very report, forwarded unchanged by nginx
+ * (`proxy_set_header Host $host;`).
+ *
+ * That makes this check necessarily request-scoped, not deployment-scoped: it
+ * says "the address you reached this page on", not "the deployment's public
+ * origin" — a different admin, or the same admin through a different tunnel,
+ * could get a different answer from the same deployment. And it can only
+ * rule addresses *out*: admin-server sits inside the backend network with no
+ * way to dial out from a device that isn't itself, so a normal-looking public
+ * hostname is reported as nothing (silence, like every other check on this
+ * page that found no problem) rather than as verified-reachable — see
+ * `looksUnreachableExternally`'s doc for why overclaiming here would be worse
+ * than staying silent.
+ */
+export function evaluatePublicOriginCheck(
+  requestHostname: string,
+  env: DeploymentEnv,
+): ConfigFinding[] {
+  const host = requestHostname.trim();
+  // Should not happen over HTTP/1.1+ (Host is mandatory), and there is
+  // nothing to check without one — not worth its own finding.
+  if (host === '') return [];
+
+  if (!looksUnreachableExternally(host)) return [];
+
+  return [
+    finding(
+      {
+        id: 'public-origin-not-externally-resolvable',
+        category: 'access',
+        title:
+          'The address used to reach this console will not resolve outside this host/network',
+        detail: `This request reached admin-server as "${host}" — a loopback, private-network, or container-local address. join-url.ts and kiosk-url.ts build every join link and kiosk QR code from exactly this address (the browser's own window.location.origin), so a QR code generated by an operator reaching the console this way will not resolve for anyone outside this host or network — invisible until a room fails in front of an audience. admin-server cannot confirm the opposite (that a normal-looking public hostname actually resolves off-host) from inside the backend network, so this check only catches addresses that certainly will not work.`,
+        remediation:
+          'Reach the admin console through the same public DNS name your audience will use to scan the QR code (e.g. https://scribear.example.edu), not a loopback address, private IP, VPN-only alias, or bare container/service name. If a load balancer or reverse proxy sits in front of this nginx, verify it forwards the public Host header rather than an internal one.',
+      },
+      { development: 'advisory', staging: 'critical', production: 'critical' },
+      env,
+    ),
+  ];
+}
+
+/**
  * Why a `_probe` call did not produce a usable answer, as a clause to drop
  * into a finding's detail.
  *
@@ -697,6 +1026,27 @@ function redisUrlHasPlaceholderPassword(rawUrl: string): boolean {
  * behaviour for everything else. The inferences are deliberately phrased as
  * what was observed ("nothing is publishing") rather than as a conclusion about
  * a variable this process cannot see, because the observation is what is true.
+ *
+ * **How agreement between two services is established, and where it stops.**
+ * Nothing in this deployment exchanges digests of secrets, and nothing should
+ * start: the sidecar's `/config-audit` is unauthenticated on the backend
+ * network, so a fingerprint published there would be a slower way of
+ * disclosing a low-entropy secret to anything that can reach it. The only
+ * mechanism available is the one the sidecar's status poll already uses — a
+ * party holding one copy of a key presents it to the party holding the other,
+ * and the rejection is the proof. That covers exactly the pairs where a
+ * mutually-trusted party holds one side: sidecar↔node-server
+ * (`_nodeServerServiceKeyMismatch`) and admin-server↔session-manager
+ * (`_checkSessionManagerKey`).
+ *
+ * It does **not** cover `TRANSCRIPTION_API_KEY`, `NODE_SERVER_KEY` or
+ * `JWT_SECRET`. Each of those is held only by the two services that use it,
+ * neither of which exercises it until a real session starts, and none of them
+ * reports the outcome when it does — a rejected `TRANSCRIPTION_API_KEY` closes
+ * the upstream socket 1008 "Authentication Failed" and node-server records
+ * only a generic upstream flap. Closing that gap needs a new self-report from
+ * node-server, not a new check here, and it is deliberately not faked with an
+ * inference this page cannot stand behind.
  */
 export class ConfigCheckService {
   private _config: ConfigCheckConfig;
@@ -705,6 +1055,7 @@ export class ConfigCheckService {
   private _dbClient: AppDependencies['dbClient'];
   private _sessionManagerGatewayService: AppDependencies['sessionManagerGatewayService'];
   private _backupDirectoryService: AppDependencies['backupDirectoryService'];
+  private _testAudioGatewayService: AppDependencies['testAudioGatewayService'];
 
   constructor(
     configCheckConfig: ConfigCheckConfig,
@@ -713,6 +1064,7 @@ export class ConfigCheckService {
     dbClient: AppDependencies['dbClient'],
     sessionManagerGatewayService: AppDependencies['sessionManagerGatewayService'],
     backupDirectoryService: AppDependencies['backupDirectoryService'],
+    testAudioGatewayService: AppDependencies['testAudioGatewayService'],
   ) {
     this._config = configCheckConfig;
     this._fleetTelemetryService = fleetTelemetryService;
@@ -720,9 +1072,21 @@ export class ConfigCheckService {
     this._dbClient = dbClient;
     this._sessionManagerGatewayService = sessionManagerGatewayService;
     this._backupDirectoryService = backupDirectoryService;
+    this._testAudioGatewayService = testAudioGatewayService;
   }
 
-  async check(): Promise<ConfigCheckReport> {
+  /**
+   * @param requestHostname The Host header of the request that asked for
+   * this report (no port), used only by `evaluatePublicOriginCheck` — see
+   * its doc for why this one check is necessarily request-scoped rather than
+   * a property of `ConfigCheckConfig`. Defaults to `''` (no finding) so every
+   * existing direct caller of `.check()` — the great majority of this file's
+   * own unit tests — is unaffected; only the HTTP route passes a real value.
+   */
+  async check(
+    requestHostname = '',
+    log?: CheckLogger,
+  ): Promise<ConfigCheckReport> {
     const { environment, environmentSource, declaredButInvalid } =
       resolveEnvironment(this._config);
 
@@ -732,24 +1096,31 @@ export class ConfigCheckService {
       database,
       monitoring,
       secretPlaceholders,
+      sessionManagerKey,
       backup,
+      testAudioServiceKey,
     ] = await Promise.all([
       this._checkTelemetryBackplane(environment),
       this._checkServiceReachability(environment),
       this._checkDatabase(environment),
       this._checkMonitoring(environment),
       this._checkSecretPlaceholders(environment),
+      this._checkSessionManagerKey(environment, log),
       this._checkBackup(environment),
+      this._checkTestAudioServiceKey(environment),
     ]);
 
     const findings = [
       ...evaluateStaticChecks(this._config, environment, declaredButInvalid),
+      ...evaluatePublicOriginCheck(requestHostname, environment),
       ...database,
       ...telemetry,
       ...services,
       ...monitoring,
       ...secretPlaceholders,
+      ...sessionManagerKey,
       ...backup,
+      ...testAudioServiceKey,
     ];
 
     const summary: Record<CheckSeverity, number> = {
@@ -1062,6 +1433,105 @@ export class ConfigCheckService {
   }
 
   /**
+   * Is `TEST_AUDIO_SERVICE_KEY` actually the key `test-audio-generator` is
+   * running with — not just "not the example placeholder" (the static check
+   * above), but *live-verified* against the service it authenticates to.
+   *
+   * A key that is present, non-placeholder, and simply wrong — the operator
+   * copied the wrong value, or only one of the two `.env` copies was updated
+   * on a redeploy — is invisible to every check that inspects
+   * `TEST_AUDIO_SERVICE_KEY` alone; today it reads identically to a correct
+   * key right up until an operator presses "Send test audio" on a room and
+   * it fails. Shaped like `_checkGrafana`'s password check for the same
+   * reason: probe with the gateway already used for real traffic
+   * (`TestAudioGatewayService`, injected — the same "the value never leaves
+   * the process it authenticates from" discipline `_checkGrafana`'s doc
+   * describes) rather than re-deriving the URL/header here, and keep the
+   * three outcomes — verified, verified-wrong, and could-not-verify —
+   * distinct, the same distinction `probeFailure` exists to preserve for
+   * Grafana/Prometheus: a probe that could not run must not read as a pass.
+   *
+   * `listDevices()` (`GET /devices`) is the cheapest authenticated route the
+   * generator exposes — a read, not a job start — so this never triggers an
+   * actual test-audio stream just to check a key.
+   *
+   * Gated on `!isPlaceholder`, same as the local-password check above: a
+   * placeholder key is already reported by `secretChecks`, and a placeholder
+   * key that happens to be identical on both sides (an operator who copied
+   * the *same* placeholder into both `.env` files) would otherwise probe as
+   * "verified" and bury the far more important placeholder finding under a
+   * reassuring green result.
+   */
+  private async _checkTestAudioServiceKey(
+    env: DeploymentEnv,
+  ): Promise<ConfigFinding[]> {
+    if (!this._testAudioGatewayService.enabled) return [];
+    if (isPlaceholder(this._config.testAudioServiceKey)) return [];
+
+    const result = await this._testAudioGatewayService.listDevices();
+
+    const couldNotVerify = (detail: string): ConfigFinding[] => [
+      finding(
+        {
+          id: 'test-audio-service-key-probe-unavailable',
+          category: 'secrets',
+          title:
+            'Could not verify TEST_AUDIO_SERVICE_KEY against the test audio generator',
+          detail,
+          remediation:
+            'Check that test-audio-generator is running and reachable at TEST_AUDIO_BASE_URL, then re-check.',
+        },
+        { development: 'advisory', staging: 'warning', production: 'warning' },
+        env,
+      ),
+    ];
+
+    if (result.kind === 'unreachable') {
+      return couldNotVerify(
+        'TEST_AUDIO_BASE_URL is set and test-audio-generator did not answer GET /devices. TEST_AUDIO_SERVICE_KEY could not be checked either way — this is not a pass.',
+      );
+    }
+
+    if (result.kind === 'unparseable') {
+      return couldNotVerify(
+        `test-audio-generator answered GET /devices with HTTP ${String(result.status)} and a body Config Check could not parse. TEST_AUDIO_SERVICE_KEY could not be checked either way — this is not a pass.`,
+      );
+    }
+
+    if (result.status === 401 || result.status === 403) {
+      return [
+        finding(
+          {
+            id: 'test-audio-service-key-mismatch',
+            category: 'secrets',
+            title:
+              'TEST_AUDIO_SERVICE_KEY is rejected by the test audio generator',
+            detail: `GET /devices answered HTTP ${String(result.status)}. TEST_AUDIO_SERVICE_KEY is set and is not the example placeholder, but does not match test-audio-generator's own copy — every "Send test audio" attempt for a room will fail, indistinguishable from the room page alone from the generator being down.`,
+            remediation:
+              "Set TEST_AUDIO_SERVICE_KEY in deployment/.env to match test-audio-generator's own TEST_AUDIO_SERVICE_KEY (its inbound key), then recreate both containers.",
+          },
+          {
+            development: 'warning',
+            staging: 'critical',
+            production: 'critical',
+          },
+          env,
+        ),
+      ];
+    }
+
+    if (result.status >= 200 && result.status < 300) return [];
+
+    // Any other status the generator could actually answer with (5xx, an
+    // unexpected 4xx) is a service that answered but not usably — same
+    // "could not verify" bucket as unreachable/unparseable, not a pass and
+    // not a confirmed mismatch either.
+    return couldNotVerify(
+      `test-audio-generator answered GET /devices with HTTP ${String(result.status)}, neither the 200 a valid key produces nor the 401/403 a rejected one would. TEST_AUDIO_SERVICE_KEY could not be checked either way — this is not a pass.`,
+    );
+  }
+
+  /**
    * Is `db-backup` (deployment/compose.yml v10) actually completing, and is a
    * copy leaving this host.
    *
@@ -1208,6 +1678,17 @@ export class ConfigCheckService {
    * Unlike the Grafana/Prometheus checks above, this is never gated on an
    * optional profile: the sidecar is a core service, and all four secrets are
    * live in every deployment regardless of whether `monitoring` is on.
+   *
+   * Three outcomes, deliberately distinct, because collapsing them is how a
+   * console ends up implying a clean deployment it never managed to inspect:
+   *
+   * - the **sidecar** did not answer → `monitoring-sidecar-unreachable`. The
+   *   sidecar is the failure, not node-server, and it is the failure for the
+   *   alerts panel too;
+   * - the sidecar answered that **it** cannot currently vouch for node-server
+   *   → `secret-placeholder-audit-unavailable`, except for the one reason
+   *   that is not an outage at all (see `node-server-service-key-mismatch`);
+   * - the sidecar answered with a classification → the per-secret findings.
    */
   private async _checkSecretPlaceholders(
     env: DeploymentEnv,
@@ -1232,7 +1713,7 @@ export class ConfigCheckService {
           // before it can ever self-report on that specific key. Named here
           // so an operator does not have to discover it by reading logs.
           remediation:
-            "Check that monitoring-sidecar is running and reachable at monitoring-sidecar:80, and that its NODE_SERVER_SERVICE_API_KEY matches node-server's. If node-server is otherwise healthy, this can also mean NODE_SERVER_SERVICE_KEY itself is still the deployment/.env.example placeholder — node-server refuses to serve /status at all in that case, which this check cannot distinguish from an unrelated outage.",
+            'Check `docker compose logs node-server`. A node-server that refuses to start is the usual cause: it fails closed when NODE_SERVER_SERVICE_KEY is empty or still the deployment/.env.example placeholder, so it can never self-report on that particular key — which this check cannot distinguish from an unrelated outage.',
           docUrl: DOC.deployment,
         },
         { development: 'advisory', staging: 'warning', production: 'warning' },
@@ -1240,11 +1721,7 @@ export class ConfigCheckService {
       ),
     ];
 
-    if (!response?.ok) {
-      return unavailable(
-        `monitoring-sidecar's /api/monitoring/v1/config-audit ${probeFailure(response, this._config.upstreamTimeoutMs)}. JWT_SECRET, NODE_SERVER_KEY, NODE_SERVER_SERVICE_KEY and TRANSCRIPTION_API_KEY could not be checked.`,
-      );
-    }
+    if (!response?.ok) return this._sidecarUnreachable(response, env);
 
     // Parsing and shape-validating are both failures of the same kind from a
     // caller's point of view — "the sidecar cannot currently vouch for this" —
@@ -1274,6 +1751,13 @@ export class ConfigCheckService {
     const body: ConfigAuditResponse = parsed;
 
     if (body.nodeServer.status !== 'ok') {
+      // `unauthorized` is the one reason that is not an outage: node-server
+      // answered, and refused the key. That is a *proof* about two
+      // configuration values, not an inability to check one — see
+      // `_nodeServerServiceKeyMismatch`.
+      if (body.nodeServer.reason === SIDECAR_POLL_UNAUTHORIZED) {
+        return this._nodeServerServiceKeyMismatch(env);
+      }
       return unavailable(
         `monitoring-sidecar reports node-server status "${body.nodeServer.reason}" — JWT_SECRET, NODE_SERVER_KEY, NODE_SERVER_SERVICE_KEY and TRANSCRIPTION_API_KEY could not be checked.`,
       );
@@ -1335,6 +1819,167 @@ export class ConfigCheckService {
           env,
         ),
       );
+  }
+
+  /**
+   * The monitoring sidecar itself did not answer.
+   *
+   * First-class rather than a shade of "could not check node-server's
+   * secrets", which is how it used to be reported and which named the wrong
+   * subject: the sidecar is a core service that nothing else on this page
+   * covers — it is deliberately absent from `HealthCheckerService`'s probe
+   * targets, so `services-unreachable` never mentions it — and when it is
+   * down the console's alerts panel goes blank at the same moment, for the
+   * same reason. An operator reading "could not check node-server-held
+   * secrets" went looking at node-server, which was fine.
+   *
+   * The detail enumerates what is now *unknown* rather than leaving it
+   * implied. This is the same discipline the alerts panel adopted ("no alerts
+   * firing" and "we could not ask" are different sentences), and it matters
+   * more here because this check is the only thing that would have reported
+   * `node-server-service-key-mismatch`: if the sidecar is down, that pair is
+   * unverified, and saying nothing would read as agreement.
+   */
+  private _sidecarUnreachable(
+    response: Response | null,
+    env: DeploymentEnv,
+  ): ConfigFinding[] {
+    return [
+      finding(
+        {
+          id: 'monitoring-sidecar-unreachable',
+          category: 'monitoring',
+          title: 'The monitoring sidecar is not answering',
+          detail: `monitoring-sidecar's /api/monitoring/v1/config-audit ${probeFailure(response, this._config.upstreamTimeoutMs)}. While it is down this console cannot show alerts, and three things go unchecked rather than confirmed: node-server's classification of JWT_SECRET, NODE_SERVER_KEY, NODE_SERVER_SERVICE_KEY and TRANSCRIPTION_API_KEY; whether the sidecar and node-server agree on NODE_SERVER_SERVICE_KEY; and every fleet metric Prometheus scrapes from it.`,
+          remediation:
+            'Check `docker compose ps monitoring-sidecar` and `docker compose logs monitoring-sidecar`, and that MONITORING_SIDECAR_BASE_URL points at it on the backend network (http://monitoring-sidecar:80 by default).',
+          docUrl: DOC.monitoring,
+        },
+        { development: 'advisory', staging: 'warning', production: 'warning' },
+        env,
+      ),
+    ];
+  }
+
+  /**
+   * node-server refused the sidecar's key: the two copies of
+   * `NODE_SERVER_SERVICE_KEY` are different.
+   *
+   * This is the one *agreement* fact the deployment can already prove without
+   * anyone moving a secret, and it is proved the only way agreement is ever
+   * provable here — by a party that holds one copy presenting it to the party
+   * that holds the other, and reporting what came back. The sidecar polls
+   * node-server's `/status` with its `NODE_SERVER_SERVICE_API_KEY` every
+   * `NODE_STATUS_INTERVAL_SEC`; a 401 or 403 becomes the `unauthorized` poll
+   * reason, which `/config-audit` relays verbatim. Config Check reads it and
+   * says which two things disagree, rather than reporting the same string as
+   * one more way of not knowing.
+   *
+   * A rejection really is proof and not a guess, because both other
+   * explanations are closed off: node-server's `ServiceAuthService` refuses to
+   * construct when its own inbound key is empty or still `CHANGEME`, so a
+   * node-server that answers at all has a usable key, and the sidecar does not
+   * poll at all when its own copy is empty (it reports `disabled` instead).
+   * What remains is two different non-empty values — which is exactly the
+   * class of fault a placeholder check can never see.
+   */
+  private _nodeServerServiceKeyMismatch(env: DeploymentEnv): ConfigFinding[] {
+    return [
+      finding(
+        {
+          id: 'node-server-service-key-mismatch',
+          category: 'secrets',
+          title:
+            'monitoring-sidecar and node-server disagree on NODE_SERVER_SERVICE_KEY',
+          detail:
+            "node-server rejected the sidecar's status poll as unauthorized, so the two containers hold different values for NODE_SERVER_SERVICE_KEY — usually one of them was recreated after the .env changed and the other was not. Both values are real secrets rather than placeholders, so nothing else on this page reports them. While they disagree the sidecar publishes no node-server telemetry at all: the fleet dashboard's connection, upstream, auth and latency series stay empty, every alert rule built on them can never fire, and the secret classification above cannot be read.",
+          remediation:
+            'Set one NODE_SERVER_SERVICE_KEY in deployment/.env, then recreate both containers together: `docker compose up -d node-server monitoring-sidecar`. Restarting only one leaves them disagreeing.',
+          docUrl: DOC.deployment,
+        },
+        { development: 'advisory', staging: 'warning', production: 'critical' },
+        env,
+      ),
+    ];
+  }
+
+  /**
+   * Does session-manager accept the admin key this console presents?
+   *
+   * The second pair the deployment can prove today, and by the same mechanism
+   * as `_nodeServerServiceKeyMismatch`: admin-server holds one copy of
+   * `SESSION_MANAGER_API_KEY` and session-manager holds the other, so asking
+   * an admin-key-protected route and reading the status *is* the comparison.
+   * No secret is moved and no new credential is needed — this is the key the
+   * gateway already presents on every page of the console.
+   *
+   * Its own check rather than a branch of `_checkSharedSchemaVersion`, which
+   * makes the same call: that one is reached only after `dbClient.ping()`
+   * succeeds, so on a deployment whose Postgres is also down — the case where
+   * an operator most needs to know which faults are separate — a rejected
+   * admin key would go unmentioned. It costs one extra `GET` on a page that
+   * already makes several, and the endpoint is the cheapest authenticated
+   * read session-manager has.
+   *
+   * Deliberately silent in two cases. An empty `ADMIN_API_KEY` is reported by
+   * `admin-api-key-missing` instead, which is the better sentence for it (and
+   * would otherwise produce two findings for one mistake). A session-manager
+   * that does not answer at all is reported by `services-unreachable`; only an
+   * actual 401/403 — session-manager answering, and refusing — is evidence
+   * about the key.
+   */
+  private async _checkSessionManagerKey(
+    env: DeploymentEnv,
+    log?: CheckLogger,
+  ): Promise<ConfigFinding[]> {
+    if (this._config.adminApiKey === '') return [];
+
+    let status: number | undefined;
+    try {
+      const [response] =
+        await this._sessionManagerGatewayService.getSchemaStatus({
+          signal: AbortSignal.timeout(this._config.upstreamTimeoutMs),
+        });
+      status = response?.status;
+    } catch (err: unknown) {
+      // Unreachable, timed out, or an unreadable body. Not evidence about the
+      // key, and already reported by the health rollup — so this stays silent
+      // on the page rather than guessing.
+      //
+      // It is logged, though, because this catch is deliberately broad: it also
+      // absorbs a genuine defect in `getSchemaStatus` (an unexpected response
+      // shape, a bad timeout signal), and the health rollup probes a *different*
+      // endpoint, so nothing else would necessarily surface that. Silent on the
+      // page, never silent in the logs.
+      log?.debug(
+        { err },
+        'config-check: session-manager key probe could not run; reporting nothing about SESSION_MANAGER_API_KEY',
+      );
+      return [];
+    }
+
+    if (status !== 401 && status !== 403) return [];
+
+    return [
+      finding(
+        {
+          id: 'session-manager-admin-key-mismatch',
+          category: 'secrets',
+          title:
+            'admin-server and session-manager disagree on SESSION_MANAGER_API_KEY',
+          detail: `session-manager answered HTTP ${String(status)} to this console's admin key, so the two containers hold different values for SESSION_MANAGER_API_KEY (admin-server reads it as ADMIN_API_KEY). session-manager refuses to start when its own copy is empty or still the CHANGEME placeholder, so both values are real secrets that simply differ — usually one container was recreated after the .env changed and the other was not. Until they match, every page of this console that lists or edits rooms, devices, schedules or sessions answers 502 BACKEND_MISCONFIGURATION.`,
+          remediation:
+            'Set one SESSION_MANAGER_API_KEY in deployment/.env, then recreate both containers together: `docker compose up -d admin-server session-manager`. Restarting only one leaves them disagreeing.',
+          docUrl: DOC.deployment,
+        },
+        {
+          development: 'critical',
+          staging: 'critical',
+          production: 'critical',
+        },
+        env,
+      ),
+    ];
   }
 
   /**

@@ -9,6 +9,7 @@ import {
 import type { ConfigCheckConfig } from '#src/server/features/config-check/config-check.service.js';
 import {
   ConfigCheckService,
+  evaluatePublicOriginCheck,
   evaluateStaticChecks,
   resolveEnvironment,
 } from '#src/server/features/config-check/config-check.service.js';
@@ -109,6 +110,22 @@ const REACHABLE_DB: DbClientLike = {
 const FRESH_BACKUP = { newestDumpAgeMs: () => Promise.resolve(0) };
 
 /**
+ * A `TestAudioGatewayService` stand-in that reports the feature as unset —
+ * `TEST_AUDIO_BASE_URL` empty, matching `CLEAN`'s implicit default — so
+ * `_checkTestAudioServiceKey` short-circuits before ever calling
+ * `listDevices()`. Every helper below except the dedicated `testAudioService`
+ * describe block uses this, the same way they pass `{ enabled: false }` for
+ * the monitoring gateways they are not testing.
+ */
+const TEST_AUDIO_GATEWAY_DISABLED = {
+  enabled: false,
+  listDevices: () =>
+    Promise.reject(
+      new Error('listDevices() should not be called while disabled'),
+    ),
+};
+
+/**
  * A `ConfigCheckService` whose only live dependency is the database: fleet
  * telemetry is off, every probed service answers, and session-manager reports the
  * same schema version this build expects, so the findings from `check()` are
@@ -130,6 +147,7 @@ function dbService(
     dbClient as unknown as Args[3],
     gateway(reportedLatest) as unknown as Args[4],
     FRESH_BACKUP as unknown as Args[5],
+    TEST_AUDIO_GATEWAY_DISABLED as unknown as Args[6],
   );
 }
 
@@ -158,6 +176,64 @@ async function dbIds(
   return report.findings.map((f) => f.id);
 }
 
+/** The one gateway method the Config Check calls. */
+interface GatewayLike {
+  getSchemaStatus: () => Promise<unknown>;
+}
+
+/**
+ * A Session Manager that answers, and refuses this console's admin key —
+ * the only evidence `_checkSessionManagerKey` treats as proof. 401 is what
+ * the shared `INVALID_ADMIN_KEY_REPLY_SCHEMA` declares; 403 is covered too
+ * because a proxy in front of it may answer that instead.
+ */
+function rejectingGateway(status: number): GatewayLike {
+  return {
+    getSchemaStatus: () =>
+      Promise.resolve([{ status, data: { code: 'INVALID_ADMIN_KEY' } }, null]),
+  };
+}
+
+/** A Postgres that is not answering, so `_checkDatabase` short-circuits. */
+const UNREACHABLE_DB: DbClientLike = {
+  ping: () => Promise.reject(new Error('ECONNREFUSED')),
+  hasAdminSchema: () => Promise.resolve(true),
+  scribearSchemaState: () => Promise.resolve(CURRENT_SCHEMA),
+};
+
+/**
+ * A `ConfigCheckService` whose Session Manager gateway is `gw`, so `check()`'s
+ * findings include exactly what `_checkSessionManagerKey` made of it.
+ */
+function keyService(
+  gw: GatewayLike,
+  overrides: Partial<ConfigCheckConfig> = {},
+  dbClient: DbClientLike = REACHABLE_DB,
+): ConfigCheckService {
+  type Args = ConstructorParameters<typeof ConfigCheckService>;
+  return new ConfigCheckService(
+    { ...CLEAN, ...overrides },
+    { enabled: false } as unknown as Args[1],
+    { check: () => Promise.resolve([]) } as unknown as Args[2],
+    dbClient as unknown as Args[3],
+    gw as unknown as Args[4],
+    FRESH_BACKUP as unknown as Args[5],
+    // Disabled so the test-audio key probe stays out of these findings — these
+    // cases are about cross-service key *agreement*, and the probe has its own
+    // suite.
+    { enabled: false } as unknown as Args[6],
+  );
+}
+
+async function keyIds(
+  gw: GatewayLike,
+  overrides: Partial<ConfigCheckConfig> = {},
+  dbClient: DbClientLike = REACHABLE_DB,
+): Promise<string[]> {
+  const report = await keyService(gw, overrides, dbClient).check();
+  return report.findings.map((f) => f.id);
+}
+
 /** One row of the health rollup, as `HealthCheckerService.check()` returns. */
 interface HealthComponentLike {
   name: string;
@@ -180,6 +256,7 @@ function healthService(components: HealthComponentLike[]): ConfigCheckService {
     REACHABLE_DB as unknown as Args[3],
     gateway(LATEST_MIGRATION) as unknown as Args[4],
     FRESH_BACKUP as unknown as Args[5],
+    TEST_AUDIO_GATEWAY_DISABLED as unknown as Args[6],
   );
 }
 
@@ -297,6 +374,7 @@ function monitoringService(
     REACHABLE_DB as unknown as Args[3],
     gateway(LATEST_MIGRATION) as unknown as Args[4],
     FRESH_BACKUP as unknown as Args[5],
+    TEST_AUDIO_GATEWAY_DISABLED as unknown as Args[6],
   );
 }
 
@@ -329,6 +407,7 @@ function backupService(
     REACHABLE_DB as unknown as Args[3],
     gateway(LATEST_MIGRATION) as unknown as Args[4],
     backupDirectory as unknown as Args[5],
+    TEST_AUDIO_GATEWAY_DISABLED as unknown as Args[6],
   );
 }
 
@@ -454,6 +533,89 @@ describe('evaluateStaticChecks', () => {
     });
   });
 
+  // `isPlaceholder('')` is false, and the placeholder loop skips everything
+  // that is not a placeholder, so an unset secret used to produce no finding
+  // at all — silence indistinguishable from a well-configured deployment.
+  describe('secrets that are not set at all', (it) => {
+    it.each([
+      ['adminApiKey', 'admin-api-key-missing'],
+      ['dbPassword', 'db-password-missing'],
+    ] as const)('are caught for %s', (field, expectedId) => {
+      expect(ids({ [field]: '' })).toContain(expectedId);
+    });
+
+    it('says "not set", never "still the placeholder"', () => {
+      const [found] = check({ adminApiKey: '' }).filter(
+        (f) => f.id === 'admin-api-key-missing',
+      );
+
+      expect(found?.detail).toContain('not set');
+      expect(found?.detail).not.toContain('placeholder');
+    });
+
+    // The two mistakes are different mistakes, and each gets exactly one
+    // finding: an empty secret must not also be reported as a placeholder,
+    // and a placeholder must not also be reported as missing.
+    it.each([
+      ['', 'admin-api-key-missing', 'admin-api-key-placeholder'],
+      ['CHANGEME', 'admin-api-key-placeholder', 'admin-api-key-missing'],
+    ] as const)(
+      'reports %s as %s and not as %s',
+      (value, expectedId, notExpectedId) => {
+        const found = ids({ adminApiKey: value });
+
+        expect(found).toContain(expectedId);
+        expect(found).not.toContain(notExpectedId);
+      },
+    );
+
+    it('is critical for ADMIN_API_KEY in every environment', () => {
+      const [found] = check({
+        declaredEnv: 'development',
+        isDevelopment: true,
+        adminApiKey: '',
+      }).filter((f) => f.id === 'admin-api-key-missing');
+
+      // A console that cannot reach session-manager is equally broken on a
+      // laptop; unlike a weak secret, this is not a hardening nit that a dev
+      // box gets to ignore.
+      expect(found?.severity).toBe('critical');
+      expect(found?.productionSeverity).toBe('critical');
+    });
+
+    // A dev Postgres on `trust` authentication genuinely works with no
+    // password, so this one is graded down in development and not elsewhere.
+    it('is only a warning for DB_PASSWORD in development', () => {
+      const [found] = check({
+        declaredEnv: 'development',
+        isDevelopment: true,
+        dbPassword: '',
+      }).filter((f) => f.id === 'db-password-missing');
+
+      expect(found?.severity).toBe('warning');
+      expect(found?.productionSeverity).toBe('critical');
+    });
+
+    // Deliberate absences, pinned so a later edit has to argue with a test
+    // rather than quietly add a finding that fires on healthy deployments.
+    it('says nothing statically about an empty TEST_AUDIO_SERVICE_KEY', () => {
+      // Its peer fails closed and names the variable itself, and whether the
+      // two agree is answerable by calling the generator - better evidence
+      // than a string comparison, and a separate check.
+      expect(ids({ testAudioServiceKey: '' })).toStrictEqual([]);
+    });
+
+    it('reports an empty ADMIN_SESSION_SECRET once, by its own finding', () => {
+      const found = ids({ adminSessionSecret: '' });
+
+      expect(found).toStrictEqual(['admin-session-secret-missing']);
+    });
+
+    it('reports nothing when every secret is set', () => {
+      expect(ids()).toStrictEqual([]);
+    });
+  });
+
   describe('the session secret', (it) => {
     // Formerly a boot-time `minLength: 32`, which crashed the console over a
     // weak secret instead of reporting it. These checks are why it can be
@@ -492,6 +654,83 @@ describe('evaluateStaticChecks', () => {
 
       expect(found?.severity).toBe('warning');
       expect(found?.productionSeverity).toBe('critical');
+    });
+  });
+
+  describe('the local admin password', (it) => {
+    // CLEAN's own `adminLocalCredentials` password half is 16 characters —
+    // "healthy" for every test in this block that does not override it.
+    it('accepts a password at or above the 8-character minimum', () => {
+      const found = ids({ adminLocalCredentials: 'engrit 8charmin' });
+      expect(found).not.toContain('admin-local-credentials-weak');
+      expect(found).not.toContain('admin-local-credentials-malformed');
+    });
+
+    it('flags a password shorter than 8 characters', () => {
+      expect(ids({ adminLocalCredentials: 'engrit 1234567' })).toContain(
+        'admin-local-credentials-weak',
+      );
+    });
+
+    it('flags the one-character password the placeholder check alone would pass', () => {
+      // The motivating case: `x` contains no placeholder marker, so
+      // `admin-local-credentials-placeholder` stays quiet on its own.
+      const found = ids({ adminLocalCredentials: 'engrit x' });
+      expect(found).not.toContain('admin-local-credentials-placeholder');
+      expect(found).toContain('admin-local-credentials-weak');
+    });
+
+    it('does not flag a password of exactly 8 characters', () => {
+      expect(ids({ adminLocalCredentials: 'engrit exactly8' })).not.toContain(
+        'admin-local-credentials-weak',
+      );
+    });
+
+    it('is a warning in staging but blocks production, like the session secret', () => {
+      const [found] = check({
+        declaredEnv: 'staging',
+        adminLocalCredentials: 'engrit short',
+      }).filter((f) => f.id === 'admin-local-credentials-weak');
+
+      expect(found?.severity).toBe('warning');
+      expect(found?.productionSeverity).toBe('critical');
+    });
+
+    it('flags a value with no space as malformed, not as a zero-length password', () => {
+      const found = ids({ adminLocalCredentials: 'nopasswordhere' });
+      expect(found).toContain('admin-local-credentials-malformed');
+      expect(found).not.toContain('admin-local-credentials-weak');
+    });
+
+    it('flags a trailing space (empty password) as malformed', () => {
+      expect(ids({ adminLocalCredentials: 'engrit ' })).toContain(
+        'admin-local-credentials-malformed',
+      );
+    });
+
+    it('flags a leading space (empty username) as malformed', () => {
+      expect(ids({ adminLocalCredentials: ' engritpassword' })).toContain(
+        'admin-local-credentials-malformed',
+      );
+    });
+
+    it('does not flag an absent (login disabled) credential', () => {
+      const found = ids({
+        adminLocalCredentials: '',
+        // CLEAN's Azure vars are already all set, so this stays a clean
+        // SSO-only deployment rather than also tripping no-login-method.
+      });
+      expect(found).not.toContain('admin-local-credentials-weak');
+      expect(found).not.toContain('admin-local-credentials-malformed');
+    });
+
+    // One mistake, one finding: a value that already reads as the example
+    // placeholder is reported once, by the placeholder check, not a second
+    // time here as "too short" — mirrors the session-secret guard above.
+    it('does not also flag a placeholder value as weak, even when the parsed password is short', () => {
+      const found = ids({ adminLocalCredentials: 'CHANGEMEuser yz' });
+      expect(found).toContain('admin-local-credentials-placeholder');
+      expect(found).not.toContain('admin-local-credentials-weak');
     });
   });
 
@@ -716,6 +955,119 @@ describe('evaluateStaticChecks', () => {
         ).toBeTruthy();
       }
     });
+  });
+});
+
+describe('evaluatePublicOriginCheck', (it) => {
+  const idsFor = (host: string): string[] =>
+    evaluatePublicOriginCheck(host, 'production').map((f) => f.id);
+
+  it('flags localhost', () => {
+    expect(idsFor('localhost')).toContain(
+      'public-origin-not-externally-resolvable',
+    );
+  });
+
+  it('flags a loopback IPv4 literal', () => {
+    expect(idsFor('127.0.0.1')).toContain(
+      'public-origin-not-externally-resolvable',
+    );
+  });
+
+  it.each(['10.1.2.3', '172.16.0.5', '172.31.255.255', '192.168.1.1'])(
+    'flags the private IPv4 address %s',
+    (host) => {
+      expect(idsFor(host)).toContain('public-origin-not-externally-resolvable');
+    },
+  );
+
+  it('does not flag a public-looking IPv4 address', () => {
+    // 172.32.x is outside the 172.16/12 RFC1918 block by one - a real
+    // boundary check, not just "starts with 172".
+    expect(idsFor('172.32.0.1')).toEqual([]);
+  });
+
+  it('flags a link-local IPv4 address', () => {
+    expect(idsFor('169.254.1.1')).toContain(
+      'public-origin-not-externally-resolvable',
+    );
+  });
+
+  it('flags an IPv6 loopback literal', () => {
+    expect(idsFor('::1')).toContain('public-origin-not-externally-resolvable');
+  });
+
+  it('flags an IPv6 unique-local address', () => {
+    expect(idsFor('fd12:3456:789a::1')).toContain(
+      'public-origin-not-externally-resolvable',
+    );
+  });
+
+  // An IPv4-mapped address is IPv6 by syntax and IPv4 by reach. Node hands
+  // these out for a v4 peer on a dual-stack socket, so it is a plausible Host
+  // header — and every IPv6 prefix test misses it, so before this it passed
+  // through as "not ruled out" while being literally loopback.
+  it('flags an IPv4-mapped IPv6 loopback', () => {
+    expect(idsFor('::ffff:127.0.0.1')).toContain(
+      'public-origin-not-externally-resolvable',
+    );
+  });
+
+  it('flags an IPv4-mapped IPv6 RFC1918 address', () => {
+    expect(idsFor('::ffff:10.1.2.3')).toContain(
+      'public-origin-not-externally-resolvable',
+    );
+  });
+
+  it('stays quiet for an IPv4-mapped IPv6 public address', () => {
+    expect(idsFor('::ffff:93.184.216.34')).not.toContain(
+      'public-origin-not-externally-resolvable',
+    );
+  });
+
+  it('flags a bare single-label hostname (Compose service name shape)', () => {
+    expect(idsFor('admin-server')).toContain(
+      'public-origin-not-externally-resolvable',
+    );
+  });
+
+  it('flags a .local mDNS name', () => {
+    expect(idsFor('my-laptop.local')).toContain(
+      'public-origin-not-externally-resolvable',
+    );
+  });
+
+  it('does not flag a normal-looking public FQDN', () => {
+    // Cannot be *confirmed* reachable from admin-server's position (see the
+    // function's own doc) - only "not ruled out", which is silence.
+    expect(idsFor('scribear.example.edu')).toEqual([]);
+  });
+
+  it('does not flag a public IPv4 address', () => {
+    expect(idsFor('8.8.8.8')).toEqual([]);
+  });
+
+  it('reports nothing for an empty hostname', () => {
+    expect(idsFor('')).toEqual([]);
+  });
+
+  it('is advisory in development but blocks production', () => {
+    const [found] = evaluatePublicOriginCheck('localhost', 'staging').filter(
+      (f) => f.id === 'public-origin-not-externally-resolvable',
+    );
+    expect(found?.severity).toBe('critical');
+    expect(found?.productionSeverity).toBe('critical');
+
+    const [devFound] = evaluatePublicOriginCheck(
+      'localhost',
+      'development',
+    ).filter((f) => f.id === 'public-origin-not-externally-resolvable');
+    expect(devFound?.severity).toBe('advisory');
+  });
+
+  it('names the offending host in the detail', () => {
+    const [found] = evaluatePublicOriginCheck('localhost', 'production');
+    expect(found?.detail).toContain('localhost');
   });
 });
 
@@ -1258,6 +1610,160 @@ describe('the monitoring probes', () => {
   });
 });
 
+/** What `TestAudioGatewayService.listDevices()` can resolve to. */
+type TestAudioResultLike =
+  | { kind: 'response'; status: number; body?: unknown }
+  | { kind: 'unparseable'; status: number }
+  | { kind: 'unreachable'; err: unknown };
+
+/**
+ * A `ConfigCheckService` with a stand-in `TestAudioGatewayService`: `enabled`
+ * mirrors `TEST_AUDIO_BASE_URL` being set, and `listDevices()` resolves to
+ * `result` exactly once — every other dependency is healthy, so `check()`'s
+ * findings are exactly what `_checkTestAudioServiceKey` made of `result`.
+ */
+function testAudioService(
+  enabled: boolean,
+  result: TestAudioResultLike,
+  overrides: Partial<ConfigCheckConfig> = {},
+): ConfigCheckService {
+  type Args = ConstructorParameters<typeof ConfigCheckService>;
+  const gatewayStub = {
+    enabled,
+    listDevices: () => Promise.resolve(result),
+  };
+  return new ConfigCheckService(
+    { ...CLEAN, ...overrides },
+    { enabled: false } as unknown as Args[1],
+    { check: () => Promise.resolve([]) } as unknown as Args[2],
+    REACHABLE_DB as unknown as Args[3],
+    gateway(LATEST_MIGRATION) as unknown as Args[4],
+    FRESH_BACKUP as unknown as Args[5],
+    gatewayStub as unknown as Args[6],
+  );
+}
+
+async function testAudioIds(
+  enabled: boolean,
+  result: TestAudioResultLike,
+  overrides: Partial<ConfigCheckConfig> = {},
+): Promise<string[]> {
+  const report = await testAudioService(enabled, result, overrides).check();
+  return report.findings.map((f) => f.id);
+}
+
+describe('the test audio service key probe', (it) => {
+  it('does not probe at all when TEST_AUDIO_BASE_URL is unset', async () => {
+    // `enabled: false` here stands for "TEST_AUDIO_BASE_URL is empty" -
+    // `listDevices()` on this stub would reject if ever called, so a passing
+    // test also proves the probe was skipped, not merely that its result
+    // produced no finding.
+    const found = await testAudioIds(false, {
+      kind: 'unreachable',
+      err: new Error('should not be called'),
+    });
+    expect(found.some((id) => id.startsWith('test-audio-service-key-'))).toBe(
+      false,
+    );
+  });
+
+  it('reports nothing when the key is accepted', async () => {
+    const found = await testAudioIds(true, {
+      kind: 'response',
+      status: 200,
+      body: { devices: [] },
+    });
+    expect(found.some((id) => id.startsWith('test-audio-service-key-'))).toBe(
+      false,
+    );
+  });
+
+  it('flags a rejected key (wrong, not placeholder) as a mismatch, not a pass', async () => {
+    const found = await testAudioIds(true, {
+      kind: 'response',
+      status: 401,
+      body: {},
+    });
+    expect(found).toContain('test-audio-service-key-mismatch');
+  });
+
+  it('also flags a 403 as a mismatch', async () => {
+    const found = await testAudioIds(true, {
+      kind: 'response',
+      status: 403,
+      body: {},
+    });
+    expect(found).toContain('test-audio-service-key-mismatch');
+  });
+
+  it('is critical in staging and production, unlike a probe that could not run', async () => {
+    const [found] = (
+      await testAudioService(true, {
+        kind: 'response',
+        status: 401,
+        body: {},
+      }).check()
+    ).findings.filter((f) => f.id === 'test-audio-service-key-mismatch');
+    expect(found?.severity).toBe('critical');
+  });
+
+  it('reports "could not verify" - not a pass - when the generator is unreachable', async () => {
+    const found = await testAudioIds(true, {
+      kind: 'unreachable',
+      err: new Error('connect ECONNREFUSED'),
+    });
+    expect(found).toContain('test-audio-service-key-probe-unavailable');
+    expect(found).not.toContain('test-audio-service-key-mismatch');
+  });
+
+  it('reports "could not verify" when the response body is unparseable', async () => {
+    const found = await testAudioIds(true, {
+      kind: 'unparseable',
+      status: 200,
+    });
+    expect(found).toContain('test-audio-service-key-probe-unavailable');
+  });
+
+  it('reports "could not verify" on an unexpected status, not a pass', async () => {
+    const found = await testAudioIds(true, {
+      kind: 'response',
+      status: 500,
+      body: {},
+    });
+    expect(found).toContain('test-audio-service-key-probe-unavailable');
+  });
+
+  it('the "could not verify" finding is only a warning, never critical', async () => {
+    const [found] = (
+      await testAudioService(true, {
+        kind: 'unreachable',
+        err: new Error('timeout'),
+      }).check()
+    ).findings.filter(
+      (f) => f.id === 'test-audio-service-key-probe-unavailable',
+    );
+    expect(found?.severity).toBe('warning');
+    expect(found?.productionSeverity).toBe('warning');
+  });
+
+  it('does not probe when the key is still the example placeholder', async () => {
+    // Already reported by the static placeholder check - probing would
+    // either bury it under a second finding or, worse, read as "verified"
+    // if the generator happens to hold the same placeholder.
+    const found = await testAudioIds(
+      true,
+      { kind: 'unreachable', err: new Error('should not be called') },
+      { testAudioServiceKey: 'CHANGEME' },
+    );
+    expect(found).toContain('test-audio-service-key-placeholder');
+    expect(found.some((id) => id.startsWith('test-audio-service-key-'))).toBe(
+      true, // only the placeholder finding, none of the probe's own ids
+    );
+    expect(found).not.toContain('test-audio-service-key-mismatch');
+    expect(found).not.toContain('test-audio-service-key-probe-unavailable');
+  });
+});
+
 describe('the backup service (compose.yml v12)', (it) => {
   describe('BACKUP_ENABLED=false', (it) => {
     it('reports one advisory finding instead of any freshness or offsite finding', async () => {
@@ -1459,14 +1965,6 @@ describe('secret placeholders (PLAN-ConfigCheck-Coverage Phase 2)', (it) => {
     expect(found?.productionSeverity).toBe('critical');
   });
 
-  it('reports unavailable, not silence, when the sidecar cannot be reached', async () => {
-    stubProbes({ [CONFIG_AUDIT_URL]: 'network-error' });
-
-    const found = await monitoringIds();
-
-    expect(found).toContain('secret-placeholder-audit-unavailable');
-  });
-
   it('reports unavailable when the sidecar answers with a body Config Check cannot parse', async () => {
     vi.stubGlobal('fetch', () =>
       Promise.resolve(new Response('not json at all', { status: 200 })),
@@ -1554,30 +2052,7 @@ describe('secret placeholders (PLAN-ConfigCheck-Coverage Phase 2)', (it) => {
     expect(found).not.toContain('secret-placeholder-audit-unavailable');
   });
 
-  it('says the sidecar answered with an error, not that it timed out, on a non-2xx', async () => {
-    stubProbes({ [CONFIG_AUDIT_URL]: { status: 503 } });
-
-    const report = await monitoringService().check();
-    const found = report.findings.find(
-      (f) => f.id === 'secret-placeholder-audit-unavailable',
-    );
-
-    expect(found?.detail).toContain('answered HTTP 503');
-    expect(found?.detail).not.toContain('did not answer');
-  });
-
-  it('says it timed out when the sidecar does not answer at all', async () => {
-    stubProbes({ [CONFIG_AUDIT_URL]: 'network-error' });
-
-    const report = await monitoringService().check();
-    const found = report.findings.find(
-      (f) => f.id === 'secret-placeholder-audit-unavailable',
-    );
-
-    expect(found?.detail).toContain('did not answer within');
-  });
-
-  it.each(['disabled', 'unauthorized', 'not-yet-polled'] as const)(
+  it.each(['disabled', 'not-yet-polled', 'unreachable'] as const)(
     'reports unavailable, not a clean bill of health, when node-server status is %s',
     async (reason) => {
       stubProbes({
@@ -1597,7 +2072,12 @@ describe('secret placeholders (PLAN-ConfigCheck-Coverage Phase 2)', (it) => {
   it('is only a warning, never critical, when the audit itself is unavailable', async () => {
     // A missing report is a sidecar/network problem, not proof of a bad
     // secret - it must not read as worse than "cannot currently check".
-    stubProbes({ [CONFIG_AUDIT_URL]: 'network-error' });
+    stubProbes({
+      [CONFIG_AUDIT_URL]: {
+        status: 200,
+        body: { nodeServer: { status: 'unavailable', reason: 'unreachable' } },
+      },
+    });
 
     const report = await monitoringService().check();
     const found = report.findings.find(
@@ -1606,5 +2086,261 @@ describe('secret placeholders (PLAN-ConfigCheck-Coverage Phase 2)', (it) => {
 
     expect(found?.severity).toBe('warning');
     expect(found?.productionSeverity).toBe('warning');
+  });
+});
+
+// PLAN-VisibleErrors §7.2.5. Previously inferable only as a side effect of
+// `secret-placeholder-audit-unavailable`, which named node-server - the wrong
+// subject - for a fault in a service the health rollup does not probe at all.
+describe('the monitoring sidecar being down', (it) => {
+  it('is its own finding, not a shade of the secret audit', async () => {
+    stubProbes({ [CONFIG_AUDIT_URL]: 'network-error' });
+
+    const found = await monitoringIds();
+
+    expect(found).toContain('monitoring-sidecar-unreachable');
+    expect(found).not.toContain('secret-placeholder-audit-unavailable');
+  });
+
+  it('never reads as "the secrets are fine"', async () => {
+    // The discipline the alerts panel adopted: "nothing to report" and "we
+    // could not ask" must not be the same answer.
+    stubProbes({ [CONFIG_AUDIT_URL]: 'network-error' });
+
+    const found = await monitoringIds();
+
+    expect(found.some((id) => id.endsWith('-placeholder'))).toBe(false);
+    expect(found).not.toContain('node-server-service-key-mismatch');
+  });
+
+  it('says what went unchecked, including the key-agreement pair', async () => {
+    stubProbes({ [CONFIG_AUDIT_URL]: 'network-error' });
+
+    const report = await monitoringService().check();
+    const found = report.findings.find(
+      (f) => f.id === 'monitoring-sidecar-unreachable',
+    );
+
+    expect(found?.detail).toContain('NODE_SERVER_SERVICE_KEY');
+    expect(found?.detail).toContain('alerts');
+  });
+
+  it('says it timed out when the sidecar does not answer at all', async () => {
+    stubProbes({ [CONFIG_AUDIT_URL]: 'network-error' });
+
+    const report = await monitoringService().check();
+    const found = report.findings.find(
+      (f) => f.id === 'monitoring-sidecar-unreachable',
+    );
+
+    expect(found?.detail).toContain('did not answer within');
+  });
+
+  it('says the sidecar answered with an error, not that it timed out, on a non-2xx', async () => {
+    stubProbes({ [CONFIG_AUDIT_URL]: { status: 503 } });
+
+    const report = await monitoringService().check();
+    const found = report.findings.find(
+      (f) => f.id === 'monitoring-sidecar-unreachable',
+    );
+
+    expect(found?.detail).toContain('answered HTTP 503');
+    expect(found?.detail).not.toContain('did not answer');
+  });
+
+  it('is a warning, never critical: it is an outage, not proof of a bad secret', async () => {
+    stubProbes({ [CONFIG_AUDIT_URL]: 'network-error' });
+
+    const report = await monitoringService().check();
+    const found = report.findings.find(
+      (f) => f.id === 'monitoring-sidecar-unreachable',
+    );
+
+    expect(found?.severity).toBe('warning');
+    expect(found?.productionSeverity).toBe('warning');
+  });
+
+  it('stays quiet when the sidecar answers', async () => {
+    const found = await monitoringIds();
+
+    expect(found).not.toContain('monitoring-sidecar-unreachable');
+  });
+});
+
+// PLAN-VisibleErrors §7.2.3. Two non-placeholder keys that simply differ are
+// invisible to every placeholder check in this file, and produce a deployment
+// that looks green and does not work.
+describe('cross-service key agreement', () => {
+  describe('monitoring-sidecar and node-server (NODE_SERVER_SERVICE_KEY)', (it) => {
+    /** node-server answered the sidecar's poll 401/403. */
+    const REJECTED = {
+      status: 200,
+      body: { nodeServer: { status: 'unavailable', reason: 'unauthorized' } },
+    };
+
+    it('names the pair when node-server rejects the sidecar', async () => {
+      stubProbes({ [CONFIG_AUDIT_URL]: REJECTED });
+
+      const found = await monitoringIds();
+
+      expect(found).toContain('node-server-service-key-mismatch');
+    });
+
+    // The whole point of the finding: `unauthorized` used to be reported as
+    // one more way of not knowing, when it is the opposite - a proof about
+    // two configuration values.
+    it('does not also report the audit as merely unavailable', async () => {
+      stubProbes({ [CONFIG_AUDIT_URL]: REJECTED });
+
+      const found = await monitoringIds();
+
+      expect(found).not.toContain('secret-placeholder-audit-unavailable');
+    });
+
+    it('names both containers and the exact variable', async () => {
+      stubProbes({ [CONFIG_AUDIT_URL]: REJECTED });
+
+      const report = await monitoringService().check();
+      const found = report.findings.find(
+        (f) => f.id === 'node-server-service-key-mismatch',
+      );
+
+      expect(found?.title).toContain('NODE_SERVER_SERVICE_KEY');
+      expect(found?.title).toContain('monitoring-sidecar');
+      expect(found?.title).toContain('node-server');
+      // The next action has to name both containers: recreating one is what
+      // leaves them disagreeing.
+      expect(found?.remediation).toContain('node-server monitoring-sidecar');
+    });
+
+    it('blocks promotion to production without being critical in a dev box', async () => {
+      stubProbes({ [CONFIG_AUDIT_URL]: REJECTED });
+
+      const report = await monitoringService({
+        declaredEnv: 'development',
+      }).check();
+      const found = report.findings.find(
+        (f) => f.id === 'node-server-service-key-mismatch',
+      );
+
+      expect(found?.severity).toBe('advisory');
+      expect(found?.productionSeverity).toBe('critical');
+    });
+
+    it('stays quiet when the poll succeeds', async () => {
+      const found = await monitoringIds();
+
+      expect(found).not.toContain('node-server-service-key-mismatch');
+    });
+
+    // An unreachable sidecar cannot vouch for this pair either way, and the
+    // silence must not read as agreement - `monitoring-sidecar-unreachable`
+    // is what says so.
+    it('is neither claimed nor denied when the sidecar is unreachable', async () => {
+      stubProbes({ [CONFIG_AUDIT_URL]: 'network-error' });
+
+      const found = await monitoringIds();
+
+      expect(found).not.toContain('node-server-service-key-mismatch');
+      expect(found).toContain('monitoring-sidecar-unreachable');
+    });
+  });
+
+  describe('admin-server and session-manager (SESSION_MANAGER_API_KEY)', (it) => {
+    it.each([401, 403])(
+      'names the pair when session-manager answers %i',
+      async (status) => {
+        const found = await keyIds(rejectingGateway(status));
+
+        expect(found).toContain('session-manager-admin-key-mismatch');
+      },
+    );
+
+    it('names both containers, the variable, and what an operator sees', async () => {
+      const report = await keyService(rejectingGateway(401)).check();
+      const found = report.findings.find(
+        (f) => f.id === 'session-manager-admin-key-mismatch',
+      );
+
+      expect(found?.title).toContain('SESSION_MANAGER_API_KEY');
+      expect(found?.title).toContain('admin-server');
+      expect(found?.title).toContain('session-manager');
+      expect(found?.detail).toContain('BACKEND_MISCONFIGURATION');
+      expect(found?.remediation).toContain('admin-server session-manager');
+      expect(found?.severity).toBe('critical');
+      // The one secret this finding is about is one admin-server actually
+      // holds, so the disclosure rule is checked against the value itself
+      // rather than against a shape.
+      expect(found?.detail).not.toContain(CLEAN.adminApiKey);
+      expect(found?.remediation).not.toContain(CLEAN.adminApiKey);
+    });
+
+    it('stays quiet when session-manager accepts the key', async () => {
+      const found = await keyIds(gateway(LATEST_MIGRATION));
+
+      expect(found).not.toContain('session-manager-admin-key-mismatch');
+    });
+
+    // A service that did not answer is not evidence about a key, and
+    // `services-unreachable` already reports it. Two findings for one cause
+    // is the pattern this page avoids.
+    it('stays quiet when session-manager did not answer at all', async () => {
+      const found = await keyIds(gateway(null));
+
+      expect(found).not.toContain('session-manager-admin-key-mismatch');
+    });
+
+    it('stays quiet when the gateway throws', async () => {
+      const found = await keyIds({
+        getSchemaStatus: () => Promise.reject(new Error('timed out')),
+      });
+
+      expect(found).not.toContain('session-manager-admin-key-mismatch');
+    });
+
+    // Silent on the page is right — a probe that could not run is not evidence
+    // about the key. Silent in the logs is not: this catch is broad enough to
+    // absorb a real defect in `getSchemaStatus`, and the health rollup probes a
+    // different endpoint, so nothing else would necessarily surface it.
+    it('logs the reason it could not run, even though it reports nothing', async () => {
+      const err = new Error('timed out');
+      const debug = vi.fn();
+
+      await keyService({
+        getSchemaStatus: () => Promise.reject(err),
+      }).check('', { debug });
+
+      expect(debug).toHaveBeenCalledWith(
+        { err },
+        expect.stringContaining('SESSION_MANAGER_API_KEY'),
+      );
+    });
+
+    it('does not require a logger', async () => {
+      const found = await keyIds({
+        getSchemaStatus: () => Promise.reject(new Error('boom')),
+      });
+
+      expect(found).not.toContain('session-manager-admin-key-mismatch');
+    });
+
+    // An unset key is a different sentence with a different fix, and
+    // `admin-api-key-missing` already says it.
+    it('defers to admin-api-key-missing when the key is not set at all', async () => {
+      const found = await keyIds(rejectingGateway(401), { adminApiKey: '' });
+
+      expect(found).toContain('admin-api-key-missing');
+      expect(found).not.toContain('session-manager-admin-key-mismatch');
+    });
+
+    // Not folded into `_checkSharedSchemaVersion`, which makes the same call
+    // but only after `dbClient.ping()` succeeds: a deployment with both
+    // faults most needs to be told they are separate.
+    it('is reported even when Postgres is down', async () => {
+      const found = await keyIds(rejectingGateway(401), {}, UNREACHABLE_DB);
+
+      expect(found).toContain('database-unreachable');
+      expect(found).toContain('session-manager-admin-key-mismatch');
+    });
   });
 });

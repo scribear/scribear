@@ -23,9 +23,14 @@ export class ConfigCheckController {
    *
    * The response contains no secret values — only classifications and lengths.
    * See `describeSecret`.
+   *
+   * `req.hostname` — the Host header nginx forwarded unchanged — is passed
+   * through so `evaluatePublicOriginCheck` can tell whether the address this
+   * very request reached admin-server on could ever work in a QR code. See
+   * that function's doc for why this is the only place that fact is visible.
    */
-  async configCheck(_req: BaseFastifyRequest, res: BaseFastifyReply) {
-    const report = await this._configCheckService.check();
+  async configCheck(req: BaseFastifyRequest, res: BaseFastifyReply) {
+    const report = await this._configCheckService.check(req.hostname, req.log);
     res.code(200).send(okEnvelope(report));
   }
 }
