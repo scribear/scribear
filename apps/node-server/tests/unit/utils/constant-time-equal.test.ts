@@ -3,6 +3,7 @@ import { describe, expect } from 'vitest';
 import {
   assertNotPlaceholderKey,
   constantTimeEqual,
+  isPlaceholderSecret,
 } from '#src/server/utils/constant-time-equal.js';
 
 describe('constantTimeEqual', (it) => {
@@ -66,5 +67,36 @@ describe('assertNotPlaceholderKey', (it) => {
         'NODE_SERVER_SERVICE_API_KEY',
       );
     }).not.toThrow();
+  });
+});
+
+// Newly load-bearing (AppConfig.secretPlaceholders now calls this directly)
+// though the empty/CHANGEME logic itself predates that caller.
+describe('isPlaceholderSecret', (it) => {
+  it('is true for an empty string', () => {
+    expect(isPlaceholderSecret('')).toBe(true);
+  });
+
+  it('is true for the literal placeholder, case-insensitively', () => {
+    expect(isPlaceholderSecret('CHANGEME')).toBe(true);
+    expect(isPlaceholderSecret('changeme')).toBe(true);
+    expect(isPlaceholderSecret('ChangeMe')).toBe(true);
+  });
+
+  it('is true when the placeholder is only a substring', () => {
+    expect(isPlaceholderSecret('prefix-CHANGEME-suffix')).toBe(true);
+    expect(
+      isPlaceholderSecret('CHANGEME-JWT-must-be-at-least-32-characters-long'),
+    ).toBe(true);
+  });
+
+  it('is false for whitespace-only', () => {
+    // Not empty and not the marker - left alone deliberately, the same
+    // restraint the rest of this check applies (no trimming, no strength rule).
+    expect(isPlaceholderSecret('   ')).toBe(false);
+  });
+
+  it('is false for a real, non-placeholder secret', () => {
+    expect(isPlaceholderSecret('a-real-high-entropy-secret')).toBe(false);
   });
 });

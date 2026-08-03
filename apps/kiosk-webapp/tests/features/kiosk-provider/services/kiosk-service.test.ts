@@ -6,6 +6,7 @@ import {
   NetworkError,
   UnexpectedResponseError,
 } from '@scribear/base-api-client';
+import { LongPollResponseError } from '@scribear/base-long-poll-client';
 import { SchemaValidationError as WsSchemaValidationError } from '@scribear/base-websocket-client';
 import type { MicrophoneService } from '@scribear/microphone-store';
 import type { NodeServerClient } from '@scribear/node-server-client';
@@ -940,6 +941,67 @@ describe('KioskService schedule long-poll health (2.5)', () => {
 
     for (let i = 0; i < 3; i++) {
       fakePoll.emit('error', new UnexpectedResponseError(500));
+    }
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(scheduleFaults.at(-1)?.message).toMatch(/HTTP 500/);
+  });
+
+  it('names a revoked device token rather than blaming the schedule service', async () => {
+    const service = await bringToIdle();
+    const { scheduleFaults } = observe(service);
+
+    // A declared 401 used to reach `poll.on('data')` as if it were the
+    // schedule payload, because `createEndpointClient` returns declared
+    // statuses in the response slot. Nothing was said, and `payload.sessions`
+    // was `undefined`.
+    for (let i = 0; i < 3; i++) {
+      fakePoll.emit(
+        'error',
+        new LongPollResponseError(401, {
+          code: 'INVALID_DEVICE_TOKEN',
+          message: 'The DEVICE_TOKEN cookie is missing, expired, or revoked.',
+        }),
+      );
+    }
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(scheduleFaults.at(-1)?.message).toMatch(/Re-activate the device/);
+    expect(scheduleFaults.at(-1)?.message).not.toMatch(/HTTP 401/);
+  });
+
+  it('names an unassigned device on a 404 rather than blaming the schedule service', async () => {
+    const service = await bringToIdle();
+    const { scheduleFaults } = observe(service);
+
+    for (let i = 0; i < 3; i++) {
+      fakePoll.emit(
+        'error',
+        new LongPollResponseError(404, {
+          code: 'DEVICE_NOT_IN_ROOM',
+          message: 'Device is not assigned to a room.',
+        }),
+      );
+    }
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(scheduleFaults.at(-1)?.message).toMatch(/not assigned to a room/);
+  });
+
+  it('falls back to the HTTP-status wording for a declared 500', async () => {
+    const service = await bringToIdle();
+    const { scheduleFaults } = observe(service);
+
+    // `LongPollResponseError` extends `UnexpectedResponseError`, so a status
+    // with no device-specific meaning keeps the pre-existing wording.
+    for (let i = 0; i < 3; i++) {
+      fakePoll.emit(
+        'error',
+        new LongPollResponseError(500, {
+          code: 'INTERNAL_ERROR',
+          message: 'boom',
+        }),
+      );
     }
     await vi.advanceTimersByTimeAsync(0);
 

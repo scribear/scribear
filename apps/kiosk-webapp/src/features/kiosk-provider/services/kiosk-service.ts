@@ -6,7 +6,10 @@ import {
   NetworkError,
   UnexpectedResponseError,
 } from '@scribear/base-api-client';
-import { type LongPollClient } from '@scribear/base-long-poll-client';
+import {
+  type LongPollClient,
+  LongPollResponseError,
+} from '@scribear/base-long-poll-client';
 import {
   type WebSocketClient,
   SchemaValidationError as WsSchemaValidationError,
@@ -806,6 +809,20 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
       'Scheduled sessions may not start or end on time on this kiosk.';
     if (err instanceof NetworkError) {
       return `Cannot reach the ScribeAR schedule service. ${consequence}`;
+    }
+    // Checked before `UnexpectedResponseError`, which it extends. These are
+    // statuses the route *declares*, so the server is up and answering - the
+    // problem is this device, and only a human can fix it. Before the
+    // long-poll client learned to treat a declared non-200 as a failure, these
+    // bodies were emitted as if they were the schedule payload and the kiosk
+    // showed nothing at all.
+    if (err instanceof LongPollResponseError) {
+      if (err.status === 401) {
+        return `This kiosk's registration is no longer valid, so it has stopped receiving schedule updates. Re-activate the device from the admin console.`;
+      }
+      if (err.status === 404) {
+        return `This kiosk is not assigned to a room, so it has no schedule. Assign it to a room from the admin console.`;
+      }
     }
     if (err instanceof UnexpectedResponseError) {
       return `The schedule service is failing (HTTP ${err.status.toString()}). ${consequence}`;

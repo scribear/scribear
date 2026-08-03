@@ -11,6 +11,8 @@ import type {
   BaseRouteDefinition,
 } from '@scribear/base-schema';
 
+import { LongPollResponseError } from './errors.js';
+
 function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === 'AbortError';
 }
@@ -89,6 +91,14 @@ interface LongPollClientEvents<S extends BaseLongPollRouteSchema> {
       ? Static<S['response'][200]>
       : never,
   ) => void;
+  /**
+   * Fires on every failed poll, before the retry is scheduled. Carries a
+   * {@link NetworkError} (unreachable), a {@link LongPollResponseError} (the
+   * route answered a declared non-200/204 status - read `.status`, `.code` and
+   * `.body` for the cause), or a plain {@link UnexpectedResponseError}
+   * (off-contract response). Also fires, without a retry, if a `data` listener
+   * throws.
+   */
   error: (err: NetworkError | UnexpectedResponseError | Error) => void;
   /**
    * Fires on stop (explicit `close()` or unrecoverable error).
@@ -103,13 +113,16 @@ interface LongPollClientEvents<S extends BaseLongPollRouteSchema> {
  *
  * Each poll appends the current version cursor to the URL. The server
  * responds with 200 + payload (cursor advances), 204 (no change, re-poll
- * immediately), or an error (triggers backoff retry).
+ * immediately), or anything else (triggers backoff retry). "Anything else"
+ * includes statuses the route *declares* - a 401 or 404 error body is a
+ * failure for this loop, not data; see {@link LongPollResponseError}.
  *
  * State machine:
  * ```
  *   IDLE -> POLLING (start())
  *   POLLING -> POLLING (200 or 204 - re-polls immediately)
- *   POLLING -> WAITING_RETRY (network error or non-2xx response)
+ *   POLLING -> WAITING_RETRY (network error, or any response that is not
+ *              200/204, declared or not)
  *   POLLING -> CLOSED (close() called)
  *   WAITING_RETRY -> POLLING (retry timer fires)
  *   * -> CLOSED (close())
@@ -229,6 +242,34 @@ export class LongPollClient<
         return;
       }
 
+      // A status the route declares but which is not a poll result (401, 404,
+      // 500, ...) arrives here in the *response* slot with a null error,
+      // because `createEndpointClient` treats "declared" as "on contract"
+      // regardless of status. It is still a failure for this loop, and one
+      // whose cause must reach the consumer rather than be laundered into a
+      // payload - see `LongPollResponseError`.
+      //
+      // Deliberately routed through `_handleFailure` (emit + backoff retry)
+      // rather than being made terminal for any status, including 401. Nothing
+      // in the fleet re-mints a credential on demand: the kiosk's DEVICE_TOKEN
+      // is replaced only by a human re-activating the device, and
+      // node-server's service key only by a redeploy. Both of those *do*
+      // happen while the client is running, and a poll that stopped for good
+      // would not notice - the kiosk would sit on a stale schedule until
+      // someone power-cycled the display. Backoff caps the cost of waiting at
+      // one request per 30s, and the consumer is told every time.
+      if (result !== null && result.status !== 200 && result.status !== 204) {
+        this._handleFailure(
+          new LongPollResponseError(result.status, result.data),
+        );
+        return;
+      }
+
+      // Reset only once the response is known to be a real poll result.
+      // Resetting before the status check let a permanently-failing status
+      // (a wrong API key answering 401 forever) hold `_attempt` at 0, so
+      // backoff never grew past `initialMs` and the client retried a hopeless
+      // request once a second indefinitely.
       this._attempt = 0;
 
       if (result === null || result.status === 204) continue;
@@ -237,8 +278,47 @@ export class LongPollClient<
       const newVersion = (result.data as Record<string, unknown>)[
         this._versionResponseKey
       ];
-      if (typeof newVersion === 'number') this._currentVersion = newVersion;
-      this._emit('data', result.data);
+      if (typeof newVersion !== 'number') {
+        // The body already passed the 200 schema, so this is not contract
+        // drift - it means `versionResponseKey` does not name a numeric field
+        // in that schema, i.e. the client was constructed wrong. Emitting the
+        // payload anyway would leave the cursor unmoved, and the server
+        // answers 200 to the same cursor immediately: a hot loop with no
+        // delay between requests. Fail into backoff instead, so the
+        // misconfiguration is visible and bounded.
+        this._handleFailure(
+          new UnexpectedResponseError(
+            200,
+            `200 response body has no numeric '${this._versionResponseKey}' field; cannot advance the long-poll cursor.`,
+          ),
+        );
+        return;
+      }
+      this._currentVersion = newVersion;
+      this._emitData(result.data);
+    }
+  }
+
+  /**
+   * Emit `data`, containing any exception a listener throws.
+   *
+   * Without this a throwing listener escapes the `while` loop of a `void`-ed
+   * async method: the client is left in `POLLING` with no request in flight
+   * and no retry armed - permanently silent, while `state` still reads
+   * healthy - and the exception surfaces only as an unhandled rejection. That
+   * is how the 404-emitted-as-data bug actually manifested on the kiosk, whose
+   * listener iterates `payload.sessions`.
+   */
+  private _emitData(payload: unknown): void {
+    try {
+      this._emit('data', payload);
+    } catch (cause: unknown) {
+      this._emit(
+        'error',
+        cause instanceof Error
+          ? cause
+          : new Error('long-poll data listener threw', { cause }),
+      );
     }
   }
 

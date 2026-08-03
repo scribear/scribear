@@ -279,10 +279,20 @@ export const STATUS_PROCESS_SCHEMA = Type.Object({
 export type StatusProcess = Static<typeof STATUS_PROCESS_SCHEMA>;
 
 /**
- * Whether each secret this process holds is still the
- * `deployment/.env.example` `CHANGEME` placeholder — never the value itself,
- * matching the discipline `describeSecret()` already applies on the Admin
- * Server (PLAN-ConfigCheck-Coverage Phase 2).
+ * Whether each secret this process holds is unusable — still the
+ * `deployment/.env.example` `CHANGEME` placeholder, or empty — never the
+ * value itself, matching the discipline `describeSecret()` already applies on
+ * the Admin Server (PLAN-ConfigCheck-Coverage Phase 2).
+ *
+ * Empty counts the same as `CHANGEME` here: `AppConfig.secretPlaceholders`
+ * classifies with `isPlaceholderSecret`, which treats the two the same
+ * because none of these four secrets has a fallback that would make "unset"
+ * a different situation from "still the stub" - each is used directly as a
+ * signing key or a presented credential, so an empty value is exactly as
+ * guessable. That is a deliberate difference from `describeSecret` on the
+ * Admin Server, which *does* keep "not set" distinct from "placeholder" for
+ * secrets that have a fallback (`ADMIN_SESSION_SECRET`, unset, signs cookies
+ * with a random per-boot value instead).
  *
  * A sibling of `sessions`/`sessionsTruncated` on the route response rather
  * than a member of {@link STATUS_PROCESS_SCHEMA}: that schema's properties
@@ -298,19 +308,19 @@ export type StatusProcess = Static<typeof STATUS_PROCESS_SCHEMA>;
 export const SECRET_PLACEHOLDERS_SCHEMA = Type.Object({
   sessionTokenSigningKeyIsPlaceholder: Type.Boolean({
     description:
-      'True if SESSION_TOKEN_SIGNING_KEY (deployment JWT_SECRET) is still the deployment/.env.example placeholder. Every session token would be forgeable.',
+      'True if SESSION_TOKEN_SIGNING_KEY (deployment JWT_SECRET) is still the deployment/.env.example placeholder, or unset. Every session token would be forgeable.',
   }),
   sessionManagerServiceApiKeyIsPlaceholder: Type.Boolean({
     description:
-      'True if SESSION_MANAGER_SERVICE_API_KEY (deployment NODE_SERVER_KEY) is still the deployment/.env.example placeholder. The outbound key this process presents to Session Manager would be public.',
+      'True if SESSION_MANAGER_SERVICE_API_KEY (deployment NODE_SERVER_KEY) is still the deployment/.env.example placeholder, or unset. The outbound key this process presents to Session Manager would be public.',
   }),
   nodeServerServiceApiKeyIsPlaceholder: Type.Boolean({
     description:
-      'True if NODE_SERVER_SERVICE_API_KEY (deployment NODE_SERVER_SERVICE_KEY, the key that guards this very endpoint) is still the deployment/.env.example placeholder.',
+      'True if NODE_SERVER_SERVICE_API_KEY (deployment NODE_SERVER_SERVICE_KEY, the key that guards this very endpoint) is still the deployment/.env.example placeholder, or unset. In practice this process refuses to serve any service-key-guarded request, including this one, once that key is empty or a placeholder, so this flag is never observed true from a live poll - see ServiceAuthService.',
   }),
   transcriptionServiceApiKeyIsPlaceholder: Type.Boolean({
     description:
-      'True if TRANSCRIPTION_SERVICE_API_KEY (deployment TRANSCRIPTION_API_KEY) is still the deployment/.env.example placeholder. The shared key this process and Transcription Service present to each other would be public.',
+      'True if TRANSCRIPTION_SERVICE_API_KEY (deployment TRANSCRIPTION_API_KEY) is still the deployment/.env.example placeholder, or unset. The shared key this process and Transcription Service present to each other would be public.',
   }),
 });
 

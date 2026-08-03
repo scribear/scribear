@@ -278,6 +278,74 @@ describe('AppConfig', () => {
         config.secretPlaceholders.sessionTokenSigningKeyIsPlaceholder,
       ).toBe(true);
     });
+
+    // Regression test: `isPlaceholder('')` used to be false, so an operator
+    // who never set a secret (rather than leaving the .env.example CHANGEME
+    // stub in place) self-reported as fine on Config Check. None of these four
+    // secrets has a fallback for "unset" that would make it a different
+    // situation from "still the stub" - each is used directly, so empty is
+    // exactly as guessable and shares the same remediation.
+    it('flags a secret that is empty, not just one that still reads CHANGEME', () => {
+      // Arrange - env-schema requires these to be present but does not
+      // enforce a minimum length, so an empty string is a valid, bootable
+      // configuration; this is the state an .env with the line present but
+      // no value (or COMPOSE_PROFILES substituting a blank) produces.
+      process.env['SESSION_MANAGER_SERVICE_API_KEY'] = '';
+
+      // Act
+      const config = new AppConfig(NO_DOTENV_FILE);
+
+      // Assert
+      expect(config.secretPlaceholders).toStrictEqual({
+        sessionTokenSigningKeyIsPlaceholder: false,
+        sessionManagerServiceApiKeyIsPlaceholder: true,
+        nodeServerServiceApiKeyIsPlaceholder: false,
+        transcriptionServiceApiKeyIsPlaceholder: false,
+      });
+    });
+
+    it('flags a placeholder regardless of case', () => {
+      // Arrange - env-schema does not normalize case, so an operator who
+      // typed the stub in lowercase or mixed case must still be caught.
+      process.env['NODE_SERVER_SERVICE_API_KEY'] = 'ChangeMe';
+
+      // Act
+      const config = new AppConfig(NO_DOTENV_FILE);
+
+      // Assert
+      expect(
+        config.secretPlaceholders.nodeServerServiceApiKeyIsPlaceholder,
+      ).toBe(true);
+    });
+
+    it('does not flag whitespace-only as a placeholder', () => {
+      // Arrange - a real (if odd) high-entropy-looking value is not this
+      // check's job to reject; whitespace-only is neither empty nor CHANGEME,
+      // so it is deliberately left alone here, the same restraint
+      // `isPlaceholderSecret` already applies (equality/substring only, no
+      // trimming or strength rule).
+      process.env['TRANSCRIPTION_SERVICE_API_KEY'] = '   ';
+
+      // Act
+      const config = new AppConfig(NO_DOTENV_FILE);
+
+      // Assert
+      expect(
+        config.secretPlaceholders.transcriptionServiceApiKeyIsPlaceholder,
+      ).toBe(false);
+    });
+
+    it('does not flag a healthy, real-looking secret', () => {
+      // Act - VALID_ENV's secrets are already real-looking; this test just
+      // makes the "healthy" case explicit rather than leaving it implied by
+      // the fully-populated-environment test above.
+      const config = new AppConfig(NO_DOTENV_FILE);
+
+      // Assert
+      expect(
+        config.secretPlaceholders.sessionManagerServiceApiKeyIsPlaceholder,
+      ).toBe(false);
+    });
   });
 
   describe('schema validation', (it) => {
