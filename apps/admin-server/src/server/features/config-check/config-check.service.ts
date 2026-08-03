@@ -156,14 +156,6 @@ export interface ConfigCheckReport {
 }
 
 /**
- * Everything the check inspects, gathered by `AppConfig` so this service never
- * reads `process.env` itself and can be tested by construction.
- *
- * Secret *values* are passed in because classifying them requires them. They
- * never leave this process: every finding reports a classification, and
- * `describeSecret` is the only thing that turns a secret into prose.
- */
-/**
  * The one logging call this service makes, narrowed to what it needs.
  *
  * Passed into `check()` rather than injected, deliberately: `configCheckService`
@@ -176,6 +168,14 @@ export interface CheckLogger {
   debug: (obj: Record<string, unknown>, msg: string) => void;
 }
 
+/**
+ * Everything the check inspects, gathered by `AppConfig` so this service never
+ * reads `process.env` itself and can be tested by construction.
+ *
+ * Secret *values* are passed in because classifying them requires them. They
+ * never leave this process: every finding reports a classification, and
+ * `describeSecret` is the only thing that turns a secret into prose.
+ */
 export interface ConfigCheckConfig {
   declaredEnv: string;
   /** True when the server was started with `--dev`. */
@@ -845,22 +845,6 @@ export function evaluateStaticChecks(
 }
 
 /**
- * True when `host` (a Host-header hostname — no port, no brackets) certainly
- * cannot be resolved by a device outside this host/network: loopback,
- * RFC1918/link-local IPv4, loopback/unique-local/link-local IPv6, `.local`
- * mDNS, or a bare single-label name — the shape of a Docker Compose service
- * name or a LAN machine's own hostname, which resolves only on that specific
- * network's DNS.
- *
- * Deliberately one-directional. A host that passes this (has a dot, isn't a
- * private/loopback IP) is merely *not ruled out* — admin-server sits inside
- * the backend network and has no way to dial out and confirm anything
- * resolves from a device that isn't itself, so a normal-looking public FQDN
- * is reported as "nothing to say", never as "reachable". Overstating that
- * confidence is exactly the failure mode this check exists to avoid; see
- * `evaluatePublicOriginCheck`'s doc.
- */
-/**
  * Whether a dotted-quad IPv4 address is one that cannot be reached from
  * outside the network that handed it out. Split out so the IPv4-mapped IPv6
  * form (`::ffff:10.1.2.3`) is judged by exactly the same rules rather than by
@@ -879,6 +863,22 @@ function isUnroutableIPv4(host: string): boolean {
   );
 }
 
+/**
+ * True when `host` (a Host-header hostname — no port, no brackets) certainly
+ * cannot be resolved by a device outside this host/network: loopback,
+ * RFC1918/link-local IPv4, loopback/unique-local/link-local IPv6, `.local`
+ * mDNS, or a bare single-label name — the shape of a Docker Compose service
+ * name or a LAN machine's own hostname, which resolves only on that specific
+ * network's DNS.
+ *
+ * Deliberately one-directional. A host that passes this (has a dot, isn't a
+ * private/loopback IP) is merely *not ruled out* — admin-server sits inside
+ * the backend network and has no way to dial out and confirm anything
+ * resolves from a device that isn't itself, so a normal-looking public FQDN
+ * is reported as "nothing to say", never as "reachable". Overstating that
+ * confidence is exactly the failure mode this check exists to avoid; see
+ * `evaluatePublicOriginCheck`'s doc.
+ */
 function looksUnreachableExternally(host: string): boolean {
   const h = host.toLowerCase();
   if (h === 'localhost' || h.endsWith('.localhost')) return true;
