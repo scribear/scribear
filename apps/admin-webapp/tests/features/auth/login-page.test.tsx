@@ -45,6 +45,7 @@ describe('LoginPage sign-in failures', () => {
     vi.mocked(adminApi.getAuthConfig).mockResolvedValue({
       local: true,
       sso: false,
+      grafana: false,
     });
     vi.mocked(adminApi.me).mockRejectedValue(
       new ApiError('UNAUTHORIZED', 'no session', 401),
