@@ -11,6 +11,8 @@ import { TRANSCRIPT_FRAGMENT_SCHEMA } from '#src/transcription-stream/entities/t
 
 export enum TranscriptionStreamClientMessageType {
   AUTH = 'auth',
+  TIME_SYNC_PING = 'timeSyncPing',
+  SOURCE_STATE = 'sourceState',
 }
 
 export enum TranscriptionStreamServerMessageType {
@@ -18,6 +20,48 @@ export enum TranscriptionStreamServerMessageType {
   TRANSCRIPT = 'transcript',
   SESSION_STATUS = 'sessionStatus',
   SESSION_ENDED = 'sessionEnded',
+  TIME_SYNC_PONG = 'timeSyncPong',
+  LATENCY_UPDATE = 'latencyUpdate',
+}
+
+/**
+ * Which transcript a latency sample describes. `final` samples measure a
+ * finalized transcript; `inProgress` samples measure an interim one.
+ */
+export enum LatencyKind {
+  FINAL = 'final',
+  IN_PROGRESS = 'inProgress',
+}
+
+/**
+ * Distinguishes *why* `transcriptionServiceConnected` is `false`, when known.
+ *
+ * `AT_CAPACITY` means the Transcription Service explicitly refused the
+ * connection (WebSocket close 1013, "try again later") rather than the
+ * connection dropping or the service crashing - see
+ * `archived-plans/2026-07-27-02-PLAN-AdmissionControl.md` §4, "node-server must
+ * distinguish 'service refused' from 'service crashed'".
+ *
+ * `INVALID_REQUEST` means the Transcription Service rejected what the Node
+ * Server sent as unacceptable (WebSocket close 1007, "invalid frame payload
+ * data"). The service closes 1007 for a `TranscriptionClientError` - in
+ * practice a session whose `transcriptionProviderId` is not a key in the
+ * deployment's `provider_config.json` ("Invalid Provider Key") - or for a
+ * message that fails its schema. Both are permanent: the Node Server's
+ * reconnect loop will re-send exactly the same request and be refused exactly
+ * the same way, forever. Distinguishing it is what lets a viewer be told the
+ * room is misconfigured instead of watching a "reconnecting" banner that will
+ * never resolve.
+ *
+ * The two are deliberately separate values: `AT_CAPACITY` clears on its own
+ * when load drops, `INVALID_REQUEST` never clears without an operator.
+ *
+ * Mirrors the local `TranscriptionServiceDisconnectReason` in node-server's
+ * `session-status.events.ts`; keep both in sync.
+ */
+export enum TranscriptionServiceDisconnectReason {
+  AT_CAPACITY = 'at-capacity',
+  INVALID_REQUEST = 'invalid-request',
 }
 
 const TRANSCRIPTION_STREAM_SCHEMA = {
@@ -32,6 +76,21 @@ const TRANSCRIPTION_STREAM_SCHEMA = {
     Type.Object({
       type: Type.Literal(TranscriptionStreamClientMessageType.AUTH),
       sessionToken: Type.String({ maxLength: 4096 }),
+    }),
+    // Clock-sync probe (Cristian's algorithm). The source sends its send
+    // time `t0`; the server echoes it with its own receive time `t1` so the
+    // source can estimate the server-vs-client clock offset and correct the
+    // `sentAt` it stamps on audio frames. See `timeSyncPong`.
+    Type.Object({
+      type: Type.Literal(TranscriptionStreamClientMessageType.TIME_SYNC_PING),
+      t0: Type.Number(),
+    }),
+    // Source reports its microphone state so the fleet dashboard can
+    // distinguish "mic is off" from "something broke" when no audio frames
+    // arrive. Sent on mute/unmute transitions and once after AUTH_OK to seed.
+    Type.Object({
+      type: Type.Literal(TranscriptionStreamClientMessageType.SOURCE_STATE),
+      microphoneActive: Type.Boolean(),
     }),
   ]),
   allowServerBinaryMessage: false,
@@ -54,9 +113,39 @@ const TRANSCRIPTION_STREAM_SCHEMA = {
         description:
           'Whether at least one source device is currently authenticated and streaming audio for this session.',
       }),
+      sourceMicrophoneActive: Type.Optional(
+        Type.Union([Type.Boolean(), Type.Null()], {
+          description:
+            'Whether at least one connected source has its microphone active (unmuted). Null when no source has reported state yet. Absent when no source has reported and the publisher predates the field.',
+        }),
+      ),
+      transcriptionServiceDisconnectReason: Type.Optional(
+        Type.Enum(TranscriptionServiceDisconnectReason, {
+          description:
+            'Present only when transcriptionServiceConnected is false and the cause is known. "at-capacity" means the Transcription Service explicitly refused the connection for load (close 1013) and will accept it again once load drops. "invalid-request" means the Transcription Service rejected the request as unacceptable (close 1007) - typically a transcriptionProviderId that is not configured on the deployment - which no amount of reconnecting will fix. Absent when connected, or when disconnected for an undistinguished reason, or when the publisher predates this field.',
+        }),
+      ),
     }),
     Type.Object({
       type: Type.Literal(TranscriptionStreamServerMessageType.SESSION_ENDED),
+    }),
+    // Reply to a `timeSyncPing`: `t0` echoed from the ping, `t1` the server's
+    // clock when it handled the ping.
+    Type.Object({
+      type: Type.Literal(TranscriptionStreamServerMessageType.TIME_SYNC_PONG),
+      t0: Type.Number(),
+      t1: Type.Number(),
+    }),
+    // End-to-end latency sample for one transcript. `pipelineMs` is measured
+    // entirely on the node's monotonic clock (audio ingress -> transcript)
+    // and is therefore skew-free. `e2eMs` additionally includes the capture
+    // and uplink legs using the source's clock corrected via time-sync; it is
+    // null when no reliable clock offset is available.
+    Type.Object({
+      type: Type.Literal(TranscriptionStreamServerMessageType.LATENCY_UPDATE),
+      kind: Type.Enum(LatencyKind),
+      pipelineMs: Type.Number(),
+      e2eMs: Type.Union([Type.Number(), Type.Null()]),
     }),
   ]),
   closeCodes: {

@@ -1,5 +1,5 @@
 name: "Setup Node"
-description: "Checks out the repo and installs dependencies for node packages."
+description: "Installs Node.js and the workspace dependencies. The caller is responsible for checking out the repo first."
 inputs:
   node-version:
     description: "Node.js version to use for setup."
@@ -8,15 +8,33 @@ runs:
   using: "composite"
 
   steps:
-    - name: Set up Git repository
-      uses: actions/checkout@v4
-
+    # No checkout here: every caller already runs actions/checkout, and a second
+    # checkout of the same ref just re-clones the repo for nothing.
     - name: Set up Node.js ${{ inputs.node-version }}
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v5
       with:
         node-version: ${{ inputs.node-version }}
+        # Caches the npm download tarballs, which only helps on a node_modules
+        # cache miss below. Cheap enough to always leave on.
+        cache: npm
+
+    # A cold `npm ci` across 36 workspaces costs 35-60s in every job that needs
+    # it. package-lock.json is the only input npm ci reads, so it is the whole
+    # cache key; on a hit we can skip the install outright.
+    - name: Restore node_modules
+      id: node-modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          node_modules
+          apps/*/node_modules
+          infra/*/node_modules
+          libs/*/node_modules
+          libs/*/*/node_modules
+        key: node-modules-${{ runner.os }}-${{ runner.arch }}-${{ inputs.node-version }}-${{ hashFiles('package-lock.json') }}
 
     - name: Install dependencies
+      if: steps.node-modules.outputs.cache-hit != 'true'
       working-directory: "."
       shell: bash
       run: npm ci

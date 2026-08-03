@@ -3,8 +3,19 @@ import '@fastify/awilix';
 
 import type { BaseDependencies } from '@scribear/base-fastify-server';
 
-import type { AppConfig, BaseConfig } from '#src/app-config/app-config.js';
+import type {
+  AppConfig,
+  BaseConfig,
+  CanaryRoomConfig,
+  DemoRoomConfig,
+  ScheduleManagementConfig,
+  TestAudioRoomsConfig,
+} from '#src/app-config/app-config.js';
 import type { DBClient, DBClientConfig } from '#src/db/db-client.js';
+import type { CanaryRoomSeeder } from '#src/server/features/canary-room/canary-room-seeder.js';
+import type { DatabaseController } from '#src/server/features/database/database.controller.js';
+import type { DemoRoomSeeder } from '#src/server/features/demo-room/demo-room-seeder.js';
+import type { DemoRoomController } from '#src/server/features/demo-room/demo-room.controller.js';
 import type { DeviceManagementController } from '#src/server/features/device-management/device-management.controller.js';
 import type { DeviceManagementRepository } from '#src/server/features/device-management/device-management.repository.js';
 import type { DeviceManagementService } from '#src/server/features/device-management/device-management.service.js';
@@ -23,10 +34,15 @@ import type { ScheduleManagementService } from '#src/server/features/schedule-ma
 import type { SessionAuthController } from '#src/server/features/session-auth/session-auth.controller.js';
 import type { SessionAuthRepository } from '#src/server/features/session-auth/session-auth.repository.js';
 import type { SessionAuthService } from '#src/server/features/session-auth/session-auth.service.js';
+import type { TestAudioRoomsSeeder } from '#src/server/features/test-audio-rooms/test-audio-rooms-seeder.js';
 import type { DeviceAuthRepository } from '#src/server/shared/repositories/device-auth.repository.js';
 import type { AdminAuthConfig } from '#src/server/shared/services/admin-auth.service.js';
 import type { AdminAuthService } from '#src/server/shared/services/admin-auth.service.js';
 import type { DeviceAuthService } from '#src/server/shared/services/device-auth.service.js';
+import type {
+  DevicePresenceConfig,
+  DevicePresenceService,
+} from '#src/server/shared/services/device-presence.service.js';
 import type { EventBusService } from '#src/server/shared/services/event-bus.service.js';
 import type { HashService } from '#src/server/shared/services/hash.service.js';
 import type {
@@ -49,6 +65,10 @@ interface AppDependencies extends BaseDependencies {
   sessionTokenConfig: SessionTokenConfig;
   dbClientConfig: DBClientConfig;
   materializationWorkerConfig: MaterializationWorkerConfig;
+  demoRoomConfig: DemoRoomConfig;
+  testAudioRoomsConfig: TestAudioRoomsConfig;
+  canaryRoomConfig: CanaryRoomConfig;
+  scheduleManagementConfig: ScheduleManagementConfig;
 
   // Database
   dbClient: DBClient;
@@ -58,6 +78,8 @@ interface AppDependencies extends BaseDependencies {
   adminAuthService: AdminAuthService;
   serviceAuthService: ServiceAuthService;
   deviceAuthService: DeviceAuthService;
+  devicePresenceConfig: DevicePresenceConfig;
+  devicePresenceService: DevicePresenceService;
   sessionTokenService: SessionTokenService;
   eventBusService: EventBusService;
 
@@ -88,6 +110,19 @@ interface AppDependencies extends BaseDependencies {
   sessionAuthController: SessionAuthController;
   sessionAuthService: SessionAuthService;
   sessionAuthRepository: SessionAuthRepository;
+
+  // Demo caption room
+  demoRoomSeeder: DemoRoomSeeder;
+  demoRoomController: DemoRoomController;
+
+  // Operator test-audio rooms
+  testAudioRoomsSeeder: TestAudioRoomsSeeder;
+
+  // Monitoring canary room
+  canaryRoomSeeder: CanaryRoomSeeder;
+
+  // Database schema state
+  databaseController: DatabaseController;
 }
 
 /**

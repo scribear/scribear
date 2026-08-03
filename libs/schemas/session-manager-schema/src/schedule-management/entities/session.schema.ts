@@ -3,6 +3,7 @@ import { type Static, Type } from 'typebox';
 import { SESSION_SCOPE_SCHEMA } from '#src/shared/entities/session-scope.schema.js';
 
 import { SESSION_TYPE_SCHEMA } from './session-type.schema.js';
+import { TRANSCRIPTION_PROVIDER_ID_SCHEMA } from './transcription-provider.schema.js';
 
 /**
  * A session as returned by schedule-management read endpoints. Includes
@@ -33,6 +34,14 @@ export const SESSION_SCHEMA = Type.Object(
       Type.String({ format: 'date-time' }),
       Type.Null(),
     ]),
+    canceledAt: Type.Union([
+      Type.String({
+        format: 'date-time',
+        description:
+          'Set when this occurrence was individually canceled. Only ever set on SCHEDULED sessions.',
+      }),
+      Type.Null(),
+    ]),
 
     effectiveStart: Type.String({
       format: 'date-time',
@@ -47,7 +56,7 @@ export const SESSION_SCHEMA = Type.Object(
     ]),
 
     joinCodeScopes: Type.Array(SESSION_SCOPE_SCHEMA),
-    transcriptionProviderId: Type.String(),
+    transcriptionProviderId: TRANSCRIPTION_PROVIDER_ID_SCHEMA,
     transcriptionStreamConfig: Type.Unknown(),
 
     sessionConfigVersion: Type.Integer({

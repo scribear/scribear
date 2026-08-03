@@ -1,0 +1,1517 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ScribeAR audio meter</title>
+    <style>
+      /* Palette roles. Status colors are the fixed status palette (good /
+         warning / critical); they are never used for identity, and every one
+         of them ships beside an icon and a text label, so no state is carried
+         by color alone. */
+      :root {
+        color-scheme: light;
+        --surface: #fcfcfb;
+        --plane: #f9f9f7;
+        --ink: #0b0b0b;
+        --ink-2: #52514e;
+        --ink-muted: #898781;
+        --grid: #e1e0d9;
+        --axis: #c3c2b7;
+        --border: rgba(11, 11, 11, 0.1);
+        --good: #0ca30c;
+        --warning: #fab219;
+        --critical: #d03b3b;
+        --focus: #2a78d6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:where(:not([data-theme='light'])) {
+          color-scheme: dark;
+          --surface: #1a1a19;
+          --plane: #0d0d0d;
+          --ink: #ffffff;
+          --ink-2: #c3c2b7;
+          --ink-muted: #898781;
+          --grid: #2c2c2a;
+          --axis: #383835;
+          --border: rgba(255, 255, 255, 0.1);
+          --focus: #3987e5;
+        }
+      }
+      :root[data-theme='dark'] {
+        color-scheme: dark;
+        --surface: #1a1a19;
+        --plane: #0d0d0d;
+        --ink: #ffffff;
+        --ink-2: #c3c2b7;
+        --ink-muted: #898781;
+        --grid: #2c2c2a;
+        --axis: #383835;
+        --border: rgba(255, 255, 255, 0.1);
+        --focus: #3987e5;
+      }
+
+      body {
+        margin: 0;
+        background: var(--plane);
+        color: var(--ink);
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        font-size: 15px;
+        line-height: 1.5;
+      }
+      main {
+        max-width: 60rem;
+        margin: 0 auto;
+        padding: 1.5rem 1rem 3rem;
+      }
+      h1 {
+        font-size: 1.35rem;
+        margin: 0;
+      }
+      h2 {
+        font-size: 0.95rem;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: var(--ink-2);
+        margin: 0 0 0.75rem;
+      }
+      p {
+        margin: 0.4rem 0;
+      }
+      .sub {
+        color: var(--ink-2);
+        font-size: 0.9rem;
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1rem 1.15rem;
+        margin-top: 1rem;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+      }
+      .spread {
+        justify-content: space-between;
+      }
+
+      button,
+      select {
+        font: inherit;
+        box-sizing: border-box;
+        max-width: 100%;
+        color: var(--ink);
+        background: var(--surface);
+        border: 1px solid var(--axis);
+        border-radius: 6px;
+        padding: 0.4rem 0.8rem;
+        min-height: 2.25rem;
+      }
+      button.primary {
+        background: var(--ink);
+        color: var(--surface);
+        border-color: var(--ink);
+        font-weight: 600;
+      }
+      button:hover,
+      select:hover {
+        border-color: var(--ink-2);
+      }
+      :focus-visible {
+        outline: 3px solid var(--focus);
+        outline-offset: 2px;
+      }
+      label {
+        color: var(--ink-2);
+        font-size: 0.85rem;
+        display: block;
+        margin-bottom: 0.2rem;
+      }
+
+      /* Status chip: icon + label + color, never color alone. */
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        border: 1px solid var(--axis);
+        border-radius: 999px;
+        padding: 0.15rem 0.7rem 0.15rem 0.5rem;
+        font-size: 0.85rem;
+        color: var(--ink-2);
+        white-space: nowrap;
+      }
+      .chip .dot {
+        width: 0.7rem;
+        height: 0.7rem;
+        border-radius: 50%;
+        background: currentColor;
+      }
+      .chip .glyph {
+        font-size: 0.9rem;
+        line-height: 1;
+      }
+      .s-good {
+        color: var(--good);
+      }
+      .s-warning {
+        color: var(--warning);
+      }
+      .s-critical {
+        color: var(--critical);
+      }
+      .s-idle {
+        color: var(--ink-muted);
+      }
+      .chip .text {
+        color: var(--ink-2);
+      }
+
+      /* Hero figure: proportional figures, system sans, exactly one per view. */
+      .hero {
+        display: flex;
+        align-items: baseline;
+        gap: 0.6rem;
+        flex-wrap: wrap;
+      }
+      .hero .value {
+        font-size: 3.25rem;
+        font-weight: 600;
+        line-height: 1;
+      }
+      .hero .unit {
+        font-size: 1.05rem;
+        color: var(--ink-2);
+      }
+
+      /* Level meter. Track is a light wash of the current severity color, so
+         state reads across the whole bar; the fill is the severity color. */
+      .meter {
+        position: relative;
+        height: 22px;
+        border-radius: 4px;
+        background: color-mix(in srgb, var(--zone, var(--ink-muted)) 14%, var(--surface));
+        overflow: hidden;
+        margin-top: 0.75rem;
+      }
+      .meter .fill {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 0;
+        background: var(--zone, var(--ink-muted));
+        border-radius: 0 4px 4px 0;
+      }
+      .meter .peak {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        left: 0;
+        background: var(--ink);
+        transform: translateX(-1px);
+      }
+      .meter .zone-tick {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: var(--axis);
+      }
+      /* Axis text takes the secondary ink, not the muted axis color: at this
+         size the muted step is 3.5:1 on the light surface, under the 4.5:1
+         text minimum. Muted is kept for rules and non-text marks only. */
+      .scale {
+        position: relative;
+        height: 1.25rem;
+        margin-top: 0.15rem;
+        font-size: 0.75rem;
+        color: var(--ink-2);
+        font-variant-numeric: tabular-nums;
+      }
+      .scale span {
+        position: absolute;
+        transform: translateX(-50%);
+        white-space: nowrap;
+      }
+
+      /* Loudness bar: target-relative, 0.0 LU tick in the middle. */
+      .lu-bar {
+        position: relative;
+        height: 14px;
+        border-radius: 4px;
+        background: var(--grid);
+        overflow: hidden;
+        margin-top: 0.5rem;
+      }
+      .lu-bar .fill {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        background: var(--zone, var(--ink-muted));
+        border-radius: 4px;
+      }
+      .lu-bar .target {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 50%;
+        width: 2px;
+        background: var(--ink);
+      }
+
+      .tiles {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+        gap: 0.9rem;
+      }
+      .tile .label {
+        color: var(--ink-2);
+        font-size: 0.85rem;
+      }
+      .tile .value {
+        font-size: 1.5rem;
+        font-weight: 600;
+      }
+      .tile .note {
+        color: var(--ink-2);
+        font-size: 0.78rem;
+      }
+
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 0.9rem;
+      }
+      caption {
+        text-align: left;
+        color: var(--ink-2);
+        padding-bottom: 0.5rem;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 0.35rem 0.5rem;
+        border-bottom: 1px solid var(--grid);
+        vertical-align: top;
+      }
+      td.num {
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      .table-wrap {
+        overflow-x: auto;
+      }
+
+      .settings {
+        display: grid;
+        /* Bottom-align, so a label that wraps to two lines does not push its
+           control out of line with its neighbours. */
+        align-items: end;
+        grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+        gap: 0.9rem;
+      }
+      /* Grid items default to min-content width, which lets a long option
+         string push a select past its column and clip the one beside it. */
+      .settings > div {
+        min-width: 0;
+      }
+      .settings select {
+        width: 100%;
+      }
+      fieldset {
+        border: 0;
+        margin: 0;
+        padding: 0;
+      }
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+      }
+      .live-blink {
+        animation: pulse 1.6s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        50% {
+          opacity: 0.45;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .live-blink {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>ScribeAR audio meter</h1>
+        <p class="sub">
+          Standalone source-room metering (plan item A4). Runs entirely in this
+          page against a local input device — it never contacts ScribeAR, and no
+          audio leaves the machine.
+        </p>
+      </header>
+
+      <section class="card" aria-labelledby="input-h">
+        <h2 id="input-h">Input</h2>
+        <div class="row spread">
+          <div class="row">
+            <button id="toggle" class="primary" type="button">Start metering</button>
+            <div>
+              <label for="device">Input device</label>
+              <select id="device" disabled>
+                <option value="">Default input</option>
+              </select>
+            </div>
+          </div>
+          <span class="chip" id="input-chip">
+            <span class="dot s-idle" aria-hidden="true"></span>
+            <span class="glyph s-idle" aria-hidden="true">■</span>
+            <span class="text" id="input-state">Stopped</span>
+          </span>
+        </div>
+        <p class="sub" id="input-detail">
+          Browser audio processing (AGC, noise suppression, echo cancellation) is
+          requested off so the meter sees the raw device signal.
+        </p>
+        <p class="sub" id="announce" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="card" aria-labelledby="level-h">
+        <h2 id="level-h">Level</h2>
+        <div class="hero">
+          <span class="value" id="rms-value">—</span>
+          <span class="unit" id="rms-unit">dBFS RMS (10 s)</span>
+          <span class="chip" id="zone-chip">
+            <span class="dot s-idle" aria-hidden="true"></span>
+            <span class="glyph s-idle" aria-hidden="true">■</span>
+            <span class="text" id="zone-text">No signal</span>
+          </span>
+        </div>
+
+        <div
+          class="meter"
+          id="meter"
+          role="meter"
+          aria-labelledby="meter-label"
+          aria-valuemin="-60"
+          aria-valuemax="0"
+          aria-valuenow="-60"
+          aria-valuetext="No signal"
+        >
+          <div class="fill" id="meter-fill"></div>
+          <div class="zone-tick" id="tick-warn"></div>
+          <div class="zone-tick" id="tick-crit"></div>
+          <div class="peak" id="meter-peak"></div>
+        </div>
+        <div class="scale" id="meter-scale" aria-hidden="true"></div>
+        <p class="sub" id="meter-label">
+          Bar: 300 ms RMS. Vertical rule: sample peak with 2 s hold. Zone
+          boundaries are the peak thresholds set below.
+        </p>
+      </section>
+
+      <section class="card" aria-labelledby="peak-h">
+        <h2 id="peak-h">Peak &amp; artifacts</h2>
+        <div class="tiles">
+          <div class="tile">
+            <div class="label">Sample peak (held)</div>
+            <div class="value" id="peak-value">—</div>
+            <div class="note">dBFS, 2 s hold</div>
+          </div>
+          <div class="tile">
+            <div class="label">True peak</div>
+            <div class="value" id="tp-value">—</div>
+            <div class="note">dBTP, 4× oversampled</div>
+          </div>
+          <div class="tile">
+            <div class="label">Session max true peak</div>
+            <div class="value" id="tpmax-value">—</div>
+            <div class="note">dBTP since start</div>
+          </div>
+          <div class="tile">
+            <div class="label">Clipping</div>
+            <div class="value" id="clip-value">—</div>
+            <div class="note">% of samples, |x| ≥ 0.99 in runs ≥ 2</div>
+          </div>
+          <div class="tile">
+            <div class="label">Noise floor</div>
+            <div class="value" id="floor-value">—</div>
+            <div class="note">10th percentile frame RMS, 10 s</div>
+          </div>
+          <div class="tile">
+            <div class="label">Silence</div>
+            <div class="value" id="silence-value">—</div>
+            <div class="note" id="silence-note">below threshold for ≥ 1 s</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="loud-h">
+        <h2 id="loud-h">Loudness (EBU R128 / ITU-R BS.1770)</h2>
+        <div class="tiles">
+          <div class="tile">
+            <div class="label">Momentary (400 ms)</div>
+            <div class="value" id="m-value">—</div>
+            <div class="note">LUFS</div>
+          </div>
+          <div class="tile">
+            <div class="label">Short-term (3 s)</div>
+            <div class="value" id="s-value">—</div>
+            <div class="note">LUFS</div>
+          </div>
+          <div class="tile">
+            <div class="label">Integrated (gated)</div>
+            <div class="value" id="i-value">—</div>
+            <div class="note">LUFS since start</div>
+          </div>
+          <div class="tile">
+            <div class="label">Short-term vs target</div>
+            <div class="value" id="lu-value">—</div>
+            <div class="note" id="lu-note">LU (0.0 LU = target)</div>
+          </div>
+        </div>
+        <div class="lu-bar" id="lu-bar" role="img" aria-labelledby="lu-alt">
+          <div class="fill" id="lu-fill"></div>
+          <div class="target"></div>
+        </div>
+        <p class="sub" id="lu-alt">
+          Short-term loudness relative to the target, ±12 LU around the centre
+          rule. The numeric value is in the tile above and in the readings table.
+        </p>
+      </section>
+
+      <section class="card" aria-labelledby="conv-h">
+        <h2 id="conv-h">Conventions</h2>
+        <p class="sub">
+          None of these references is universal, so the meter states which one it
+          is using rather than assuming one.
+        </p>
+        <fieldset class="settings">
+          <div>
+            <label for="ref">dBFS RMS reference</label>
+            <select id="ref">
+              <option value="0" selected>Plain: -3.01 dBFS</option>
+              <option value="3.0103">AES17: 0 dBFS</option>
+            </select>
+          </div>
+          <div>
+            <label for="target">Loudness target</label>
+            <select id="target">
+              <option value="-23" selected>-23 LUFS (EBU R128)</option>
+              <option value="-24">-24 LKFS (ATSC A/85)</option>
+              <option value="-16">-16 LUFS (podcast)</option>
+            </select>
+          </div>
+          <div>
+            <label for="zones">Peak zones (green ≤ / red &gt;), dBFS</label>
+            <select id="zones">
+              <option value="-18,-6">-18 / -6 (EBU alignment)</option>
+              <option value="-20,-6">-20 / -6 (SMPTE alignment)</option>
+              <option value="-12,-3" selected>-12 / -3 (speech headroom)</option>
+            </select>
+          </div>
+          <div>
+            <label for="silence">Silence threshold</label>
+            <select id="silence">
+              <option value="-60" selected>-60 dBFS RMS</option>
+              <option value="-50">-50 dBFS RMS</option>
+              <option value="-40">-40 dBFS RMS</option>
+            </select>
+          </div>
+        </fieldset>
+      </section>
+
+      <section class="card" aria-labelledby="table-h">
+        <h2 id="table-h">All readings</h2>
+        <div class="table-wrap">
+          <table>
+            <caption>
+              Every value the meter computes, in text form — the same numbers the
+              bars and tiles above encode.
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Measurement</th>
+                <th scope="col">Value</th>
+                <th scope="col">Definition</th>
+              </tr>
+            </thead>
+            <tbody id="readings"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="about-h">
+        <h2 id="about-h">What this is for</h2>
+        <p class="sub">
+          Covers failure modes C1–C4 of the ScribeAR monitoring plan at the
+          source, with no pipeline instrumentation: mic muted or wrong input
+          selected (digital silence), level too low, clipping, and a rising room
+          noise floor. Verify the calibration with a known tone — a full-scale
+          sine must read -3.01 dBFS RMS (0.00 under AES17) and a -18 dBFS
+          alignment tone must read -18, both within ±0.5 dB.
+        </p>
+      </section>
+    </main>
+
+    <!--
+      DSP core. Deliberately a classic script with no DOM access: it is the unit
+      under test (tests/unit/audio-meter-dsp.test.ts extracts this element's text
+      and evaluates it), and it is re-used verbatim inside the AudioWorklet,
+      which cannot import from the page. Keep it free of DOM and browser APIs.
+    -->
+    <script id="meter-dsp">
+      (function (global) {
+        'use strict';
+
+        var DEFAULTS = {
+          /** Analysis frame for the RMS/noise-floor/silence rings. */
+          frameMs: 50,
+          rmsWindowSec: 10,
+          fastRmsMs: 300,
+          peakWindowMs: 400,
+          peakHoldSec: 2,
+          peakDecayDbPerSec: 20,
+          clipThreshold: 0.99,
+          clipMinRun: 2,
+          noiseFloorPercentile: 0.1,
+          silenceThresholdDb: -60,
+          silenceHoldSec: 1,
+          /**
+           * 0 keeps the plain RMS formula (a full-scale sine reads -3.01 dBFS);
+           * 3.0103 is the AES17 convention (that sine reads 0 dBFS). Applied to
+           * RMS-domain values only — peak and true peak are full-scale either
+           * way.
+           */
+          rmsReferenceOffsetDb: 0,
+          loudnessTargetLufs: -23,
+          /**
+           * These are PEAK thresholds, applied to the held sample peak, not
+           * RMS. EBU/SMPTE alignment levels (-18/-20 dBFS) are RMS
+           * conventions: a sine at -18 dBFS RMS peaks at -15.01 dBFS, 3 dB
+           * above that boundary, so a healthy, correctly-levelled speech
+           * signal would render amber. -12/-3 ("speech headroom") guards
+           * headroom against the actual peak instead and is the right
+           * default for a lecture-room speech meter.
+           */
+          peakWarnDb: -12,
+          peakCriticalDb: -3,
+        };
+
+        var DB_FLOOR = -120;
+        /** BS.1770 offset that puts the loudness scale at LUFS. */
+        var LUFS_OFFSET = -0.691;
+        var ABSOLUTE_GATE_LUFS = -70;
+        var RELATIVE_GATE_LU = -10;
+
+        function toDb(amplitude) {
+          return amplitude > 0 ? 20 * Math.log10(amplitude) : DB_FLOOR;
+        }
+
+        function powerToDb(power) {
+          return power > 0 ? 10 * Math.log10(power) : DB_FLOOR;
+        }
+
+        /**
+         * ITU-R BS.1770 K-weighting: a high-shelf "head" filter followed by an
+         * RLB high-pass. The standard tabulates coefficients for 48 kHz only;
+         * these parameterised forms reproduce that table exactly at 48 kHz and
+         * stay correct at whatever rate the input device actually runs at.
+         */
+        function designKWeighting(sampleRate) {
+          var shelfF0 = 1681.974450955533;
+          var shelfGainDb = 3.999843853973347;
+          var shelfQ = 0.7071752369554196;
+
+          var k = Math.tan((Math.PI * shelfF0) / sampleRate);
+          var vh = Math.pow(10, shelfGainDb / 20);
+          var vb = Math.pow(vh, 0.4996667741545416);
+          var shelfA0 = 1 + k / shelfQ + k * k;
+
+          var shelf = {
+            b0: (vh + (vb * k) / shelfQ + k * k) / shelfA0,
+            b1: (2 * (k * k - vh)) / shelfA0,
+            b2: (vh - (vb * k) / shelfQ + k * k) / shelfA0,
+            a1: (2 * (k * k - 1)) / shelfA0,
+            a2: (1 - k / shelfQ + k * k) / shelfA0,
+          };
+
+          var hpF0 = 38.13547087602444;
+          var hpQ = 0.5003270373238773;
+          var hk = Math.tan((Math.PI * hpF0) / sampleRate);
+          var hpA0 = 1 + hk / hpQ + hk * hk;
+
+          var highpass = {
+            b0: 1,
+            b1: -2,
+            b2: 1,
+            a1: (2 * (hk * hk - 1)) / hpA0,
+            a2: (1 - hk / hpQ + hk * hk) / hpA0,
+          };
+
+          return { shelf: shelf, highpass: highpass };
+        }
+
+        /** Transposed direct form II — one state pair, no history buffer. */
+        function Biquad(coefficients) {
+          this.c = coefficients;
+          this.z1 = 0;
+          this.z2 = 0;
+        }
+
+        Biquad.prototype.processInPlace = function (buffer) {
+          var c = this.c;
+          var z1 = this.z1;
+          var z2 = this.z2;
+          for (var i = 0; i < buffer.length; i += 1) {
+            var x = buffer[i];
+            var y = c.b0 * x + z1;
+            z1 = c.b1 * x - c.a1 * y + z2;
+            z2 = c.b2 * x - c.a2 * y;
+            buffer[i] = y;
+          }
+          this.z1 = z1;
+          this.z2 = z2;
+        };
+
+        /**
+         * Polyphase fractional-delay bank for true-peak estimation: a
+         * windowed-sinc prototype split into `oversample` phases, each phase
+         * normalised to unity DC gain. Only the peak magnitude of the
+         * reconstructed waveform is wanted, so the phases can be evaluated
+         * independently and no interpolated signal is ever materialised.
+         */
+        function designPolyphase(oversample, tapsPerPhase) {
+          var length = oversample * tapsPerPhase;
+          var centre = (length - 1) / 2;
+          var proto = new Float64Array(length);
+
+          for (var n = 0; n < length; n += 1) {
+            var t = (n - centre) / oversample;
+            var sinc = t === 0 ? 1 : Math.sin(Math.PI * t) / (Math.PI * t);
+            var w =
+              0.42 -
+              0.5 * Math.cos((2 * Math.PI * n) / (length - 1)) +
+              0.08 * Math.cos((4 * Math.PI * n) / (length - 1));
+            proto[n] = sinc * w;
+          }
+
+          var phases = [];
+          for (var p = 0; p < oversample; p += 1) {
+            var taps = new Float64Array(tapsPerPhase);
+            var sum = 0;
+            for (var k = 0; k < tapsPerPhase; k += 1) {
+              taps[k] = proto[k * oversample + p];
+              sum += taps[k];
+            }
+            for (var j = 0; j < tapsPerPhase; j += 1) taps[j] /= sum;
+            phases.push(taps);
+          }
+          return phases;
+        }
+
+        function TruePeakDetector(oversample, tapsPerPhase) {
+          this.phases = designPolyphase(oversample, tapsPerPhase);
+          this.history = new Float64Array(tapsPerPhase);
+          this.taps = tapsPerPhase;
+        }
+
+        /** Returns the largest interpolated magnitude seen in `buffer`. */
+        TruePeakDetector.prototype.push = function (buffer) {
+          var history = this.history;
+          var taps = this.taps;
+          var phases = this.phases;
+          var max = 0;
+
+          for (var i = 0; i < buffer.length; i += 1) {
+            for (var s = taps - 1; s > 0; s -= 1) history[s] = history[s - 1];
+            history[0] = buffer[i];
+
+            for (var p = 0; p < phases.length; p += 1) {
+              var coefficients = phases[p];
+              var acc = 0;
+              for (var k = 0; k < taps; k += 1) acc += coefficients[k] * history[k];
+              var magnitude = acc < 0 ? -acc : acc;
+              if (magnitude > max) max = magnitude;
+            }
+          }
+          return max;
+        };
+
+        /**
+         * Single-channel meter. Everything is O(1) per sample apart from the
+         * true-peak filter (a fixed 48 multiply-adds), and every window is a
+         * ring buffer, so the cost does not grow with run length.
+         *
+         * @param sampleRate device rate; the K-weighting is designed for it
+         * @param options overrides for DEFAULTS
+         */
+        function AudioMeterCore(sampleRate, options) {
+          this.sampleRate = sampleRate;
+          this.options = {};
+          for (var key in DEFAULTS) this.options[key] = DEFAULTS[key];
+          if (options) {
+            for (var given in options) {
+              if (options[given] !== undefined) this.options[given] = options[given];
+            }
+          }
+
+          var o = this.options;
+          this.frameSamples = Math.max(1, Math.round((sampleRate * o.frameMs) / 1000));
+          this.frameSec = this.frameSamples / sampleRate;
+          this.frameCapacity = Math.max(1, Math.ceil((o.rmsWindowSec * 1000) / o.frameMs));
+          this.fastFrames = Math.max(1, Math.round(o.fastRmsMs / o.frameMs));
+          this.peakFrames = Math.max(1, Math.round(o.peakWindowMs / o.frameMs));
+
+          this.frameSumSq = new Float64Array(this.frameCapacity);
+          this.framePeak = new Float64Array(this.frameCapacity);
+          this.frameClipped = new Float64Array(this.frameCapacity);
+          this.frameCount = new Float64Array(this.frameCapacity);
+          this.frameIndex = 0;
+          this.framesFilled = 0;
+
+          this.windowSumSq = 0;
+          this.windowSamples = 0;
+          this.windowClipped = 0;
+
+          this.partialSumSq = 0;
+          this.partialSamples = 0;
+          this.partialPeak = 0;
+          this.partialClipped = 0;
+
+          this.clipRun = 0;
+          this.silenceSec = 0;
+          this.processedSamples = 0;
+
+          this.holdPeak = 0;
+          this.holdSetAtSec = 0;
+          this.holdTruePeak = 0;
+          this.holdTruePeakAtSec = 0;
+          this.maxTruePeak = 0;
+          this.recentTruePeak = 0;
+
+          var weighting = designKWeighting(sampleRate);
+          this.shelf = new Biquad(weighting.shelf);
+          this.highpass = new Biquad(weighting.highpass);
+          this.truePeakDetector = new TruePeakDetector(4, 12);
+
+          /** 100 ms sub-blocks: four make a 400 ms gating block, thirty a 3 s one. */
+          this.subBlockSamples = Math.max(1, Math.round(sampleRate / 10));
+          this.subBlockSumSq = 0;
+          this.subBlockFilled = 0;
+          this.subBlocks = [];
+          this.subBlockCapacity = 30;
+          this.gatingBlocks = [];
+          this.scratch = null;
+        }
+
+        AudioMeterCore.prototype.setOption = function (key, value) {
+          this.options[key] = value;
+        };
+
+        AudioMeterCore.prototype._pushFrame = function () {
+          var i = this.frameIndex;
+          this.windowSumSq -= this.frameSumSq[i];
+          this.windowSamples -= this.frameCount[i];
+          this.windowClipped -= this.frameClipped[i];
+
+          this.frameSumSq[i] = this.partialSumSq;
+          this.frameCount[i] = this.partialSamples;
+          this.framePeak[i] = this.partialPeak;
+          this.frameClipped[i] = this.partialClipped;
+
+          this.windowSumSq += this.partialSumSq;
+          this.windowSamples += this.partialSamples;
+          this.windowClipped += this.partialClipped;
+
+          var frameRmsDb = toDb(Math.sqrt(this.partialSumSq / this.partialSamples));
+          if (frameRmsDb + this.options.rmsReferenceOffsetDb < this.options.silenceThresholdDb) {
+            this.silenceSec += this.frameSec;
+          } else {
+            this.silenceSec = 0;
+          }
+
+          this.frameIndex = (i + 1) % this.frameCapacity;
+          if (this.framesFilled < this.frameCapacity) this.framesFilled += 1;
+
+          this.partialSumSq = 0;
+          this.partialSamples = 0;
+          this.partialPeak = 0;
+          this.partialClipped = 0;
+        };
+
+        AudioMeterCore.prototype._pushSubBlock = function () {
+          this.subBlocks.push(this.subBlockSumSq / this.subBlockSamples);
+          if (this.subBlocks.length > this.subBlockCapacity) this.subBlocks.shift();
+
+          // A 400 ms gating block every 100 ms — BS.1770's 75 % overlap.
+          if (this.subBlocks.length >= 4) {
+            var meanSquare = 0;
+            for (var i = this.subBlocks.length - 4; i < this.subBlocks.length; i += 1) {
+              meanSquare += this.subBlocks[i];
+            }
+            this.gatingBlocks.push(meanSquare / 4);
+          }
+
+          this.subBlockSumSq = 0;
+          this.subBlockFilled = 0;
+        };
+
+        /** @param buffer mono samples in [-1, 1] */
+        AudioMeterCore.prototype.process = function (buffer) {
+          var length = buffer.length;
+          if (length === 0) return;
+          var o = this.options;
+
+          for (var i = 0; i < length; i += 1) {
+            var x = buffer[i];
+            var magnitude = x < 0 ? -x : x;
+
+            this.partialSumSq += x * x;
+            this.partialSamples += 1;
+            if (magnitude > this.partialPeak) this.partialPeak = magnitude;
+
+            // A clipped sample only counts once the run reaches the minimum
+            // length, at which point the whole run is charged at once.
+            if (magnitude >= o.clipThreshold) {
+              this.clipRun += 1;
+              if (this.clipRun === o.clipMinRun) this.partialClipped += o.clipMinRun;
+              else if (this.clipRun > o.clipMinRun) this.partialClipped += 1;
+            } else {
+              this.clipRun = 0;
+            }
+
+            if (this.partialSamples >= this.frameSamples) this._pushFrame();
+          }
+
+          var truePeak = this.truePeakDetector.push(buffer);
+          this.recentTruePeak = truePeak;
+          if (truePeak > this.maxTruePeak) this.maxTruePeak = truePeak;
+
+          this.processedSamples += length;
+          var nowSec = this.processedSamples / this.sampleRate;
+
+          var blockPeak = 0;
+          for (var p = 0; p < length; p += 1) {
+            var v = buffer[p] < 0 ? -buffer[p] : buffer[p];
+            if (v > blockPeak) blockPeak = v;
+          }
+          if (blockPeak >= this.holdPeak) {
+            this.holdPeak = blockPeak;
+            this.holdSetAtSec = nowSec;
+          }
+          if (truePeak >= this.holdTruePeak) {
+            this.holdTruePeak = truePeak;
+            this.holdTruePeakAtSec = nowSec;
+          }
+
+          // K-weighting runs on a copy: the caller's buffer is the raw signal
+          // that peak and RMS were measured from and must not be filtered.
+          if (!this.scratch || this.scratch.length !== length) {
+            this.scratch = new Float64Array(length);
+          }
+          var weighted = this.scratch;
+          for (var w = 0; w < length; w += 1) weighted[w] = buffer[w];
+          this.shelf.processInPlace(weighted);
+          this.highpass.processInPlace(weighted);
+
+          for (var s = 0; s < length; s += 1) {
+            this.subBlockSumSq += weighted[s] * weighted[s];
+            this.subBlockFilled += 1;
+            if (this.subBlockFilled >= this.subBlockSamples) this._pushSubBlock();
+          }
+        };
+
+        AudioMeterCore.prototype._recentFrames = function (count) {
+          var available = Math.min(count, this.framesFilled);
+          var sumSq = 0;
+          var samples = 0;
+          var peak = 0;
+          for (var n = 1; n <= available; n += 1) {
+            var idx = (this.frameIndex - n + this.frameCapacity) % this.frameCapacity;
+            sumSq += this.frameSumSq[idx];
+            samples += this.frameCount[idx];
+            if (this.framePeak[idx] > peak) peak = this.framePeak[idx];
+          }
+          // The in-progress frame keeps the fast readings responsive rather
+          // than lagging by up to one frame.
+          sumSq += this.partialSumSq;
+          samples += this.partialSamples;
+          if (this.partialPeak > peak) peak = this.partialPeak;
+          return { sumSq: sumSq, samples: samples, peak: peak };
+        };
+
+        AudioMeterCore.prototype._noiseFloorDb = function () {
+          if (this.framesFilled === 0) return DB_FLOOR;
+          var values = [];
+          for (var i = 0; i < this.framesFilled; i += 1) {
+            if (this.frameCount[i] > 0) {
+              values.push(this.frameSumSq[i] / this.frameCount[i]);
+            }
+          }
+          if (values.length === 0) return DB_FLOOR;
+          values.sort(function (a, b) {
+            return a - b;
+          });
+          var index = Math.min(
+            values.length - 1,
+            Math.floor(this.options.noiseFloorPercentile * (values.length - 1)),
+          );
+          return powerToDb(values[index]);
+        };
+
+        AudioMeterCore.prototype._loudness = function (subBlockCount) {
+          var available = Math.min(subBlockCount, this.subBlocks.length);
+          if (available === 0) return -Infinity;
+          var meanSquare = 0;
+          for (var i = this.subBlocks.length - available; i < this.subBlocks.length; i += 1) {
+            meanSquare += this.subBlocks[i];
+          }
+          meanSquare /= available;
+          if (meanSquare <= 0) return -Infinity;
+          return LUFS_OFFSET + 10 * Math.log10(meanSquare);
+        };
+
+        /** BS.1770-4 gated integrated loudness: absolute gate, then -10 LU relative. */
+        AudioMeterCore.prototype._integratedLufs = function () {
+          var blocks = this.gatingBlocks;
+          if (blocks.length === 0) return -Infinity;
+
+          var sum = 0;
+          var count = 0;
+          for (var i = 0; i < blocks.length; i += 1) {
+            if (blocks[i] > 0 && LUFS_OFFSET + 10 * Math.log10(blocks[i]) > ABSOLUTE_GATE_LUFS) {
+              sum += blocks[i];
+              count += 1;
+            }
+          }
+          if (count === 0) return -Infinity;
+
+          var relativeGate = LUFS_OFFSET + 10 * Math.log10(sum / count) + RELATIVE_GATE_LU;
+          var gatedSum = 0;
+          var gatedCount = 0;
+          for (var j = 0; j < blocks.length; j += 1) {
+            if (blocks[j] > 0 && LUFS_OFFSET + 10 * Math.log10(blocks[j]) > relativeGate) {
+              gatedSum += blocks[j];
+              gatedCount += 1;
+            }
+          }
+          if (gatedCount === 0) return -Infinity;
+          return LUFS_OFFSET + 10 * Math.log10(gatedSum / gatedCount);
+        };
+
+        function classifyPeak(peakDb, options) {
+          if (peakDb > options.peakCriticalDb) return 'critical';
+          if (peakDb > options.peakWarnDb) return 'warning';
+          return 'good';
+        }
+
+        AudioMeterCore.prototype.read = function () {
+          var o = this.options;
+          var nowSec = this.processedSamples / this.sampleRate;
+
+          var slow = this._recentFrames(this.frameCapacity);
+          var fast = this._recentFrames(this.fastFrames);
+          var peakWindow = this._recentFrames(this.peakFrames);
+
+          var rmsDb =
+            slow.samples > 0 ? toDb(Math.sqrt(slow.sumSq / slow.samples)) : DB_FLOOR;
+          var fastRmsDb =
+            fast.samples > 0 ? toDb(Math.sqrt(fast.sumSq / fast.samples)) : DB_FLOOR;
+
+          var peakDb = toDb(peakWindow.peak);
+          var heldPeakDb = toDb(this.holdPeak);
+          var heldAge = nowSec - this.holdSetAtSec;
+          if (heldAge > o.peakHoldSec) {
+            heldPeakDb -= (heldAge - o.peakHoldSec) * o.peakDecayDbPerSec;
+          }
+          if (heldPeakDb < peakDb) heldPeakDb = peakDb;
+
+          var truePeakDb = toDb(this.holdTruePeak);
+          var truePeakAge = nowSec - this.holdTruePeakAtSec;
+          if (truePeakAge > o.peakHoldSec) {
+            truePeakDb -= (truePeakAge - o.peakHoldSec) * o.peakDecayDbPerSec;
+          }
+          var recentTruePeakDb = toDb(this.recentTruePeak);
+          if (truePeakDb < recentTruePeakDb) truePeakDb = recentTruePeakDb;
+
+          var totalSamples = this.windowSamples + this.partialSamples;
+          var clippedSamples = this.windowClipped + this.partialClipped;
+          var shortTerm = this._loudness(30);
+          var momentary = this._loudness(4);
+
+          return {
+            sampleRate: this.sampleRate,
+            processedSec: nowSec,
+            rmsDb: rmsDb + o.rmsReferenceOffsetDb,
+            fastRmsDb: fastRmsDb + o.rmsReferenceOffsetDb,
+            noiseFloorDb: this._noiseFloorDb() + o.rmsReferenceOffsetDb,
+            peakDb: peakDb,
+            heldPeakDb: heldPeakDb,
+            truePeakDb: truePeakDb,
+            maxTruePeakDb: toDb(this.maxTruePeak),
+            clippedSamples: clippedSamples,
+            clippingPercent: totalSamples > 0 ? (100 * clippedSamples) / totalSamples : 0,
+            silenceSec: this.silenceSec,
+            silent: this.silenceSec >= o.silenceHoldSec,
+            momentaryLufs: momentary,
+            shortTermLufs: shortTerm,
+            integratedLufs: this._integratedLufs(),
+            targetLufs: o.loudnessTargetLufs,
+            shortTermLu: shortTerm === -Infinity ? -Infinity : shortTerm - o.loudnessTargetLufs,
+            zone: classifyPeak(heldPeakDb, o),
+            rmsReferenceOffsetDb: o.rmsReferenceOffsetDb,
+          };
+        };
+
+        global.ScribeArAudioMeter = {
+          DEFAULTS: DEFAULTS,
+          DB_FLOOR: DB_FLOOR,
+          AudioMeterCore: AudioMeterCore,
+          Biquad: Biquad,
+          TruePeakDetector: TruePeakDetector,
+          designKWeighting: designKWeighting,
+          designPolyphase: designPolyphase,
+          classifyPeak: classifyPeak,
+          toDb: toDb,
+        };
+      })(typeof globalThis === 'undefined' ? this : globalThis);
+    </script>
+
+    <script id="meter-ui" type="module">
+      const dsp = globalThis.ScribeArAudioMeter;
+      const $ = (id) => document.getElementById(id);
+
+      const UPDATE_HZ = 10;
+      const ZONE_LABEL = {
+        good: { text: 'Level OK', glyph: '✓', cls: 's-good' },
+        warning: { text: 'Hot — approaching clip', glyph: '▲', cls: 's-warning' },
+        critical: { text: 'Too hot — clipping risk', glyph: '✕', cls: 's-critical' },
+        idle: { text: 'No signal', glyph: '■', cls: 's-idle' },
+      };
+      const METER_MIN_DB = -60;
+      const METER_MAX_DB = 0;
+      const SCALE_TICKS = [-60, -50, -40, -30, -20, -12, -6, 0];
+      const LU_RANGE = 12;
+
+      let audioContext = null;
+      let stream = null;
+      let core = null;
+      let node = null;
+      let running = false;
+      let lastAnnouncement = '';
+      let lastPaint = 0;
+
+      const options = {
+        rmsReferenceOffsetDb: 0,
+        loudnessTargetLufs: -23,
+        // Peak vs. RMS alignment-level rationale: see DEFAULTS in the
+        // meter-dsp script above.
+        peakWarnDb: -12,
+        peakCriticalDb: -3,
+        silenceThresholdDb: -60,
+      };
+
+      function fmt(db, digits = 1) {
+        if (db === undefined || db === null) return '—';
+        if (!Number.isFinite(db) || db <= dsp.DB_FLOOR) return '−∞';
+        return db.toFixed(digits);
+      }
+
+      function positionPercent(db) {
+        const clamped = Math.min(METER_MAX_DB, Math.max(METER_MIN_DB, db));
+        return ((clamped - METER_MIN_DB) / (METER_MAX_DB - METER_MIN_DB)) * 100;
+      }
+
+      function paintScale() {
+        const scale = $('meter-scale');
+        scale.replaceChildren();
+        for (const tick of SCALE_TICKS) {
+          const span = document.createElement('span');
+          span.textContent = String(tick);
+          span.style.left = `${positionPercent(tick)}%`;
+          scale.append(span);
+        }
+        $('tick-warn').style.left = `${positionPercent(options.peakWarnDb)}%`;
+        $('tick-crit').style.left = `${positionPercent(options.peakCriticalDb)}%`;
+      }
+
+      function setChip(chipId, textId, state, text) {
+        const chip = $(chipId);
+        const cls = ZONE_LABEL[state]?.cls ?? 's-idle';
+        for (const el of chip.querySelectorAll('.dot, .glyph')) {
+          el.className = el.className.replace(/s-\w+/, cls);
+        }
+        chip.querySelector('.glyph').textContent = ZONE_LABEL[state]?.glyph ?? '■';
+        $(textId).textContent = text;
+      }
+
+      function announce(message) {
+        if (message === lastAnnouncement) return;
+        lastAnnouncement = message;
+        $('announce').textContent = message;
+      }
+
+      const ROWS = [
+        ['RMS, 10 s', (r) => `${fmt(r.rmsDb)} dBFS`, () =>
+          `sqrt(mean(x²)) over 10 s, ${options.rmsReferenceOffsetDb ? 'AES17 reference' : 'plain reference'}`],
+        ['RMS, 300 ms', (r) => `${fmt(r.fastRmsDb)} dBFS`, () => 'the value the level bar shows'],
+        ['Sample peak (held)', (r) => `${fmt(r.heldPeakDb)} dBFS`, () => 'max |x|, 2 s hold then 20 dB/s decay'],
+        ['True peak', (r) => `${fmt(r.truePeakDb)} dBTP`, () => '4× windowed-sinc oversampling'],
+        ['Session max true peak', (r) => `${fmt(r.maxTruePeakDb)} dBTP`, () => 'since metering started'],
+        ['Clipping', (r) => `${r.clippingPercent.toFixed(2)} %`, () => '|x| ≥ 0.99 in runs of ≥ 2 samples, 10 s window'],
+        ['Noise floor', (r) => `${fmt(r.noiseFloorDb)} dBFS`, () => '10th percentile of 50 ms frame RMS over 10 s'],
+        ['Silence', (r) => (r.silent ? `yes, ${r.silenceSec.toFixed(1)} s` : 'no'), () =>
+          `RMS below ${options.silenceThresholdDb} dBFS for ≥ 1 s`],
+        ['Momentary loudness', (r) => `${fmt(r.momentaryLufs)} LUFS`, () => 'K-weighted, 400 ms'],
+        ['Short-term loudness', (r) => `${fmt(r.shortTermLufs)} LUFS`, () => 'K-weighted, 3 s'],
+        ['Integrated loudness', (r) => `${fmt(r.integratedLufs)} LUFS`, () => 'gated (-70 LUFS absolute, -10 LU relative)'],
+        ['Short-term vs target', (r) => `${fmt(r.shortTermLu)} LU`, () => `target ${options.loudnessTargetLufs} LUFS`],
+        ['Sample rate', (r) => `${r.sampleRate} Hz`, () => 'device rate; K-weighting is designed for it'],
+      ];
+
+      function buildTable() {
+        const body = $('readings');
+        body.replaceChildren();
+        for (const [label] of ROWS) {
+          const tr = document.createElement('tr');
+          const th = document.createElement('th');
+          th.scope = 'row';
+          th.textContent = label;
+          const value = document.createElement('td');
+          value.className = 'num';
+          value.textContent = '—';
+          const definition = document.createElement('td');
+          definition.className = 'def';
+          tr.append(th, value, definition);
+          body.append(tr);
+        }
+      }
+
+      function paintTable(readings) {
+        const rows = $('readings').children;
+        ROWS.forEach(([, value, definition], i) => {
+          rows[i].children[1].textContent = readings ? value(readings) : '—';
+          rows[i].children[2].textContent = definition();
+        });
+      }
+
+      function paint(readings) {
+        const zone = readings.silent ? 'idle' : readings.zone;
+        document.documentElement.style.setProperty(
+          '--zone',
+          zone === 'idle' ? 'var(--ink-muted)' : `var(--${zone === 'good' ? 'good' : zone})`,
+        );
+
+        $('meter-fill').style.width = `${positionPercent(readings.fastRmsDb)}%`;
+        $('meter-peak').style.left = `${positionPercent(readings.heldPeakDb)}%`;
+
+        const meter = $('meter');
+        meter.setAttribute('aria-valuenow', fmt(readings.fastRmsDb));
+        meter.setAttribute(
+          'aria-valuetext',
+          `${fmt(readings.fastRmsDb)} dBFS RMS, peak ${fmt(readings.heldPeakDb)} dBFS, ${
+            ZONE_LABEL[zone].text
+          }`,
+        );
+
+        $('rms-value').textContent = fmt(readings.rmsDb);
+        setChip('zone-chip', 'zone-text', zone, ZONE_LABEL[zone].text);
+
+        $('peak-value').textContent = fmt(readings.heldPeakDb);
+        $('tp-value').textContent = fmt(readings.truePeakDb);
+        $('tpmax-value').textContent = fmt(readings.maxTruePeakDb);
+        $('clip-value').textContent = `${readings.clippingPercent.toFixed(2)} %`;
+        $('floor-value').textContent = fmt(readings.noiseFloorDb);
+        $('silence-value').textContent = readings.silent ? 'Yes' : 'No';
+
+        $('m-value').textContent = fmt(readings.momentaryLufs);
+        $('s-value').textContent = fmt(readings.shortTermLufs);
+        $('i-value').textContent = fmt(readings.integratedLufs);
+        $('lu-value').textContent = Number.isFinite(readings.shortTermLu)
+          ? `${readings.shortTermLu > 0 ? '+' : ''}${fmt(readings.shortTermLu)}`
+          : '—';
+
+        const lu = Number.isFinite(readings.shortTermLu)
+          ? Math.max(-LU_RANGE, Math.min(LU_RANGE, readings.shortTermLu))
+          : 0;
+        const fill = $('lu-fill');
+        const half = Math.abs(lu) / (LU_RANGE * 2);
+        fill.style.left = lu >= 0 ? '50%' : `${(50 - half * 100).toFixed(2)}%`;
+        fill.style.width = `${(half * 100).toFixed(2)}%`;
+
+        paintTable(readings);
+
+        // Announcements track the same state the chip shows, worst first, so a
+        // screen-reader user is never told the level is fine while the meter
+        // reads amber.
+        if (readings.silent) {
+          announce('Silence detected. Check that the microphone is unmuted and the right input is selected.');
+        } else if (readings.clippingPercent >= 1) {
+          announce('Clipping detected. Reduce input gain.');
+        } else if (zone === 'critical') {
+          announce('Level too hot. Reduce input gain.');
+        } else if (zone === 'warning') {
+          announce('Level hot, approaching the clipping threshold.');
+        } else {
+          announce('Metering. Level within range.');
+        }
+      }
+
+      function tick() {
+        if (!running) return;
+        const now = performance.now();
+        if (now - lastPaint >= 1000 / UPDATE_HZ) {
+          lastPaint = now;
+          paint(core.read());
+        }
+        requestAnimationFrame(tick);
+      }
+
+      /**
+       * The worklet cannot import from the page, so its module is assembled
+       * from this page's own DSP source plus a thin processor wrapper. If the
+       * environment refuses the blob module (a strict CSP, or an older
+       * browser), metering falls back to a ScriptProcessorNode running the same
+       * core on the main thread.
+       */
+      async function createNode(context) {
+        const source = document.getElementById('meter-dsp').textContent;
+        const wrapper = `
+          ${source}
+          const { AudioMeterCore } = globalThis.ScribeArAudioMeter;
+          class MeterProcessor extends AudioWorkletProcessor {
+            constructor(o) {
+              super();
+              this.core = new AudioMeterCore(sampleRate, o.processorOptions.options);
+              this.port.onmessage = (e) => {
+                if (e.data.type === 'options') Object.assign(this.core.options, e.data.options);
+                if (e.data.type === 'read') this.port.postMessage({ type: 'readings', readings: this.core.read() });
+              };
+            }
+            process(inputs) {
+              const channel = inputs[0] && inputs[0][0];
+              if (channel) this.core.process(channel);
+              return true;
+            }
+          }
+          registerProcessor('scribear-meter', MeterProcessor);
+        `;
+        const url = URL.createObjectURL(new Blob([wrapper], { type: 'application/javascript' }));
+        try {
+          await context.audioWorklet.addModule(url);
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+        const worklet = new AudioWorkletNode(context, 'scribear-meter', {
+          numberOfInputs: 1,
+          numberOfOutputs: 0,
+          processorOptions: { options },
+        });
+        let latest = null;
+        worklet.port.onmessage = (event) => {
+          if (event.data.type === 'readings') latest = event.data.readings;
+        };
+        return {
+          node: worklet,
+          read: () => latest,
+          setOptions: () => worklet.port.postMessage({ type: 'options', options }),
+          poll: () => worklet.port.postMessage({ type: 'read' }),
+        };
+      }
+
+      function createFallbackNode(context) {
+        const local = new dsp.AudioMeterCore(context.sampleRate, options);
+        const processor = context.createScriptProcessor(4096, 1, 1);
+        processor.onaudioprocess = (event) => {
+          local.process(event.inputBuffer.getChannelData(0));
+        };
+        // ScriptProcessorNode only runs while connected to the destination;
+        // a muted gain node keeps the room from hearing itself.
+        const mute = context.createGain();
+        mute.gain.value = 0;
+        processor.connect(mute).connect(context.destination);
+        return {
+          node: processor,
+          read: () => local.read(),
+          setOptions: () => Object.assign(local.options, options),
+          poll: () => {},
+        };
+      }
+
+      async function listDevices() {
+        const select = $('device');
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const inputs = devices.filter((d) => d.kind === 'audioinput');
+        const current = select.value;
+        select.replaceChildren();
+        const fallback = document.createElement('option');
+        fallback.value = '';
+        fallback.textContent = 'Default input';
+        select.append(fallback);
+        inputs.forEach((device, i) => {
+          const option = document.createElement('option');
+          option.value = device.deviceId;
+          option.textContent = device.label || `Input ${i + 1}`;
+          select.append(option);
+        });
+        select.value = current;
+        select.disabled = inputs.length === 0;
+      }
+
+      async function start() {
+        const deviceId = $('device').value;
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            // Every browser DSP stage is off: the point is to measure what the
+            // device actually delivers, not what a conferencing filter makes of it.
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            channelCount: 1,
+            ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+          },
+        });
+
+        audioContext = new AudioContext();
+        await audioContext.resume();
+        const source = audioContext.createMediaStreamSource(stream);
+        // Explicit mono: a stereo device is downmixed once, here, so the core
+        // always sees a single channel.
+        const mono = audioContext.createGain();
+        mono.channelCount = 1;
+        mono.channelCountMode = 'explicit';
+        mono.channelInterpretation = 'speakers';
+
+        let created;
+        try {
+          created = await createNode(audioContext);
+        } catch (err) {
+          console.warn('AudioWorklet unavailable; using ScriptProcessorNode', err);
+          created = createFallbackNode(audioContext);
+        }
+        node = created;
+        source.connect(mono).connect(created.node);
+
+        core = { read: () => created.read() ?? emptyReadings(), options };
+        // The worklet answers asynchronously, so ask a little faster than the
+        // paint rate and paint whatever last arrived.
+        if (created.poll) setInterval(() => created.poll(), 1000 / (UPDATE_HZ * 2));
+
+        running = true;
+        await listDevices();
+        setChip('input-chip', 'input-state', 'good', 'Metering');
+        $('input-chip').querySelector('.dot').classList.add('live-blink');
+        $('toggle').textContent = 'Stop metering';
+        $('input-detail').textContent = `Metering ${
+          $('device').selectedOptions[0]?.textContent ?? 'default input'
+        } at ${audioContext.sampleRate} Hz, mono. Browser AGC, noise suppression and echo cancellation are off.`;
+        requestAnimationFrame(tick);
+      }
+
+      function emptyReadings() {
+        return {
+          sampleRate: audioContext?.sampleRate ?? 0,
+          processedSec: 0,
+          rmsDb: dsp.DB_FLOOR,
+          fastRmsDb: dsp.DB_FLOOR,
+          noiseFloorDb: dsp.DB_FLOOR,
+          peakDb: dsp.DB_FLOOR,
+          heldPeakDb: dsp.DB_FLOOR,
+          truePeakDb: dsp.DB_FLOOR,
+          maxTruePeakDb: dsp.DB_FLOOR,
+          clippedSamples: 0,
+          clippingPercent: 0,
+          silenceSec: 0,
+          silent: false,
+          momentaryLufs: -Infinity,
+          shortTermLufs: -Infinity,
+          integratedLufs: -Infinity,
+          targetLufs: options.loudnessTargetLufs,
+          shortTermLu: -Infinity,
+          zone: 'good',
+          rmsReferenceOffsetDb: options.rmsReferenceOffsetDb,
+        };
+      }
+
+      function stop() {
+        running = false;
+        node = null;
+        core = null;
+        stream?.getTracks().forEach((track) => track.stop());
+        stream = null;
+        audioContext?.close();
+        audioContext = null;
+        setChip('input-chip', 'input-state', 'idle', 'Stopped');
+        $('input-chip').querySelector('.dot').classList.remove('live-blink');
+        $('toggle').textContent = 'Start metering';
+        setChip('zone-chip', 'zone-text', 'idle', ZONE_LABEL.idle.text);
+        $('rms-value').textContent = '—';
+        paintTable(null);
+        announce('Metering stopped.');
+      }
+
+      $('toggle').addEventListener('click', async () => {
+        if (running) {
+          stop();
+          return;
+        }
+        try {
+          await start();
+        } catch (err) {
+          setChip('input-chip', 'input-state', 'critical', 'Input unavailable');
+          $('input-detail').textContent = `Could not open the input: ${err.message}. Microphone access needs a secure context — open this page over https, from localhost, or as a local file.`;
+          announce('Could not open the audio input.');
+        }
+      });
+
+      $('device').addEventListener('change', async () => {
+        if (!running) return;
+        stop();
+        await start();
+      });
+
+      $('ref').addEventListener('change', (event) => {
+        options.rmsReferenceOffsetDb = Number(event.target.value);
+        $('rms-unit').textContent = `dBFS RMS (10 s), ${
+          options.rmsReferenceOffsetDb ? 'AES17' : 'plain'
+        } reference`;
+        node?.setOptions();
+      });
+
+      $('target').addEventListener('change', (event) => {
+        options.loudnessTargetLufs = Number(event.target.value);
+        $('lu-note').textContent = `LU (0.0 LU = ${options.loudnessTargetLufs} LUFS)`;
+        node?.setOptions();
+      });
+
+      $('zones').addEventListener('change', (event) => {
+        const [warn, critical] = event.target.value.split(',').map(Number);
+        options.peakWarnDb = warn;
+        options.peakCriticalDb = critical;
+        paintScale();
+        node?.setOptions();
+      });
+
+      $('silence').addEventListener('change', (event) => {
+        options.silenceThresholdDb = Number(event.target.value);
+        $('silence-note').textContent = `below ${options.silenceThresholdDb} dBFS for ≥ 1 s`;
+        node?.setOptions();
+      });
+
+      paintScale();
+      buildTable();
+      paintTable(null);
+      navigator.mediaDevices?.addEventListener('devicechange', listDevices);
+    </script>
+  </body>
+</html>

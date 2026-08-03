@@ -1,0 +1,148 @@
+import { configureStore } from '@reduxjs/toolkit';
+import { render, screen } from '@testing-library/react';
+import { Provider } from 'react-redux';
+import { describe, expect, it } from 'vitest';
+
+import { JoinSessionModal } from '#src/features/session-provider/components/join-session-modal';
+import {
+  ClientLifecycle,
+  JoinError,
+  JoinNotice,
+} from '#src/features/session-provider/services/client-session-service-status';
+import {
+  setJoinError,
+  setJoinNotice,
+  setLifecycle,
+} from '#src/features/session-provider/stores/client-session-service-slice';
+import { rootReducer } from '#src/store/store';
+
+/**
+ * Render the dialog over a real store, in `IDLE` (the only lifecycle that
+ * opens it), with whatever join error/notice the case is about. No service
+ * middleware: this is about what the dialog says, not how the state got there.
+ */
+function renderIdleDialog(options: {
+  joinNotice?: JoinNotice;
+  joinError?: JoinError;
+}) {
+  const store = configureStore({ reducer: rootReducer });
+  store.dispatch(setLifecycle(ClientLifecycle.IDLE));
+  if (options.joinNotice !== undefined) {
+    store.dispatch(setJoinNotice(options.joinNotice));
+  }
+  if (options.joinError !== undefined) {
+    store.dispatch(setJoinError(options.joinError));
+  }
+  render(
+    <Provider store={store}>
+      <JoinSessionModal />
+    </Provider>,
+  );
+}
+
+describe('JoinSessionModal', () => {
+  it('explains a session that ended, rather than reopening blank', () => {
+    renderIdleDialog({ joinNotice: JoinNotice.SESSION_ENDED });
+
+    // The whole point of the notice: a viewer whose captions just vanished
+    // must be able to read why on the dialog that replaced them.
+    expect(screen.getByText(/This session has ended\./)).toBeInTheDocument();
+  });
+
+  it('states it informationally, not as something the viewer broke', () => {
+    renderIdleDialog({ joinNotice: JoinNotice.SESSION_ENDED });
+
+    // `info` = expected, no action - a session ending on schedule is not a
+    // fault, and must not paint the join field red.
+    const alerts = screen.getAllByRole('alert');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]?.className).toContain('MuiAlert-colorInfo');
+    expect(alerts[0]?.className).not.toContain('MuiAlert-colorError');
+    expect(screen.getByLabelText('Join Code')).not.toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+  });
+
+  it('describes the dialog with the notice, so it is announced on open', () => {
+    renderIdleDialog({ joinNotice: JoinNotice.SESSION_ENDED });
+
+    const dialog = screen.getByRole('dialog');
+    const describedBy = dialog.getAttribute('aria-describedby');
+    expect(describedBy).not.toBeNull();
+    expect(document.getElementById(describedBy ?? '')).toHaveTextContent(
+      /This session has ended\./,
+    );
+  });
+
+  it('shows nothing extra when the dialog opens for any other reason', () => {
+    renderIdleDialog({});
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog')).not.toHaveAttribute('aria-describedby');
+  });
+
+  it('explains a rate-limited join instead of telling the room to retry', () => {
+    renderIdleDialog({ joinError: JoinError.RATE_LIMITED });
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(
+      'Too many people are joining at once. Wait a minute, then try the same join code again — this clears on its own.',
+    );
+    // The two instructions that make the problem worse: an immediate retry
+    // (every seat in the room takes it at the same moment) and fetching a new
+    // join code (exchanged over the same rate-limited route).
+    expect(alert).not.toHaveTextContent(/please try again/i);
+    expect(alert).not.toHaveTextContent(/new join code/i);
+  });
+
+  it('states the rate limit as transient, not as a fault in the join code', () => {
+    renderIdleDialog({ joinError: JoinError.RATE_LIMITED });
+
+    // `warning` = degraded/transient, no action yet. Nothing is wrong with
+    // what the user typed, so the field must not be marked invalid either.
+    const alert = screen.getByRole('alert');
+    expect(alert.className).toContain('MuiAlert-colorWarning');
+    expect(alert.className).not.toContain('MuiAlert-colorError');
+    expect(screen.getByLabelText('Join Code')).not.toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+  });
+
+  it('names the service, not the join code, when the response had no readable body', () => {
+    renderIdleDialog({ joinError: JoinError.SERVICE_UNREACHABLE });
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/could not reach the session service/i);
+    expect(alert).toHaveTextContent(/not a problem with your join code/i);
+    expect(alert.className).toContain('MuiAlert-colorError');
+    expect(screen.getByLabelText('Join Code')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+  });
+
+  it('tells the user to reload, not just to retry, on a version mismatch', () => {
+    renderIdleDialog({ joinError: JoinError.VERSION_MISMATCH });
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/out of date/i);
+    expect(alert).toHaveTextContent(/reload the page/i);
+  });
+
+  it('leaves a failed join attempt reading as an error', () => {
+    renderIdleDialog({ joinError: JoinError.JOIN_CODE_NOT_FOUND });
+
+    // Unchanged behaviour: the notice is a separate, additive surface and
+    // must not have softened or displaced the existing failure messaging.
+    const alerts = screen.getAllByRole('alert');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toHaveTextContent('Invalid join code. Please try again.');
+    expect(alerts[0]?.className).toContain('MuiAlert-colorError');
+    expect(screen.getByLabelText('Join Code')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+  });
+});

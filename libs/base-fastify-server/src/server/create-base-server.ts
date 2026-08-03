@@ -14,6 +14,7 @@ import type { BaseLogger, LogLevel } from './create-logger.js';
 import { createLogger } from './create-logger.js';
 import scopeLogger from './hooks/on-request/scope-logger.js';
 import setRequestIdHeader from './hooks/on-send/set-request-id-header.js';
+import buildInfoRoute from './plugins/build-info-route.js';
 import errorHandler from './plugins/error-handler.js';
 import jsonParser from './plugins/json-parser.js';
 import notFoundHandler from './plugins/not-found-handler.js';
@@ -66,6 +67,7 @@ function createBaseServer(
   fastify.register(jsonParser);
   fastify.register(notFoundHandler);
   fastify.register(schemaValidator);
+  fastify.register(buildInfoRoute);
 
   // Register hooks
   fastify.register(scopeLogger);
@@ -74,7 +76,7 @@ function createBaseServer(
   return {
     logger,
     dependencyContainer,
-    fastify: fastify as BaseFastifyInstance,
+    fastify: fastify,
   };
 }
 

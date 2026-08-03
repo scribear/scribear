@@ -11,10 +11,12 @@ from src.shared.utils.worker_pool.worker_process_manager import (
     ROLLING_UTILIZATION_WINDOW_NS,
     JobHandle,
     WorkerProcessManager,
+    WorkerSnapshot,
 )
 
 from .job_context_interface import JobContextInterface
 from .job_interface import JobInterface
+from .job_result import JobObserver
 
 C = TypeVar("C", bound=tuple)
 D = TypeVar("D")
@@ -82,6 +84,7 @@ class WorkerPool:
         num_workers: int,
         contexts: list[ContextAssignment],
         rolling_utilization_window_ns: int = ROLLING_UTILIZATION_WINDOW_NS,
+        job_observer: JobObserver | None = None,
     ):
         """
         Args:
@@ -93,6 +96,8 @@ class WorkerPool:
             rolling_utilization_window_ns - Override for the per-worker utilization
                                               smoothing window (production should
                                               use the default)
+            job_observer - Optional callback invoked for every completed job
+                            execution on every worker
 
         Raises:
             ValueError      if num_workers is 0 or worker_ids reference an invalid worker
@@ -114,21 +119,103 @@ class WorkerPool:
                 per_worker_defs[worker_id][context_id] = assignment.context_def
 
         self._contexts = contexts
-        self._processes = [
-            WorkerProcessManager(
-                logger,
-                worker_id,
-                per_worker_defs[worker_id],
-                rolling_utilization_window_ns,
-            )
-            for worker_id in range(num_workers)
-        ]
+
+        # Built by appending rather than as a list comprehension, and unwound on
+        # failure, because each WorkerProcessManager spawns an OS process in its
+        # own constructor and any of them can raise - a worker whose context
+        # fails to load exits during initialization and the manager turns that
+        # into a RuntimeError.
+        #
+        # A comprehension would discard the whole list on that raise, so the
+        # workers already spawned would be left running with nothing holding a
+        # reference to them: not reachable through self._processes (never
+        # assigned), and not reachable by the caller (no object was returned).
+        # They then outlive the process that made them and, being non-daemon,
+        # stop the interpreter from exiting - which is how a missing model
+        # dependency shows up as a test suite that completes every test and then
+        # hangs forever with dozens of orphans.
+        self._processes: list[WorkerProcessManager] = []
+        try:
+            for worker_id in range(num_workers):
+                self._processes.append(
+                    WorkerProcessManager(
+                        logger,
+                        worker_id,
+                        per_worker_defs[worker_id],
+                        rolling_utilization_window_ns,
+                        job_observer,
+                    )
+                )
+        except BaseException:
+            # BaseException, not Exception: a KeyboardInterrupt part-way through
+            # spawning leaks processes exactly as an ImportError does, and the
+            # bare `raise` means nothing is swallowed either way.
+            self.shutdown()
+            raise
 
         # Pre-compute tag -> set of context_ids that have it for fast routing
         self._tag_to_context_ids: dict[str, set[int]] = {}
         for context_id, assignment in enumerate(contexts):
             for tag in assignment.context_def.tags:
                 self._tag_to_context_ids.setdefault(tag, set()).add(context_id)
+
+    @property
+    def num_workers(self) -> int:
+        """
+        Gets number of worker processes in the pool
+        """
+        return len(self._processes)
+
+    def worker_snapshots(self) -> list[WorkerSnapshot]:
+        """
+        Gets a point-in-time view of every worker's load, in worker id order
+
+        Side effect free, so it is safe to call from a request handler.
+        """
+        return [process.snapshot() for process in self._processes]
+
+    def load_for_tags(
+        self, context_tags: tuple[str, ...]
+    ) -> list[WorkerSnapshot]:
+        """
+        Gets the live workers that own EVERY given context tag, with their load
+
+        The read-only counterpart to `_assign_process`, which answers the same
+        routing question but *raises* when a tag matches nothing or no single
+        worker holds them all. Health reporting must never raise - a provider
+        whose contexts are missing is precisely the condition being reported,
+        so it has to come back as data rather than a 500.
+
+        Args:
+            context_tags    - Tags the provider's contexts must all match
+
+        Returns:
+            Snapshots of the alive workers that own every tag, in worker id
+            order. Empty means this provider's model is loaded on no live
+            worker, which is the mis-set worker_ids/tags failure. Also empty
+            for an empty tag tuple, since a provider that needs no context
+            (remote or debug) has no owning workers to report.
+        """
+        if not context_tags:
+            return []
+
+        matched_per_tag = [
+            self._tag_to_context_ids.get(tag, set()) for tag in context_tags
+        ]
+        # A tag matching no context definition at all cannot be satisfied by
+        # any combination, so short circuit before the product.
+        if any(not ids for ids in matched_per_tag):
+            return []
+
+        owners: set[int] = set()
+        for context_ids in product(*matched_per_tag):
+            owners |= self._workers_with_contexts(context_ids)
+
+        return [
+            self._processes[worker_id].snapshot()
+            for worker_id in sorted(owners)
+            if self._processes[worker_id].alive
+        ]
 
     def get_context_ids_by_tag(self, tag: str) -> set[int]:
         """
@@ -232,6 +319,9 @@ class WorkerPool:
         context_tags: tuple[str, ...],
         period_ms: int,
         job: JobInterface[C, D, R, Conf],
+        label: str = "",
+        session_uid: str | None = None,
+        room_uid: str | None = None,
     ) -> JobHandle[D, R, Conf]:
         """
         Registers a new job with WorkerPool
@@ -240,6 +330,11 @@ class WorkerPool:
             context_tags    - Tags identifying which contexts the job needs, can be empty
             period_ms       - Frequency at which job should be run
             job             - Definition of job to register
+            label           - Opaque grouping label reported to the job observer
+            session_uid     - Opaque caller session identifier, forwarded verbatim
+                                to WorkerProcessManager.register_job
+            room_uid        - Opaque caller room identifier, forwarded verbatim
+                                to WorkerProcessManager.register_job
 
         Returns:
             JobHandle for registered job
@@ -250,7 +345,7 @@ class WorkerPool:
         """
         process_id, context_ids = self._assign_process(context_tags)
         return self._processes[process_id].register_job(
-            context_ids, period_ms, job
+            context_ids, period_ms, job, label, session_uid, room_uid
         )
 
     def shutdown(self):

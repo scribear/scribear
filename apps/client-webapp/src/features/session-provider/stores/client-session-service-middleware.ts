@@ -4,6 +4,7 @@ import { rememberRehydrated } from '@scribear/redux-remember-store';
 import {
   clearTranscription,
   handleTranscript,
+  recordLatency,
 } from '@scribear/transcription-content-store';
 
 import type { RootState } from '#src/store/store';
@@ -25,6 +26,7 @@ import {
   setConnectionStatus,
   setError,
   setJoinError,
+  setJoinNotice,
   setLifecycle,
   setSessionStatus,
 } from './client-session-service-slice';
@@ -76,8 +78,14 @@ export const createClientSessionServiceMiddleware =
     service.on('transcript', (event) => {
       store.dispatch(handleTranscript(event));
     });
+    service.on('latency', (sample) => {
+      store.dispatch(recordLatency(sample));
+    });
     service.on('joinError', (joinError) => {
       store.dispatch(setJoinError(joinError));
+    });
+    service.on('joinNotice', (joinNotice) => {
+      store.dispatch(setJoinNotice(joinNotice));
     });
     service.on('error', (message) => {
       store.dispatch(setError(message));
@@ -105,7 +113,8 @@ export const createClientSessionServiceMiddleware =
       const joinCode = selectJoinCode(state);
       if (joinCode === null) return;
       store.dispatch(setJoinCode(null));
-      void service.joinSession(joinCode.trim().toUpperCase());
+      // joinSession normalizes (trim + upper-case) internally.
+      void service.joinSession(joinCode);
     };
 
     return (next) => (action) => {

@@ -21,6 +21,7 @@ import {
   LOCAL_TIME_SCHEMA,
   SESSION_SCHEDULE_SCHEMA,
 } from '../entities/session-schedule.schema.js';
+import { TRANSCRIPTION_PROVIDER_ID_SCHEMA } from '../entities/transcription-provider.schema.js';
 
 const CREATE_SCHEDULE_SCHEMA = {
   description:
@@ -28,7 +29,7 @@ const CREATE_SCHEDULE_SCHEMA = {
   tags: [SCHEDULE_MANAGEMENT_TAG],
   security: ADMIN_API_KEY_SECURITY,
   headers: Type.Object({
-    authorization: ADMIN_API_KEY_AUTH_HEADER_SCHEMA,
+    authorization: Type.Optional(ADMIN_API_KEY_AUTH_HEADER_SCHEMA),
   }),
   body: Type.Object({
     roomUid: Type.String({ format: 'uuid' }),
@@ -57,7 +58,7 @@ const CREATE_SCHEDULE_SCHEMA = {
       Type.Null(),
     ]),
     joinCodeScopes: Type.Array(SESSION_SCOPE_SCHEMA),
-    transcriptionProviderId: Type.String(),
+    transcriptionProviderId: TRANSCRIPTION_PROVIDER_ID_SCHEMA,
     transcriptionStreamConfig: Type.Unknown(),
   }),
   response: {

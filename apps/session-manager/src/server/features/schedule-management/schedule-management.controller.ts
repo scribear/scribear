@@ -5,20 +5,24 @@ import {
 } from '@scribear/base-fastify-server';
 import type { Json } from '@scribear/scribear-db';
 import {
+  CANCEL_SESSION_SCHEMA,
   CREATE_AUTO_SESSION_WINDOW_SCHEMA,
   CREATE_ON_DEMAND_SESSION_SCHEMA,
   CREATE_SCHEDULE_SCHEMA,
   DELETE_AUTO_SESSION_WINDOW_SCHEMA,
   DELETE_SCHEDULE_SCHEMA,
   END_SESSION_EARLY_SCHEMA,
+  GET_ACTIVE_SESSION_SCHEMA,
   GET_AUTO_SESSION_WINDOW_SCHEMA,
   GET_SCHEDULE_SCHEMA,
   GET_SESSION_SCHEMA,
   LIST_AUTO_SESSION_WINDOWS_SCHEMA,
   LIST_SCHEDULES_SCHEMA,
+  LIST_SESSIONS_SCHEMA,
   MY_SCHEDULE_SCHEMA,
   SESSION_CONFIG_STREAM_SCHEMA,
   START_SESSION_EARLY_SCHEMA,
+  UNCANCEL_SESSION_SCHEMA,
   UPDATE_AUTO_SESSION_WINDOW_SCHEMA,
   UPDATE_ROOM_SCHEDULE_CONFIG_SCHEMA,
   UPDATE_SCHEDULE_SCHEMA,
@@ -94,6 +98,8 @@ export class ScheduleManagementController {
       new Date(),
     );
 
+    if (result === 'UNKNOWN_TRANSCRIPTION_PROVIDER')
+      throw HttpError.badRequest(this._unknownProviderMessage());
     if (result === 'ROOM_NOT_FOUND')
       throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
     if (result === 'CONFLICT')
@@ -164,6 +170,8 @@ export class ScheduleManagementController {
       new Date(),
     );
 
+    if (result === 'UNKNOWN_TRANSCRIPTION_PROVIDER')
+      throw HttpError.badRequest(this._unknownProviderMessage());
     if (result === 'NOT_FOUND')
       throw HttpError.notFound('SCHEDULE_NOT_FOUND', 'Schedule not found.');
     if (result === 'CONFLICT')
@@ -249,6 +257,8 @@ export class ScheduleManagementController {
       new Date(),
     );
 
+    if (result === 'UNKNOWN_TRANSCRIPTION_PROVIDER')
+      throw HttpError.badRequest(this._unknownProviderMessage());
     if (result === 'ROOM_NOT_FOUND')
       throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
     if (result === 'CONFLICT')
@@ -260,6 +270,10 @@ export class ScheduleManagementController {
       throw HttpError.unprocessable(
         'INVALID_ACTIVE_END',
         'activeEnd must be strictly after activeStart.',
+      );
+    if (result === 'INVALID_LOCAL_TIMES')
+      throw HttpError.badRequest(
+        'localStartTime and localEndTime must not be equal.',
       );
 
     res.code(201).send(this._mapWindow(result));
@@ -310,6 +324,8 @@ export class ScheduleManagementController {
       new Date(),
     );
 
+    if (result === 'UNKNOWN_TRANSCRIPTION_PROVIDER')
+      throw HttpError.badRequest(this._unknownProviderMessage());
     if (result === 'NOT_FOUND')
       throw HttpError.notFound(
         'WINDOW_NOT_FOUND',
@@ -324,6 +340,10 @@ export class ScheduleManagementController {
       throw HttpError.unprocessable(
         'INVALID_ACTIVE_END',
         'activeEnd must be strictly after activeStart.',
+      );
+    if (result === 'INVALID_LOCAL_TIMES')
+      throw HttpError.badRequest(
+        'localStartTime and localEndTime must not be equal.',
       );
 
     res.code(200).send(this._mapWindow(result));
@@ -380,6 +400,64 @@ export class ScheduleManagementController {
     res.code(200).send(this._mapSession(result));
   }
 
+  async listSessions(
+    req: BaseFastifyRequest<typeof LIST_SESSIONS_SCHEMA>,
+    res: BaseFastifyReply<typeof LIST_SESSIONS_SCHEMA>,
+  ) {
+    const roomUids =
+      req.query.roomUids === undefined
+        ? null
+        : Array.isArray(req.query.roomUids)
+          ? req.query.roomUids
+          : [req.query.roomUids];
+
+    // When roomUids is supplied, 404 if any of them don't exist — the natural
+    // generalization of the single-room list's ROOM_NOT_FOUND. Not reachable
+    // for the all-rooms query (roomUids === null): there is no specific room
+    // to fail to find. `listSessionsInRange` itself has no existence check
+    // (it's a plain `room_uid IN (...)` filter), so this is an explicit
+    // existence check ahead of the range query rather than something the
+    // service already gave us for free.
+    if (roomUids !== null) {
+      const rooms = await Promise.all(
+        roomUids.map((uid) => this._roomService.getRoom(uid)),
+      );
+      const missingRoomUids = roomUids.filter(
+        (_, i) => rooms[i] === 'ROOM_NOT_FOUND',
+      );
+      if (missingRoomUids.length > 0)
+        throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.', {
+          roomUids: missingRoomUids,
+        });
+    }
+
+    const result = await this._scheduleService.listSessionsInRange(roomUids, {
+      from: new Date(req.query.from),
+      to: new Date(req.query.to),
+    });
+    if (result === 'RANGE_TOO_LARGE')
+      throw HttpError.unprocessable(
+        'RANGE_TOO_LARGE',
+        'Date range must be 31 days or less.',
+      );
+
+    res.code(200).send({ items: result.map((s) => this._mapSession(s)) });
+  }
+
+  async getActiveSession(
+    req: BaseFastifyRequest<typeof GET_ACTIVE_SESSION_SCHEMA>,
+    res: BaseFastifyReply<typeof GET_ACTIVE_SESSION_SCHEMA>,
+  ) {
+    const { roomUid } = req.params;
+    const now = new Date();
+
+    const result = await this._scheduleService.findActiveSession(roomUid, now);
+    if (result === 'ROOM_NOT_FOUND')
+      throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
+
+    res.code(200).send(result ? this._mapSession(result) : null);
+  }
+
   async createOnDemandSession(
     req: BaseFastifyRequest<typeof CREATE_ON_DEMAND_SESSION_SCHEMA>,
     res: BaseFastifyReply<typeof CREATE_ON_DEMAND_SESSION_SCHEMA>,
@@ -391,6 +469,8 @@ export class ScheduleManagementController {
       new Date(),
     );
 
+    if (result === 'UNKNOWN_TRANSCRIPTION_PROVIDER')
+      throw HttpError.badRequest(this._unknownProviderMessage());
     if (result === 'ROOM_NOT_FOUND')
       throw HttpError.notFound('ROOM_NOT_FOUND', 'Room not found.');
     if (result === 'ANOTHER_SESSION_ACTIVE')
@@ -452,6 +532,61 @@ export class ScheduleManagementController {
       throw HttpError.unprocessable(
         'SESSION_NOT_ACTIVE',
         'Session is not currently active.',
+      );
+
+    res.code(200).send(this._mapSession(result));
+  }
+
+  async cancelSession(
+    req: BaseFastifyRequest<typeof CANCEL_SESSION_SCHEMA>,
+    res: BaseFastifyReply<typeof CANCEL_SESSION_SCHEMA>,
+  ) {
+    const result = await this._scheduleService.cancelSession(
+      req.body.sessionUid,
+      new Date(),
+    );
+
+    if (result === 'NOT_FOUND')
+      throw HttpError.notFound('SESSION_NOT_FOUND', 'Session not found.');
+    if (result === 'SESSION_NOT_SCHEDULED_TYPE')
+      throw HttpError.unprocessable(
+        'SESSION_NOT_SCHEDULED_TYPE',
+        'Only SCHEDULED sessions can be canceled.',
+      );
+    if (result === 'SESSION_ALREADY_CANCELED')
+      throw HttpError.unprocessable(
+        'SESSION_ALREADY_CANCELED',
+        'Session is already canceled.',
+      );
+    if (result === 'SESSION_NOT_UPCOMING')
+      throw HttpError.unprocessable(
+        'SESSION_NOT_UPCOMING',
+        'Only upcoming sessions can be canceled.',
+      );
+
+    res.code(200).send(this._mapSession(result));
+  }
+
+  async uncancelSession(
+    req: BaseFastifyRequest<typeof UNCANCEL_SESSION_SCHEMA>,
+    res: BaseFastifyReply<typeof UNCANCEL_SESSION_SCHEMA>,
+  ) {
+    const result = await this._scheduleService.uncancelSession(
+      req.body.sessionUid,
+      new Date(),
+    );
+
+    if (result === 'NOT_FOUND')
+      throw HttpError.notFound('SESSION_NOT_FOUND', 'Session not found.');
+    if (result === 'SESSION_NOT_CANCELED')
+      throw HttpError.unprocessable(
+        'SESSION_NOT_CANCELED',
+        'Session is not canceled.',
+      );
+    if (result === 'SLOT_NO_LONGER_AVAILABLE')
+      throw HttpError.conflict(
+        'SLOT_NO_LONGER_AVAILABLE',
+        'Another session now occupies this time range.',
       );
 
     res.code(200).send(this._mapSession(result));
@@ -603,6 +738,23 @@ export class ScheduleManagementController {
     };
   }
 
+  /**
+   * Rejection message for an unrecognized `transcriptionProviderId`.
+   *
+   * Names the accepted keys rather than just saying "invalid": the value comes
+   * from a free-text field in the admin console, the accepted set is deployment
+   * configuration the operator cannot see from the UI, and the alternative to
+   * telling them here is that they discover the typo when a room full of people
+   * gets a permanent "reconnecting" banner. Emitted as `400 VALIDATION_ERROR` -
+   * the same answer the request validator gives for any other malformed field,
+   * and already declared on every one of these routes, so nothing about the
+   * wire contract changes.
+   */
+  private _unknownProviderMessage(): string {
+    const known = this._scheduleService.transcriptionProviderIds.join(', ');
+    return `transcriptionProviderId is not a provider configured on this deployment. Configured providers: ${known}.`;
+  }
+
   private _mapSchedule(s: Schedule) {
     return {
       ...s,
@@ -629,6 +781,7 @@ export class ScheduleManagementController {
       scheduledEndTime: s.scheduledEndTime?.toISOString() ?? null,
       startOverride: s.startOverride?.toISOString() ?? null,
       endOverride: s.endOverride?.toISOString() ?? null,
+      canceledAt: s.canceledAt?.toISOString() ?? null,
       effectiveStart: s.effectiveStart.toISOString(),
       effectiveEnd: s.effectiveEnd?.toISOString() ?? null,
       createdAt: s.createdAt.toISOString(),

@@ -55,6 +55,8 @@ export const TranscriptionProviderConfigMenu = () => {
 
   if (!configMenuProviderId) return null;
 
+  // getProviderConfigMenu returns a stable reference from the module-level registry, not a new component.
+  // eslint-disable-next-line @eslint-react/static-components
   const ConfigMenu = getProviderConfigMenu(configMenuProviderId);
 
   return (
@@ -78,13 +80,19 @@ export const TranscriptionProviderConfigMenu = () => {
       >
         <Suspense
           fallback={
-            <Stack direction="row" justifyContent="space-around" py={4}>
+            <Stack
+              direction="row"
+              sx={{
+                justifyContent: 'space-around',
+                py: 4,
+              }}
+            >
               <CircularProgress />
             </Stack>
           }
         >
           {/* getProviderConfigMenu returns a stable reference from the module-level registry, not a new component. */}
-          {/* eslint-disable-next-line react-hooks/static-components */}
+          {/* eslint-disable-next-line react-hooks/static-components, @eslint-react/static-components */}
           <ConfigMenu onClose={handleClose} onDirtyChange={handleDirtyChange} />
         </Suspense>
       </ProviderConfigContainer>

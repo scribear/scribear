@@ -6,6 +6,8 @@ export const DEVICE_MANAGEMENT_TAG = 'Device Management';
 export const SCHEDULE_MANAGEMENT_TAG = 'Schedule Management';
 export const SESSION_MANAGEMENT_TAG = 'Session Management';
 export const SESSION_AUTH_TAG = 'Session Auth';
+export const DEMO_ROOM_TAG = 'Demo Room';
+export const DATABASE_TAG = 'Database';
 
 export const OPENAPI_TAGS: BaseTagsDefinition = [
   { name: PROBES_TAG, description: 'Liveness and readiness probe endpoints.' },
@@ -26,5 +28,16 @@ export const OPENAPI_TAGS: BaseTagsDefinition = [
     name: SESSION_AUTH_TAG,
     description:
       'Join code issuance, join code exchange, source-device session auth, and session token refresh.',
+  },
+  {
+    name: DEMO_ROOM_TAG,
+    description:
+      'Demo caption room: status and join code for the admin console.',
+  },
+  {
+    name: DATABASE_TAG,
+    description:
+      'Database schema state: which migrations this build expects and which ' +
+      'have been applied.',
   },
 ];

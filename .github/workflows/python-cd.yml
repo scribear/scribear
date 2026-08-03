@@ -10,14 +10,22 @@ on:
 permissions:
   actions: read
   contents: read
+  packages: write
+
+# See node-cd: deployments queue rather than cancel.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
       transcription_service: ${{ steps.filter.outputs.transcription_service }}
+      image_matrix: ${{ steps.image_matrix.outputs.matrix }}
+      build_matrix: ${{ steps.image_matrix.outputs.build_matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Detect changed paths
         id: filter
         uses: dorny/paths-filter@v3
@@ -26,24 +34,27 @@ jobs:
             transcription_service:
               - 'transcription_service/**'
 
+      - name: Resolve transcription image matrix
+        id: image_matrix
+        uses: ./.github/actions/transcription-image-matrix
+
+  # One job per (image, native runner arch) pair. The CPU image builds on
+  # both linux/amd64 and linux/arm64 (native ubuntu-24.04-arm, not QEMU —
+  # measured 9.9x slower in APPLE-SILICON-FINDINGS.md); the CUDA variants
+  # build on amd64 only, since no Mac can run them and no arm64 GPU
+  # deployment exists. Each leg pushes its half of the image by digest;
+  # docker-merge below combines the digests into one multi-arch manifest.
+  # Mirrors the shape in node-cd.yml.
   docker-build:
     needs: [changes]
     if: needs.changes.outputs.transcription_service == 'true'
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - image_name: scribear/transcription-service-cpu
-            build_context: transcription_service
-            dockerfile: transcription_service/Dockerfile_CPU
-            version_file: transcription_service/pyproject.toml
-          - image_name: scribear/transcription-service-cuda
-            build_context: transcription_service
-            dockerfile: transcription_service/Dockerfile_CUDA
-            version_file: transcription_service/pyproject.toml
-    runs-on: ubuntu-latest
+      matrix: ${{ fromJSON(needs.changes.outputs.build_matrix) }}
+    name: docker-build (${{ matrix.image_name }}, ${{ matrix.platform }})
+    runs-on: ${{ matrix.runs_on }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Resolve image tags
         id: tags
@@ -57,7 +68,85 @@ jobs:
           image_name: ${{ matrix.image_name }}
           build_context: ${{ matrix.build_context }}
           dockerfile: ${{ matrix.dockerfile }}
+          build_args: |
+            ${{ matrix.build_args }}
+            ${{ steps.tags.outputs.build_args }}
           cache_variant: ${{ github.ref_name }}
           custom_tags: ${{ steps.tags.outputs.tags }}
-          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          platforms: ${{ matrix.platform }}
+          push_by_digest: "true"
+
+  # Combines each image's per-arch digests (uploaded as artifacts by
+  # build-container above, one matrix job per image so a slow image's merge
+  # cannot block a fast one's) into a single manifest under the real tags,
+  # via `docker buildx imagetools create`. For CUDA variants this produces a
+  # single-arch manifest (one digest); for the CPU image it produces a real
+  # multi-arch index. Mirrors docker-merge in node-cd.yml.
+  docker-merge:
+    needs: [changes, docker-build]
+    if: needs.changes.outputs.transcription_service == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.image_matrix) }}
+    name: docker-merge (${{ matrix.image_name }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve image tags
+        id: tags
+        uses: ./.github/actions/resolve-container-tags
+        with:
+          version_file: ${{ matrix.version_file }}
+
+      # Matches nothing (and the download step below finds no files) on a build
+      # that resolved no tags - identical to the old "build without publishing"
+      # case, just discovered here instead of inside build-container.
+      - name: Download digests
+        if: steps.tags.outputs.tags != ''
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-${{ matrix.image_slug }}-*
+          merge-multiple: true
+
+      - name: Login to GHCR
+        if: steps.tags.outputs.tags != ''
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: steps.tags.outputs.tags != ''
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create and push the multi-arch manifest
+        if: steps.tags.outputs.tags != ''
+        working-directory: /tmp/digests
+        env:
+          IMAGE_NAME: ${{ matrix.image_name }}
+          TAGS: ${{ steps.tags.outputs.tags }}
+        run: |
+          tag_args=()
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && tag_args+=(-t "ghcr.io/${IMAGE_NAME}:${tag}")
+          done <<< "$TAGS"
+
+          digest_refs=()
+          for digest in *; do
+            digest_refs+=("ghcr.io/${IMAGE_NAME}@sha256:${digest}")
+          done
+
+          docker buildx imagetools create "${tag_args[@]}" "${digest_refs[@]}"
+
+      - name: Inspect the published manifest
+        if: steps.tags.outputs.tags != ''
+        env:
+          IMAGE_NAME: ${{ matrix.image_name }}
+          TAGS: ${{ steps.tags.outputs.tags }}
+        run: |
+          first_tag=$(echo "$TAGS" | head -n1)
+          docker buildx imagetools inspect "ghcr.io/${IMAGE_NAME}:${first_tag}"

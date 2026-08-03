@@ -1,3 +1,5 @@
+import { useId } from 'react';
+
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Modal from '@mui/material/Modal';
@@ -32,9 +34,13 @@ export const CancelableInfoModal = ({
   children,
   onCancel,
 }: CancelableInfoModalProps) => {
+  const messageId = useId();
   return (
     <Modal open={isOpen} onClose={onCancel}>
       <Paper
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={messageId}
         sx={{
           position: 'absolute',
           top: '50%',
@@ -45,11 +51,22 @@ export const CancelableInfoModal = ({
           p: 4,
         }}
       >
-        <Typography textAlign="center" pb={4}>
+        <Typography
+          id={messageId}
+          sx={{
+            textAlign: 'center',
+            pb: 4,
+          }}
+        >
           {message}
         </Typography>
         <Box sx={{ pb: 4, width: '100%' }}>{children}</Box>
-        <Stack direction="row" justifyContent="space-around">
+        <Stack
+          direction="row"
+          sx={{
+            justifyContent: 'space-around',
+          }}
+        >
           <Button onClick={onCancel} color="error" variant="contained">
             Cancel
           </Button>

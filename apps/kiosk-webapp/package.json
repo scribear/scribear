@@ -1,29 +1,36 @@
 {
   "name": "@scribear/kiosk-webapp",
-  "version": "0.0.0",
+  "version": "0.2.0",
   "description": "",
   "author": "scribear",
   "main": "dist/src/index.js",
   "type": "module",
   "imports": {
-    "#src/*": "./dist/src/*",
-    "#tests/*": "./dist/tests/*"
+    "#src/*": {
+      "development": "./src/*",
+      "default": "./dist/src/*"
+    },
+    "#tests/*": {
+      "development": "./tests/*",
+      "default": "./dist/tests/*"
+    }
   },
   "scripts": {
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "dev": "vite",
-    "format": "prettier --check ./src",
-    "format:fix": "prettier --write ./src",
-    "lint": "eslint ./src",
-    "lint:fix": "eslint ./src --fix"
+    "format": "prettier --check ./src ./tests",
+    "format:fix": "prettier --write ./src ./tests",
+    "lint": "eslint ./src ./tests",
+    "lint:fix": "eslint ./src ./tests --fix",
+    "test:unit": "vitest run --project unit"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",
     "@fontsource/roboto": "5.2.10",
-    "@mui/icons-material": "7.3.8",
-    "@mui/material": "7.3.8",
+    "@mui/icons-material": "9.2.0",
+    "@mui/material": "9.2.0",
     "@reduxjs/toolkit": "2.11.2",
     "eventemitter3": "5.0.4",
     "qrcode.react": "4.2.0",
@@ -36,8 +43,9 @@
     "typebox": "1.1.5"
   },
   "devDependencies": {
-    "@eslint-react/eslint-plugin": "2.13.0",
-    "eslint-plugin-react-hooks": "7.0.1",
-    "eslint-plugin-react-refresh": "0.5.2"
+    "@eslint-react/eslint-plugin": "5.18.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-react-refresh": "0.5.3",
+    "jsdom": "29.1.1"
   }
 }

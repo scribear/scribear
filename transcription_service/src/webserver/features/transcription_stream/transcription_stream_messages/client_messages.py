@@ -33,6 +33,10 @@ class ConfigMessageSchema(BaseModel):
 
     type: Literal[ClientMessageTypes.CONFIG] = ClientMessageTypes.CONFIG
     config: Any
+    # Identifies which session/room this connection is for. Optional so a
+    # node server that predates these fields still validates.
+    session_uid: str | None = None
+    room_uid: str | None = None
 
 
 # Create pydantic adapter for client messages

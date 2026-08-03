@@ -1,6 +1,8 @@
 import { createEndpointClient } from '@scribear/base-api-client';
 import { createLongPollClient } from '@scribear/base-long-poll-client';
 import {
+  CANCEL_SESSION_ROUTE,
+  CANCEL_SESSION_SCHEMA,
   CREATE_AUTO_SESSION_WINDOW_ROUTE,
   CREATE_AUTO_SESSION_WINDOW_SCHEMA,
   CREATE_ON_DEMAND_SESSION_ROUTE,
@@ -13,6 +15,8 @@ import {
   DELETE_SCHEDULE_SCHEMA,
   END_SESSION_EARLY_ROUTE,
   END_SESSION_EARLY_SCHEMA,
+  GET_ACTIVE_SESSION_ROUTE,
+  GET_ACTIVE_SESSION_SCHEMA,
   GET_AUTO_SESSION_WINDOW_ROUTE,
   GET_AUTO_SESSION_WINDOW_SCHEMA,
   GET_SCHEDULE_ROUTE,
@@ -23,12 +27,16 @@ import {
   LIST_AUTO_SESSION_WINDOWS_SCHEMA,
   LIST_SCHEDULES_ROUTE,
   LIST_SCHEDULES_SCHEMA,
+  LIST_SESSIONS_ROUTE,
+  LIST_SESSIONS_SCHEMA,
   MY_SCHEDULE_ROUTE,
   MY_SCHEDULE_SCHEMA,
   SESSION_CONFIG_STREAM_ROUTE,
   SESSION_CONFIG_STREAM_SCHEMA,
   START_SESSION_EARLY_ROUTE,
   START_SESSION_EARLY_SCHEMA,
+  UNCANCEL_SESSION_ROUTE,
+  UNCANCEL_SESSION_SCHEMA,
   UPDATE_AUTO_SESSION_WINDOW_ROUTE,
   UPDATE_AUTO_SESSION_WINDOW_SCHEMA,
   UPDATE_ROOM_SCHEDULE_CONFIG_ROUTE,
@@ -106,6 +114,16 @@ function createScheduleManagementClient(baseUrl: string) {
       GET_SESSION_ROUTE,
       baseUrl,
     ),
+    listSessions: createEndpointClient(
+      LIST_SESSIONS_SCHEMA,
+      LIST_SESSIONS_ROUTE,
+      baseUrl,
+    ),
+    getActiveSession: createEndpointClient(
+      GET_ACTIVE_SESSION_SCHEMA,
+      GET_ACTIVE_SESSION_ROUTE,
+      baseUrl,
+    ),
     createOnDemandSession: createEndpointClient(
       CREATE_ON_DEMAND_SESSION_SCHEMA,
       CREATE_ON_DEMAND_SESSION_ROUTE,
@@ -119,6 +137,16 @@ function createScheduleManagementClient(baseUrl: string) {
     endSessionEarly: createEndpointClient(
       END_SESSION_EARLY_SCHEMA,
       END_SESSION_EARLY_ROUTE,
+      baseUrl,
+    ),
+    cancelSession: createEndpointClient(
+      CANCEL_SESSION_SCHEMA,
+      CANCEL_SESSION_ROUTE,
+      baseUrl,
+    ),
+    uncancelSession: createEndpointClient(
+      UNCANCEL_SESSION_SCHEMA,
+      UNCANCEL_SESSION_ROUTE,
       baseUrl,
     ),
     sessionConfigStream: createLongPollClient(

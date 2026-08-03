@@ -88,6 +88,7 @@ export interface Devices {
   created_at: Generated<Timestamp>;
   expiry: Timestamp | null;
   hash: string | null;
+  last_seen_at: Timestamp | null;
   name: string;
   uid: Generated<string>;
 }
@@ -128,6 +129,7 @@ export interface SessionRefreshTokens {
 }
 
 export interface Sessions {
+  canceled_at: Timestamp | null;
   created_at: Generated<Timestamp>;
   end_override: Timestamp | null;
   join_code_scopes: Generated<ArrayType<SessionScope>>;

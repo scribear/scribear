@@ -1,0 +1,62 @@
+{
+  "name": "@scribear/admin-server",
+  "version": "0.2.0",
+  "description": "Admin BFF for ScribeAR: authenticates IT staff, holds the Session Manager admin key server-side, and proxies admin operations.",
+  "author": "scribear",
+  "main": "dist/src/index.js",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./server": {
+      "development": "./src/server/create-server.ts",
+      "default": "./dist/src/server/create-server.js"
+    },
+    "./app-config": {
+      "development": "./src/app-config/app-config.ts",
+      "default": "./dist/src/app-config/app-config.js"
+    }
+  },
+  "type": "module",
+  "imports": {
+    "#src/*": {
+      "development": "./src/*",
+      "default": "./dist/src/*"
+    },
+    "#tests/*": {
+      "development": "./tests/*",
+      "default": "./dist/tests/*"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build && node esbuild.config.mjs",
+    "start": "node ./dist/src/index.js",
+    "dev": "tsc --build && concurrently -k \"tsc --build --watch\" \"node --watch-path=dist dist/src/index.js --dev | pino-pretty\"",
+    "format": "prettier --check ./src ./tests",
+    "format:fix": "prettier --write ./src ./tests",
+    "lint": "eslint ./src ./tests",
+    "lint:fix": "eslint ./src ./tests --fix",
+    "test:dev": "vitest --ui --coverage",
+    "test:integration": "vitest run --project integration",
+    "test:unit": "vitest run --project unit"
+  },
+  "dependencies": {
+    "@fastify/awilix": "8.2.0",
+    "@fastify/cookie": "11.0.2",
+    "@fastify/rate-limit": "11.1.0",
+    "@scribear/scribear-db": "0.2.0",
+    "@scribear/scribear-redis": "0.2.0",
+    "awilix": "13.0.0",
+    "env-schema": "7.0.0",
+    "fastify": "5.10.0",
+    "fastify-plugin": "5.1.0",
+    "jose": "6.2.7",
+    "kysely": "0.28.17",
+    "pg": "8.19.0",
+    "typebox": "1.1.5"
+  },
+  "devDependencies": {
+    "@types/pg": "8.16.0"
+  }
+}

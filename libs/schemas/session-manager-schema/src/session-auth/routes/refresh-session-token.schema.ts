@@ -3,6 +3,7 @@ import { Type } from 'typebox';
 import {
   type BaseRouteDefinition,
   type BaseRouteSchema,
+  RATE_LIMITED_REPLY_SCHEMA,
   STANDARD_ERROR_REPLIES,
 } from '@scribear/base-schema';
 
@@ -11,7 +12,7 @@ import { SESSION_AUTH_TAG } from '#src/tags.js';
 
 const REFRESH_SESSION_TOKEN_SCHEMA = {
   description:
-    'Exchange a session refresh token for a fresh short-lived session token. No prior authentication required - the refresh token itself is the credential.',
+    'Exchange a session refresh token for a fresh short-lived session token. No prior authentication required - the refresh token itself is the credential. Rate-limited per client IP, so a 429 is expected when a room full of viewers behind one NAT renews at once; it is transient and clears when the window rolls over.',
   tags: [SESSION_AUTH_TAG],
   body: Type.Object({
     sessionRefreshToken: Type.String(),
@@ -30,6 +31,12 @@ const REFRESH_SESSION_TOKEN_SCHEMA = {
       code: Type.Literal('SESSION_ENDED'),
       message: Type.String(),
     }),
+    // Declared for the same reason as on exchange-join-code: this route opts
+    // into a per-IP rate limit, and an undeclared 429 was indistinguishable
+    // from a 500 to the client's refresh loop - so exhausting the retry
+    // budget on rate limiting terminated the session with "join again with a
+    // new join code", which is advice that reproduces the problem.
+    429: RATE_LIMITED_REPLY_SCHEMA,
   },
 } satisfies BaseRouteSchema;
 

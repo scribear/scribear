@@ -16,7 +16,11 @@ import { getMigrator } from '@scribear/scribear-db';
 const TESTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(TESTS_DIR, '../../../..');
 const DB_DOCKERFILE_DIR = path.join(REPO_ROOT, 'infra/scribear-db');
-const SESSION_MANAGER_DOCKERFILE = 'apps/session-manager/Dockerfile';
+// The Session Manager image is one target of the root Dockerfile now, not a
+// Dockerfile of its own, so building it takes the repo root as context plus
+// the target name rather than a per-app Dockerfile path.
+const ROOT_DOCKERFILE = 'Dockerfile';
+const SESSION_MANAGER_TARGET = 'session-manager';
 const TRANSCRIPTION_SERVICE_CONTEXT = path.join(
   REPO_ROOT,
   'transcription_service',
@@ -37,10 +41,22 @@ const TEST_TRANSCRIPTION_API_KEY = 'test-transcription-api-key';
 
 const TRANSCRIPTION_PORT = 80;
 
+const REDIS_PORT = 6379;
+const REDIS_PASSWORD = 'test';
+const REDIS_NETWORK_ALIAS = 'redis';
+
+/**
+ * Identity the transcription service publishes its host snapshot under.
+ * Fixed rather than left to default to the container's hostname, so a test
+ * can address the key directly instead of scanning the index.
+ */
+const TRANSCRIPTION_HOST_ID = 'test-transcription-host';
+
 let network: StartedNetwork | undefined;
 let dbContainer: StartedTestContainer | undefined;
 let sessionManagerContainer: StartedTestContainer | undefined;
 let transcriptionContainer: StartedTestContainer | undefined;
+let redisContainer: StartedTestContainer | undefined;
 
 export async function setup({
   provide,
@@ -102,10 +118,8 @@ export async function setup({
   const sessionManagerImage =
     sessionManagerImageEnv != null
       ? new GenericContainer(sessionManagerImageEnv)
-      : await GenericContainer.fromDockerfile(
-          REPO_ROOT,
-          SESSION_MANAGER_DOCKERFILE,
-        )
+      : await GenericContainer.fromDockerfile(REPO_ROOT, ROOT_DOCKERFILE)
+          .withTarget(SESSION_MANAGER_TARGET)
           .withCache(true)
           .build();
 
@@ -133,7 +147,30 @@ export async function setup({
     sessionManagerContainer.getMappedPort(SESSION_MANAGER_PORT);
   const sessionManagerBaseUrl = `http://${sessionManagerHost}:${sessionManagerMappedPort.toString()}`;
 
-  // 3. Build / start the transcription service (CPU image).
+  // 3. Start Redis for the telemetry backplane (B1.7). The stock image, not
+  // `infra/scribear-redis`'s: that image is the deployment's redis-server plus
+  // a healthcheck, and building it here would test the Dockerfile rather than
+  // the publisher.
+  //
+  // On the shared network, and started before the transcription service,
+  // because that container publishes into it: the two need a name they can
+  // both resolve, and the mapped host port only exists on the host side.
+  redisContainer = await new GenericContainer('redis:8-alpine')
+    .withCommand(['redis-server', '--requirepass', REDIS_PASSWORD])
+    .withExposedPorts(REDIS_PORT)
+    .withNetwork(network)
+    .withNetworkAliases(REDIS_NETWORK_ALIAS)
+    .withWaitStrategy(Wait.forLogMessage('Ready to accept connections'))
+    .start();
+
+  const redisUrl = `redis://:${REDIS_PASSWORD}@${redisContainer.getHost()}:${String(
+    redisContainer.getMappedPort(REDIS_PORT),
+  )}`;
+  // The same server addressed from inside the network. Not interchangeable
+  // with `redisUrl`, which is only routable from the host.
+  const inNetworkRedisUrl = `redis://:${REDIS_PASSWORD}@${REDIS_NETWORK_ALIAS}:${String(REDIS_PORT)}`;
+
+  // 4. Build / start the transcription service (CPU image).
   const txImageEnv = process.env['SCRIBEAR_TRANSCRIPTION_SERVICE_IMAGE'];
   const txImage =
     txImageEnv != null
@@ -168,6 +205,12 @@ export async function setup({
       API_KEY: TEST_TRANSCRIPTION_API_KEY,
       WS_INIT_TIMEOUT_SEC: '10',
       PROVIDER_CONFIG_PATH: '/app/provider_config.json',
+      // Turns on this host's own telemetry publisher, so its
+      // `/providers/health` body lands in the same Redis the fleet view reads.
+      // Without these two it publishes nothing at all and the suite has no
+      // Python-produced payload to check the TypeScript mirror against.
+      REDIS_URL: inNetworkRedisUrl,
+      TRANSCRIPTION_HOST_ID,
     })
     .withCopyContentToContainer([
       {
@@ -176,6 +219,7 @@ export async function setup({
       },
     ])
     .withExposedPorts(TRANSCRIPTION_PORT)
+    .withNetwork(network)
     .withWaitStrategy(
       Wait.forHttp('/probes/liveness', TRANSCRIPTION_PORT).withStartupTimeout(
         180_000,
@@ -188,6 +232,8 @@ export async function setup({
     transcriptionContainer.getMappedPort(TRANSCRIPTION_PORT);
   const transcriptionServiceBaseUrl = `http://${transcriptionHost}:${transcriptionPort.toString()}`;
 
+  provide('redisUrl', redisUrl);
+  provide('transcriptionHostId', TRANSCRIPTION_HOST_ID);
   provide('sessionManagerBaseUrl', sessionManagerBaseUrl);
   provide('transcriptionServiceBaseUrl', transcriptionServiceBaseUrl);
   provide('adminApiKey', TEST_ADMIN_API_KEY);
@@ -197,6 +243,9 @@ export async function setup({
 }
 
 export async function teardown() {
+  if (redisContainer !== undefined) {
+    await redisContainer.stop();
+  }
   if (transcriptionContainer !== undefined) {
     await transcriptionContainer.stop();
   }

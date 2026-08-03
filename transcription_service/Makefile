@@ -31,9 +31,14 @@ format_fix:
 	uv run black ./src ./tests
 
 # Run linter
+# Tests waive two rules that are pytest idiom rather than defects:
+# redefined-outer-name (a test taking its own fixture as a parameter) and
+# duplicate-code (independent suites each standing up the same fixtures and
+# handshakes). Sharing that boilerplate across suites to satisfy R0801 would
+# couple tests that are meant to be readable and fail in isolation.
 lint:
 	uv run pylint -j 0 --recursive=y --fail-under=10 ./src
-	uv run pylint -j 0 --recursive=y --fail-under=10 --disable=redefined-outer-name ./tests
+	uv run pylint -j 0 --recursive=y --fail-under=10 --disable=redefined-outer-name,duplicate-code ./tests
 
 # Run tests in dev mode (hot reload)
 test_dev:

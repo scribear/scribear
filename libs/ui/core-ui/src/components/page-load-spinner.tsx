@@ -7,6 +7,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 export const PageLoadSpinner = () => {
   return (
     <Box
+      role="status"
       sx={{
         display: 'flex',
         justifyContent: 'center',
@@ -15,7 +16,7 @@ export const PageLoadSpinner = () => {
         width: '100vw',
       }}
     >
-      <CircularProgress />
+      <CircularProgress aria-label="Loading" />
     </Box>
   );
 };

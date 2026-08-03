@@ -1,0 +1,105 @@
+{
+  "$comment": "PLAN-AUDIOVIZ §9 cross-check gate. See README.md in this directory before editing.",
+  "toleranceDb": 0.5,
+  "wav": {
+    "path": "test_audio_files/speech/harvard_16k_mono.wav",
+    "format": "16-bit signed PCM, mono, little-endian",
+    "sampleRate": 16000,
+    "sampleCount": 160000,
+    "$comment": "The first 160000 samples (10.0 s) of the Harvard sentences recording — exactly one full metering window at this rate, so both implementations average precisely these samples and nothing else. Expectations are the arithmetic RMS and peak of those samples (int16 / 32768), not a value copied from either meter.",
+    "expected": {
+      "rmsDbfs": -26.1224,
+      "peakDbfs": -10.5164,
+      "clippingPct": 0
+    }
+  },
+  "tones": [
+    {
+      "name": "full-scale 1 kHz sine",
+      "$comment": "The calibration tone every dBFS convention is defined against: under the plain full-scale reference its RMS reads -3.01 dBFS and its peak 0 dBFS. If the two surfaces ever disagree about the reference, they disagree here first.",
+      "rmsDbfs": -3.0103,
+      "frequencyHz": 1000,
+      "sampleRate": 16000,
+      "seconds": 10.0,
+      "$clippingComment": "Reads 0 on both sides: a clean sine reaches full scale one isolated sample at a time, and clipping requires a run at the rail. This is the fixture that used to disagree — see README.md, 'A divergence this gate found and closed'.",
+      "expected": {
+        "rmsDbfs": -3.0103,
+        "peakDbfs": 0.0,
+        "clippingPct": 0
+      }
+    },
+    {
+      "name": "-18 dBFS alignment tone",
+      "$comment": "The standard line-up level. Its peak sits 3.01 dB above its RMS.",
+      "rmsDbfs": -18.0,
+      "frequencyHz": 1000,
+      "sampleRate": 16000,
+      "seconds": 10.0,
+      "expected": {
+        "rmsDbfs": -18.0,
+        "peakDbfs": -14.9897,
+        "clippingPct": 0
+      }
+    },
+    {
+      "name": "quiet room tone at -50 dBFS",
+      "$comment": "Sits on AUDIO_THRESHOLDS.rmsDbfsLow, the dashboard's 'very low level' warn boundary — the level at which an operator is told the mic may be muted or far away. Both meters must place it in the same place.",
+      "rmsDbfs": -50.0,
+      "frequencyHz": 200,
+      "sampleRate": 16000,
+      "seconds": 10.0,
+      "expected": {
+        "rmsDbfs": -50.0,
+        "peakDbfs": -46.9897,
+        "clippingPct": 0
+      }
+    }
+  ],
+  "limitedTones": [
+    {
+      "name": "hard-clipped 1 kHz sine, 1.5x pre-limit gain",
+      "$comment": "A sine driven 3.52 dB into a hard limiter: the crests are shaved into flat runs at the rail, which is what clipping actually is. Both implementations charge 62.5% of the window. That is above the analytic flat-top fraction of 53.54% (= 1 - (2/pi)*asin(1/1.5)) because the shoulder samples between the 0.99 threshold and 1.0 are part of the same run, which is intended — the threshold exists to catch a rail that decoding or a lossy codec left slightly ragged. Expected value measured identically on both sides, not copied from one.",
+      "preLimitGain": 1.5,
+      "rmsDbfs": -3.0103,
+      "frequencyHz": 1000,
+      "sampleRate": 16000,
+      "seconds": 10.0,
+      "expected": {
+        "rmsDbfs": -1.5035,
+        "peakDbfs": 0.0,
+        "clippingPct": 0.625
+      }
+    },
+    {
+      "name": "near-rail plateau, limited at 0.995",
+      "$comment": "The fixture that pins CLIP_THRESHOLD. The plateau sits at 0.995 - at or above the 0.99 threshold but below full scale - so it is charged at 0.99 and NOT charged if the threshold drifts back toward 1.0. Without this, the shared threshold constant was unpinned: at 16 kHz / 1 kHz no sample of the full-scale fixture lands in the 0.99..0.9999 band, so both a 0.99 and a 0.9999 threshold gave identical answers everywhere. This is also the case the tolerance exists for in the first place - a source that clipped in the integer domain, or a lossy codec, leaves the rail slightly ragged rather than exactly at 1.0.",
+      "preLimitGain": 1.5,
+      "limitCeiling": 0.995,
+      "rmsDbfs": -3.0103,
+      "frequencyHz": 1000,
+      "sampleRate": 16000,
+      "seconds": 10.0,
+      "expected": {
+        "rmsDbfs": -1.5419,
+        "peakDbfs": -0.0435,
+        "clippingPct": 0.625
+      }
+    },
+    {
+      "name": "limited below the threshold, at 0.97 - hot but not clipping",
+      "$comment": "Pins CLIP_THRESHOLD from below. The plateau is flat - so the run requirement alone would charge it - but it never reaches 0.99, so both implementations must report zero. Realistic: a limiter set below full scale produces exactly this, and calling it clipping would be the same class of false positive as charging a clean full-scale sine. Without this fixture a threshold drifting down (0.99 -> 0.95) passed every test.",
+      "preLimitGain": 1.5,
+      "limitCeiling": 0.97,
+      "rmsDbfs": -3.0103,
+      "frequencyHz": 1000,
+      "sampleRate": 16000,
+      "seconds": 10.0,
+      "expected": {
+        "rmsDbfs": -1.7364,
+        "peakDbfs": -0.2646,
+        "clippingPct": 0
+      }
+    }
+  ],
+  "$clippingRule": "Both implementations count a sample as clipped when |x| >= 0.99 (CLIP_THRESHOLD / clipThreshold) and it belongs to a run of >= 2 consecutive such samples (CLIP_MIN_RUN / clipMinRun). The two constants are duplicated across the language boundary on purpose; these fixtures are what keeps them honest."
+}

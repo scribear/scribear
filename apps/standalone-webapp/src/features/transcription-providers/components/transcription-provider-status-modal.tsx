@@ -26,6 +26,8 @@ export const TranscriptionProviderStatusModal = () => {
 
   if (targetProviderId === null) return null;
 
+  // getProviderStatusModal returns a stable reference from the module-level registry, not a new component.
+  // eslint-disable-next-line @eslint-react/static-components
   const StatusModal = getProviderStatusModal(targetProviderId);
 
   const loadingFallback = (
@@ -34,7 +36,12 @@ export const TranscriptionProviderStatusModal = () => {
       message={`Loading ${getProviderDisplayName(targetProviderId)}...`}
       onCancel={() => dispatch(setPreferredProviderId(null))}
     >
-      <Stack direction="row" justifyContent="space-around">
+      <Stack
+        direction="row"
+        sx={{
+          justifyContent: 'space-around',
+        }}
+      >
         <CircularProgress />
       </Stack>
     </CancelableInfoModal>
@@ -43,7 +50,7 @@ export const TranscriptionProviderStatusModal = () => {
   return (
     <Suspense fallback={loadingFallback}>
       {/* getProviderStatusModal returns a stable reference from the module-level registry, not a new component. */}
-      {/* eslint-disable-next-line react-hooks/static-components */}
+      {/* eslint-disable-next-line react-hooks/static-components, @eslint-react/static-components */}
       <StatusModal />
     </Suspense>
   );

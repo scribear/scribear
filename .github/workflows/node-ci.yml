@@ -10,7 +10,16 @@ on:
 permissions:
   actions: read
   contents: read
+  packages: write
   pull-requests: write
+
+# Pushing again to an open PR should abandon the previous run, not race it. Six
+# overlapping runs of the same PR were routine, each holding ~15 runners and
+# each pulling its own base images - a large part of why builds started hitting
+# registry rate limits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   changes:
@@ -18,92 +27,113 @@ jobs:
     outputs:
       workspaces: ${{ steps.changes.outputs.workspaces }}
       has_changes: ${{ steps.changes.outputs.has_changes }}
+      image_matrix: ${{ steps.image_matrix.outputs.matrix }}
+      has_images: ${{ steps.image_matrix.outputs.has_images }}
     steps:
-      - uses: actions/checkout@v4
+      # fetch-depth: 0 so detect-changes can diff against the PR base commit.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Detect Changed Workspaces
         id: changes
         uses: ./.github/actions/detect-changes
+
+      - name: Resolve node image matrix
+        id: image_matrix
+        uses: ./.github/actions/node-image-matrix
+        with:
+          workspaces: ${{ steps.changes.outputs.workspaces }}
 
   format:
     needs: changes
     if: needs.changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Node
         uses: ./.github/actions/setup-node
 
       - name: Check formatting
         env:
           WORKSPACES: ${{ needs.changes.outputs.workspaces }}
-        run: |
-          node -e "console.log(JSON.parse(process.env.WORKSPACES).join('\n'))" > /tmp/workspaces.txt
-          while IFS= read -r ws; do
-            echo "::group::$ws"
-            npm run format --workspace "$ws"
-            echo "::endgroup::"
-          done < /tmp/workspaces.txt
+        run: .github/scripts/run-workspaces.sh format
 
   lint:
     needs: changes
     if: needs.changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Node
         uses: ./.github/actions/setup-node
 
       - name: Run linter
         env:
           WORKSPACES: ${{ needs.changes.outputs.workspaces }}
-        run: |
-          node -e "console.log(JSON.parse(process.env.WORKSPACES).join('\n'))" > /tmp/workspaces.txt
-          while IFS= read -r ws; do
-            echo "::group::$ws"
-            npm run lint --workspace "$ws"
-            echo "::endgroup::"
-          done < /tmp/workspaces.txt
+        run: .github/scripts/run-workspaces.sh lint
 
   build:
     needs: changes
     if: needs.changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Node
         uses: ./.github/actions/setup-node
 
+      # `tsc --build` is incremental: given the previous dist/ and the
+      # .tsbuildinfo beside it, it re-emits only the projects whose sources
+      # actually changed. CI threw that away every run and rebuilt all 36
+      # workspaces from cold.
+      #
+      # The key carries the SHA so every run saves a fresh entry, and
+      # restore-keys falls back to the most recent one - the point is to start
+      # from a recent build, not to find an exact match. The lockfile hash is in
+      # the prefix so a TypeScript upgrade cannot restore stale output.
+      # Correctness rests on tsc's own bookkeeping: .tsbuildinfo records a hash
+      # per source file, so a changed file is always recompiled.
+      - name: Restore TypeScript build outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            apps/*/dist
+            infra/*/dist
+            libs/*/dist
+            libs/*/*/dist
+            apps/*/.tsbuildinfo
+          key: tsbuild-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            tsbuild-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+
+      # Serial on purpose. `tsc --build` also builds a workspace's referenced
+      # projects, so two concurrent invocations can race writing the same
+      # dist/ and .tsbuildinfo for a shared lib.
       - name: Run build
         env:
           WORKSPACES: ${{ needs.changes.outputs.workspaces }}
-        run: |
-          node -e "console.log(JSON.parse(process.env.WORKSPACES).join('\n'))" > /tmp/workspaces.txt
-          while IFS= read -r ws; do
-            echo "::group::$ws"
-            npm run build --workspace "$ws" --if-present
-            echo "::endgroup::"
-          done < /tmp/workspaces.txt
+          IF_PRESENT: "true"
+          CONCURRENCY: "1"
+        run: .github/scripts/run-workspaces.sh build
 
   test:
     needs: changes
     if: needs.changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Node
         uses: ./.github/actions/setup-node
 
+      # Serial on purpose. Vitest already runs its own worker pool per
+      # workspace; stacking workspaces on top would oversubscribe the runner
+      # and make timing-sensitive tests flaky.
       - name: Run unit tests
         env:
           WORKSPACES: ${{ needs.changes.outputs.workspaces }}
-        run: |
-          node -e "console.log(JSON.parse(process.env.WORKSPACES).join('\n'))" > /tmp/workspaces.txt
-          while IFS= read -r ws; do
-            echo "::group::$ws"
-            npm run test:unit --workspace "$ws" --if-present
-            echo "::endgroup::"
-          done < /tmp/workspaces.txt
+          IF_PRESENT: "true"
+          CONCURRENCY: "1"
+        run: .github/scripts/run-workspaces.sh test:unit
 
       - name: Code Coverage Report - Base Fastify Server Unit Tests
         if: contains(needs.changes.outputs.workspaces, 'libs/base-fastify-server')
@@ -149,144 +179,155 @@ jobs:
 
   docker-build:
     needs: [changes, format, lint, build, test]
-    if: needs.changes.outputs.has_changes == 'true'
+    if: needs.changes.outputs.has_images == 'true'
+    # Only the affected images get a runner. The matrix itself lives in
+    # .github/node-images.json so node-ci and node-cd cannot drift apart on
+    # which images exist.
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - image_name: scribear/scribear-db
-            build_context: infra/scribear-db
-            dockerfile: infra/scribear-db/Dockerfile
-            workspace: infra/scribear-db
-            version_file: infra/scribear-db/package.json
-          - image_name: scribear/scribear-nginx
-            build_context: infra/scribear-nginx
-            dockerfile: infra/scribear-nginx/Dockerfile
-            workspace: infra/scribear-nginx
-            version_file: infra/scribear-nginx/package.json
-          - image_name: scribear/client-webapp
-            build_context: .
-            dockerfile: apps/client-webapp/Dockerfile
-            workspace: apps/client-webapp
-            version_file: apps/client-webapp/package.json
-          - image_name: scribear/kiosk-webapp
-            build_context: .
-            dockerfile: apps/kiosk-webapp/Dockerfile
-            workspace: apps/kiosk-webapp
-            version_file: apps/kiosk-webapp/package.json
-          - image_name: scribear/standalone-webapp
-            build_context: .
-            dockerfile: apps/standalone-webapp/Dockerfile
-            workspace: apps/standalone-webapp
-            version_file: apps/standalone-webapp/package.json
-          - image_name: scribear/session-manager
-            build_context: .
-            dockerfile: apps/session-manager/Dockerfile
-            workspace: apps/session-manager
-            version_file: apps/session-manager/package.json
-          - image_name: scribear/node-server
-            build_context: .
-            dockerfile: apps/node-server/Dockerfile
-            workspace: apps/node-server
-            version_file: apps/node-server/package.json
+      matrix: ${{ fromJSON(needs.changes.outputs.image_matrix) }}
+    name: docker-build (${{ matrix.image_name }})
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
+      # PRs into main or staging publish a staging-pr<n>/production-pr<n>
+      # image (named for which environment a merge would land in, not just
+      # the PR number), so a reviewer can pull the exact build under review
+      # instead of rebuilding it. The tag moves with the PR head -
+      # `production-pr157` is always PR #157's latest push targeting main,
+      # and the image says which commit it is via GET /build-info.
+      #
+      # Set the repository variable PUBLISH_PR_IMAGES to "false" to switch this
+      # off (or "true" to publish for every base branch); either is a one-field
+      # change with no code edit. Fork PRs never push whatever it says - their
+      # GITHUB_TOKEN is read-only, and build-container detects that and builds
+      # without publishing.
       - name: Resolve image tags
         id: tags
         uses: ./.github/actions/resolve-container-tags
         with:
           version_file: ${{ matrix.version_file }}
+          publish_pr_images: ${{ vars.PUBLISH_PR_IMAGES }}
 
+      # cache_variant is deliberately unset: PR builds read the staging/main
+      # caches but write nothing. See build-container for why.
       - name: Build Container
-        if: contains(needs.changes.outputs.workspaces, matrix.workspace)
         uses: ./.github/actions/build-container
         with:
           image_name: ${{ matrix.image_name }}
           build_context: ${{ matrix.build_context }}
           dockerfile: ${{ matrix.dockerfile }}
-          cache_variant: pr
+          target: ${{ matrix.target }}
+          build_args: ${{ steps.tags.outputs.build_args }}
           custom_tags: ${{ steps.tags.outputs.tags }}
-          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
-  integration-test:
-    needs: [changes, format, lint, build, test, docker-build]
-    if: needs.changes.outputs.has_changes == 'true'
+  # Deliberately NOT downstream of docker-build. This job builds its own `:test`
+  # images with prepare-test-container and never consumed docker-build's output,
+  # so the dependency only forced it to sit idle for ~3 minutes first.
+  # Split by suite rather than run as one job. The two suites are independent
+  # and need different images: session-manager wants only the DB (16s prep +
+  # 59s tests), node-server wants all three (92s prep + 93s tests). Serialised
+  # that was the sum; as siblings it is the larger of the two, and a failure
+  # now names which suite broke.
+  integration-test-session-manager:
+    needs: [changes, format, lint, build, test]
+    if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Node
         uses: ./.github/actions/setup-node
 
       - name: Prepare Scribear DB Container
         uses: ./.github/actions/prepare-test-container
-        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager') || contains(needs.changes.outputs.workspaces, 'apps/node-server')
         with:
           image_name: scribear/scribear-db
           build_context: ./infra/scribear-db
           dockerfile: infra/scribear-db/Dockerfile
-
-      - name: Prepare Session Manager Container
-        uses: ./.github/actions/prepare-test-container
-        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
-        with:
-          image_name: scribear/session-manager
-          build_context: .
-          dockerfile: apps/session-manager/Dockerfile
-
-      - name: Prepare Transcription Service CPU Container
-        uses: ./.github/actions/prepare-test-container
-        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
-        with:
-          image_name: scribear/transcription-service-cpu
-          build_context: ./transcription_service
-          dockerfile: ./transcription_service/Dockerfile_CPU
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run Session Manager Integration Tests
-        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
         env:
           SCRIBEAR_DB_IMAGE: scribear/scribear-db:test
         run: npm run test:integration --workspace apps/session-manager
 
       - name: Code Coverage Report - Session Manager Integration Tests
         uses: ./.github/actions/coverage-report
-        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
         with:
           package_name: "Session Manager - Integration Tests"
           filename: "./apps/session-manager/coverage/cobertura-coverage.xml"
 
-      - name: Run Node Server Integration Tests
-        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
-        env:
-          SCRIBEAR_DB_IMAGE: scribear/scribear-db:test
-          SCRIBEAR_SESSION_MANAGER_IMAGE: scribear/session-manager:test
-          TRANSCRIPTION_SERVICE_IMAGE: scribear/transcription-service-cpu:test
-        run: npm run test:integration --workspace apps/node-server
-
-      - name: Code Coverage Report - Node Server Integration Tests
-        uses: ./.github/actions/coverage-report
-        if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
-        with:
-          package_name: "Node Server - Integration Tests"
-          filename: "./apps/node-server/coverage/cobertura-coverage.xml"
-
-  check-database-types:
-    needs: [changes, docker-build]
-    if: contains(needs.changes.outputs.workspaces, 'infra/scribear-db')
+  integration-test-node-server:
+    needs: [changes, format, lint, build, test]
+    if: contains(needs.changes.outputs.workspaces, 'apps/node-server')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-node
+      - uses: actions/checkout@v5
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
 
       - name: Prepare Scribear DB Container
         uses: ./.github/actions/prepare-test-container
-        if: contains(needs.changes.outputs.workspaces, 'apps/session-manager')
         with:
           image_name: scribear/scribear-db
           build_context: ./infra/scribear-db
           dockerfile: infra/scribear-db/Dockerfile
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare Session Manager Container
+        uses: ./.github/actions/prepare-test-container
+        with:
+          image_name: scribear/session-manager
+          build_context: .
+          dockerfile: Dockerfile
+          target: session-manager
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare Transcription Service CPU Container
+        uses: ./.github/actions/prepare-test-container
+        with:
+          image_name: scribear/transcription-service-cpu
+          build_context: ./transcription_service
+          dockerfile: ./transcription_service/Dockerfile_CPU
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Node Server Integration Tests
+        env:
+          SCRIBEAR_DB_IMAGE: scribear/scribear-db:test
+          SCRIBEAR_SESSION_MANAGER_IMAGE: scribear/session-manager:test
+          SCRIBEAR_TRANSCRIPTION_SERVICE_IMAGE: scribear/transcription-service-cpu:test
+        run: npm run test:integration --workspace apps/node-server
+
+      - name: Code Coverage Report - Node Server Integration Tests
+        uses: ./.github/actions/coverage-report
+        with:
+          package_name: "Node Server - Integration Tests"
+          filename: "./apps/node-server/coverage/cobertura-coverage.xml"
+
+  # Also not downstream of docker-build, for the same reason: it builds the DB
+  # image it needs itself.
+  check-database-types:
+    needs: [changes]
+    if: contains(needs.changes.outputs.workspaces, 'infra/scribear-db')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-node
+
+      # Unconditional: this job only runs when infra/scribear-db is affected,
+      # and every step below needs the image. It used to be gated on
+      # apps/session-manager, which is a different condition entirely - it
+      # happened to hold only because session-manager references scribear-db,
+      # so the dependent expansion always pulled it in.
+      - name: Prepare Scribear DB Container
+        uses: ./.github/actions/prepare-test-container
+        with:
+          image_name: scribear/scribear-db
+          build_context: ./infra/scribear-db
+          dockerfile: infra/scribear-db/Dockerfile
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Start ScribeAR DB
         run: |
@@ -337,7 +378,20 @@ jobs:
           (echo "Error: Generated database types are out of date. Run 'npm run generate:types' in infra/scribear-db and commit the changes." && exit 1)
 
   node-ci:
-    needs: [format, lint, build, test, docker-build, integration-test, check-database-types]
+    # `changes` is included so that a failure there fails the gate. Without it,
+    # every other job is skipped and "all skipped" reads as a pass.
+    needs:
+      [
+        changes,
+        format,
+        lint,
+        build,
+        test,
+        docker-build,
+        integration-test-session-manager,
+        integration-test-node-server,
+        check-database-types,
+      ]
     if: always()
     runs-on: ubuntu-latest
     steps:

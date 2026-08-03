@@ -1,0 +1,88 @@
+name: "Node Image Matrix"
+description: >
+  Builds the docker-build job matrix for the Node images declared in
+  .github/node-images.json, keeping only the images whose workspace is in the
+  affected set reported by detect-changes.
+inputs:
+  workspaces:
+    description: "JSON array of affected workspace paths, from the detect-changes action."
+    required: true
+outputs:
+  matrix:
+    # No ${{ }} in this text: GitHub evaluates descriptions as expressions.
+    description: "JSON object with an `include` array, for use as a strategy.matrix via fromJSON. One entry per affected image; `image_slug` is the image_name with '/' replaced by '-', for use in artifact names."
+    value: ${{ steps.build.outputs.matrix }}
+  has_images:
+    description: '"true" if at least one image needs building, "false" otherwise.'
+    value: ${{ steps.build.outputs.has_images }}
+  build_matrix:
+    description: >
+      JSON object with an `include` array, the cross product of the affected
+      images and the native runner for each published architecture (currently
+      linux/amd64 on ubuntu-24.04 and linux/arm64 on ubuntu-24.04-arm) - one
+      entry per (image, arch) pair, for the per-arch docker-build matrix.
+      `platform_tag` is the platform with '/' replaced by '-' (the existing
+      buildcache tag suffix convention); `image_slug` is `image_name` with '/'
+      replaced by '-', for use in artifact names.
+    value: ${{ steps.build.outputs.build_matrix }}
+runs:
+  using: "composite"
+  steps:
+    # The matrix used to be hard-coded in node-ci and node-cd, which let the two
+    # drift: CI never built scribear-redis or monitoring-sidecar, so those two
+    # images were only ever compiled for the first time on a push to staging.
+    #
+    # Filtering here rather than with a per-entry `if:` on the build step also
+    # stops GitHub allocating a runner for every image on every run just to skip
+    # the one step that matters.
+    - name: Build image matrix
+      id: build
+      shell: bash
+      env:
+        WORKSPACES: ${{ inputs.workspaces }}
+      run: |
+        node <<'JS'
+        const { readFileSync, appendFileSync } = require('fs');
+
+        // Native arm64 runners, not QEMU (measured 9.9x slower on the CPU
+        // transcription image in APPLE-SILICON-FINDINGS.md). Kept here rather
+        // than as an input because it is specific to this repo's two
+        // GitHub-hosted runner labels, not something a caller should vary.
+        const PLATFORMS = [
+          { platform: 'linux/amd64', runs_on: 'ubuntu-24.04' },
+          { platform: 'linux/arm64', runs_on: 'ubuntu-24.04-arm' },
+        ];
+
+        const images = JSON.parse(
+          readFileSync('.github/node-images.json', 'utf8'),
+        );
+        const affected = new Set(JSON.parse(process.env.WORKSPACES));
+        const include = images
+          .filter((image) => affected.has(image.workspace))
+          .map((image) => ({
+            ...image,
+            image_slug: image.image_name.replace('/', '-'),
+          }));
+
+        const buildInclude = include.flatMap((image) =>
+          PLATFORMS.map(({ platform, runs_on }) => ({
+            ...image,
+            platform,
+            runs_on,
+            platform_tag: platform.replace('/', '-'),
+          })),
+        );
+
+        appendFileSync(
+          process.env.GITHUB_OUTPUT,
+          `matrix=${JSON.stringify({ include })}\n` +
+            `has_images=${include.length > 0 ? 'true' : 'false'}\n` +
+            `build_matrix=${JSON.stringify({ include: buildInclude })}\n`,
+        );
+
+        console.log(
+          include.length
+            ? `${include.length} images: ${include.map((i) => i.image_name).join(', ')}`
+            : 'No images affected',
+        );
+        JS

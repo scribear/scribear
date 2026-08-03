@@ -1,0 +1,156 @@
+import type { ConnectionStatusSeverity } from '@scribear/core-ui';
+import { TranscriptionServiceDisconnectReason } from '@scribear/node-server-schema';
+
+import type { RootState } from '#src/store/store';
+
+import type { SessionStatusSnapshot } from '../services/client-session-service';
+import { SessionConnectionStatus } from '../services/client-session-service-status';
+import { selectError, selectSession } from './client-session-service-slice';
+
+/**
+ * What {@link ConnectionStatusBanner} (mounted in `root.tsx`) should render,
+ * derived from the three independent connection concerns the client tracks:
+ * the client's own WebSocket to node-server (`connectionStatus`), whether the
+ * room has a source device streaming (`sessionStatus.sourceDeviceConnected`),
+ * and node-server's own upstream link to the Transcription Service
+ * (`sessionStatus.transcriptionServiceConnected`).
+ */
+export type ConnectionBanner =
+  | { open: false }
+  | { open: true; severity: ConnectionStatusSeverity; message: string };
+
+/**
+ * Pure derivation of the connection-status banner shown to the user.
+ *
+ * Priority (most severe/explanatory first):
+ * 1. `TERMINAL` - the service has given up; nothing is retrying and nothing
+ *    below can change. This is the one `'error'` branch, and it renders the
+ *    service's own explanation (`error`) rather than a generic string,
+ *    because the whole point of a terminal state is telling the user *which*
+ *    unrecoverable thing happened and what to do next.
+ * 2. The client's own socket to node-server isn't `CONNECTED` (it's
+ *    `CONNECTING` or `DISCONNECTED`). This subsumes whatever node-server's
+ *    upstream state was - there's no live channel to have learned it over -
+ *    so the nested transcription-service state is deliberately not reported
+ *    alongside it.
+ * 3. No `sessionStatus` has arrived yet (`null`). The socket is up but
+ *    node-server hasn't reported the room's state, so there is nothing
+ *    truthful to say - no banner.
+ * 4. No source device is connected. This is the *normal idle state of a
+ *    healthy room*: node-server only dials the Transcription Service when a
+ *    source registers, so `transcriptionServiceConnected` is false here too
+ *    and means nothing. Informational, and deliberately free of the word
+ *    "reconnecting" - reporting it as a fault is what made every real room
+ *    look broken while the demo room (which fakes both flags true) looked
+ *    fine.
+ * 5. A source *is* connected but node-server's link to the Transcription
+ *    Service is down. That is a genuine fault, and the reason decides the
+ *    wording: `AT_CAPACITY` clears on its own when load drops, so it promises
+ *    a retry; `INVALID_REQUEST` never clears without an operator, so it is an
+ *    error asking for one; anything else gets the generic "lost the upstream
+ *    connection" message.
+ * 6. Otherwise, nothing to report - the banner is unmounted.
+ *
+ * Apart from `TERMINAL` and `INVALID_REQUEST`, every state here is
+ * retrying/transient (the client and node-server both keep retrying
+ * automatically), matching this feature's "wrong refusal is worse than wrong
+ * admission" / fail-open philosophy elsewhere in admission control - so
+ * severity is `'warning'`, or `'info'` where nothing is actually wrong. Only
+ * the two states nothing in the system can recover from on its own are
+ * `'error'`. An unrecoverable *session* failure (e.g.
+ * an expired refresh token) still routes through `JoinError`/`leaveSession`
+ * and drops the user back to `IDLE`, off this banner's `ACTIVE`-only concern
+ * entirely.
+ */
+export function deriveConnectionBanner(
+  connectionStatus: SessionConnectionStatus,
+  sessionStatus: SessionStatusSnapshot | null,
+  error: string | null = null,
+): ConnectionBanner {
+  if (connectionStatus === SessionConnectionStatus.TERMINAL) {
+    return {
+      open: true,
+      severity: 'error',
+      message:
+        error ??
+        'Disconnected from this session and unable to reconnect. Leave the session and join again with a new join code.',
+    };
+  }
+
+  if (connectionStatus !== SessionConnectionStatus.CONNECTED) {
+    return {
+      open: true,
+      severity: 'warning',
+      message: 'Connection lost. Reconnecting…',
+    };
+  }
+
+  // Nothing reported yet - "not yet known" is not "known bad".
+  if (sessionStatus === null) return { open: false };
+
+  if (!sessionStatus.sourceDeviceConnected) {
+    return {
+      open: true,
+      severity: 'info',
+      message: "Waiting for the room's microphone to connect.",
+    };
+  }
+
+  if (!sessionStatus.transcriptionServiceConnected) {
+    if (
+      sessionStatus.transcriptionServiceDisconnectReason ===
+      TranscriptionServiceDisconnectReason.AT_CAPACITY
+    ) {
+      return {
+        open: true,
+        severity: 'warning',
+        message:
+          'The live transcription service is at capacity. Retrying automatically…',
+      };
+    }
+    // Permanent, unlike every other branch here: the Transcription Service
+    // rejected this session's configuration (close 1007 - typically a
+    // transcriptionProviderId that does not exist on this deployment) and will
+    // reject the identical retry forever. "Reconnecting…" would be a promise
+    // nothing can keep, so this says what has to happen instead, and says it
+    // as an error rather than a warning. Mirrors the kiosk's branch.
+    if (
+      sessionStatus.transcriptionServiceDisconnectReason ===
+      TranscriptionServiceDisconnectReason.INVALID_REQUEST
+    ) {
+      return {
+        open: true,
+        severity: 'error',
+        message:
+          'Live transcription is misconfigured for this room and cannot start. An administrator needs to check the session’s transcription provider.',
+      };
+    }
+    return {
+      open: true,
+      severity: 'warning',
+      message:
+        'Connection to the transcription service was lost. Reconnecting…',
+    };
+  }
+
+  return { open: false };
+}
+
+/**
+ * Selector wrapping {@link deriveConnectionBanner} for the current session
+ * state. Returns `{ open: false }` whenever there's no active session (the
+ * banner only makes sense during {@link ClientLifecycle.ACTIVE}).
+ *
+ * This is the sole consumer of `selectError`, and the reason that slice field
+ * exists: the service writes the cause of an unrecoverable failure there and
+ * the terminal branch above renders it.
+ */
+export const selectConnectionBanner = (state: RootState): ConnectionBanner => {
+  const session = selectSession(state);
+  if (session === null) return { open: false };
+  return deriveConnectionBanner(
+    session.connectionStatus,
+    session.sessionStatus,
+    selectError(state),
+  );
+};

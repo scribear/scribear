@@ -18,6 +18,7 @@ export function deviceTokenHook(
   done: HookHandlerDoneFunction,
 ) {
   const deviceAuthService = req.diScope.resolve('deviceAuthService');
+  const devicePresenceService = req.diScope.resolve('devicePresenceService');
   const baseConfig = req.diScope.resolve('baseConfig');
   const token = req.cookies[DEVICE_TOKEN_COOKIE_NAME];
   if (!token) {
@@ -33,6 +34,12 @@ export function deviceTokenHook(
         return;
       }
       req.deviceUid = result.deviceUid;
+
+      // Stamped here rather than in a handler so presence covers every
+      // device-authenticated route: a device talking to us at all is alive,
+      // whatever it happens to be asking for. The write is coalesced and
+      // fire-and-forget, so this does not add a round trip to the request.
+      devicePresenceService.touch(result.deviceUid);
 
       reply.setCookie(DEVICE_TOKEN_COOKIE_NAME, token, {
         httpOnly: true,

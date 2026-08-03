@@ -1,0 +1,23 @@
+# Sample crontab entries for hosts that don't use systemd timers.
+# Install with: crontab -e  (as the user that owns each deployment directory)
+#
+# deploy_latest.sh takes its own lock (flock on /tmp/scribear-deploy-<dir>.lock),
+# so a slow run is never doubled up even without the `flock -n` below - it's
+# kept here anyway so `crontab -l` shows the intent without reading the script.
+#
+# Adjust the paths to wherever each environment's deployment directory
+# actually lives on this host, and the schedule to whatever cadence this
+# environment wants (30 min matches watchtower's old default poll interval -
+# see deployment/UPGRADING.md "watchtower is gone").
+
+# Staging: every 30 minutes.
+*/30 * * * * flock -n /tmp/scribear-deploy-staging.lock /opt/scribear/deploy_staging/deploy_latest.sh >> /var/log/scribear-deploy-staging.log 2>&1
+
+# Production: a deliberately chosen time rather than a tight poll loop -
+# recreating node-server or transcription-service ends the WebSockets they
+# were serving, so pick an hour with no live sessions.
+0 6 * * * flock -n /tmp/scribear-deploy-prod.lock /opt/scribear/deploy_prod/deploy_latest.sh >> /var/log/scribear-deploy-prod.log 2>&1
+
+# Log files above will grow unbounded without rotation - either point them at
+# a directory logrotate already covers, or add a /etc/logrotate.d/scribear-deploy
+# entry (weekly, rotate 8, compress).

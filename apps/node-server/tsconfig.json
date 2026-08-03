@@ -3,6 +3,7 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": ".",
+    "resolveJsonModule": true,
     "paths": {
       "#src/*": [
         "./src/*"
@@ -14,9 +15,13 @@
   },
   "include": [
     "src",
-    "tests"
+    "tests",
+    "src/server/features/demo-room/fixtures/*.json"
   ],
   "references": [
+    {
+      "path": "../../libs/audio-frame-protocol"
+    },
     {
       "path": "../../libs/base-fastify-server"
     },
@@ -34,6 +39,9 @@
     },
     {
       "path": "../../infra/scribear-db"
+    },
+    {
+      "path": "../../infra/scribear-redis"
     }
   ]
 }

@@ -79,6 +79,8 @@ describe('ScheduleManagementController', () => {
     createOnDemandSession: Mock;
     startSessionEarly: Mock;
     endSessionEarly: Mock;
+    cancelSession: Mock;
+    uncancelSession: Mock;
     listActiveAndUpcomingSessions: Mock;
   };
   let mockRoomService: { getRoom: Mock; getMyRoom: Mock };
@@ -105,6 +107,8 @@ describe('ScheduleManagementController', () => {
       createOnDemandSession: vi.fn(),
       startSessionEarly: vi.fn(),
       endSessionEarly: vi.fn(),
+      cancelSession: vi.fn(),
+      uncancelSession: vi.fn(),
       listActiveAndUpcomingSessions: vi.fn(),
     };
     mockRoomService = { getRoom: vi.fn(), getMyRoom: vi.fn() };
@@ -410,6 +414,27 @@ describe('ScheduleManagementController', () => {
         ),
       ).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT' });
     });
+
+    // Matches the schedule path exactly: 400 VALIDATION_ERROR with a sentence
+    // naming the problem, rather than the 500 the DB CHECK used to produce.
+    it("throws 400 when service returns 'INVALID_LOCAL_TIMES'", async () => {
+      // Arrange
+      mockScheduleService.createAutoSessionWindow.mockResolvedValue(
+        'INVALID_LOCAL_TIMES',
+      );
+
+      // Act + Assert
+      await expect(
+        controller.createAutoSessionWindow(
+          { body: makeBody() } as never,
+          mockRes as never,
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'VALIDATION_ERROR',
+        message: 'localStartTime and localEndTime must not be equal.',
+      });
+    });
   });
 
   describe('getAutoSessionWindow', (it) => {
@@ -496,6 +521,25 @@ describe('ScheduleManagementController', () => {
           mockRes as never,
         ),
       ).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT' });
+    });
+
+    it("throws 400 when service returns 'INVALID_LOCAL_TIMES'", async () => {
+      // Arrange
+      mockScheduleService.updateAutoSessionWindow.mockResolvedValue(
+        'INVALID_LOCAL_TIMES',
+      );
+
+      // Act + Assert
+      await expect(
+        controller.updateAutoSessionWindow(
+          { body: { windowUid: 'win-1' } } as never,
+          mockRes as never,
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'VALIDATION_ERROR',
+        message: 'localStartTime and localEndTime must not be equal.',
+      });
     });
   });
 
@@ -849,10 +893,166 @@ describe('ScheduleManagementController', () => {
     });
   });
 
+  describe('cancelSession', (it) => {
+    it("throws 404 when service returns 'NOT_FOUND'", async () => {
+      // Arrange
+      mockScheduleService.cancelSession.mockResolvedValue('NOT_FOUND');
+
+      // Act + Assert
+      await expect(
+        controller.cancelSession(
+          { body: { sessionUid: 'sess-1' } } as never,
+          mockRes as never,
+        ),
+      ).rejects.toMatchObject({ statusCode: 404, code: 'SESSION_NOT_FOUND' });
+    });
+
+    it("throws 422 when service returns 'SESSION_NOT_SCHEDULED_TYPE'", async () => {
+      // Arrange
+      mockScheduleService.cancelSession.mockResolvedValue(
+        'SESSION_NOT_SCHEDULED_TYPE',
+      );
+
+      // Act + Assert
+      await expect(
+        controller.cancelSession(
+          { body: { sessionUid: 'sess-1' } } as never,
+          mockRes as never,
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 422,
+        code: 'SESSION_NOT_SCHEDULED_TYPE',
+      });
+    });
+
+    it("throws 422 when service returns 'SESSION_ALREADY_CANCELED'", async () => {
+      // Arrange
+      mockScheduleService.cancelSession.mockResolvedValue(
+        'SESSION_ALREADY_CANCELED',
+      );
+
+      // Act + Assert
+      await expect(
+        controller.cancelSession(
+          { body: { sessionUid: 'sess-1' } } as never,
+          mockRes as never,
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 422,
+        code: 'SESSION_ALREADY_CANCELED',
+      });
+    });
+
+    it("throws 422 when service returns 'SESSION_NOT_UPCOMING'", async () => {
+      // Arrange
+      mockScheduleService.cancelSession.mockResolvedValue(
+        'SESSION_NOT_UPCOMING',
+      );
+
+      // Act + Assert
+      await expect(
+        controller.cancelSession(
+          { body: { sessionUid: 'sess-1' } } as never,
+          mockRes as never,
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 422,
+        code: 'SESSION_NOT_UPCOMING',
+      });
+    });
+
+    it('returns 200 with the updated session on success', async () => {
+      // Arrange
+      mockScheduleService.cancelSession.mockResolvedValue(mockSession);
+
+      // Act
+      await controller.cancelSession(
+        { body: { sessionUid: 'sess-1' } } as never,
+        mockRes as never,
+      );
+
+      // Assert
+      expect(mockCode).toHaveBeenCalledWith(200);
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.objectContaining({ uid: 'sess-1' }),
+      );
+    });
+  });
+
+  describe('uncancelSession', (it) => {
+    it("throws 404 when service returns 'NOT_FOUND'", async () => {
+      // Arrange
+      mockScheduleService.uncancelSession.mockResolvedValue('NOT_FOUND');
+
+      // Act + Assert
+      await expect(
+        controller.uncancelSession(
+          { body: { sessionUid: 'sess-1' } } as never,
+          mockRes as never,
+        ),
+      ).rejects.toMatchObject({ statusCode: 404, code: 'SESSION_NOT_FOUND' });
+    });
+
+    it("throws 422 when service returns 'SESSION_NOT_CANCELED'", async () => {
+      // Arrange
+      mockScheduleService.uncancelSession.mockResolvedValue(
+        'SESSION_NOT_CANCELED',
+      );
+
+      // Act + Assert
+      await expect(
+        controller.uncancelSession(
+          { body: { sessionUid: 'sess-1' } } as never,
+          mockRes as never,
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 422,
+        code: 'SESSION_NOT_CANCELED',
+      });
+    });
+
+    it("throws 409 when service returns 'SLOT_NO_LONGER_AVAILABLE'", async () => {
+      // Arrange
+      mockScheduleService.uncancelSession.mockResolvedValue(
+        'SLOT_NO_LONGER_AVAILABLE',
+      );
+
+      // Act + Assert
+      await expect(
+        controller.uncancelSession(
+          { body: { sessionUid: 'sess-1' } } as never,
+          mockRes as never,
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'SLOT_NO_LONGER_AVAILABLE',
+      });
+    });
+
+    it('returns 200 with the updated session on success', async () => {
+      // Arrange
+      mockScheduleService.uncancelSession.mockResolvedValue(mockSession);
+
+      // Act
+      await controller.uncancelSession(
+        { body: { sessionUid: 'sess-1' } } as never,
+        mockRes as never,
+      );
+
+      // Assert
+      expect(mockCode).toHaveBeenCalledWith(200);
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.objectContaining({ uid: 'sess-1' }),
+      );
+    });
+  });
+
   describe('listSchedules', (it) => {
     it('returns 200 with serialized items on success', async () => {
       // Arrange
-      mockScheduleService.listSchedulesForRoom.mockResolvedValue([mockSchedule]);
+      mockScheduleService.listSchedulesForRoom.mockResolvedValue([
+        mockSchedule,
+      ]);
 
       // Act
       await controller.listSchedules(
@@ -875,7 +1075,9 @@ describe('ScheduleManagementController', () => {
 
     it("throws 404 when service returns 'ROOM_NOT_FOUND'", async () => {
       // Arrange
-      mockScheduleService.listSchedulesForRoom.mockResolvedValue('ROOM_NOT_FOUND');
+      mockScheduleService.listSchedulesForRoom.mockResolvedValue(
+        'ROOM_NOT_FOUND',
+      );
 
       // Act + Assert
       await expect(

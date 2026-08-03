@@ -1,5 +1,7 @@
 import type { BaseFastifyInstance } from '@scribear/base-fastify-server';
 import {
+  CANCEL_SESSION_ROUTE,
+  CANCEL_SESSION_SCHEMA,
   CREATE_AUTO_SESSION_WINDOW_ROUTE,
   CREATE_AUTO_SESSION_WINDOW_SCHEMA,
   CREATE_ON_DEMAND_SESSION_ROUTE,
@@ -12,6 +14,8 @@ import {
   DELETE_SCHEDULE_SCHEMA,
   END_SESSION_EARLY_ROUTE,
   END_SESSION_EARLY_SCHEMA,
+  GET_ACTIVE_SESSION_ROUTE,
+  GET_ACTIVE_SESSION_SCHEMA,
   GET_AUTO_SESSION_WINDOW_ROUTE,
   GET_AUTO_SESSION_WINDOW_SCHEMA,
   GET_SCHEDULE_ROUTE,
@@ -22,12 +26,16 @@ import {
   LIST_AUTO_SESSION_WINDOWS_SCHEMA,
   LIST_SCHEDULES_ROUTE,
   LIST_SCHEDULES_SCHEMA,
+  LIST_SESSIONS_ROUTE,
+  LIST_SESSIONS_SCHEMA,
   MY_SCHEDULE_ROUTE,
   MY_SCHEDULE_SCHEMA,
   SESSION_CONFIG_STREAM_ROUTE,
   SESSION_CONFIG_STREAM_SCHEMA,
   START_SESSION_EARLY_ROUTE,
   START_SESSION_EARLY_SCHEMA,
+  UNCANCEL_SESSION_ROUTE,
+  UNCANCEL_SESSION_SCHEMA,
   UPDATE_AUTO_SESSION_WINDOW_ROUTE,
   UPDATE_AUTO_SESSION_WINDOW_SCHEMA,
   UPDATE_ROOM_SCHEDULE_CONFIG_ROUTE,
@@ -149,6 +157,20 @@ export function scheduleManagementRouter(fastify: BaseFastifyInstance) {
   });
 
   fastify.route({
+    ...LIST_SESSIONS_ROUTE,
+    schema: LIST_SESSIONS_SCHEMA,
+    preHandler: adminApiKeyHook,
+    handler: resolveHandler('scheduleManagementController', 'listSessions'),
+  });
+
+  fastify.route({
+    ...GET_ACTIVE_SESSION_ROUTE,
+    schema: GET_ACTIVE_SESSION_SCHEMA,
+    preHandler: adminApiKeyHook,
+    handler: resolveHandler('scheduleManagementController', 'getActiveSession'),
+  });
+
+  fastify.route({
     ...CREATE_ON_DEMAND_SESSION_ROUTE,
     schema: CREATE_ON_DEMAND_SESSION_SCHEMA,
     preHandler: adminApiKeyHook,
@@ -173,6 +195,20 @@ export function scheduleManagementRouter(fastify: BaseFastifyInstance) {
     schema: END_SESSION_EARLY_SCHEMA,
     preHandler: adminApiKeyHook,
     handler: resolveHandler('scheduleManagementController', 'endSessionEarly'),
+  });
+
+  fastify.route({
+    ...CANCEL_SESSION_ROUTE,
+    schema: CANCEL_SESSION_SCHEMA,
+    preHandler: adminApiKeyHook,
+    handler: resolveHandler('scheduleManagementController', 'cancelSession'),
+  });
+
+  fastify.route({
+    ...UNCANCEL_SESSION_ROUTE,
+    schema: UNCANCEL_SESSION_SCHEMA,
+    preHandler: adminApiKeyHook,
+    handler: resolveHandler('scheduleManagementController', 'uncancelSession'),
   });
 
   // Long-poll endpoints

@@ -1,6 +1,6 @@
 {
   "name": "@scribear/session-manager-schema",
-  "version": "0.0.0",
+  "version": "0.2.0",
   "description": "",
   "author": "scribear",
   "main": "dist/src/index.js",
@@ -8,12 +8,23 @@
     ".": {
       "development": "./src/index.ts",
       "default": "./dist/src/index.js"
+    },
+    "./test-audio": {
+      "development": "./src/test-audio/index.ts",
+      "default": "./dist/src/test-audio/index.js"
     }
   },
   "type": "module",
+  "sideEffects": false,
   "imports": {
-    "#src/*": "./dist/src/*",
-    "#tests/*": "./dist/tests/*"
+    "#src/*": {
+      "development": "./src/*",
+      "default": "./dist/src/*"
+    },
+    "#tests/*": {
+      "development": "./tests/*",
+      "default": "./dist/tests/*"
+    }
   },
   "scripts": {
     "build": "tsc --build",

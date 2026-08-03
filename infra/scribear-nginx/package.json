@@ -1,10 +1,15 @@
 {
   "name": "@scribear/scribear-nginx",
-  "version": "0.0.0",
+  "version": "0.2.0",
   "description": "",
   "author": "scribear",
+  "type": "module",
   "scripts": {
-    "lint": "echo 'No lintable source'",
-    "format": "echo 'No formattable source'"
+    "lint": "eslint ./tests",
+    "lint:fix": "eslint ./tests --fix",
+    "format": "prettier --check ./tests",
+    "format:fix": "prettier --write ./tests",
+    "test:dev": "vitest --ui --coverage",
+    "test:unit": "vitest run --project unit"
   }
 }

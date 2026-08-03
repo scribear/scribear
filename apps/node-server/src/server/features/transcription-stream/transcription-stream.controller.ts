@@ -4,6 +4,7 @@ import type WebSocket from 'ws';
 
 import {
   TRANSCRIPTION_STREAM_SCHEMA,
+  TranscriptionStreamClientMessageType,
   TranscriptionStreamServerMessageType,
 } from '@scribear/node-server-schema';
 
@@ -38,17 +39,20 @@ export class TranscriptionStreamController {
   private _sessionTokenService: AppDependencies['sessionTokenService'];
   private _eventBusService: AppDependencies['eventBusService'];
   private _transcriptionOrchestratorService: AppDependencies['transcriptionOrchestratorService'];
+  private _metrics: AppDependencies['nodeServerMetricsService'];
 
   constructor(
     logger: AppDependencies['logger'],
     sessionTokenService: AppDependencies['sessionTokenService'],
     eventBusService: AppDependencies['eventBusService'],
     transcriptionOrchestratorService: AppDependencies['transcriptionOrchestratorService'],
+    nodeServerMetricsService: AppDependencies['nodeServerMetricsService'],
   ) {
     this._logger = logger;
     this._sessionTokenService = sessionTokenService;
     this._eventBusService = eventBusService;
     this._transcriptionOrchestratorService = transcriptionOrchestratorService;
+    this._metrics = nodeServerMetricsService;
   }
 
   handleSourceConnection(socket: WebSocket, request: FastifyRequest): void {
@@ -92,6 +96,15 @@ export class TranscriptionStreamController {
       if (closed) return;
       closed = true;
       clearAuthTimer();
+      // Observability: the close code/reason is the only signal distinguishing
+      // an auth rejection (1008 invalid-token) from a protocol error (1007)
+      // from an orchestrator outage (1011). Logged at info so the monitoring
+      // sidecar can tally close codes without raising node-server's log level.
+      this._metrics.recordWsClose(code, reason, role, 'server');
+      this._logger.info(
+        { sessionUid, role, code, reason },
+        'transcription-stream socket closed',
+      );
       try {
         socket.close(code, reason);
       } catch (err) {
@@ -102,6 +115,7 @@ export class TranscriptionStreamController {
 
     authTimer = setTimeout(() => {
       if (ready || closed) return;
+      this._metrics.recordAuthTimeout();
       closeWith(1008, 'auth-timeout');
     }, AUTH_TIMEOUT_MS);
 
@@ -119,6 +133,10 @@ export class TranscriptionStreamController {
       );
       if (!result.ok) {
         authInFlight = false;
+        // S2 (signing-key drift between session-manager and node-server) shows
+        // up as this rate approaching 100%, not as any single failure, so the
+        // success side is counted too - see recordAuthSuccess below.
+        this._metrics.recordAuthFailure(result.reason);
         closeWith(result.code, result.reason);
         return;
       }
@@ -129,6 +147,7 @@ export class TranscriptionStreamController {
         eventBusService: this._eventBusService,
         transcriptionOrchestratorService:
           this._transcriptionOrchestratorService,
+        nodeServerMetricsService: this._metrics,
       });
       service.on('send', (msg) => {
         safeSend(msg);
@@ -141,6 +160,7 @@ export class TranscriptionStreamController {
         await service.start();
       } catch (err) {
         authInFlight = false;
+        this._metrics.recordOrchestratorFailure();
         this._logger.error({ err, sessionUid }, 'orchestrator register failed');
         closeWith(1011, 'orchestrator-unavailable');
         return;
@@ -156,15 +176,29 @@ export class TranscriptionStreamController {
       ready = true;
       authInFlight = false;
       clearAuthTimer();
+      this._metrics.recordAuthSuccess();
 
       safeSend({ type: TranscriptionStreamServerMessageType.AUTH_OK });
-      service.publishCurrentStatus();
+      // Must follow the AUTH_OK send, never precede it: this is what opens the
+      // service's outbound gate, and it is also where a session that ended
+      // during registration gets its `sessionEnded` + 1000 close - in that
+      // order, after the client has been told its auth succeeded.
+      service.onAuthAcknowledged();
     };
 
-    socket.on('close', () => {
+    socket.on('close', (code: number, reason: Buffer) => {
       if (closed) return;
       closed = true;
       clearAuthTimer();
+      // Peer-initiated close (client navigated away, Wi-Fi dropped). Distinct
+      // from closeWith above, which is server-initiated; the sidecar separates
+      // the two by `initiator` so a flapping uplink doesn't look like an auth
+      // failure.
+      this._metrics.recordWsClose(code, reason.toString(), role, 'peer');
+      this._logger.info(
+        { sessionUid, role, code, reason: reason.toString() },
+        'transcription-stream socket closed by peer',
+      );
       service?.close();
     });
 
@@ -184,7 +218,21 @@ export class TranscriptionStreamController {
           return;
         }
         if (!ready) {
-          closeWith(1008, 'binary-before-auth');
+          // Drop pre-auth binary and count it rather than closing the socket.
+          // A source that begins streaming before AUTH_OK (the kiosk did this
+          // historically, starting capture on socket `open`) would otherwise be
+          // closed 1008 `binary-before-auth` and reconnect-loop: the default
+          // auto-reconnect re-sends AUTH, the next first chunk again beats
+          // AUTH_OK, and the cycle repeats with no audio ever delivered. The
+          // frame is worthless here regardless — the orchestrator has not
+          // subscribed yet — so dropping is strictly the better failure mode:
+          // the socket lives to complete auth, after which audio flows.
+          // The auth-timeout watchdog still closes a socket that never auths.
+          this._metrics.recordBinaryBeforeAuthDrop();
+          this._logger.debug(
+            { sessionUid, role },
+            'dropping binary frame received before auth completed',
+          );
           return;
         }
         const buffer = Buffer.isBuffer(data)
@@ -213,10 +261,30 @@ export class TranscriptionStreamController {
         return;
       }
 
-      // The schema currently has a single `auth` client-message variant, so
-      // we dispatch directly. When new variants are added, switch on
-      // `parsed.type` and route accordingly.
-      void handleAuth(parsed.sessionToken);
+      switch (parsed.type) {
+        case TranscriptionStreamClientMessageType.AUTH:
+          void handleAuth(parsed.sessionToken);
+          break;
+        case TranscriptionStreamClientMessageType.TIME_SYNC_PING:
+          // Reply immediately with our clock so the source can estimate the
+          // offset (Cristian's algorithm). Deliberately not gated on auth: it
+          // exposes only the server's wall clock and lets the source begin
+          // syncing as early as possible. `t1` is read as late as possible.
+          safeSend({
+            type: TranscriptionStreamServerMessageType.TIME_SYNC_PONG,
+            t0: parsed.t0,
+            t1: Date.now(),
+          });
+          break;
+        case TranscriptionStreamClientMessageType.SOURCE_STATE:
+          // Forward the source's mic state to the orchestrator so the fleet
+          // dashboard can distinguish "mic is off" from "something broke."
+          // Ignored for client-role connections (no orchestrator handle).
+          if (ready) {
+            service?.handleSourceState(parsed.microphoneActive);
+          }
+          break;
+      }
     });
   }
 }

@@ -1,0 +1,98 @@
+[
+  {
+    "image_name": "scribear/scribear-db",
+    "build_context": "infra/scribear-db",
+    "dockerfile": "infra/scribear-db/Dockerfile",
+    "target": "",
+    "workspace": "infra/scribear-db",
+    "version_file": "infra/scribear-db/package.json"
+  },
+  {
+    "image_name": "scribear/scribear-nginx",
+    "build_context": ".",
+    "dockerfile": "infra/scribear-nginx/Dockerfile",
+    "target": "",
+    "workspace": "infra/scribear-nginx",
+    "version_file": "infra/scribear-nginx/package.json"
+  },
+  {
+    "image_name": "scribear/scribear-redis",
+    "build_context": "infra/scribear-redis",
+    "dockerfile": "infra/scribear-redis/Dockerfile",
+    "target": "",
+    "workspace": "infra/scribear-redis",
+    "version_file": "infra/scribear-redis/package.json"
+  },
+  {
+    "image_name": "scribear/client-webapp",
+    "build_context": ".",
+    "dockerfile": "Dockerfile",
+    "target": "client-webapp",
+    "workspace": "apps/client-webapp",
+    "version_file": "apps/client-webapp/package.json"
+  },
+  {
+    "image_name": "scribear/kiosk-webapp",
+    "build_context": ".",
+    "dockerfile": "Dockerfile",
+    "target": "kiosk-webapp",
+    "workspace": "apps/kiosk-webapp",
+    "version_file": "apps/kiosk-webapp/package.json"
+  },
+  {
+    "image_name": "scribear/standalone-webapp",
+    "build_context": ".",
+    "dockerfile": "Dockerfile",
+    "target": "standalone-webapp",
+    "workspace": "apps/standalone-webapp",
+    "version_file": "apps/standalone-webapp/package.json"
+  },
+  {
+    "image_name": "scribear/session-manager",
+    "build_context": ".",
+    "dockerfile": "Dockerfile",
+    "target": "session-manager",
+    "workspace": "apps/session-manager",
+    "version_file": "apps/session-manager/package.json"
+  },
+  {
+    "image_name": "scribear/node-server",
+    "build_context": ".",
+    "dockerfile": "Dockerfile",
+    "target": "node-server",
+    "workspace": "apps/node-server",
+    "version_file": "apps/node-server/package.json"
+  },
+  {
+    "image_name": "scribear/monitoring-sidecar",
+    "build_context": ".",
+    "dockerfile": "Dockerfile",
+    "target": "monitoring-sidecar",
+    "workspace": "apps/monitoring-sidecar",
+    "version_file": "apps/monitoring-sidecar/package.json"
+  },
+  {
+    "image_name": "scribear/admin-server",
+    "build_context": ".",
+    "dockerfile": "Dockerfile",
+    "target": "admin-server",
+    "workspace": "apps/admin-server",
+    "version_file": "apps/admin-server/package.json"
+  },
+  {
+    "image_name": "scribear/admin-webapp",
+    "build_context": ".",
+    "dockerfile": "Dockerfile",
+    "target": "admin-webapp",
+    "workspace": "apps/admin-webapp",
+    "version_file": "apps/admin-webapp/package.json"
+  },
+  {
+    "image_name": "scribear/test-audio-generator",
+    "build_context": ".",
+    "dockerfile": "Dockerfile",
+    "target": "test-audio-generator",
+    "workspace": "apps/test-audio-generator",
+    "version_file": "apps/test-audio-generator/package.json"
+  }
+]

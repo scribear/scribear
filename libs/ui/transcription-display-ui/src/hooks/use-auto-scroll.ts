@@ -51,7 +51,7 @@ export const useAutoScroll = (dependencies: unknown[]): UseAutoScrollResult => {
     if (isAutoScrollEnabled) {
       scrollToBottom();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [...dependencies, isAutoScrollEnabled]);
 
   return {

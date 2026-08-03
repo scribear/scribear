@@ -36,6 +36,7 @@ export * from './schedule-management/entities/session-schedule.schema.js';
 export * from './schedule-management/entities/session-type.schema.js';
 export * from './schedule-management/entities/session.schema.js';
 export * from './schedule-management/entities/auto-session-window.schema.js';
+export * from './schedule-management/entities/transcription-provider.schema.js';
 
 export * from './schedule-management/routes/my-schedule.schema.js';
 export * from './schedule-management/routes/list-schedules.schema.js';
@@ -50,13 +51,25 @@ export * from './schedule-management/routes/get-auto-session-window.schema.js';
 export * from './schedule-management/routes/update-auto-session-window.schema.js';
 export * from './schedule-management/routes/delete-auto-session-window.schema.js';
 export * from './schedule-management/routes/get-session.schema.js';
+export * from './schedule-management/routes/get-active-session.schema.js';
+export * from './schedule-management/routes/list-sessions.schema.js';
 export * from './schedule-management/routes/create-on-demand-session.schema.js';
 export * from './schedule-management/routes/start-session-early.schema.js';
 export * from './schedule-management/routes/end-session-early.schema.js';
+export * from './schedule-management/routes/cancel-session.schema.js';
+export * from './schedule-management/routes/uncancel-session.schema.js';
 export * from './schedule-management/routes/session-config-stream.schema.js';
 
 export * from './session-auth/entities/session-token-payload.schema.js';
 export * from './session-auth/routes/fetch-join-code.schema.js';
+export * from './session-auth/routes/admin-fetch-join-code.schema.js';
 export * from './session-auth/routes/exchange-device-token.schema.js';
 export * from './session-auth/routes/exchange-join-code.schema.js';
 export * from './session-auth/routes/refresh-session-token.schema.js';
+
+export * from './demo-room/demo-room.constants.js';
+export * from './demo-room/routes/demo-room-status.schema.js';
+
+export * from './canary/canary.constants.js';
+
+export * from './database/routes/schema-status.schema.js';

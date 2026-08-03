@@ -5,6 +5,9 @@ description: >
   workspaces. If any global config file (package-lock.json, eslint.config.js,
   etc.) changed, all workspaces are returned.
 
+  The caller must check out with `fetch-depth: 0`; the base commit has to be in
+  the local history for the `git diff` below to resolve.
+
 outputs:
   workspaces:
     description: JSON array of affected workspace paths relative to repo root
@@ -16,14 +19,9 @@ outputs:
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-
-    - uses: actions/setup-node@v4
-      with:
-        node-version: '24.10.0'
-
+    # No checkout and no setup-node: the caller has already checked out (it had
+    # to, to resolve this action at all) and detect-changes.cjs uses nothing
+    # beyond `fs`/`path`, so the runner's preinstalled Node is enough.
     - name: Compute affected workspaces
       id: compute
       shell: bash

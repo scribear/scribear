@@ -1,0 +1,18 @@
+# Auto-provisions the one Prometheus this stack ships, on every Grafana
+# start - no "Add data source" click required
+# (archived-plans/2026-07-28-01-PLAN-Grafana-Monitoring.md invariant 4).
+# `uid` is fixed so the seed dashboard's ${DS_PROMETHEUS}
+# template variable (see ../dashboards/dashboards.yml and
+# ../../dashboards/scribear-fleet-overview.json) resolves to it deterministically
+# on every provisioned stack, without hardcoding a datasource UID into the
+# portable dashboard JSON itself.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: scribear_prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

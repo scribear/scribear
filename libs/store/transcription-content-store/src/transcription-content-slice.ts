@@ -1,5 +1,68 @@
-import { type PayloadAction, createSlice } from '@reduxjs/toolkit';
+import {
+  type PayloadAction,
+  createSelector,
+  createSlice,
+} from '@reduxjs/toolkit';
 import { v4 as uuidv4 } from 'uuid';
+
+/** Sliding-window size for the latency moving averages. */
+const LATENCY_WINDOW_SIZE = 60;
+
+/** Which transcript a latency sample describes. */
+export type LatencyKind = 'final' | 'inProgress';
+
+/**
+ * A latency sample dispatched from the session transport: `pipelineMs` is the
+ * skew-free node-side pipeline latency; `e2eMs` additionally includes capture
+ * and uplink (via clock-synced source timestamps) and is null when no reliable
+ * offset is available.
+ */
+export interface LatencySample {
+  kind: LatencyKind;
+  pipelineMs: number;
+  e2eMs: number | null;
+}
+
+interface LatencyWindow {
+  samples: number[];
+  average: number;
+}
+
+interface LatencyMetric {
+  final: LatencyWindow;
+  inProgress: LatencyWindow;
+}
+
+/**
+ * Rolling latency measurements. `pipeline` (node ingress -> transcript) is
+ * always populated; `e2e` (capture -> display) is only populated once the
+ * source's clock has been synced to the server.
+ */
+export interface LatencyState {
+  pipeline: LatencyMetric;
+  e2e: LatencyMetric;
+}
+
+function emptyWindow(): LatencyWindow {
+  return { samples: [], average: 0 };
+}
+
+function emptyMetric(): LatencyMetric {
+  return { final: emptyWindow(), inProgress: emptyWindow() };
+}
+
+function emptyLatency(): LatencyState {
+  return { pipeline: emptyMetric(), e2e: emptyMetric() };
+}
+
+function pushSample(window: LatencyWindow, value: number): void {
+  window.samples.push(value);
+  if (window.samples.length > LATENCY_WINDOW_SIZE) {
+    window.samples.shift();
+  }
+  window.average =
+    window.samples.reduce((sum, s) => sum + s, 0) / window.samples.length;
+}
 
 /**
  * A sequence of transcribed text tokens with optional word-level timing data.
@@ -51,6 +114,7 @@ export interface TranscriptionContentSlice {
   activeSection: ActiveSection;
   finalizedTranscription: TranscriptionSequence[];
   inProgressTranscription: TranscriptionSequenceInput | null;
+  latency: LatencyState;
 }
 
 /**
@@ -65,6 +129,7 @@ const initialState: TranscriptionContentSlice = {
   activeSection: { id: uuidv4(), sequences: [] },
   finalizedTranscription: [],
   inProgressTranscription: null,
+  latency: emptyLatency(),
 };
 
 /**
@@ -88,6 +153,54 @@ export const selectInProgressTranscriptionText = (
   if (state.transcriptionContent.inProgressTranscription === null) return '';
   return state.transcriptionContent.inProgressTranscription.text.join('');
 };
+
+/**
+ * Selects the whole transcript as plain text - committed paragraphs first, then
+ * the paragraph currently being built - separated by blank lines.
+ *
+ * Interim (in-progress) text is deliberately excluded. It is rewritten several
+ * times a second and is not yet a record of anything; a transcript saved
+ * mid-word would contain a guess the recogniser was about to revise. Anything
+ * real reaches a committed sequence within a second or so.
+ */
+export const selectTranscriptText = createSelector(
+  [selectCommitedSections, selectActiveSection],
+  (commitedSections, activeSection) => {
+    const paragraphs = commitedSections.map((section) => section.text.trim());
+    const active = activeSection.sequences
+      .map((sequence) => sequence.text.join(''))
+      .join('')
+      .trim();
+    if (active !== '') paragraphs.push(active);
+    return paragraphs.filter((paragraph) => paragraph !== '').join('\n\n');
+  },
+);
+
+/**
+ * Selects an approximate word count for the transcript, for UI that has to say
+ * how much there is before spending minutes summarising it.
+ */
+export const selectTranscriptWordCount = createSelector(
+  [selectTranscriptText],
+  (text) => (text === '' ? 0 : text.split(/\s+/).length),
+);
+
+/** Skew-free pipeline latency (ms) for finalized transcripts; 0 if no samples. */
+export const selectFinalPipelineLatencyMs = (state: WithTranscriptionContent) =>
+  state.transcriptionContent.latency.pipeline.final.average;
+
+/** Skew-free pipeline latency (ms) for interim transcripts; 0 if no samples. */
+export const selectInProgressPipelineLatencyMs = (
+  state: WithTranscriptionContent,
+) => state.transcriptionContent.latency.pipeline.inProgress.average;
+
+/** End-to-end latency (ms) for finalized transcripts; 0 until clock-synced. */
+export const selectFinalE2eLatencyMs = (state: WithTranscriptionContent) =>
+  state.transcriptionContent.latency.e2e.final.average;
+
+/** End-to-end latency (ms) for interim transcripts; 0 until clock-synced. */
+export const selectInProgressE2eLatencyMs = (state: WithTranscriptionContent) =>
+  state.transcriptionContent.latency.e2e.inProgress.average;
 
 /**
  * Redux slice managing all transcription content, including committed paragraph
@@ -178,6 +291,18 @@ export const transcriptionContentSlice = createSlice({
       }
     },
     /**
+     * Records a latency sample into the rolling windows. `pipelineMs` always
+     * counts; `e2eMs` counts only when present and non-negative (a negative
+     * value signals residual clock skew and is discarded).
+     */
+    recordLatency: (state, action: PayloadAction<LatencySample>) => {
+      const { kind, pipelineMs, e2eMs } = action.payload;
+      pushSample(state.latency.pipeline[kind], pipelineMs);
+      if (e2eMs !== null && e2eMs >= 0) {
+        pushSample(state.latency.e2e[kind], e2eMs);
+      }
+    },
+    /**
      * Resets all transcription content back to the initial empty state.
      */
     clearTranscription: (state) => {
@@ -185,6 +310,7 @@ export const transcriptionContentSlice = createSlice({
       state.activeSection = { id: uuidv4(), sequences: [] };
       state.finalizedTranscription = [];
       state.inProgressTranscription = null;
+      state.latency = emptyLatency();
     },
   },
 });
@@ -198,5 +324,6 @@ export const {
   commitInProgressTranscription,
   replaceInProgressTranscription,
   handleTranscript,
+  recordLatency,
   clearTranscription,
 } = transcriptionContentSlice.actions;

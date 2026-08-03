@@ -31,12 +31,19 @@ export const FontSizeControl = ({
   return (
     <>
       <Typography>Font Size</Typography>
-      <Stack direction="row" alignItems="center" spacing={2}>
+      <Stack
+        direction="row"
+        spacing={2}
+        sx={{
+          alignItems: 'center',
+        }}
+      >
         <Typography sx={{ minWidth: 75, textAlign: 'left' }}>
           {TRANSCRIPTION_DISPLAY_CONFG.fontSizePx.min} px
         </Typography>
         <Slider
           aria-label="Font size control"
+          getAriaValueText={(v) => `${v.toString()} pixels`}
           valueLabelDisplay="auto"
           min={TRANSCRIPTION_DISPLAY_CONFG.fontSizePx.min}
           max={TRANSCRIPTION_DISPLAY_CONFG.fontSizePx.max}

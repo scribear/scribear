@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react';
+
 import Refresh from '@mui/icons-material/Refresh';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -8,6 +10,14 @@ import Typography from '@mui/material/Typography';
  * Full-page error fallback that prompts the user to refresh.
  */
 export const MainErrorFallback = () => {
+  const messageRef = useRef<HTMLParagraphElement>(null);
+
+  // Move focus to the error message so screen-reader users are taken to it
+  // immediately (the `role="alert"` also announces it). SC 4.1.3
+  useEffect(() => {
+    messageRef.current?.focus();
+  }, []);
+
   const reloadPage = () => {
     window.location.reload();
   };
@@ -32,7 +42,7 @@ export const MainErrorFallback = () => {
           flexDirection: 'column',
         }}
       >
-        <Typography>
+        <Typography ref={messageRef} role="alert" tabIndex={-1}>
           An unexpected error occurred. Try refreshing the page.
         </Typography>
         <Button

@@ -76,7 +76,7 @@ export class RoomManagementRepository {
       .where('uid', '=', roomUid)
       .executeTakeFirst();
 
-    return row ? mapRoom(row as RoomRow) : undefined;
+    return row ? mapRoom(row) : undefined;
   }
 
   /**
@@ -105,7 +105,7 @@ export class RoomManagementRepository {
         'auto_session_enabled',
         'room_schedule_version',
         'created_at',
-      ]) as BaseRoomQuery;
+      ]);
 
     return search !== null
       ? this._listBySimilarity(base, search, cursor, limit)
@@ -163,8 +163,15 @@ export class RoomManagementRepository {
   }
 
   /**
-   * Executes the chronological pagination path. Orders by `created_at` ascending,
-   * breaking ties by `uid` ascending. The cursor encodes `(createdAt, uid)`.
+   * Executes the chronological pagination path. Orders by `created_at`
+   * ascending, breaking ties by `uid` ascending. The cursor encodes
+   * `(createdAt, uid)`.
+   *
+   * The ordering key and the cursor predicate both truncate `created_at` to
+   * milliseconds and must stay in agreement - see the equivalent method in
+   * `device-management.repository.ts` for why ordering on the raw
+   * microsecond column while filtering on the truncated one duplicates rows
+   * across pages.
    */
   private async _listByCreatedAt(
     base: BaseRoomQuery,
@@ -173,22 +180,20 @@ export class RoomManagementRepository {
   ) {
     const cursor = rawCursor ? decodeCursor(rawCursor) : null;
     const createdAtCursor = cursor?.type === 'createdAt' ? cursor : null;
+    const orderKey = sql`date_trunc('milliseconds', created_at)`;
 
     if (createdAtCursor) {
       const ts = new Date(createdAtCursor.createdAt);
       base = base.where((eb) =>
         eb.or([
-          eb(sql`date_trunc('milliseconds', created_at)`, '>', ts),
-          eb.and([
-            eb(sql`date_trunc('milliseconds', created_at)`, '=', ts),
-            eb('uid', '>', createdAtCursor.uid),
-          ]),
+          eb(orderKey, '>', ts),
+          eb.and([eb(orderKey, '=', ts), eb('uid', '>', createdAtCursor.uid)]),
         ]),
       );
     }
 
     const rows = (await base
-      .orderBy('created_at', 'asc')
+      .orderBy(orderKey, 'asc')
       .orderBy('uid', 'asc')
       .limit(limit + 1)
       .execute()) as RoomRow[];
@@ -215,7 +220,7 @@ export class RoomManagementRepository {
     timezone: string;
     autoSessionEnabled: boolean;
   }) {
-    const row = (await this._dbClient.db
+    const row = await this._dbClient.db
       .insertInto('rooms')
       .values({
         name: data.name,
@@ -230,9 +235,46 @@ export class RoomManagementRepository {
         'room_schedule_version',
         'created_at',
       ])
-      .executeTakeFirstOrThrow()) as RoomRow;
+      .executeTakeFirstOrThrow();
 
     return mapRoom(row);
+  }
+
+  /**
+   * Idempotently inserts a room with an explicit, caller-chosen `uid`,
+   * mirroring `ScheduleManagementRepository.insertSessionWithUid`: on a
+   * primary-key conflict the insert is a no-op and the already-persisted row
+   * is returned. Used by the demo room seeder, which must survive restarts
+   * and racing instances without accumulating duplicate demo rooms (there is
+   * no unique constraint on `name` to lean on instead).
+   * @param uid The fixed uid to insert (or look up on conflict).
+   * @param data.name The display name for the room.
+   * @param data.timezone A valid IANA timezone identifier.
+   * @param data.autoSessionEnabled Master switch for auto sessions in this room.
+   * @returns The persisted room (either just-inserted or pre-existing).
+   */
+  async createWithFixedUid(
+    uid: string,
+    data: { name: string; timezone: string; autoSessionEnabled: boolean },
+  ) {
+    await this._dbClient.db
+      .insertInto('rooms')
+      .values({
+        uid,
+        name: data.name,
+        timezone: data.timezone,
+        auto_session_enabled: data.autoSessionEnabled,
+      })
+      .onConflict((oc) => oc.column('uid').doNothing())
+      .execute();
+
+    const persisted = await this.findById(uid);
+    if (!persisted) {
+      throw new Error(
+        `createWithFixedUid: no room found for uid ${uid} after insert`,
+      );
+    }
+    return persisted;
   }
 
   /**
@@ -271,7 +313,7 @@ export class RoomManagementRepository {
       ])
       .executeTakeFirst();
 
-    return row ? mapRoom(row as RoomRow) : undefined;
+    return row ? mapRoom(row) : undefined;
   }
 
   /**
@@ -318,6 +360,45 @@ export class RoomManagementRepository {
         })
         .execute();
     });
+  }
+
+  /**
+   * Idempotently makes `deviceUid` the source device of `roomUid`.
+   *
+   * Unlike {@link addDeviceToRoom}, which has no conflict handling and throws on
+   * a second call, this is safe to run on every boot: the membership row is
+   * inserted if absent and left as the source if present. That is what the
+   * test-audio seeder needs — a plain insert would fail on the second boot with
+   * a primary-key violation, and the seeder must be a no-op on a stack that has
+   * simply been restarted.
+   *
+   * `DO UPDATE SET is_source = TRUE` rather than `DO NOTHING` is belt and
+   * braces rather than the main event: the `room_devices_ensure_source` and
+   * `room_devices_single_source` constraint triggers already make a demoted lone
+   * source unreachable through any API path (there is nothing to promote in its
+   * place, and room-management refuses to add one to a test-audio room), so in
+   * practice the conflict branch finds `is_source` already true. It is written
+   * to converge anyway because a `DO NOTHING` here would silently accept a
+   * hand-edited row that a re-seed is the natural remedy for.
+   *
+   * `ON CONFLICT (room_uid, device_uid)` is the primary key. The other unique
+   * index on this table — `idx_room_devices_device`, one room per device — is
+   * deliberately *not* handled: a conflict there means the device has been moved
+   * into a different room, which for a seeded synthetic source is exactly the
+   * situation that must fail loudly rather than be silently reconciled. Callers
+   * check for it before calling.
+   *
+   * @param roomUid The room the device is the source of.
+   * @param deviceUid The device to insert or promote.
+   */
+  async upsertSourceDevice(roomUid: string, deviceUid: string): Promise<void> {
+    await this._dbClient.db
+      .insertInto('room_devices')
+      .values({ room_uid: roomUid, device_uid: deviceUid, is_source: true })
+      .onConflict((oc) =>
+        oc.columns(['room_uid', 'device_uid']).doUpdateSet({ is_source: true }),
+      )
+      .execute();
   }
 
   /**
@@ -384,6 +465,27 @@ export class RoomManagementRepository {
       .select(['room_uid', 'is_source'])
       .where('device_uid', '=', deviceUid)
       .executeTakeFirst();
+  }
+
+  /**
+   * Returns the UID of the room's current source device, if it has one.
+   *
+   * The partial index `idx_room_devices_source` covers exactly this predicate.
+   * At most one row can match: `room_devices_single_source` is a deferred
+   * constraint trigger, so a transaction can transiently hold two, but nothing
+   * outside a transaction ever observes that state.
+   *
+   * @param roomUid The room to look up.
+   * @returns The source device's UID, or `undefined` if the room has no source.
+   */
+  async findSourceDeviceUid(roomUid: string): Promise<string | undefined> {
+    const row = await this._dbClient.db
+      .selectFrom('room_devices')
+      .select('device_uid')
+      .where('room_uid', '=', roomUid)
+      .where('is_source', '=', true)
+      .executeTakeFirst();
+    return row?.device_uid;
   }
 
   /**

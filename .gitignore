@@ -20,8 +20,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+venv/lib/
+venv/lib64/
 parts/
 sdist/
 var/
@@ -632,3 +632,24 @@ flycheck_*.el
 
 # undo-tree
 *.~undo-tree~
+scribear.wiki
+
+# Claude Code. Scoped to the two paths that must not be committed rather than
+# to `.claude/` as a whole, so shared config - settings.json, agents, skills,
+# commands - can be checked in normally if the team ever wants it.
+.claude/worktrees/
+.claude/settings.local.json
+
+# Docker Compose local overrides. Compose loads these automatically alongside
+# deployment/compose.yml, so they are the supported place for anything specific
+# to one host - an extra service, a bind mount, a port that clashes locally -
+# without that host having to fork the tracked compose.yml and then drift.
+compose.override.yml
+compose.override.yaml
+docker-compose.override.yml
+docker-compose.override.yaml
+
+# transcription-service's HF_HOME bind mount (MODEL_DOWNLOAD_PATH in
+# compose.yml) - faster-whisper/silero-vad weights fetched at runtime, gigabytes
+# per model, never something to commit.
+deployment/models/

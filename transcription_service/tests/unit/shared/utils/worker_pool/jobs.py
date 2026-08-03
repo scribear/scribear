@@ -141,3 +141,37 @@ class SlowJob(JobInterface[tuple[()], None, None, None]):
 
     def update_config(self, log: Logger, contexts: tuple, config: None) -> None:
         return
+
+
+class CountingJob(JobInterface[tuple[()], int, int, None]):
+    """
+    Definition for job that reports per-execution counters for testing
+
+    Counts the items it processed and, when asked, raises after counting - the
+    shape of a real job whose only signal for an event is the exception it
+    then throws.
+    """
+
+    def __init__(self, fail: bool = False):
+        """
+        Args:
+            fail    - Whether process_batch should raise after counting
+        """
+        self._fail = fail
+        self._counters: dict[str, float] = {}
+
+    def process_batch(
+        self, log: Logger, contexts: tuple[()], batch: list[int]
+    ) -> int:
+        self._counters["items"] = self._counters.get("items", 0) + len(batch)
+        if self._fail:
+            raise RuntimeError("Failed after counting")
+        return sum(batch)
+
+    def drain_counters(self) -> dict[str, float]:
+        drained = self._counters
+        self._counters = {}
+        return drained
+
+    def update_config(self, log: Logger, contexts: tuple, config: None) -> None:
+        return

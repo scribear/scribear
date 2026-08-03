@@ -38,7 +38,27 @@ const DOW_TO_LUXON: Record<string, number> = {
 const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * The shortest session worth creating, and therefore the floor below which a
+ * *clipped* occurrence is discarded rather than materialized.
+ *
+ * Exported because the AUTO slot materializer applies the same floor to the
+ * gaps it fills; one constant keeps a clipped occurrence and an AUTO slot
+ * agreeing on what "too short to be worth creating" means.
+ *
+ * Sixty seconds is not arbitrary: join codes are handed over in a 60 s window
+ * (`session-auth`), so a session shorter than this cannot reliably be joined
+ * even by a client that is already waiting for it.
+ */
+export const MIN_SESSION_DURATION_SECONDS = 60;
+
+const MIN_SESSION_DURATION_MS = MIN_SESSION_DURATION_SECONDS * 1000;
+
+/**
  * Expands a schedule's occurrences within [windowStart, windowEnd).
+ *
+ * Occurrences are *clipped* to the schedule's `[activeStart, activeEnd]`
+ * range rather than dropped when they straddle either end - see
+ * {@link clipToActiveRange}.
  *
  * Handles all DST edge cases:
  * - Spring-forward: times in the skipped interval snap to the first valid instant.
@@ -84,8 +104,8 @@ export function materializeSchedule(
       wraps,
       timezone,
     );
-    if (occ && inRange(occ, schedule, windowStart, windowEnd)) return [occ];
-    return [];
+    const admitted = occ ? admit(occ, schedule, windowStart, windowEnd) : null;
+    return admitted ? [admitted] : [];
   }
 
   const anchorWeekStart = DateTime.fromJSDate(schedule.anchorStart, {
@@ -127,8 +147,10 @@ export function materializeSchedule(
           wraps,
           timezone,
         );
-        if (occ && inRange(occ, schedule, windowStart, windowEnd))
-          occurrences.push(occ);
+        const admitted = occ
+          ? admit(occ, schedule, windowStart, windowEnd)
+          : null;
+        if (admitted) occurrences.push(admitted);
       }
     }
     cursor = cursor.plus({ days: 1 });
@@ -179,18 +201,86 @@ function buildOccurrence(
   };
 }
 
-function inRange(
+/**
+ * Clips an occurrence to the schedule's active range, then tests it against
+ * the caller's materialization window.
+ *
+ * @returns the occurrence to materialize (clipped if it straddled either end
+ * of the active range), or `null` if nothing usable remains.
+ */
+function admit(
   occ: Occurrence,
   schedule: ScheduleForMaterialization,
   windowStart: Date,
   windowEnd: Date,
-): boolean {
-  if (occ.startUtc < schedule.activeStart) return false;
-  if (schedule.activeEnd && occ.endUtc > schedule.activeEnd) return false;
+): Occurrence | null {
+  const clipped = clipToActiveRange(occ, schedule);
+  if (!clipped) return null;
   // Occurrence must overlap the window: end after windowStart AND start before windowEnd.
-  if (occ.endUtc <= windowStart) return false;
-  if (occ.startUtc >= windowEnd) return false;
-  return true;
+  if (clipped.endUtc <= windowStart) return null;
+  if (clipped.startUtc >= windowEnd) return null;
+  return clipped;
+}
+
+/**
+ * Trims an occurrence to `[activeStart, activeEnd]`.
+ *
+ * Both ends used to *drop* an occurrence that straddled them, which read as a
+ * safe conservative choice and is not: the shape the admin console creates is
+ * a daily `00:00-23:59` window, so every occurrence straddles both ends of any
+ * active range that does not begin at midnight and finish at 23:59. "Auto
+ * sessions every day, until 30 minutes from now" therefore materialized
+ * *nothing*, and narrowing a live window ended the running session
+ * immediately instead of at the requested instant. `activeStart` had the
+ * mirror-image failure: a window starting "now" produced its first session
+ * only on the next local day.
+ *
+ * Clipping is what the field names imply ("active *between* these instants")
+ * and what `materializeAutoSessions` already does when it fills a window
+ * around a blocking session. Clipping happens on absolute UTC instants, so a
+ * DST-adjusted occurrence keeps whichever instants `buildOccurrence` resolved.
+ *
+ * The floor applies only when the occurrence was actually clipped: a residue
+ * shorter than {@link MIN_SESSION_DURATION_SECONDS} is an artefact of the
+ * operator's boundary rather than something they asked for, and materializing
+ * it would insert a session nobody can join - or, at exactly zero length, one
+ * the `sessions_scheduled_end_after_start` CHECK rejects, turning the write
+ * into a 500. An *unclipped* occurrence is the operator's explicit request and
+ * keeps its existing treatment, so this cannot retroactively invalidate a
+ * short schedule that materializes today.
+ *
+ * The floor is enforced here rather than in the callers because SCHEDULED
+ * occurrences go straight to `insertSessions` with no other length check;
+ * AUTO window occurrences pass through `materializeAutoSessions`, which
+ * already applies the same floor to every slot it emits.
+ */
+function clipToActiveRange(
+  occ: Occurrence,
+  schedule: ScheduleForMaterialization,
+): Occurrence | null {
+  const startMs = Math.max(
+    occ.startUtc.getTime(),
+    schedule.activeStart.getTime(),
+  );
+  const endMs = schedule.activeEnd
+    ? Math.min(occ.endUtc.getTime(), schedule.activeEnd.getTime())
+    : occ.endUtc.getTime();
+
+  if (
+    startMs === occ.startUtc.getTime() &&
+    endMs === occ.endUtc.getTime() &&
+    startMs < endMs
+  ) {
+    return occ;
+  }
+
+  if (endMs - startMs < MIN_SESSION_DURATION_MS) return null;
+
+  return {
+    scheduleUid: occ.scheduleUid,
+    startUtc: new Date(startMs),
+    endUtc: new Date(endMs),
+  };
 }
 
 /**

@@ -38,7 +38,7 @@ vi.mock('isomorphic-ws', () => {
 
     constructor(url: string) {
       this.url = url;
-      mockWsInstances.push(this as unknown as MockWsInstance);
+      mockWsInstances.push(this);
     }
   }
   return { default: MockWebSocket };
@@ -425,6 +425,74 @@ describe('WebSocketClient', () => {
 
     // Assert
     expect(currentSocket().send).toHaveBeenCalledWith(data);
+  });
+
+  it('drops buffered messages older than sendQueueMaxAgeMs instead of replaying them', () => {
+    // Arrange - a realtime channel: capture keeps producing while the socket
+    // is down, so without an age bound the whole backlog lands on the fresh
+    // socket at once, seconds after the audio it carries was spoken.
+    const client = new WebSocketClient({
+      schema: TEST_SCHEMA,
+      route: TEST_ROUTE,
+      baseUrl: BASE_URL,
+      params: { params: { room: 'r1' } },
+      sendQueueMaxAgeMs: 1000,
+    });
+    client.start();
+    const stale = new ArrayBuffer(4);
+    const fresh = new ArrayBuffer(8);
+
+    // Act - one frame buffered well before the reconnect, one just before it
+    client.sendBinary(stale);
+    vi.advanceTimersByTime(1500);
+    client.sendBinary(fresh);
+    currentSocket().onopen!({ type: 'open' });
+
+    // Assert - only the frame that still means something is delivered
+    expect(currentSocket().send).toHaveBeenCalledTimes(1);
+    expect(currentSocket().send).toHaveBeenCalledWith(fresh);
+    expect(client.sendQueueDrops).toEqual({ overflow: 0, stale: 1 });
+  });
+
+  it('keeps buffered messages indefinitely when sendQueueMaxAgeMs is unset', () => {
+    // Arrange - the default: a control channel, where a message still matters
+    // however late it lands.
+    const client = new WebSocketClient({
+      schema: TEST_SCHEMA,
+      route: TEST_ROUTE,
+      baseUrl: BASE_URL,
+      params: { params: { room: 'r1' } },
+    });
+    client.start();
+    const data = new ArrayBuffer(4);
+
+    // Act
+    client.sendBinary(data);
+    vi.advanceTimersByTime(600_000);
+    currentSocket().onopen!({ type: 'open' });
+
+    // Assert
+    expect(currentSocket().send).toHaveBeenCalledWith(data);
+    expect(client.sendQueueDrops.stale).toBe(0);
+  });
+
+  it('counts messages the queue dropped for overflow', () => {
+    // Arrange - overflow drops are otherwise silent under both drop policies:
+    // `send` returns identically whether the message went out or not.
+    const client = new WebSocketClient({
+      schema: TEST_SCHEMA,
+      route: TEST_ROUTE,
+      baseUrl: BASE_URL,
+      params: { params: { room: 'r1' } },
+      sendQueueLimit: 2,
+    });
+    client.start();
+
+    // Act - four sends into a queue that holds two
+    for (let i = 0; i < 4; i += 1) client.sendBinary(new ArrayBuffer(1));
+
+    // Assert
+    expect(client.sendQueueDrops).toEqual({ overflow: 2, stale: 0 });
   });
 
   it('drops the newest message silently when the queue is full under drop-newest policy', () => {

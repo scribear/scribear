@@ -1,7 +1,7 @@
 import { PageLoadSpinner } from '@scribear/core-ui';
 import { selectIsRehydrated } from '@scribear/redux-remember-store';
 
-import { useAppSelector } from '#src/store/use-redux.js';
+import { useAppSelector } from '#src/store/use-redux';
 
 /**
  * Props for {@link RehydrateGate}.

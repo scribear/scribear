@@ -48,3 +48,20 @@ class JobInterface(ABC, Generic[C, D, R, Conf]):
             config      - New config to apply
         """
         return
+
+    def drain_counters(self) -> dict[str, float]:
+        """
+        Reports counters accumulated during the last execution and resets them
+
+        Jobs run in a spawned process, so anything they count is invisible to
+        the parent unless it rides back on a result. Called by the worker after
+        every process_batch, successful or not - which is what lets a counter
+        incremented immediately before a raise still be reported.
+
+        Values must be per-execution deltas, not running totals; the parent
+        keeps the monotonic totals so a worker restart cannot double count.
+
+        Returns:
+            Counter name to delta. Empty by default - jobs opt in by overriding.
+        """
+        return {}

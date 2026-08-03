@@ -1,13 +1,19 @@
 {
   "name": "@scribear/node-server",
-  "version": "0.0.0",
+  "version": "0.2.0",
   "description": "",
   "author": "scribear",
   "main": "dist/src/index.js",
   "type": "module",
   "imports": {
-    "#src/*": "./dist/src/*",
-    "#tests/*": "./dist/tests/*"
+    "#src/*": {
+      "development": "./src/*",
+      "default": "./dist/src/*"
+    },
+    "#tests/*": {
+      "development": "./tests/*",
+      "default": "./dist/tests/*"
+    }
   },
   "scripts": {
     "build": "tsc --build && node esbuild.config.mjs",
@@ -15,8 +21,8 @@
     "dev": "tsc --build && concurrently -k \"tsc --build --watch\" \"node --watch-path=dist dist/src/index.js --dev | pino-pretty\"",
     "format": "prettier --check ./src",
     "format:fix": "prettier --write ./src",
-    "lint": "eslint ./src",
-    "lint:fix": "eslint ./src --fix",
+    "lint": "eslint ./src ./tests",
+    "lint:fix": "eslint ./src ./tests --fix",
     "test:dev": "vitest --ui --coverage",
     "test:integration": "vitest run --project integration",
     "test:unit": "vitest run --project unit"
@@ -29,15 +35,16 @@
     "awilix": "13.0.0",
     "env-schema": "7.0.0",
     "eventemitter3": "5.0.4",
-    "fastify": "5.7.4",
+    "fastify": "5.10.0",
     "fastify-plugin": "5.1.0",
+    "ioredis": "5.10.1",
     "typebox": "1.1.5",
-    "ws": "8.19.0"
+    "ws": "8.21.1"
   },
   "devDependencies": {
     "@types/pg": "8.16.0",
     "@types/ws": "8.18.1",
-    "kysely": "0.28.11",
+    "kysely": "0.28.17",
     "pg": "8.19.0"
   }
 }

@@ -1,8 +1,8 @@
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined';
 import HourglassTopIcon from '@mui/icons-material/HourglassTop';
 import LinkOffIcon from '@mui/icons-material/LinkOff';
 import NotInterestedIcon from '@mui/icons-material/NotInterested';
-import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutline';
+import PauseCircleOutlinedIcon from '@mui/icons-material/PauseCircleOutlined';
 import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
 
@@ -33,10 +33,10 @@ export const StreamtextStatusIcon = () => {
     icon = <HourglassTopIcon />;
     tooltip = `${displayName} connecting`;
   } else if (streamtextStatus === StreamtextStatus.ACTIVE) {
-    icon = <CheckCircleOutlineIcon />;
+    icon = <CheckCircleOutlinedIcon />;
     tooltip = `${displayName} is transcribing`;
   } else if (streamtextStatus === StreamtextStatus.ACTIVE_MUTE) {
-    icon = <PauseCircleOutlineIcon />;
+    icon = <PauseCircleOutlinedIcon />;
     tooltip = `${displayName} is paused`;
   } else if (streamtextStatus === StreamtextStatus.ERROR) {
     icon = <NotInterestedIcon />;
@@ -45,7 +45,11 @@ export const StreamtextStatusIcon = () => {
 
   return (
     <Tooltip title={tooltip}>
-      <Stack sx={{ p: 1 }}>{icon}</Stack>
+      {/* role="img" + aria-label exposes the status (distinct icon shapes carry
+          it visually) to AT, which a tooltip on a non-focusable box does not. */}
+      <Stack sx={{ p: 1 }} role="img" aria-label={tooltip}>
+        {icon}
+      </Stack>
     </Tooltip>
   );
 };

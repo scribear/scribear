@@ -1,13 +1,20 @@
 services:
   # Reverse Proxy
   nginx:
-    image: scribear/scribear-nginx:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/scribear-nginx:${IMAGE_TAG:-latest}
     ports:
       - "${NGINX_PORT:-80}:80"
       - "${NGINX_HTTPS_PORT:-443}:443"
     volumes:
       - ${SSL_CERT_PATH}:/etc/nginx/ssl/pub.cert:ro
       - ${SSL_KEY_PATH}:/etc/nginx/ssl/priv.key:ro
+      # Onsite-only access gate (nginx.conf's `$onsite`). Defaults are real,
+      # live files checked into this directory - not `.template`s to copy
+      # first, unlike PROVIDER_CONFIG_PATH - because "nobody is restricted"
+      # is a sane universal default here. Point both at real files (see
+      # onsite-allowlist.example.conf) to actually restrict access.
+      - ${ONSITE_ALLOWLIST_PATH:-./onsite/allowlist.default.conf}:/etc/nginx/onsite/config/allowlist.conf:ro
+      - ${ONSITE_CONTENT_PATH:-./onsite/content-default}:/usr/share/nginx/onsite/content:ro
     depends_on:
       client-webapp:
         condition: service_healthy
@@ -19,6 +26,10 @@ services:
         condition: service_healthy
       session-manager:
         condition: service_healthy
+      admin-webapp:
+        condition: service_healthy
+      admin-server:
+        condition: service_healthy
     networks:
       - frontend
       - backend
@@ -26,7 +37,7 @@ services:
 
   # Frontend Webapps
   client-webapp:
-    image: scribear/client-webapp:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/client-webapp:${IMAGE_TAG:-latest}
     expose:
       - "80"
     networks:
@@ -34,7 +45,7 @@ services:
     restart: unless-stopped
 
   standalone-webapp:
-    image: scribear/standalone-webapp:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/standalone-webapp:${IMAGE_TAG:-latest}
     expose:
       - "80"
     networks:
@@ -42,7 +53,15 @@ services:
     restart: unless-stopped
 
   kiosk-webapp:
-    image: scribear/kiosk-webapp:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/kiosk-webapp:${IMAGE_TAG:-latest}
+    expose:
+      - "80"
+    networks:
+      - frontend
+    restart: unless-stopped
+
+  admin-webapp:
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/admin-webapp:${IMAGE_TAG:-latest}
     expose:
       - "80"
     networks:
@@ -51,19 +70,133 @@ services:
 
   # Backend APIs
   session-manager:
-    image: scribear/session-manager:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/session-manager:${IMAGE_TAG:-latest}
     expose:
       - "80"
     environment:
       LOG_LEVEL: ${SESSION_MANAGER_LOG_LEVEL:-info}
-      API_KEY: ${SESSION_MANAGER_API_KEY}
-      ADMIN_API_KEY: ${NODE_SERVER_KEY}
-      SESSION_MANAGER_SERVICE_API_KEY: ${SESSION_MANAGER_API_KEY}
-      NODE_SERVER_KEY: ${NODE_SERVER_KEY}
-      JWT_SECRET: ${JWT_SECRET}
-      SESSION_TOKEN_SIGNING_KEY: ${JWT_SECRET}  
-      DB_HOST: scribear-db
-      DB_PORT: "5432"
+      ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
+      SESSION_MANAGER_SERVICE_API_KEY: ${NODE_SERVER_KEY}
+      SESSION_TOKEN_SIGNING_KEY: ${JWT_SECRET}
+      # Device presence (B1.6). The TTL must comfortably exceed the schedule
+      # long-poll cycle plus the write interval, or a healthy device flips
+      # offline between two writes.
+      DEVICE_LAST_SEEN_WRITE_INTERVAL_SEC: ${DEVICE_LAST_SEEN_WRITE_SEC:-60}
+      DEVICE_ONLINE_TTL_SEC: ${DEVICE_ONLINE_TTL_SEC:-180}
+      # Per-client-IP limits on the two unauthenticated credential-exchange
+      # routes, plus the outcome-conditional cap on *failed* join-code
+      # exchanges. The calibration argument (and the measured bcrypt cost that
+      # sets the real, global ceiling) lives on SessionAuthRateLimitConfig in
+      # session-auth.router.ts. Most likely to need raising:
+      # SESSION_AUTH_RATE_LIMIT_REFRESH_MAX, whose default is sized for ~2,500
+      # viewers behind one egress IP. Note "per IP" means "per whatever the
+      # last hop reported" - behind a load balancer with nginx's
+      # set_real_ip_from left commented out, these become deployment-wide.
+      SESSION_AUTH_RATE_LIMIT_JOIN_CODE_MAX: ${SESSION_AUTH_RATE_LIMIT_JOIN_CODE_MAX:-600}
+      SESSION_AUTH_RATE_LIMIT_JOIN_CODE_WINDOW_SEC: ${SESSION_AUTH_RATE_LIMIT_JOIN_CODE_WINDOW_SEC:-60}
+      SESSION_AUTH_RATE_LIMIT_FAILED_JOIN_CODE_MAX: ${SESSION_AUTH_RATE_LIMIT_FAILED_JOIN_CODE_MAX:-100}
+      SESSION_AUTH_RATE_LIMIT_FAILED_JOIN_CODE_WINDOW_SEC: ${SESSION_AUTH_RATE_LIMIT_FAILED_JOIN_CODE_WINDOW_SEC:-60}
+      SESSION_AUTH_RATE_LIMIT_REFRESH_MAX: ${SESSION_AUTH_RATE_LIMIT_REFRESH_MAX:-1000}
+      SESSION_AUTH_RATE_LIMIT_REFRESH_WINDOW_SEC: ${SESSION_AUTH_RATE_LIMIT_REFRESH_WINDOW_SEC:-60}
+      # Defaulted to the bundled container. Point them at a managed Postgres
+      # to run the database outside this stack - see deployment/UPGRADING.md,
+      # which also covers removing the bundled service and its depends_on.
+      DB_HOST: ${DB_HOST:-scribear-db}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      # Demo caption room. Seeds a joinable demo session whose uid the Node
+      # Server publishes a looping fixture caption stream into - see
+      # apps/session-manager/.env.example. On by default; set
+      # DEMO_ROOM_ENABLED=false in the deployment .env to turn it off. The
+      # session uid uses a built-in default shared with the Node Server, so it
+      # does not need to be passed here.
+      DEMO_ROOM_ENABLED: ${DEMO_ROOM_ENABLED:-true}
+      # Operator test-audio rooms (PLAN-TestAudioDevices). The SAME value as the
+      # test-audio-generator's TEST_AUDIO_DEVICE_SECRET below - this service and
+      # that one are the only two holders.
+      #
+      # Set, it seeds TEST-AUDIO-GOOD and TEST-AUDIO-FAULT, one source device
+      # each at a reserved uid, and one standing open-ended session per room, on
+      # every boot. Each device's stored credential is bcrypt(HMAC(secret,
+      # deviceUid)), which is exactly what the generator derives, so no token is
+      # ever transmitted or pasted, and there is no provisioning step at all.
+      #
+      # Unset seeds nothing at all, which is the state a deployment that has not
+      # asked for the feature is already in. Changing it and restarting rotates
+      # both credentials; the stored hash is re-written from the current value
+      # every boot.
+      TEST_AUDIO_DEVICE_SECRET: ${TEST_AUDIO_DEVICE_SECRET:-}
+      # Monitoring canary room (A2). The SAME value as monitoring-sidecar's
+      # CANARY_DEVICE_SECRET below - this service and that one are the only two
+      # holders. It replaced MONITORING_CANARY_DEVICE_TOKEN, which an operator
+      # produced by hand from a Set-Cookie header and pasted into .env.
+      #
+      # Set, it seeds MONITORING-CANARY, one source device at a reserved uid and
+      # one standing open-ended session, on every boot. The stored credential is
+      # bcrypt(HMAC(secret, deviceUid)), which is exactly what the sidecar
+      # derives, so no token is ever transmitted or pasted.
+      #
+      # A SEPARATE VARIABLE from TEST_AUDIO_DEVICE_SECRET above, deliberately.
+      # One secret would tie two unrelated decisions together: arming the
+      # operator test devices would also start an unattended canary probe every
+      # few minutes, and retiring them would silently stop monitoring. It would
+      # also give a third service the root key every synthetic device's
+      # credential is derived from.
+      #
+      # Unset seeds nothing and leaves the canary off, which is where a
+      # deployment that never provisioned a canary device already was.
+      CANARY_DEVICE_SECRET: ${MONITORING_CANARY_DEVICE_SECRET:-}
+      # Provider keys accepted on create/update of a session, schedule or
+      # auto-session window. MUST list exactly the keys under "providers" in the
+      # provider_config.json mounted into transcription-service below
+      # (PROVIDER_CONFIG_PATH) - if you edit that file, edit this alongside it.
+      #
+      # An id that matches no provider is otherwise invisible until stream time:
+      # transcription-service raises "Invalid Provider Key" and closes the
+      # socket 1007, node-server retries a request that can never succeed, and
+      # every viewer of the room sees only a reconnecting banner. Validating it
+      # here answers the typo at the console instead.
+      #
+      # The default is the set in provider_config.template.json, so a stock
+      # deployment needs nothing here.
+      TRANSCRIPTION_PROVIDER_IDS: ${TRANSCRIPTION_PROVIDER_IDS:-debug,whisper,lumen_granite,crisper_whisper}
+    depends_on:
+      scribear-db:
+        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # Database migrations, as a one-shot job rather than a script on the host.
+  #
+  # Same image and tag as session-manager, running its second entry point
+  # (apps/session-manager/src/migrate.ts). That is the whole design: the service
+  # that owns this schema applies it, from the artifact the deployment is
+  # actually pinned to, so the schema and the code querying it can never
+  # disagree. It replaces run-migrator.sh's `git clone` of `staging` into a
+  # throwaway container, which applied whatever that branch happened to hold -
+  # and only on a database with no tables at all, so every upgrade after the
+  # first silently migrated nothing.
+  #
+  # `service_completed_successfully` above and on admin-server makes it
+  # fail-closed and correctly ordered: migrations finish before anything queries
+  # the schema, and a migration that fails means those services never start,
+  # with the reason in `docker compose logs db-migrate` rather than spread across
+  # two crash loops. It is idempotent - `docker compose up -d` re-runs it every
+  # time and it exits in a second when there is nothing pending.
+  #
+  # Only the DB_* variables, deliberately: the job needs no other secret, so it
+  # still works in a deployment that has not set them.
+  db-migrate:
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/session-manager:${IMAGE_TAG:-latest}
+    command: ["node", "dist/migrate.mjs"]
+    environment:
+      DB_HOST: ${DB_HOST:-scribear-db}
+      DB_PORT: ${DB_PORT:-5432}
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
@@ -72,23 +205,167 @@ services:
         condition: service_healthy
     networks:
       - backend
+    # A job, not a service: it must run to completion once, and a restart policy
+    # would fight `service_completed_successfully`.
+    restart: "no"
+    # The image's own healthcheck wgets session-manager's liveness route on port
+    # 80, which this container never listens on, so without this it would sit
+    # permanently "unhealthy" in `docker compose ps` after a successful run.
+    healthcheck:
+      disable: true
+
+  admin-server:
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/admin-server:${IMAGE_TAG:-latest}
+    expose:
+      - "80"
+    environment:
+      # The identity of *this file*, so the admin console can notice that new
+      # images are running against an old compose file. Nothing else in the
+      # stack can see that: this file is not part of any image, so an operator
+      # who pulls new images without copying it gets missing services, missing
+      # variables and changed wiring, silently. admin-server compares this
+      # against the value baked into its own image and reports the result on
+      # the Deployment Check page.
+      #
+      # A literal, deliberately, and never `${COMPOSE_FILE_VERSION:-}`: a
+      # carried-over .env is exactly the thing that goes stale, so letting it
+      # supply this value would let the stale half of a deployment vouch for
+      # the other half. Nothing about it belongs in .env.
+      #
+      # Bump it when a change to this file is one an operator must redeploy
+      # for - a new service, a new or renamed variable, changed wiring - and
+      # bump `EXPECTED_COMPOSE_FILE_VERSION` in admin-server to match. A unit
+      # test fails if the two ever disagree, or if this file changes without
+      # someone deciding which of the two cases they are in.
+      #
+      # Not `:?`-guarded, like DEPLOYMENT_ENV below and unlike the secrets: it
+      # changes what is *reported*, never what runs, and must not be able to
+      # stop a stack from starting.
+      COMPOSE_FILE_VERSION: "17"
+      LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
+      ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
+      SESSION_MANAGER_BASE_URL: http://session-manager:80
+      # Which standard the admin console's Config Check judges this deployment
+      # against. Not `:?`-guarded, unlike the secrets below: it changes how
+      # findings are *reported*, never how anything behaves, so it must not be
+      # able to stop a stack from starting. Unset infers production, which is
+      # the strict direction - a deployment that predates this variable gets
+      # judged strictly rather than reassured.
+      DEPLOYMENT_ENV: ${DEPLOYMENT_ENV:-}
+      # Health rollup (B1.5). Only the unauthenticated readiness probes of
+      # these services are read; no keys are involved.
+      NODE_SERVER_BASE_URL: http://node-server:80
+      TRANSCRIPTION_SERVICE_BASE_URL: http://transcription-service:80
+      HEALTH_CHECK_TIMEOUT_SEC: ${ADMIN_HEALTH_TIMEOUT_SEC:-3}
+      # Fleet telemetry (B1.7 §2.5). Empty disables GET /api/admin/v1/fleet
+      # (503 TELEMETRY_UNAVAILABLE) without affecting the /health rollup
+      # above, which is a separate, always-on data path.
+      REDIS_URL: ${ADMIN_REDIS_URL:-}
+      # Operator test-audio devices (PLAN-TestAudioDevices §3). Defaulted to the
+      # in-stack generator, which now starts with everything else, so the panel
+      # is wired with no .env entry at all. Point it elsewhere, or blank it, to
+      # turn the feature off: empty makes GET /api/admin/v1/test-audio answer
+      # {available: false, devices: []} at 200 and every mutation answer 503
+      # TEST_AUDIO_UNAVAILABLE - a disabled panel rather than an error to rule
+      # out.
+      #
+      # Only the key needs setting, and it must match the generator's own
+      # TEST_AUDIO_SERVICE_KEY below. It is injected server-side by admin-server
+      # and never reaches the browser. Until it is set the generator will not
+      # start, and this console reports the devices as unreachable.
+      TEST_AUDIO_BASE_URL: ${TEST_AUDIO_BASE_URL:-http://test-audio-generator:80}
+      TEST_AUDIO_SERVICE_KEY: ${TEST_AUDIO_SERVICE_KEY:-}
+      # Config Check's monitoring probes (PLAN-ConfigCheck-Coverage Phase 1).
+      # Empty by default and NOT defaulted to the in-stack services, unlike
+      # the URLs above — grafana/prometheus only exist when the `monitoring`
+      # profile (below) is on, so defaulting these would make Config Check
+      # probe containers that do not exist on every deployment that never
+      # turns that profile on. Left unset, Config Check reports a warning in
+      # staging/production nudging the operator to turn monitoring on, rather
+      # than staying silent. Set both in .env when you do.
+      ADMIN_GRAFANA_BASE_URL: ${ADMIN_GRAFANA_BASE_URL:-}
+      ADMIN_PROMETHEUS_BASE_URL: ${ADMIN_PROMETHEUS_BASE_URL:-}
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET}
+      ADMIN_LOCAL_CREDENTIALS: ${ADMIN_LOCAL_CREDENTIALS}
+      # Azure Entra ID SSO (compose.yml v14). All five empty (the default)
+      # keeps SSO off - AzureOidcAuthService.isEnabled() requires every one -
+      # so a stock deployment is unaffected. See scribear.wiki/Developing
+      # Admin.md "Azure Entra ID SSO provider" for the one-time Azure
+      # app-registration walkthrough and where each value comes from.
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      AZURE_REDIRECT_URI: ${AZURE_REDIRECT_URI:-}
+      ADMIN_ALLOWED_GROUP: ${ADMIN_ALLOWED_GROUP:-}
+      # Defaulted to the bundled container. Point them at a managed Postgres
+      # to run the database outside this stack - see deployment/UPGRADING.md,
+      # which also covers removing the bundled service and its depends_on.
+      DB_HOST: ${DB_HOST:-scribear-db}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      # db-backup's own settings (compose.yml v10), read directly rather than
+      # inferred: neither is a secret, and Config Check can state db-backup's
+      # actual configuration instead of guessing at it the way it has to for
+      # values that live only in another container's environment.
+      BACKUP_OFFSITE_METHOD: ${BACKUP_OFFSITE_METHOD:-none}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-14400}
+      BACKUP_ENABLED: ${BACKUP_ENABLED:-true}
+    volumes:
+      # Read-only: the only channel Config Check has into db-backup's health,
+      # since that container has no HTTP surface of its own to probe the way
+      # every other dependency on this page is probed. Same host path as
+      # db-backup/db-restore's own mount below, deliberately - three services
+      # agreeing on one bind mount rather than a fourth variable to keep in
+      # sync with it.
+      - ${BACKUP_OUTPUT_PATH:-./db-backups}:/backups:ro
+    depends_on:
+      session-manager:
+        condition: service_healthy
+      scribear-db:
+        condition: service_healthy
+      # admin-server migrates its own audit-log tables on startup, but its
+      # Config Check reads the shared schema's migration state, so it should not
+      # start before the migrator has had its say.
+      db-migrate:
+        condition: service_completed_successfully
+    networks:
+      - frontend
+      - backend
     restart: unless-stopped
 
   node-server:
-    image: scribear/node-server:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/node-server:${IMAGE_TAG:-latest}
     expose:
       - "80"
     environment:
       LOG_LEVEL: ${NODE_SERVER_LOG_LEVEL:-info}
-      JWT_SECRET: ${JWT_SECRET}
-      TRANSCRIPTION_SERVICE_ADDRESS: http://transcription-service:80
-      TRANSCRIPTION_SERVICE_API_KEY: ${TRANSCRIPTION_API_KEY}
+      # `:?` deliberately: this is a new required secret as of B1.1, so an .env
+      # carried over from before it would otherwise substitute a blank string
+      # here, and a blank inbound key authenticates any caller that sends
+      # `Authorization: Bearer `. Failing interpolation stops the whole stack
+      # before a single container starts.
+      NODE_SERVER_SERVICE_API_KEY: ${NODE_SERVER_SERVICE_KEY:?NODE_SERVER_SERVICE_KEY is unset. Your .env predates the monitoring/fleet release - read deployment/UPGRADING.md (or the wiki Deployment page) and add the new keys before starting.}
       SESSION_TOKEN_SIGNING_KEY: ${JWT_SECRET}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
       SESSION_MANAGER_SERVICE_API_KEY: ${NODE_SERVER_KEY}
       TRANSCRIPTION_SERVICE_BASE_URL: http://transcription-service:80
-      SESSION_MANAGER_ADDRESS: http://session-manager:80
-      NODE_SERVER_KEY: ${NODE_SERVER_KEY}
+      TRANSCRIPTION_SERVICE_API_KEY: ${TRANSCRIPTION_API_KEY}
+      # Fleet telemetry publishing (B1.7). Empty switches it off, which is the
+      # default in .env.example: publishing is what puts this instance's rooms
+      # in the dashboard, and nothing else depends on it. `NODE_INSTANCE_ID` is
+      # left unset deliberately - it defaults to the hostname, which compose
+      # sets to the container name, so scaling this service gives each replica
+      # a distinct identity with no further configuration.
+      REDIS_URL: ${NODE_SERVER_REDIS_URL:-}
+      # Demo caption room. When enabled, this Node Server auto-emits a looping
+      # fixture caption stream for the demo session - see
+      # apps/node-server/.env.example. On by default; set DEMO_ROOM_ENABLED=false
+      # in the deployment .env to turn it off. The session uid uses a built-in
+      # default shared with the session-manager service above, so it does not
+      # need to be passed here.
+      DEMO_ROOM_ENABLED: ${DEMO_ROOM_ENABLED:-true}
     depends_on:
       transcription-service:
         condition: service_healthy
@@ -98,15 +375,26 @@ services:
 
   # Infrastructure
   scribear-db:
-    image: scribear/scribear-db:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/scribear-db:${IMAGE_TAG:-latest}
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql
+    # Loopback only. Every service in the stack reaches Postgres over the
+    # `backend` network by hostname, and run-migrator.sh runs inside a
+    # container on that same network, so nothing needs this published at all -
+    # it is here for `psql` from the host. Bound to 127.0.0.1 because
+    # `"5432:5432"` binds every interface the host has, which on a public box
+    # means Postgres is exposed to the internet behind nothing but DB_PASSWORD.
+    #
+    # Note that a host firewall is NOT a substitute: Docker's DNAT rules are
+    # traversed before ufw's INPUT chain, so `ufw deny 5432` looks applied and
+    # leaves the port reachable. Filtering a published port means the
+    # DOCKER-USER chain. Binding the interface avoids the whole question.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     networks:
       - backend
     restart: unless-stopped
@@ -116,23 +404,599 @@ services:
       timeout: 5s
       retries: 5
 
+  # Periodic Postgres backups (compose.yml v10).
+  #
+  # Ships in the scribear-db image so `docker compose pull && up -d` alone
+  # keeps it current on every box, rather than a host crontab an operator has
+  # to remember to set up (and keep in sync) on every deployment separately -
+  # that was run-migrator.sh's failure mode, see the comment on db-migrate
+  # above. Runs by default: unlike most variables in this file, leaving
+  # everything below at its default does not make this a no-op - it starts
+  # writing dumps into BACKUP_OUTPUT_PATH on the first `up -d`.
+  #
+  # Reuses the scribear-db image, with a different entrypoint, rather than a
+  # stock postgres/alpine client image: pg_dump must track the server version
+  # it backs up, and a client pulled from a different tag or package repo
+  # could drift and fail a version check silently. Reaches Postgres over the
+  # `backend` network with the same DB_* variables every other service in
+  # this file already uses - no `docker exec`, no Docker socket.
+  #
+  # Not pg_cron, despite that extension already being loaded into this same
+  # image (see infra/scribear-db/entrypoint.sh): pg_cron schedules SQL
+  # statements executed BY Postgres. It has no way to shell out to the
+  # external pg_dump client, which is what actually walks the catalogs to
+  # produce a dump.
+  db-backup:
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/scribear-db:${IMAGE_TAG:-latest}
+    entrypoint: ["scribear-backup-entrypoint.sh"]
+    environment:
+      DB_HOST: ${DB_HOST:-scribear-db}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      # Set to false for a deployment on managed Postgres (RDS and similar)
+      # that already has its own backups - db-backup idles rather than
+      # dumping, and admin-server's Deployment Check reports that as a
+      # deliberate choice instead of "no backup found" forever.
+      BACKUP_ENABLED: ${BACKUP_ENABLED:-true}
+      # How often to dump, and how long to keep local copies. The 6x/day
+      # cadence (`10 */4 * * *`) this replaces is the default, so a deployment
+      # copying that schedule in sees no change. This is a logical-backup
+      # interval, not a recovery point: a failure 3h59m after the last good
+      # dump loses everything since - see deployment/UPGRADING.md.
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-14400}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      # Optional at-rest encryption (GPG AES256, symmetric) for every dump
+      # this writes or pushes offsite - local retention and the offsite copy
+      # are both plaintext-readable without it. Empty leaves dumps as
+      # pg_dump/pg_dumpall already produce them: compressed, not encrypted.
+      # db-restore needs the same value to read an encrypted dump back.
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:-}
+      # Local retention shares a disk with postgres_data: it protects against
+      # a bad migration or an operator mistake, not against losing this host.
+      # Set BACKUP_OFFSITE_METHOD to also push each dump somewhere else -
+      # see deployment/UPGRADING.md and .env.example.
+      BACKUP_OFFSITE_METHOD: ${BACKUP_OFFSITE_METHOD:-none} # none | scp | rsync
+      BACKUP_OFFSITE_HOST: ${BACKUP_OFFSITE_HOST:-}
+      BACKUP_OFFSITE_PORT: ${BACKUP_OFFSITE_PORT:-22}
+      BACKUP_OFFSITE_USER: ${BACKUP_OFFSITE_USER:-}
+      BACKUP_OFFSITE_PATH: ${BACKUP_OFFSITE_PATH:-}
+    volumes:
+      - ${BACKUP_OUTPUT_PATH:-./db-backups}:/backups
+      # Harmless empty directory when BACKUP_OFFSITE_METHOD is "none" (the
+      # default) - the entrypoint only reads this path when it is scp or
+      # rsync. Point BACKUP_SSH_KEY_PATH at a real private key to use either.
+      - ${BACKUP_SSH_KEY_PATH:-./db-backup-ssh-key}:/keys/backup_key:ro
+    depends_on:
+      scribear-db:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "scribear-backup-healthcheck.sh"]
+      interval: 5m
+      timeout: 10s
+      retries: 1
+      # Generous on purpose: `pg_dump` is single-threaded, so a multi-GB
+      # database can take well past a couple of minutes for its first dump,
+      # and a `start_period` shorter than that reads a backup in progress as
+      # a failed container.
+      start_period: 30m
+
+  # Manual, one-shot restore from a dump db-backup produced. Never started by
+  # `up -d` - profile-gated so an untested restore path does not sit there
+  # looking like coverage it has not earned. Run it once after setting this
+  # up, against a scratch database, to find out whether it actually works
+  # before the day it has to.
+  #
+  # `pg_restore --clean --if-exists` drops and recreates every object PRESENT
+  # IN THE DUMP before restoring it - not a true overwrite. An object created
+  # in DB_NAME after the dump was taken (a table added by a later migration,
+  # say) is untouched and stays exactly as it was; only what the dump itself
+  # names gets dropped and rebuilt. For the documented restore-drill use case
+  # (a fresh scratch database) that distinction is moot - there is nothing
+  # else there. For a real disaster-recovery restore into a database that has
+  # migrated forward since the dump, `DROP DATABASE` first (or `pg_restore
+  # --create` against an empty cluster) for a true overwrite.
+  #
+  # `--no-owner` because the dump's ALTER OWNER commands name whatever DB_USER
+  # produced it - restoring under a differently-named role (a scratch DB on
+  # another box, say) fails every one of them otherwise. DB_USER is this
+  # stack's only role, so tables ending up owned by whichever role runs this
+  # restore is already correct here, not merely tolerated. Verified against a
+  # scratch database as part of building this: `--clean --if-exists` alone
+  # exits 1 on 20 ALTER OWNER errors even though every table and row restores
+  # correctly; adding `--no-owner` exits 0.
+  #
+  # Usage:
+  #   RESTORE_FILE=scribear-db-20260802T040000Z.dump \
+  #     docker compose --profile restore run --rm db-restore
+  #
+  # A `-globals-*.sql[.gpg]` file next to the dump (roles - see db-backup's
+  # pg_dumpall --globals-only) is not applied here. It matters only for a
+  # restore onto a cluster that never had DB_USER provisioned at all, which
+  # this stack's own scribear-db always does on first boot - apply it by hand
+  # with psql first if you are restoring onto a bare cluster that does not.
+  db-restore:
+    profiles: ["restore"]
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/scribear-db:${IMAGE_TAG:-latest}
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -eu
+        : "$${RESTORE_FILE:?Set RESTORE_FILE to a filename under /backups, e.g. RESTORE_FILE=scribear-db-20260802T040000Z.dump}"
+        SRC="/backups/$$RESTORE_FILE"
+        case "$$RESTORE_FILE" in
+          *.gpg)
+            : "$${BACKUP_ENCRYPTION_KEY:?$$RESTORE_FILE is encrypted - set BACKUP_ENCRYPTION_KEY to the value db-backup used to write it}"
+            DECRYPTED="/tmp/$$(basename "$$RESTORE_FILE" .gpg)"
+            printf '%s' "$$BACKUP_ENCRYPTION_KEY" | gpg --batch --yes --pinentry-mode loopback --decrypt --passphrase-fd 0 -o "$$DECRYPTED" "$$SRC"
+            SRC="$$DECRYPTED"
+            ;;
+        esac
+        echo "Restoring $$SRC into $$DB_NAME @ $$DB_HOST - drops and recreates every object present in that dump (see the comment above this service)."
+        PGPASSWORD="$$DB_PASSWORD" pg_restore -h "$$DB_HOST" -p "$$DB_PORT" -U "$$DB_USER" -d "$$DB_NAME" --clean --if-exists --no-owner "$$SRC"
+    environment:
+      DB_HOST: ${DB_HOST:-scribear-db}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:-}
+      RESTORE_FILE: ${RESTORE_FILE:-}
+    volumes:
+      - ${BACKUP_OUTPUT_PATH:-./db-backups}:/backups:ro
+    networks:
+      - backend
+    restart: "no"
+
+  # Telemetry backplane for the fleet dashboard (B1.7).
+  #
+  # Every publisher and reader is gated on its own REDIS_URL, all of which are
+  # unset by default, so today this container runs and nothing talks to it. It
+  # is here ahead of them because the alternative - introducing shared
+  # infrastructure in the same change that starts depending on it - makes a
+  # telemetry bug and a deployment bug look identical.
+  #
+  # Nothing in the transcription path touches it. Losing Redis costs the
+  # dashboard its cross-instance view and costs sessions nothing.
+  #
+  # No persistence, deliberately: every key is a snapshot its publisher
+  # rewrites within seconds under a TTL of the same order, so a restart
+  # repopulates faster than an operator can notice, while an RDB or AOF would
+  # only restore state that is stale by construction - and would restore rooms
+  # that no longer exist.
+  redis:
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/scribear-redis:${IMAGE_TAG:-latest}
+    # `:?` deliberately, and on the `--requirepass` argument rather than only
+    # on the environment below: `redis-server --requirepass ""` is not a
+    # password-protected server that rejects logins, it is an *open* server
+    # that accepts every unauthenticated command. An .env carried over from
+    # before this release has no REDIS_PASSWORD at all, so without this guard
+    # the upgrade would silently stand up an unauthenticated Redis holding the
+    # whole fleet's operational state.
+    command:
+      [
+        "redis-server",
+        "--requirepass",
+        "${REDIS_PASSWORD:?REDIS_PASSWORD is unset. Your .env predates the monitoring/fleet release - read deployment/UPGRADING.md (or the wiki Deployment page) and add the new keys before starting.}",
+        "--save",
+        "",
+        "--appendonly",
+        "no",
+      ]
+    environment:
+      # Read by the image's healthcheck, which authenticates before PINGing.
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is unset. Your .env predates the monitoring/fleet release - read deployment/UPGRADING.md (or the wiki Deployment page) and add the new keys before starting.}
+    # Not published to the host, unlike scribear-db: nothing outside the
+    # backend network has any reason to reach it, and its contents are the
+    # whole fleet's operational state.
+    expose:
+      - "6379"
+    networks:
+      - backend
+    restart: unless-stopped
+
   transcription-service:
-    image: scribear/transcription-service-${TRANSCRIPTION_DEVICE:-cpu}:${IMAGE_TAG:-latest}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/transcription-service-${TRANSCRIPTION_DEVICE:-cpu}:${IMAGE_TAG:-latest}
+    # No GPU reservation here, on purpose. It lives in `compose.gpu.yml`, which a
+    # CUDA deployment overlays:
+    #
+    #   docker compose -f compose.yml -f compose.gpu.yml up -d
+    #
+    # This file used to reserve `driver: nvidia` unconditionally, which had
+    # nothing to do with `TRANSCRIPTION_DEVICE` - so the *default* configuration
+    # (`cpu`) demanded a GPU, and on any host without the NVIDIA runtime the
+    # container was created and then refused to start with `could not select
+    # device driver "nvidia"`, taking node-server down with it. A CPU-only host,
+    # or an Apple Silicon Mac, could not start the documented default stack.
+    #
+    # Compose cannot make a reservation conditional on a variable - there is no
+    # way to omit a key - so the choice is which way round the default points. It
+    # points at the configuration that needs no special hardware, because that is
+    # the one someone evaluating this project starts from, and because a GPU
+    # deployment is already choosing `TRANSCRIPTION_DEVICE` and reading the
+    # deployment guide.
     expose:
       - "80"
     environment:
       LOG_LEVEL: ${TRANSCRIPTION_LOG_LEVEL:-info}
       API_KEY: ${TRANSCRIPTION_API_KEY}
       WS_INIT_TIMEOUT_SEC: ${TRANSCRIPTION_WS_INIT_TIMEOUT_SEC:-2.5}
+      # Read-only key for /metrics/status. Empty leaves the route unregistered.
+      # In-cluster only; it is not exposed through nginx.
+      METRICS_API_KEY: ${TRANSCRIPTION_METRICS_KEY:-}
+      # Optional upstream secret for remote/OpenAI-like providers that read their
+      # key from an env var named by provider_config.json's "api_key_env". Empty
+      # by default and ignored by local-model providers, so it is safe to leave unset.
+      TRANSCRIPTION_PROVIDER_API_KEY: ${TRANSCRIPTION_PROVIDER_API_KEY:-}
+      # Silence floor for the ingress audio meter, in linear RMS. Defaulted to
+      # the same 0.01 the meter and whisper's own threshold already use, so
+      # leaving it unset changes nothing. See .env.example for when a room
+      # needs it moved.
+      AUDIO_SILENCE_THRESHOLD: ${TRANSCRIPTION_AUDIO_SILENCE_THRESHOLD:-0.01}
+      # Fleet telemetry publishing (B1.7). Empty switches it off, which is the
+      # default in .env.example: publishing is what puts this host's provider
+      # health in the dashboard's fleet view, and nothing else depends on it.
+      # TRANSCRIPTION_HOST_ID is left unset deliberately - it defaults to the
+      # hostname, which compose sets to the container name, so scaling this
+      # service gives each replica a distinct identity with no configuration.
+      REDIS_URL: ${TRANSCRIPTION_REDIS_URL:-}
+      # Capacity estimator knobs. The estimator measures per-session ASR cost
+      # per worker and publishes a ceiling on /metrics/status and
+      # /providers/health, which the dashboard's fleet view draws; it is
+      # currently observe-only, so these change what is *reported*, not what is
+      # admitted. All three carry the shipped defaults, so leaving them unset
+      # changes nothing.
+      #
+      # They are here because this subsystem already shipped tuning knobs that
+      # only existed as compose-file edits and had to be rediscovered by every
+      # deployment; the service has read these from `.env` from the start, and
+      # this is the compose path that makes that true for an operator too.
+      #
+      # TARGET_BUSY is the headroom fraction the ceiling aims at, and is
+      # deliberately device-independent - the hardware-specific half
+      # (per-session cost) is measured, not configured. MIN_SESSIONS is the
+      # floor that stops a bad measurement taking a worker to zero.
+      # MAX_SESSIONS is the operator's hard pin: empty means auto-tune, and
+      # setting it disables auto-tuning entirely - it wins over the floor AND
+      # over warm-up, so it is the one value that is in effect from the first
+      # request. Empty is read as "unset" by the service, since compose has no
+      # way to omit a key.
+      TARGET_BUSY: ${TRANSCRIPTION_TARGET_BUSY:-0.85}
+      MIN_SESSIONS: ${TRANSCRIPTION_MIN_SESSIONS:-1}
+      MAX_SESSIONS: ${TRANSCRIPTION_MAX_SESSIONS:-}
+      # Model download cache. faster-whisper pulls weights via huggingface_hub
+      # and silero-vad via torch.hub; both honour HF_HOME (torch.hub falls back
+      # to it when TORCH_HOME is unset), so one variable redirects both. The
+      # path is inside the bind mount below, so weights survive container
+      # recreation instead of re-downloading on every `up -d`. The container
+      # runs as root, so Docker auto-creating the host dir on first `up -d` is
+      # fine - no manual mkdir needed.
+      HF_HOME: /models/hf
     volumes:
       - ${PROVIDER_CONFIG_PATH:-./provider_config.json}:/app/provider_config.json:ro
+      - ${MODEL_DOWNLOAD_PATH:-./models}:/models
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # Monitoring
+  #
+  # Black-box sidecar: polls the other services' probe and status endpoints,
+  # folds them into metrics, and evaluates alert rules. It does not modify the
+  # monitored services, so it can be removed from this file with no other edits.
+  #
+  # It no longer mounts the Docker socket. Until B1.2 it read container logs to
+  # infer metrics from log text, which meant root-equivalent host access; every
+  # one of those signals now comes from an authed endpoint instead.
+  monitoring-sidecar:
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/monitoring-sidecar:${IMAGE_TAG:-latest}
+    expose:
+      - "80"
+    environment:
+      LOG_LEVEL: ${MONITORING_LOG_LEVEL:-info}
+      # Per-provider `job_period_ms` from provider_config.json, as
+      # `provider=ms,provider=ms`. It is the denominator of the derived
+      # period-utilization series and nothing else — it does not affect RTF,
+      # which transcription-service measures for itself, nor the duty-ratio
+      # alert, which is deliberately period-independent.
+      #
+      # Per provider because one number cannot be right: the CUDA templates run
+      # whisper and crisper_whisper at 500ms alongside lumen_granite at 3000ms.
+      # The single global value this replaces silently misscaled every provider
+      # but `debug` — 2x for whisper, 0.33x for lumen_granite, no warning.
+      #
+      # **Empty by default, on purpose.** Any default would be wrong for
+      # somebody: the CUDA templates use 500ms and the CPU templates 5000ms, and
+      # shipping either would silently misscale the other — reintroducing the bug
+      # in a new place. Unset means the sidecar publishes no utilization series
+      # for that provider rather than a confidently wrong one, and the
+      # scribear_asr_job_period_ms gauge shows which denominator is in use.
+      # Set it in .env to turn the series on:
+      #   CUDA templates: whisper=500,crisper_whisper=500,lumen_granite=3000
+      #   CPU templates:  whisper=5000,crisper_whisper=5000,lumen_granite=3000
+      #
+      # A bare integer (this variable's old format) is rejected with an error
+      # naming the replacement rather than applied to every provider — a stale
+      # .env should be loud, not silently averaged over providers it does not
+      # fit. Not `:?`-guarded: a missing denominator must never stop a stack.
+      TRANSCRIPTION_JOB_PERIOD_MS: ${MONITORING_JOB_PERIOD_MS:-}
+      NODE_SERVER_BASE_URL: http://node-server:80
+      SESSION_MANAGER_BASE_URL: http://session-manager:80
+      ADMIN_SERVER_BASE_URL: http://admin-server:80
+      TRANSCRIPTION_SERVICE_BASE_URL: http://transcription-service:80
+      # Reads node-server's authed status endpoint (B1.1). Must match the key
+      # node-server is given above; empty disables status polling and leaves
+      # the connection, upstream and auth metrics empty.
+      NODE_SERVER_SERVICE_API_KEY: ${NODE_SERVER_SERVICE_KEY:?NODE_SERVER_SERVICE_KEY is unset. Your .env predates the monitoring/fleet release - read deployment/UPGRADING.md (or the wiki Deployment page) and add the new keys before starting.}
+      NODE_STATUS_INTERVAL_SEC: ${MONITORING_NODE_STATUS_INTERVAL_SEC:-10}
+      # Reads transcription-service's authed metrics endpoint (B1.2). Must
+      # match the key that service is given above; empty disables the poll.
+      TRANSCRIPTION_SERVICE_METRICS_KEY: ${TRANSCRIPTION_METRICS_KEY:-}
+      TRANSCRIPTION_METRICS_INTERVAL_SEC: ${MONITORING_TRANSCRIPTION_METRICS_INTERVAL_SEC:-10}
+      PROBE_INTERVAL_SEC: ${MONITORING_PROBE_INTERVAL_SEC:-10}
+      ALERT_RATE_WINDOW_SEC: ${MONITORING_ALERT_WINDOW_SEC:-120}
+      ALERT_UPSTREAM_CHURN_COUNT: ${MONITORING_ALERT_CHURN_COUNT:-3}
+      # The transcription T1 thresholds. Plumbed because their right values are
+      # hardware-dependent in a way the others are not, and the sidecar's own
+      # defaults are calibrated on a GPU: healthy CUDA operation measured mean RTF
+      # 0.28-0.33, while a CPU stack can land near or past that line depending on
+      # model and load — the shipped `base` template measured 0.17 at one session
+      # but `small` measured 0.471, and either can climb under concurrency. So a
+      # CPU deployment left on the defaults may get a permanent T1 warning, and
+      # without these variables the only remedy was to edit this file. Empty
+      # means "use the sidecar default".
+      #
+      # The wiki's "Transcription on CPU-Only Hardware" page carries measured
+      # values per model and thread count.
+      ALERT_ASR_DUTY_RATIO: ${MONITORING_ASR_DUTY_RATIO:-}
+      # The CPU duty-ratio threshold. The service reports each provider's
+      # inference device (`providerDevice` on /metrics/status), and the sidecar
+      # selects this threshold for a CPU provider instead of the GPU default
+      # (0.45). A healthy CPU stack running `small`/4 measured 0.471 — sitting
+      # exactly on the GPU alarm — while `base`/4 measured 0.173. 0.7 clears the
+      # worst measured healthy CPU value (0.745, speech-dense `small`/8).
+      #
+      # MONITORING_ASR_DUTY_RATIO above, if set, wins over both — the existing
+      # flat override. Empty means "use the sidecar default" (0.7).
+      ALERT_ASR_DUTY_RATIO_CPU: ${MONITORING_ASR_DUTY_RATIO_CPU:-}
+      # The T1 warning and the T1 CRITICAL, both the share of scheduled job
+      # periods in which no pass ran. The CRITICAL is keyed here rather than on
+      # p95 RTF because RTF *falls* as the shared worker saturates - measured
+      # 0.277 -> 0.139 across 1->8 GPU sessions while transcripts per 1000
+      # chunks collapsed 190 -> 48 - so no p95 bar separates healthy from
+      # saturated. Drops rose monotonically through the same sweep, and a CPU
+      # stack measured 2.9% healthy against 56.3% at 3 sessions.
+      ALERT_ASR_DROPPED_PERIOD_RATIO: ${MONITORING_ASR_DROPPED_PERIOD_RATIO:-}
+      ALERT_ASR_DROPPED_PERIOD_CRITICAL_RATIO: ${MONITORING_ASR_DROPPED_PERIOD_CRITICAL_RATIO:-}
+      # Scheduled periods (`drops + passes`) needed before either share is
+      # believed. Matters most on CPU: at the CPU templates' 5000ms period a
+      # 120s window holds only ~24 of them, measured, so the default of 20 is
+      # met with little to spare. Raise ALERT_RATE_WINDOW_SEC rather than
+      # lowering this - but note the counters retain only 300s regardless.
+      ALERT_ASR_SCHEDULED_PERIOD_MIN_COUNT: ${MONITORING_ASR_SCHEDULED_PERIOD_MIN_COUNT:-}
+      ALERT_ASR_TAIL_MIN_JOBS: ${MONITORING_ASR_TAIL_MIN_JOBS:-}
+      # p95 RTF at or above which the T1 CRITICAL fires. Also hardware-
+      # dependent, for the same reason as the trio above, and now plumbed for
+      # the same reason: tuning it used to mean forking this file. Empty means
+      # "use the sidecar default" (2.0 — see DEFAULT_THRESHOLDS.rtfP95).
+      ALERT_RTF_P95: ${MONITORING_RTF_P95:-}
+      # Passes needed in the window before ALERT_ASR_DUTY_RATIO is believed.
+      # Empty means "use the sidecar default" (20).
+      ALERT_ASR_DUTY_RATIO_MIN_JOBS: ${MONITORING_ASR_DUTY_RATIO_MIN_JOBS:-}
+      # Fallback tail bar for a transcription-service too old to report dropped
+      # periods (see ALERT_ASR_DROPPED_PERIOD_RATIO above). Empty means "use
+      # the sidecar default" (3.0).
+      ALERT_ASR_TAIL_P99_RTF: ${MONITORING_ASR_TAIL_P99_RTF:-}
+      # Synthetic canary (A2). The SAME value as session-manager's
+      # CANARY_DEVICE_SECRET above. Empty disables it entirely, which is the
+      # default: with no secret the Session Manager seeds no canary room and
+      # there is nothing to authenticate as.
+      #
+      # THERE IS NOTHING TO PROVISION. This replaced
+      # MONITORING_CANARY_DEVICE_TOKEN, which an operator obtained by
+      # registering a device, activating it and scraping DEVICE_TOKEN out of a
+      # Set-Cookie header - then attached that device to a room they created by
+      # hand. That last step decided whether fixture speech could reach a
+      # lecture. Now the Session Manager seeds the room, the device and a
+      # standing session under reserved uids, and this service derives the token
+      # it presents from the same secret and the same uid.
+      #
+      # The canary streams fixture speech into whatever session is active in its
+      # device's room, UNATTENDED, every CANARY_INTERVAL_SEC. That room binding
+      # is the entire safety boundary, and seeding it in code is stronger than
+      # wiring it by hand: there is no room to pick wrongly, and room-management
+      # refuses afterwards to move the device (409 CANARY_DEVICE_NOT_ASSIGNABLE)
+      # or to re-source the canary room (409 CANARY_ROOM_NOT_ASSIGNABLE).
+      CANARY_DEVICE_SECRET: ${MONITORING_CANARY_DEVICE_SECRET:-}
+      CANARY_INTERVAL_SEC: ${MONITORING_CANARY_INTERVAL_SEC:-300}
+      CANARY_RUN_DURATION_SEC: ${MONITORING_CANARY_RUN_SEC:-40}
+      # Must match sample_rate / num_channels in the canary session's
+      # transcriptionStreamConfig; the transcription service rejects audio
+      # whose WAV header disagrees rather than resampling it.
+      CANARY_SAMPLE_RATE: ${MONITORING_CANARY_SAMPLE_RATE:-16000}
+      CANARY_CHANNELS: ${MONITORING_CANARY_CHANNELS:-1}
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # Operator test-audio devices (PLAN-TestAudioDevices).
+  #
+  # Two synthetic source devices an operator can point at a test room from the
+  # admin console: `good`, which plays clean speech at an adjustable level and
+  # noise floor, and `fault`, which reproduces on demand every audio fault the
+  # stack claims to report. It is what lets someone see what an alert looks like
+  # before it matters.
+  #
+  # STARTS WITH THE STACK. It was behind a compose profile while the concern was
+  # deployments that had never asked for it; there is one deployment and it
+  # wants this, so the profile was only a lever to remember to pull.
+  #
+  # It does need TEST_AUDIO_SERVICE_KEY set, and exits with a message naming
+  # that variable if it is not. Nothing else depends on this service, so that
+  # failure is one container rather than a stack that will not come up - which
+  # is why the key is not `:?`-guarded here.
+  #
+  # Running is not the same as armed. Without DEVICE_TOKENs both devices report
+  # configured:false and refuse to start, so an unprovisioned generator costs a
+  # container and changes no behaviour. Provisioning is the step that arms it.
+  #
+  # SAFETY: this service streams synthetic audio into whatever session is active
+  # in each device's room. A device token reaches ONLY ITS OWN DEVICE'S ROOM -
+  # neither device has any way to name another - so the device-to-room assignment
+  # is the entire safety boundary, and each device has its own dedicated test
+  # room. Pointing one at a teaching room would inject fixture speech into that
+  # lecture's live captions, silently.
+  #
+  # That assignment is SEEDED IN CODE by session-manager under reserved uids,
+  # which is stronger than an operator making it by hand: there is no argument to
+  # point at the wrong room, and room-management refuses to reassign either
+  # device afterwards (409 TEST_AUDIO_DEVICE_NOT_ASSIGNABLE).
+  # Operator test-audio devices.
+  #
+  # Started with the rest of the stack, not behind a profile. It was profiled
+  # while the concern was deployments that had never asked for it; there is one
+  # deployment and it wants this, so the profile was only a lever to remember to
+  # pull. A generator with no TEST_AUDIO_DEVICE_SECRET is inert - both devices
+  # report `configured: false` and refuse to start - so the cost of it running is
+  # a container and no behaviour.
+  test-audio-generator:
+    image: ${IMAGE_REGISTRY:-ghcr.io/scribear}/test-audio-generator:${IMAGE_TAG:-latest}
+    expose:
+      - "80"
+    environment:
+      LOG_LEVEL: ${TEST_AUDIO_LOG_LEVEL:-info}
+      # Inbound. Must match admin-server's TEST_AUDIO_SERVICE_KEY above.
+      #
+      # NOT `:?`-guarded, unlike NODE_SERVER_SERVICE_API_KEY. An empty value
+      # here matters more than most, not less: it matches the empty credential
+      # an unauthenticated caller presents as `Authorization: Bearer `, on a
+      # service that can put audio into a live room.
+      #
+      # The guard lives in the container instead, which refuses to start on an
+      # empty or CHANGEME value with a message naming this variable. So the
+      # failure mode for a deployment that has not set the key is this one
+      # container exiting and saying why, rather than `docker compose up`
+      # refusing to bring up the whole stack. Since this service is no longer
+      # behind a profile, that is the difference between one dead container and
+      # no ScribeAR at all - which is not a trade worth making for a service
+      # nothing else depends on.
+      TEST_AUDIO_SERVICE_KEY: ${TEST_AUDIO_SERVICE_KEY:-}
+      # The one credential the two synthetic sources need, shared with
+      # session-manager below and with nothing else. This service derives
+      # {deviceUid}:HMAC(secret, deviceUid) for each of its two fixed device
+      # uids; session-manager seeds bcrypt of the same value. Nothing is copied
+      # between them, so there is no provisioning step and no token in this file.
+      #
+      # Empty means BOTH devices report configured:false and refuse to start,
+      # which is two disabled cards on the admin page rather than an error, and
+      # session-manager seeds nothing. NOT `:?`-guarded, unlike the key above: an
+      # unarmed generator is inert rather than unsafe.
+      TEST_AUDIO_DEVICE_SECRET: ${TEST_AUDIO_DEVICE_SECRET:-}
+      SESSION_MANAGER_BASE_URL: http://session-manager:80
+      NODE_SERVER_BASE_URL: http://node-server:80
+      # The authoritative cap on one run. Every run auto-stops at its own
+      # durationSec with no further instruction, and this bounds what may be
+      # asked for; admin-server's schema rejects only absurd values, so lowering
+      # this is obeyed rather than contradicted. It is what stops a forgotten
+      # device streaming into a room overnight.
+      TEST_AUDIO_MAX_DURATION_SEC: ${TEST_AUDIO_MAX_DURATION_SEC:-1800}
+      # Must equal sample_rate / num_channels in the test rooms' sessions'
+      # transcriptionStreamConfig; the transcription service rejects audio whose
+      # WAV header disagrees rather than resampling it.
+      TEST_AUDIO_SAMPLE_RATE: ${TEST_AUDIO_SAMPLE_RATE:-16000}
+      TEST_AUDIO_CHANNELS: ${TEST_AUDIO_CHANNELS:-1}
+      # Which clip the fault device streams. FaultParams has no clip knob - one
+      # knob per fault and nothing else - so the source material is config.
+      TEST_AUDIO_FAULT_CLIP: ${TEST_AUDIO_FAULT_CLIP:-harvard}
+    depends_on:
+      session-manager:
+        condition: service_healthy
+      node-server:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # Metrics + dashboards for evaluators (see
+  # archived-plans/2026-07-28-01-PLAN-Grafana-Monitoring.md).
+  #
+  # OFF BY DEFAULT, via the profile - same mechanism `autoupdate` uses below.
+  # Scrapes exactly one target: monitoring-sidecar's own /metrics, which
+  # already aggregates the whole fleet. Never scrapes node-server,
+  # transcription-service, session-manager or admin-server directly - those
+  # endpoints are auth-gated per-service, and handing Prometheus every
+  # service's key would be new secret-sprawl for no benefit the sidecar
+  # doesn't already provide.
+  #
+  # No `ports:` - Prometheus ships with no authentication of its own, so
+  # host-publishing it would be an open door on any box with a routable
+  # interface. Reachable only from other containers on `backend` (i.e. from
+  # `grafana`, below).
+  prometheus:
+    profiles:
+      - monitoring
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.55.1}
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}"
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # Dashboards on top of the Prometheus above. Datasource and the seed
+  # fleet-overview dashboard are both auto-provisioned from files mounted
+  # read-only below - a fresh `up` on this profile needs zero clicks in the
+  # Grafana UI beyond logging in
+  # (archived-plans/2026-07-28-01-PLAN-Grafana-Monitoring.md invariant 4).
+  #
+  # Proxied at /grafana/ through nginx (subpath mode) — open
+  # https://<host>/grafana/ in a browser, or click "Grafana" in the admin
+  # console's nav bar. The host-port mapping below is the escape hatch for
+  # direct access (loopback by default; set GRAFANA_BIND=0.0.0.0 for LAN).
+  # With subpath mode on, http://localhost:3000/ redirects to
+  # http://localhost/grafana/ (port dropped), so type /grafana/ explicitly
+  # when tunneling.
+  grafana:
+    profiles:
+      - monitoring
+    image: ${GRAFANA_IMAGE:-grafana/grafana-oss:11.5.2}
+    ports:
+      - "${GRAFANA_BIND:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-CHANGEME}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # Subpath mode so Grafana is proxied at /grafana/ through nginx — same
+      # origin as the admin console, one URL, no SSH tunnel. See
+      # 2026-08-02-03-RESEARCH-GrafanaDemo.md and the /grafana/ location block
+      # in infra/scribear-nginx/nginx.conf.
+      #
+      # GF_SERVER_ROOT_URL uses Grafana's own %(...)s placeholders, NOT compose
+      # interpolation (compose only touches ${...}). %(protocol)s resolves to
+      # Grafana's *listen* protocol (http, since it sits behind nginx), and
+      # %(domain)s resolves to GF_SERVER_DOMAIN — neither is derived from the
+      # incoming request. So the scheme is hardcoded to https:// (nginx
+      # terminates TLS) and the domain comes from GRAFANA_SERVER_DOMAIN below.
+      # Getting this wrong leaves appUrl as http://localhost/grafana/, which
+      # breaks Grafana Live's WebSocket origin check and any link Grafana
+      # generates (copy-link, alert notifications).
+      GF_SERVER_ROOT_URL: "https://%(domain)s/grafana/"
+      GF_SERVER_DOMAIN: ${GRAFANA_SERVER_DOMAIN:-localhost}
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
     networks:
       - backend
     restart: unless-stopped
@@ -143,3 +1007,5 @@ networks:
 
 volumes:
   postgres_data:
+  prometheus_data:
+  grafana_data:

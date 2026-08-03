@@ -2,6 +2,11 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
+    // Kept outside outDir on purpose. This project is noEmit, so the build info
+    // is tsc's only output; leaving it in ./dist meant the `vite build` that
+    // follows `tsc -b` emptied that directory and deleted it, so every build
+    // re-typechecked the whole project from scratch.
+    "tsBuildInfoFile": "./.tsbuildinfo",
     "rootDir": ".",
     "paths": {
       "#src/*": [
@@ -53,13 +58,25 @@
       "path": "../../libs/store/transcription-display-store"
     },
     {
+      "path": "../../libs/store/transcript-export-store"
+    },
+    {
       "path": "../../libs/store/url-config-store"
+    },
+    {
+      "path": "../../libs/store/live-translation-store"
     },
     {
       "path": "../../libs/ui/core-ui"
     },
     {
+      "path": "../../libs/ui/live-translation-ui"
+    },
+    {
       "path": "../../libs/ui/theme-customization-ui"
+    },
+    {
+      "path": "../../libs/ui/transcript-export-ui"
     },
     {
       "path": "../../libs/ui/transcription-display-ui"

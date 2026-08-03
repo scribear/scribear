@@ -24,7 +24,12 @@ export const SwitchingProviderModal = () => {
         dispatch(setPreferredProviderId(null));
       }}
     >
-      <Stack direction="row" justifyContent="space-around">
+      <Stack
+        direction="row"
+        sx={{
+          justifyContent: 'space-around',
+        }}
+      >
         <CircularProgress />
       </Stack>
     </CancelableInfoModal>

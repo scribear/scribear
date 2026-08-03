@@ -4,10 +4,20 @@
     {
       "context_uid": "faster-whisper",
       "worker_ids": [0],
-      "tags": ["whisper_cpu_context"],
+      "tags": ["whisper_context"],
       "context_config": {
         "model": "turbo",
         "device": "cuda"
+      }
+    },
+    {
+      "context_uid": "faster-whisper",
+      "worker_ids": [0],
+      "tags": ["crisper_whisper_context"],
+      "context_config": {
+        "model": "nyrahealth/faster_CrisperWhisper",
+        "device": "cuda",
+        "compute_type": "float32"
       }
     },
     {
@@ -28,7 +38,28 @@
     "whisper": {
       "provider_uid": "whisper-streaming",
       "provider_config": {
-        "whisper_context_tag": "whisper_cpu_context",
+        "whisper_context_tag": "whisper_context",
+        "silero_context_tag": "silero_vad",
+        "job_period_ms": 500,
+        "max_buffer_len_sec": 30,
+        "local_agree_dim": 2,
+        "vad_detector": true
+      }
+    },
+    "lumen_granite": {
+      "provider_uid": "lumen-granite",
+      "provider_config": {
+        "base_url": "https://lumen.ncsa.illinois.edu/v1",
+        "model": "granite-speech-4.1-2b-plus",
+        "api_key_env": "TRANSCRIPTION_PROVIDER_API_KEY",
+        "job_period_ms": 3000,
+        "max_buffer_len_sec": 20
+      }
+    },
+    "crisper_whisper": {
+      "provider_uid": "whisper-streaming",
+      "provider_config": {
+        "whisper_context_tag": "crisper_whisper_context",
         "silero_context_tag": "silero_vad",
         "job_period_ms": 500,
         "max_buffer_len_sec": 30,

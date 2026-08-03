@@ -79,9 +79,15 @@ const nonWorkspaceDependencies = /** @type {Record<string, string[]>} */ ({
   'transcription_service': ['apps/node-server'],
 });
 
-// Global config files that trigger a full run across all workspaces
+// Global config files that trigger a full run across all workspaces.
+// Dockerfile and .npmrc are here because the root Dockerfile now builds every
+// Node app's image as a target of one file: a change to either the shared
+// build stages or the manifest npm reads from can affect any app's image, not
+// just the workspace whose source happened to change.
 const globalFiles = new Set([
   '.dockerignore',
+  '.npmrc',
+  'Dockerfile',
   'package.json',
   'tsconfig.base.json',
   'eslint.config.js',
@@ -90,8 +96,18 @@ const globalFiles = new Set([
   'vitest.shared.ts',
 ]);
 
+// Directories whose contents trigger a full run. `.github` decides how every
+// workspace is formatted, linted, built, tested and imaged, so a change to it
+// affects all of them - and a PR that touches only `.github` would otherwise
+// resolve to zero workspaces and skip the entire pipeline, meaning CI changes
+// were the one category of change CI never actually exercised.
+const globalPrefixes = ['.github/'];
+
+const isGlobalChange = (f) =>
+  globalFiles.has(f) || globalPrefixes.some((prefix) => f.startsWith(prefix));
+
 let affected;
-if (changedFiles.length === 0 || changedFiles.some((f) => globalFiles.has(f))) {
+if (changedFiles.length === 0 || changedFiles.some(isGlobalChange)) {
   affected = allWorkspaces;
 } else {
   const directlyChanged = new Set(

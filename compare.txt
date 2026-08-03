@@ -1,0 +1,188 @@
+COMPARISON: debug/e2e-audio vs GLM-Debug-E2E
+============================================
+
+Two independent investigations of the same report ("kiosk audio never reaches
+the transcription service"), both starting from commit 0db5918. This file
+records what each found, what was merged, and why.
+
+
+THE SHARED ROOT CAUSE
+---------------------
+
+Both branches independently found the same bug and wrote near-identical fixes.
+
+node-server sent AUTH + CONFIG to the transcription service exactly once, right
+after `upstream.start()`. The upstream WebSocket client reconnects on its own,
+so after any blip it reopened the socket and forwarded audio with no
+credentials. The transcription service closes 1008 "Audio chunk before
+authentication" on unauthenticated binary. Reconnect, stream, get closed,
+repeat - forever. The kiosk stayed connected and kept sending; node-server kept
+accepting; nothing reached a provider again for the life of the session.
+
+Both fixed it the same way: move AUTH + CONFIG into the client's `onHandshake`,
+which runs on every connection, writes directly to the socket, and completes
+before the outbound queue flushes. Both added per-call options to
+`createWebSocketClient` to make a per-session handshake possible, and both kept
+the current config in a mutable holder updated by the config long-poll.
+
+That convergence is the strongest evidence available that the fix is right.
+
+
+WHAT THE OTHER BRANCH DID BETTER (all merged in)
+------------------------------------------------
+
+1. Drop-and-count pre-auth binary, instead of closing 1008.
+   This branch identified it and deferred it to a follow-up note. That branch
+   built it: a `binaryBeforeAuthDropsTotal` counter, the status field, and an
+   integration test that sends binary before auth and asserts the socket
+   SURVIVES. The frame is worthless before auth anyway, so dropping is strictly
+   the better failure mode - and it makes the same mistake non-fatal for every
+   future client rather than relying on each one to get the ordering right.
+
+2. `audioFramesReceived` - a per-session ingress counter, wired end to end.
+   The most valuable single item on either branch. The admin fleet audio meter
+   is fed only by the transcription service's Redis index, so "no audio" could
+   not distinguish a silent source from a broken upstream - the exact ambiguity
+   that made the original report a guess. This branch wrote that down as a
+   lesson and implemented nothing. That branch closed it: orchestrator ingress
+   -> status schema -> Redis -> admin card, which now reads "no audio from
+   source" at 0 and "audio received, not reaching ASR" above it.
+
+3. Kiosk mic state on the dashboard (`sourceState` message ->
+   `sourceMicrophoneActive`).
+   A muted kiosk reports `sourceDeviceConnected: true` and sends nothing, which
+   looks exactly like the server-side faults being chased. This cost time
+   inside this very investigation, when a kiosk toggled an even number of times
+   read as a broken pipeline. Neither branch would have found it from the code;
+   that branch noticed it from using the product.
+
+4. Named `WebSocketClientFactoryOptions<S>` instead of the same inline
+   `Omit<...>` repeated in three positions that must stay identical.
+
+5. Self-provisioning in the e2e harness. Their smoke test registers its own
+   device, room and session instead of asking the operator to create them.
+   Adopted as `--provision` on this branch's existing harness rather than
+   checking in a second overlapping tool at a second path.
+
+   Not adopted from it: asserting transcripts by scanning the kiosk page for
+   expected phrases. Counting frames out and transcripts in over CDP survives a
+   copy change and gives the before/after split the restart assertion needs.
+
+
+DEFECTS FOUND IN THE ADOPTED WORK (fixed here)
+----------------------------------------------
+
+1. The branch did not compile. `binaryBeforeAuthDropsTotal` was added as a
+   REQUIRED summary field, breaking `tsc --build` for admin-server and
+   therefore `build-containers.sh` outright.
+
+   Worse than a build break: that record is republished to Redis and read back
+   through a strict `Value.Check`. A required field that an older publisher
+   omits does not degrade to a missing counter - the whole snapshot fails and
+   the node DISAPPEARS FROM THE FLEET VIEW for the length of a rolling deploy.
+   The dashboard you would be watching during the deploy. Now optional, which
+   is what the same commit already did for `audioFramesReceived`.
+
+2. A stale admin-webapp test asserting the UI copy that the same commit
+   changed. Fixed, plus a second case added for the other branch of the split.
+
+3. On the final source unregister it published `sourceMicrophoneActive: false`,
+   which puts "mic off" on a session that no longer has any source, and
+   contradicts `getStatus()` answering `null` for a session it holds no state
+   for. `null` is the honest answer for "no source, so unknown".
+
+4. `audioFramesReceived` was documented as counting "well-formed SAFP frames"
+   in four places, but increments before decode. The commit message described
+   the intent correctly; the docs contradicted it. A malformed frame still
+   proves the source is sending, which is the counter's entire purpose.
+
+
+WHAT THIS BRANCH HAD THAT THE OTHER DID NOT
+-------------------------------------------
+
+1. The auto-session 500. `create-on-demand-session` failed with
+   "conflicting key value violates exclusion constraint sessions_no_overlap" in
+   EVERY room with auto-sessions enabled - so AUTO and ON_DEMAND could not
+   coexist at all. An open-ended session is `[start, infinity)` in the
+   database, but the reconciler modelled it as blocking only to the 7-day
+   materialization horizon; window occurrences run past that horizon, the gap
+   got filled with an AUTO slot, and the deferred constraint rejected the
+   transaction at COMMIT. Found by driving the product through a real handover,
+   not by reading the code.
+
+2. Kiosk reconnect duplication. The other branch still has it. `on('open')`
+   fires again on every reconnect, and `_beginAudioCapture` overwrote
+   `_audioStream` without closing the previous one. This is not merely a leak:
+   the same `WebSocketClient` instance is reused across reconnects, so the old
+   stream's `this._socket !== socket` guard stays false and BOTH streams keep
+   sending - duplicated, interleaved audio into the ASR. Their own upstream fix
+   makes reconnects survivable, which makes this more likely to bite. Also a
+   stacked time-sync interval per reconnect.
+
+3. Handshake-based kiosk auth. Their kiosk still sends `auth` from `open` and
+   gates capture on the AUTH_OK message. Both are correct, but authenticating
+   in `onHandshake` means `sendBinary` cannot physically reach the socket
+   before OPEN - ordering becomes structural rather than a property of one call
+   site. Verified live: `binaryBeforeAuthDropsTotal` stays 0.
+
+4. Session-type coverage. Every session type driven end to end with real audio:
+   on-demand, calendared (ONCE and WEEKLY), auto, and both handover directions
+   (auto -> on-demand, on-demand -> auto), each verified in the database rather
+   than by "transcripts kept arriving".
+
+5. A negative-verified regression test. The harness was proven to FAIL on the
+   pre-fix code (135 transcripts before an upstream restart, 0 after) and pass
+   after (135 / 99), so it is known to catch the bug rather than assumed to.
+
+
+ONE ADVANTAGE OF THEIR KIOSK APPROACH, TAKEN SEPARATELY
+-------------------------------------------------------
+
+The node server answers `timeSyncPing` without authentication, so there is no
+reason to wait for auth before the first clock probe. Because this branch
+authenticates in the handshake, `open` - and with it `_startTimeSync` - does not
+fire until AUTH_OK, which on a cold session is however long `registerSource`
+takes to fetch the config. The probe now fires from inside the handshake, so
+the first audio chunks carry `sentAt` and report end-to-end latency.
+
+
+THE HONEST SUMMARY
+------------------
+
+Neither branch was better. They failed in opposite directions, and the failure
+modes were characteristic:
+
+  - The other branch reasoned from the code and built the observability this
+    debug had only written down. It shipped a monorepo that did not compile,
+    because it ran one workspace's tests.
+
+  - This branch drove the product and found two bugs invisible from the code,
+    but left the diagnostic gaps it had correctly identified as follow-up notes
+    rather than fixing them.
+
+Reading the peer diff was worth more than either branch's own review. The merged
+result is better than either input.
+
+
+LESSONS WORTH KEEPING
+---------------------
+
+- Any credential sent once per socket is a bug if the client can reconnect.
+  Auth is a property of the connection, not the session, so it belongs in the
+  handshake. Worth grepping for other one-shot `send()` calls after a `start()`.
+
+- In a monorepo with shared schema packages, the schema change IS the blast
+  radius. Run the root build and test suite, not the workspace you are editing.
+
+- A required field in a Redis-published schema is a rolling-deploy outage, not
+  a missing field. Default to `Type.Optional` unless both sides ship atomically.
+
+- For a feature with a "currently active" notion, at least one test fixture must
+  be active NOW. The auto-session 500 survived 341 passing integration tests
+  because every fixture used a far-future window in a room with auto-sessions
+  off. Those tests covered the code paths and never covered the state the
+  product is actually in.
+
+- Log the `detail` field of Postgres errors. For exclusion and unique
+  violations it contains the entire diagnosis; the message alone contains none
+  of it.

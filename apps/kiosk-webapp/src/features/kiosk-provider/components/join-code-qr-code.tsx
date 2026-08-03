@@ -2,8 +2,11 @@ import Box from '@mui/material/Box';
 
 import { QRCodeSVG } from 'qrcode.react';
 
+// Trailing slash is required: the reverse proxy serves the client webapp at
+// `/client/`, and a request to `/client` (no slash) 404s. A scanned QR encodes
+// this verbatim, so the slash is what makes the scanned link resolve.
 const CLIENT_WEBAPP_URL =
-  import.meta.env.VITE_CLIENT_WEBAPP_URL ?? `${window.location.origin}/client`;
+  import.meta.env.VITE_CLIENT_WEBAPP_URL ?? `${window.location.origin}/client/`;
 
 /**
  * Builds a client webapp URL with the join code embedded as a URL config
@@ -26,7 +29,15 @@ export const JoinCodeQrCode = ({ joinCode }: JoinCodeQrCodeProps) => {
 
   return (
     <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-      <QRCodeSVG value={joinUrl} size={200} />
+      {/* size is the intrinsic/max px; the style lets it shrink to fit a narrow
+          panel (max 200px, square via the SVG viewBox) instead of overflowing.
+          `title` gives the QR a text alternative for assistive technology. */}
+      <QRCodeSVG
+        value={joinUrl}
+        size={200}
+        title={`QR code to join session, code ${joinCode}`}
+        style={{ width: '100%', height: 'auto', maxWidth: 200 }}
+      />
     </Box>
   );
 };

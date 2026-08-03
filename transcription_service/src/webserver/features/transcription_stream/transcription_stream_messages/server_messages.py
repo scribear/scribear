@@ -36,4 +36,8 @@ class TranscriptMessage(JsonServerMessage):
 
     final: TranscriptSequence | None = None
     in_progress: TranscriptSequence | None = None
+    # Ids of the source audio chunks that contributed to each transcript,
+    # echoed back so the node server can measure end-to-end latency.
+    final_chunk_ids: list[str] | None = None
+    in_progress_chunk_ids: list[str] | None = None
     type: Literal[ServerMessageTypes.TRANSCRIPT] = ServerMessageTypes.TRANSCRIPT

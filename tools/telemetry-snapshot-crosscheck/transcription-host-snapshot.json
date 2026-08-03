@@ -1,0 +1,127 @@
+{
+  "processUid": "11111111-2222-3333-4444-555555555555",
+  "processStartedAt": "2026-07-20T12:00:00+00:00",
+  "numWorkers": 2,
+  "invalidProviderKeyRejects": 4,
+  "workers": [
+    {
+      "workerId": 0,
+      "utilization": 0.98,
+      "liveJobCount": 2,
+      "totalJobsRegistered": 7,
+      "contextIds": [
+        1,
+        8
+      ],
+      "alive": true,
+      "activeJobs": [
+        {
+          "jobId": 5,
+          "sessionUid": "session-1",
+          "roomUid": "room-1"
+        },
+        {
+          "jobId": 6,
+          "sessionUid": null,
+          "roomUid": null
+        }
+      ],
+      "estimatedCapacitySessions": 4
+    },
+    {
+      "workerId": 1,
+      "utilization": 0.0,
+      "liveJobCount": 0,
+      "totalJobsRegistered": 0,
+      "contextIds": [],
+      "alive": false,
+      "activeJobs": [],
+      "estimatedCapacitySessions": 4
+    }
+  ],
+  "providers": {
+    "whisper": {
+      "providerUid": "whisper-streaming",
+      "kind": "local",
+      "status": "degraded",
+      "activeSessions": 2,
+      "sessionsRefusedCapacityTotal": 3,
+      "model": "small",
+      "modelLoaded": true,
+      "owningWorkers": [
+        {
+          "workerId": 0,
+          "utilization": 0.98,
+          "liveJobCount": 2,
+          "totalJobsRegistered": 7,
+          "contextIds": [
+            1,
+            8
+          ],
+          "alive": true,
+          "activeJobs": [
+            {
+              "jobId": 5,
+              "sessionUid": "session-1",
+              "roomUid": "room-1"
+            },
+            {
+              "jobId": 6,
+              "sessionUid": null,
+              "roomUid": null
+            }
+          ],
+          "estimatedCapacitySessions": 4
+        }
+      ],
+      "endpoint": null,
+      "reachable": null,
+      "probeLatencyMs": null,
+      "detail": "all owning workers saturated"
+    },
+    "lumen_granite": {
+      "providerUid": "lumen-granite",
+      "kind": "remote",
+      "status": "ok",
+      "activeSessions": 1,
+      "sessionsRefusedCapacityTotal": 0,
+      "model": "granite-speech-4.1-2b-plus",
+      "modelLoaded": null,
+      "owningWorkers": [],
+      "endpoint": "https://lumen.ncsa.illinois.edu/v1",
+      "reachable": true,
+      "probeLatencyMs": 41.5,
+      "detail": null
+    },
+    "debug": {
+      "providerUid": "debug",
+      "kind": "debug",
+      "status": "ok",
+      "activeSessions": 0,
+      "sessionsRefusedCapacityTotal": 0,
+      "model": null,
+      "modelLoaded": null,
+      "owningWorkers": [],
+      "endpoint": null,
+      "reachable": null,
+      "probeLatencyMs": null,
+      "detail": null
+    },
+    "broken": {
+      "providerUid": "whisper-streaming",
+      "kind": "unknown",
+      "status": "down",
+      "activeSessions": 0,
+      "sessionsRefusedCapacityTotal": 0,
+      "model": null,
+      "modelLoaded": null,
+      "owningWorkers": [],
+      "endpoint": null,
+      "reachable": null,
+      "probeLatencyMs": null,
+      "detail": "health check failed: RuntimeError: model gone"
+    }
+  },
+  "transcriptionHost": "crosscheck-host",
+  "updatedAt": 1785000000000
+}

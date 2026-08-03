@@ -1,13 +1,34 @@
 name: "Resolve Container Tags"
-description: "Resolves event-specific Docker tags for PR, staging, and main builds."
+description: "Resolves event-specific Docker tags for PR, staging, and main builds, and the build provenance args every image is stamped with."
 inputs:
   version_file:
     description: "Path to package.json or pyproject.toml used for main release tags."
     required: true
+  publish_pr_images:
+    description: >
+      Override for whether a pull_request build publishes a staging-pr<n>/
+      production-pr<n> preview image. Leave empty (the default) to use the
+      base-branch rule: PRs into main or staging publish, anything else does
+      not. "false" switches PR images off entirely; "true" publishes them
+      whatever the base branch is (tagged <base-branch>-pr<n>). Wired to the
+      repository variable PUBLISH_PR_IMAGES (Settings > Secrets and variables >
+      Actions > Variables), so either override is a one-field change with no
+      code edit - which is what you want when the registry needs draining in a
+      hurry.
+    required: false
+    default: ""
 outputs:
   tags:
-    description: "Newline-delimited Docker tags."
+    description: "Newline-delimited Docker tags. Empty means build without publishing."
     value: ${{ steps.resolve.outputs.tags }}
+  build_args:
+    description: >
+      Newline-delimited BUILD_* --build-arg values stamped into every image and
+      reported by its /build-info surface, which the admin console's Deployment
+      Check aggregates. Emitted here rather than by an action of its own because
+      the tag list and the version file are inputs to it, and re-deriving either
+      somewhere else is how the two would drift.
+    value: ${{ steps.resolve.outputs.build_args }}
 runs:
   using: "composite"
   steps:
@@ -19,17 +40,27 @@ runs:
         GITHUB_REF: ${{ github.ref }}
         GITHUB_SHA: ${{ github.sha }}
         PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+        PUBLISH_PR_IMAGES: ${{ inputs.publish_pr_images }}
         VERSION_FILE: ${{ inputs.version_file }}
+        # The branch a PR would merge into. Empty on every other event.
+        PR_BASE_REF: ${{ github.base_ref }}
+        # On a pull_request event GITHUB_REF_NAME is "<n>/merge", which names
+        # the synthetic merge ref rather than anything a human would recognize.
+        # github.head_ref is the source branch and is set only for that event,
+        # so this picks the branch on PRs and the pushed branch everywhere else.
+        BUILD_REF: ${{ github.head_ref || github.ref_name }}
       run: |
         python3 <<'PY'
         import json
         import os
+        from datetime import datetime, timezone
         from pathlib import Path
         import tomllib
 
         event_name = os.environ["EVENT_NAME"]
         github_ref = os.environ["GITHUB_REF"]
-        short_sha = os.environ["GITHUB_SHA"][:7]
+        commit = os.environ["GITHUB_SHA"]
+        short_sha = commit[:7]
         pr_number = os.environ.get("PR_NUMBER", "")
         version_file = Path(os.environ["VERSION_FILE"])
         tags: list[str] = []
@@ -49,17 +80,69 @@ runs:
 
             return str(version)
 
+        # Base branches whose PRs get a published image. Both, not just main:
+        # main only ever receives release merges from staging, so a main-only
+        # rule would publish an image for almost no PR - and a PR image is
+        # wanted precisely while a change is still being reviewed.
+        PR_IMAGE_BASE_BRANCHES = {"main", "staging"}
+
+        def publishes_pr_image() -> bool:
+            """Whether this PR build should push a preview image."""
+            override = os.environ.get("PUBLISH_PR_IMAGES", "").strip().lower()
+            if override in ("true", "false"):
+                return override == "true"
+            return os.environ.get("PR_BASE_REF", "") in PR_IMAGE_BASE_BRANCHES
+
+        # Named for the environment a merge would land in, not just the PR
+        # number: `docker pull ...:PR-157` alone doesn't say whether that's
+        # a staging or a production candidate, and telling them apart
+        # otherwise means cross-referencing the PR on GitHub. `staging`/`main`
+        # map to the two real environments; anything else only reaches here
+        # at all when PUBLISH_PR_IMAGES=true overrides the base-branch rule
+        # above, so it falls back to the branch's own name rather than
+        # inventing an environment label for it.
+        def pr_image_tag(pr_number: str) -> str:
+            base = os.environ.get("PR_BASE_REF", "")
+            environment = {"staging": "staging", "main": "production"}.get(base, base)
+            return f"{environment}-pr{pr_number}" if environment else f"PR-{pr_number}"
+
         if event_name == "pull_request":
-            if pr_number:
-                tags.append(f"PR-{pr_number}")
+            # No tags means "build but do not publish" - see build-container.
+            # A fork PR resolves a tag here and still does not push: its
+            # GITHUB_TOKEN is read-only, which build-container detects.
+            if pr_number and publishes_pr_image():
+                tags.append(pr_image_tag(pr_number))
         elif event_name == "push" and github_ref == "refs/heads/staging":
             tags.extend(["staging", f"staging-{short_sha}"])
         elif event_name == "push" and github_ref == "refs/heads/main":
             version = read_version(version_file)
             tags.extend(["latest", f"v{version}"])
 
+        # Read on every event, unlike the release tag above: the version is
+        # stamped into the image whether or not this build publishes anything,
+        # so a PR image an operator is handed can still name itself.
+        build_version = read_version(version_file)
+
+        # A --build-arg cannot be an array, so the tag list crosses as one
+        # comma-joined string and each reader splits it back out. Empty on a PR
+        # build, which publishes nothing.
+        build_args = {
+            "BUILD_COMMIT": commit,
+            "BUILD_REF": os.environ.get("BUILD_REF", ""),
+            "BUILD_TIME": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "BUILD_VERSION": build_version,
+            "BUILD_TAGS": ",".join(tags),
+            "BUILD_PR": pr_number,
+            "BUILD_ORIGIN": "ci",
+        }
+
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output_file:
             output_file.write("tags<<EOF\n")
             output_file.write("\n".join(tags))
+            output_file.write("\nEOF\n")
+            output_file.write("build_args<<EOF\n")
+            output_file.write(
+                "\n".join(f"{name}={value}" for name, value in build_args.items())
+            )
             output_file.write("\nEOF\n")
         PY

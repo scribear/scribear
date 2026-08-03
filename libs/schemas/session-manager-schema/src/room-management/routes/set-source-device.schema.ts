@@ -16,11 +16,11 @@ import { ROOM_MANAGEMENT_TAG } from '#src/tags.js';
 
 const SET_SOURCE_DEVICE_SCHEMA = {
   description:
-    'Mark `deviceUid` as the source for its room, clearing `is_source` on any other member device of the same room. Runs inside one transaction so the source swap satisfies the "exactly one source per room" invariant at commit.',
+    'Mark `deviceUid` as the source for its room, clearing `is_source` on any other member device of the same room. Runs inside one transaction so the source swap satisfies the "exactly one source per room" invariant at commit. Refused with 409 when either side is part of the synthetic demo caption room, which has no audio path.',
   tags: [ROOM_MANAGEMENT_TAG],
   security: ADMIN_API_KEY_SECURITY,
   headers: Type.Object({
-    authorization: ADMIN_API_KEY_AUTH_HEADER_SCHEMA,
+    authorization: Type.Optional(ADMIN_API_KEY_AUTH_HEADER_SCHEMA),
   }),
   body: Type.Object({
     roomUid: Type.String({ format: 'uuid' }),
@@ -37,6 +37,32 @@ const SET_SOURCE_DEVICE_SCHEMA = {
       }),
       Type.Object({
         code: Type.Literal('DEVICE_NOT_IN_ROOM'),
+        message: Type.String(),
+      }),
+    ]),
+    409: Type.Union([
+      Type.Object({
+        code: Type.Literal('DEMO_ROOM_NOT_ASSIGNABLE'),
+        message: Type.String(),
+      }),
+      Type.Object({
+        code: Type.Literal('DEMO_SOURCE_DEVICE_NOT_ASSIGNABLE'),
+        message: Type.String(),
+      }),
+      Type.Object({
+        code: Type.Literal('TEST_AUDIO_ROOM_NOT_ASSIGNABLE'),
+        message: Type.String(),
+      }),
+      Type.Object({
+        code: Type.Literal('TEST_AUDIO_DEVICE_NOT_ASSIGNABLE'),
+        message: Type.String(),
+      }),
+      Type.Object({
+        code: Type.Literal('CANARY_ROOM_NOT_ASSIGNABLE'),
+        message: Type.String(),
+      }),
+      Type.Object({
+        code: Type.Literal('CANARY_DEVICE_NOT_ASSIGNABLE'),
         message: Type.String(),
       }),
     ]),

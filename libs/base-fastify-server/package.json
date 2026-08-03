@@ -1,6 +1,6 @@
 {
   "name": "@scribear/base-fastify-server",
-  "version": "0.0.0",
+  "version": "0.2.0",
   "description": "",
   "author": "scribear",
   "main": "dist/src/index.js",
@@ -12,8 +12,14 @@
   },
   "type": "module",
   "imports": {
-    "#src/*": "./dist/src/*",
-    "#tests/*": "./dist/tests/*"
+    "#src/*": {
+      "development": "./src/*",
+      "default": "./dist/src/*"
+    },
+    "#tests/*": {
+      "development": "./tests/*",
+      "default": "./dist/tests/*"
+    }
   },
   "scripts": {
     "build": "tsc --build",
@@ -32,7 +38,7 @@
     "@fastify/sensible": "6.0.4",
     "@fastify/type-provider-typebox": "6.1.0",
     "awilix": "13.0.0",
-    "fastify": "5.7.4",
+    "fastify": "5.10.0",
     "fastify-plugin": "5.1.0",
     "pino": "10.3.1",
     "typebox": "1.1.5"

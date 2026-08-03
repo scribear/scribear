@@ -69,12 +69,19 @@ export const VerticalPositionControl = ({
   return (
     <>
       <Typography>Vertical Position</Typography>
-      <Stack direction="row" alignItems="center" spacing={2}>
+      <Stack
+        direction="row"
+        spacing={2}
+        sx={{
+          alignItems: 'center',
+        }}
+      >
         <Typography sx={{ minWidth: 75, textAlign: 'left' }}>
           {minVerticalPositionPx} px
         </Typography>
         <Slider
           aria-label="Vertical position control"
+          getAriaValueText={(v) => `${v.toString()} pixels from top`}
           valueLabelDisplay="auto"
           min={minVerticalPositionPx}
           max={maxVerticalPositionPx}
@@ -88,8 +95,9 @@ export const VerticalPositionControl = ({
         </Typography>
       </Stack>
       <Typography
-        color="warning"
         sx={{
+          // warning.dark (not warning.main) to clear 4.5:1 on the light surface. SC 1.4.3
+          color: 'warning.dark',
           display: isDisabled ? 'block' : 'none',
           textAlign: 'center',
         }}

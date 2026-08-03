@@ -1,5 +1,9 @@
 """
-Unit tests for TranscriptionStreamController
+Unit tests for TranscriptionStreamController's protocol handling
+
+Audio telemetry publishing lives in
+`transcription_stream_controller_audio_test.py`; the fixtures both use are in
+`conftest.py`.
 """
 
 # pylint: disable=protected-access
@@ -7,19 +11,14 @@ Unit tests for TranscriptionStreamController
 # Need to call WebsocketHandler protected methods to simulate websocket messages
 
 import asyncio
-import json
-from os import path
 from unittest.mock import MagicMock
 
 import pytest
-import pytest_asyncio
 from pydantic import BaseModel, ValidationError
-from pytest_mock import MockerFixture
-from starlette.websockets import WebSocket, WebSocketState
 
-from src.shared.config import Config
-from src.shared.logger import Logger
 from src.transcription_provider_interface import (
+    AT_CAPACITY_REASON,
+    TranscriptionCapacityError,
     TranscriptionClientError,
     TranscriptionResult,
     TranscriptionSequence,
@@ -32,146 +31,23 @@ from src.webserver.features.transcription_stream.transcription_stream_messages i
     TranscriptMessage,
     TranscriptSequence,
 )
-from src.webserver.shared.auth_service import AuthService
-from src.webserver.shared.transcription_provider_registry import (
-    TranscriptionProviderRegistry,
+from src.webserver.shared.metrics import MetricsRegistry
+
+from .conftest import (
+    API_KEY,
+    AUDIO_CHUNK,
+    AUDIO_CHUNK_ID,
+    AUDIO_FRAME,
+    INIT_TIMEOUT_SEC,
+    PROVIDER_UID,
+    ROOM_UID,
+    SESSION_CONFIG,
+    SESSION_UID,
+    VALID_AUTH_MESSAGE,
+    VALID_CONFIG_MESSAGE,
+    VALID_CONFIG_MESSAGE_WITH_UIDS,
+    MockTranscriptionSession,
 )
-
-AUDIO_DIR = path.normpath(
-    path.join(
-        __file__,
-        "..",
-        "..",
-        "..",
-        "..",
-        "..",
-        "..",
-        "..",
-        "test_audio_files/chords",
-    )
-)
-with open(path.join(AUDIO_DIR, "mono_f64le.pcm"), "rb") as f:
-    AUDIO_CHUNK = f.read()
-
-INIT_TIMEOUT_SEC = 0.1
-
-PROVIDER_UID = "TEST_PROVIDER_UID"
-API_KEY = "secret-test-key-12345"
-SESSION_CONFIG = "SESSION_CONFIG"
-
-VALID_AUTH_MESSAGE = json.dumps({"type": "auth", "api_key": API_KEY})
-VALID_CONFIG_MESSAGE = json.dumps({"type": "config", "config": SESSION_CONFIG})
-
-
-class MockTranscriptionSession(TranscriptionSessionInterface):
-    """
-    Dummy transcription session interface implementation for testing
-    """
-
-    def handle_audio_chunk(self, chunk: bytes):
-        return
-
-
-@pytest.fixture
-def mock_config():
-    """
-    Pytest fixture to create a mock config object for tests.
-    """
-    mock = MagicMock(spec=Config)
-    mock.ws_init_timeout_sec = INIT_TIMEOUT_SEC
-    return mock
-
-
-@pytest.fixture
-def mock_child_logger():
-    """
-    Create a child logger instance for mock logger to return.
-    """
-    return MagicMock(spec=Logger)
-
-
-@pytest.fixture
-def mock_logger(mock_child_logger: MagicMock):
-    """
-    Create a mocked logger instance for tests
-    """
-    mock_logger = MagicMock(spec=Logger)
-    mock_logger.child.return_value = mock_child_logger
-    return mock_logger
-
-
-@pytest.fixture
-def mock_auth_service():
-    """
-    Create a mocked auth service instance for tests
-    """
-    return MagicMock(spec=AuthService)
-
-
-@pytest.fixture
-def mock_provider_registry():
-    """
-    Create a mocked transcription provider registry instance for tests
-    """
-    return MagicMock(spec=TranscriptionProviderRegistry)
-
-
-@pytest.fixture
-def mock_websocket():
-    """
-    Create a mocked websocket instance for tests
-    """
-    ws = MagicMock(spec=WebSocket)
-    ws.application_state = WebSocketState.CONNECTED
-    ws.client_state = WebSocketState.CONNECTED
-    return ws
-
-
-@pytest.fixture
-def mock_send_method(mocker: MockerFixture):
-    """
-    Mock function to override WebsocketHandler send method
-    """
-    return mocker.Mock()
-
-
-@pytest.fixture
-def mock_close_method(mocker: MockerFixture):
-    """
-    Mock function to override WebsocketHandler close method
-    """
-    return mocker.Mock()
-
-
-@pytest_asyncio.fixture
-async def controller(
-    mock_config: MagicMock,
-    mock_logger: MagicMock,
-    mock_auth_service: MagicMock,
-    mock_provider_registry: MagicMock,
-    mock_websocket: MagicMock,
-    mock_send_method: MagicMock,
-    mock_close_method: MagicMock,
-):
-    """
-    Create fresh TranscriptionStreamController with mocked dependencies for each test
-    """
-    controller = TranscriptionStreamController(
-        mock_config,
-        mock_logger,
-        mock_auth_service,
-        mock_provider_registry,
-        PROVIDER_UID,
-        mock_websocket,
-    )
-
-    controller.send = mock_send_method
-    controller.close = mock_close_method
-
-    yield controller
-
-    # Give controller a chance to clean up
-    controller._handle_close(1000, "Test End")
 
 
 @pytest.mark.parametrize(
@@ -265,9 +141,33 @@ async def test_controller_handles_valid_config_message_after_authentication(
     # Act
     await controller._handle_text_message(VALID_CONFIG_MESSAGE)
 
+    # Assert - an older node server that sends no session_uid/room_uid still
+    # opens a session; the registry sees them as None.
+    mock_provider_registry.create_session.assert_called_once_with(
+        PROVIDER_UID, SESSION_CONFIG, None, None, mock_child_logger
+    )
+
+
+@pytest.mark.asyncio
+async def test_controller_forwards_session_and_room_uid_from_config_message(
+    controller: TranscriptionStreamController,
+    mock_auth_service: MagicMock,
+    mock_child_logger: MagicMock,
+    mock_provider_registry: MagicMock,
+):
+    """
+    Test that session_uid/room_uid on the config message reach the registry
+    """
+    # Arrange
+    mock_auth_service.is_authenticated.return_value = True
+    await controller._handle_text_message(VALID_AUTH_MESSAGE)
+
+    # Act
+    await controller._handle_text_message(VALID_CONFIG_MESSAGE_WITH_UIDS)
+
     # Assert
     mock_provider_registry.create_session.assert_called_once_with(
-        PROVIDER_UID, SESSION_CONFIG, mock_child_logger
+        PROVIDER_UID, SESSION_CONFIG, SESSION_UID, ROOM_UID, mock_child_logger
     )
 
 
@@ -385,40 +285,53 @@ async def test_controller_handles_valid_audio_chunk(
     await controller._handle_text_message(VALID_CONFIG_MESSAGE)
 
     # Act
-    await controller._handle_binary_message(AUDIO_CHUNK)
+    await controller._handle_binary_message(AUDIO_FRAME)
 
     # Assert
-    mock_session.handle_audio_chunk.assert_called_once_with(AUDIO_CHUNK)
+    mock_session.handle_audio_chunk.assert_called_once_with(
+        AUDIO_CHUNK_ID, AUDIO_CHUNK
+    )
 
 
 @pytest.mark.asyncio
-async def test_controller_rejects_valid_audio_chunk_message_before_authentication(
+async def test_controller_drops_audio_chunk_message_before_authentication(
     controller: TranscriptionStreamController,
     mock_provider_registry: MagicMock,
     mock_close_method: MagicMock,
 ):
     """
-    Test that controller rejects valid audio chunk sent before auth message
+    Test that a binary frame sent before auth is dropped and counted rather
+    than closing the socket
+
+    Closing here would let a source's auto-reconnect loop forever: it
+    re-sends AUTH, its first chunk again beats AUTH_OK, and no audio is ever
+    delivered. Dropping keeps the socket alive to finish auth instead.
     """
     # Arrange / Act
     await controller._handle_binary_message(AUDIO_CHUNK)
 
     # Assert
     mock_provider_registry.create_session.assert_not_called()
-    mock_close_method.assert_called_once_with(
-        1008, "Audio chunk before authentication"
+    mock_close_method.assert_not_called()
+    assert (
+        controller._metrics_registry.binary_dropped_before_auth_total.get(
+            {"provider_key": PROVIDER_UID}
+        )
+        == 1
     )
 
 
 @pytest.mark.asyncio
-async def test_controller_rejects_valid_audio_chunk_message_before_configuration(
+async def test_controller_drops_audio_chunk_message_before_configuration(
     controller: TranscriptionStreamController,
     mock_auth_service: MagicMock,
     mock_provider_registry: MagicMock,
     mock_close_method: MagicMock,
 ):
     """
-    Test that controller rejects valid audio chunk sent before config message
+    Test that a binary frame sent before config is dropped and counted rather
+    than closing the socket, for the same reconnect-loop reason as the
+    before-authentication case above
     """
     # Arrange
     mock_auth_service.is_authenticated.return_value = True
@@ -429,8 +342,12 @@ async def test_controller_rejects_valid_audio_chunk_message_before_configuration
 
     # Assert
     mock_provider_registry.create_session.assert_not_called()
-    mock_close_method.assert_called_once_with(
-        1008, "Audio chunk before configuration"
+    mock_close_method.assert_not_called()
+    assert (
+        controller._metrics_registry.binary_dropped_before_config_total.get(
+            {"provider_key": PROVIDER_UID}
+        )
+        == 1
     )
 
 
@@ -573,7 +490,7 @@ async def test_controller_handles_no_transcription_results(
     await controller._handle_text_message(VALID_CONFIG_MESSAGE)
 
     # Act
-    await controller._handle_binary_message(AUDIO_CHUNK)
+    await controller._handle_binary_message(AUDIO_FRAME)
 
     # Assert
     mock_send_method.assert_not_called()
@@ -598,6 +515,7 @@ async def test_controller_ends_session_on_close(
         mock_logger,
         mock_auth_service,
         mock_provider_registry,
+        MetricsRegistry(),
         PROVIDER_UID,
         mock_websocket,
     )
@@ -665,6 +583,97 @@ async def test_controller_handles_transcription_client_errors(
     # Assert
     mock_close_method.assert_called_once_with(1007, error_msg)
     assert return_value is True
+
+
+@pytest.mark.asyncio
+async def test_controller_closes_1013_for_a_capacity_refusal(
+    controller: TranscriptionStreamController, mock_close_method: MagicMock
+):
+    """
+    Test a capacity refusal closes 1013 "Try Again Later", never 1007
+
+    1007 is "invalid frame payload data" - it tells the client it sent
+    something malformed. PR #171 removed exactly that misattribution for buffer
+    overflow, and routing a busy refusal through it would reintroduce the same
+    mistake wearing a new hat: the client did nothing wrong, the service has no
+    room right now, and those two need different client behaviour (give up
+    versus retry later).
+
+    The reason string is a wire contract, not a log line - the node server keys
+    "refused" apart from "crashed" off it
+    (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §4).
+    """
+    # Act
+    return_value = controller._handle_error(
+        TranscriptionCapacityError(AT_CAPACITY_REASON)
+    )
+
+    # Assert
+    mock_close_method.assert_called_once_with(1013, AT_CAPACITY_REASON)
+    assert return_value is True
+
+
+@pytest.mark.asyncio
+async def test_capacity_refusal_from_an_audio_chunk_reaches_the_error_handler(
+    controller: TranscriptionStreamController,
+    mock_auth_service: MagicMock,
+    mock_provider_registry: MagicMock,
+    mock_close_method: MagicMock,
+):
+    """
+    Test a refusal raised from an AUDIO frame closes the socket with 1013
+
+    The end-to-end path through the controller, not just the mapping in
+    isolation: the session refuses inside `handle_audio_chunk`, the error
+    travels out of `_handle_binary_message` through `WebsocketHandler`'s
+    receive loop, and the socket closes 1013 rather than falling through to
+    the generic 1011 "Internal Server Error", which would tell an operator the
+    service crashed.
+
+    This used to stub `create_session` raising instead. That path no longer
+    exists: a session's worker-pool job registers on its own first audio
+    chunk, so `create_session` has nothing to decide and its docstring now
+    says it NEVER RAISES TranscriptionCapacityError - a test asserting the
+    controller handles a refusal from there was pinning an impossibility.
+
+    The refusal is raised by the session directly rather than driven through
+    real admission, which is off in the shipped wiring (`create_webserver`
+    passes no estimator to the registry - shadow mode). What the controller
+    owes either way is the same: whatever surfaces a
+    `TranscriptionCapacityError` out of a binary frame closes 1013. Note the
+    service is still attached afterwards, unlike the old CONFIG-step case -
+    config succeeded, so `close()` has real teardown to do when the socket
+    goes.
+    """
+
+    # Arrange
+    class _RefusingSession(TranscriptionSessionInterface):
+        """A session whose first chunk discovers its worker has no room."""
+
+        def handle_audio_chunk(self, chunk_id: str, chunk: bytes):
+            raise TranscriptionCapacityError(AT_CAPACITY_REASON)
+
+    mock_auth_service.is_authenticated.return_value = True
+    mock_provider_registry.create_session.return_value = _RefusingSession()
+    await controller._handle_text_message(VALID_AUTH_MESSAGE)
+    await controller._handle_text_message(VALID_CONFIG_MESSAGE)
+
+    # Act - the same path receive_messages() takes when a handler raises
+    try:
+        await controller._handle_binary_message(AUDIO_FRAME)
+        assert False
+    except TranscriptionCapacityError as error:
+        assert controller._handle_error(error) is True
+
+    # Assert
+    mock_close_method.assert_called_once_with(1013, AT_CAPACITY_REASON)
+    assert controller._service is not None
+
+    # And the chunks that arrive before the close lands are swallowed, not
+    # re-raised - the service latches the failure, so one refusal produces one
+    # close rather than one per frame still in flight.
+    await controller._handle_binary_message(AUDIO_FRAME)
+    mock_close_method.assert_called_once_with(1013, AT_CAPACITY_REASON)
 
 
 @pytest.mark.asyncio

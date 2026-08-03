@@ -63,6 +63,12 @@ class JobExecutionResult:
 
     job_id: int
     result: JobSuccess[Any] | JobException
+    # The label the job was registered with, stamped onto its _JobEntry at
+    # registration and copied here unchanged. Carried on the result itself
+    # rather than looked up by job_id on arrival, because a job can be
+    # deregistered (its registration bookkeeping torn down) while an execution
+    # it already started is still in flight - the label must survive that.
+    label: str = ""
     type: Literal[ResultType.JOB_EXECUTION] = ResultType.JOB_EXECUTION
 
 

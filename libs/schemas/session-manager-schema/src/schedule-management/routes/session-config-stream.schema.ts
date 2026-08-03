@@ -22,7 +22,7 @@ const SESSION_CONFIG_STREAM_SCHEMA = {
   tags: [SCHEDULE_MANAGEMENT_TAG],
   security: SERVICE_API_KEY_SECURITY,
   headers: Type.Object({
-    authorization: SERVICE_API_KEY_AUTH_HEADER_SCHEMA,
+    authorization: Type.Optional(SERVICE_API_KEY_AUTH_HEADER_SCHEMA),
   }),
   params: Type.Object({
     sessionUid: Type.String({ format: 'uuid' }),

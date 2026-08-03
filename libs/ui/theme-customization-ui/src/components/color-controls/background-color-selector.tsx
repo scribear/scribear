@@ -1,9 +1,4 @@
-import Stack from '@mui/material/Stack';
-import Typography from '@mui/material/Typography';
-
-import { MuiColorInput } from 'mui-color-input';
-
-import { useDebouncedValue } from '@scribear/core-ui';
+import { ColorPickerField } from './color-picker-field.js';
 
 /**
  * Props for {@link BackgroundColorSelector}.
@@ -22,22 +17,11 @@ export const BackgroundColorSelector = ({
   backgroundColor,
   setBackgroundColor,
 }: BackgroundColorSelectorProps) => {
-  const [value, handleChange] = useDebouncedValue(
-    backgroundColor,
-    setBackgroundColor,
-  );
-
   return (
-    <Stack direction="row" alignItems="center" justifyContent="space-between">
-      <Typography>Background Color</Typography>
-      <MuiColorInput
-        aria-label="Background Color Selector"
-        sx={{ width: '8em' }}
-        format="hex"
-        isAlphaHidden={true}
-        value={value}
-        onChange={handleChange}
-      />
-    </Stack>
+    <ColorPickerField
+      label="Background Color"
+      value={backgroundColor}
+      onChange={setBackgroundColor}
+    />
   );
 };

@@ -3,12 +3,13 @@ Defines Config class for loading and providing application configuration
 """
 
 import os
+import socket
 import sys
 from enum import StrEnum
 from typing import Any, cast
 
 import dotenv
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field, TypeAdapter, field_validator
 from pydantic.networks import IPvAnyAddress
 
 from src.shared.logger import LogLevel
@@ -27,7 +28,96 @@ class EnvSchema(BaseModel):
     API_KEY: str
     WS_INIT_TIMEOUT_SEC: float
 
+    # Defaulted, unlike every other key here: EnvSchema has no defaults except
+    # LOG_LEVEL, so a required addition would break every existing deployment
+    # and every test that builds a real Config. Empty means "metrics endpoint
+    # disabled", which keeps this change additive.
+    METRICS_API_KEY: str = ""
+
+    # Defaulted for the same reason. Empty means this host publishes no fleet
+    # telemetry, and so opens no Redis connection at all - rather than one that
+    # retries a connection nobody configured, forever.
+    REDIS_URL: str = ""
+
+    # Identity this host publishes its telemetry under. Empty resolves to the
+    # hostname, which under compose and Kubernetes is already the container or
+    # pod name, so several hosts get distinct identities with no configuration.
+    # `validate_default` so the hostname fallback and the ':' check below apply
+    # even when the variable is unset, which is the common case.
+    TRANSCRIPTION_HOST_ID: str = Field(default="", validate_default=True)
+
+    # Defaulted for the same reason, and to the same 0.01 both `AudioMeter` and
+    # whisper's `silence_threshold` already use, so the shipped classification
+    # of silence does not change. Settable because the webserver's own ingress
+    # meter has no provider config to read a threshold from, and the number is
+    # room-dependent - a hall with loud HVAC needs a higher floor before
+    # "silent" means anything.
+    AUDIO_SILENCE_THRESHOLD: float = 0.01
+
+    # Defaulted, reachable from `.env` on purpose
+    # (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §3). This subsystem
+    # has a documented regret about tuning knobs that exist only as compose-file
+    # edits, never as `.env` values - `ALERT_RTF_P95` and its two siblings, a
+    # number a CPU deployment must currently discover for itself and hand-set
+    # with no `.env` path to do so. These three are the manual override the plan
+    # calls out by name, and are not repeating that mistake. They are wired
+    # through `deployment/compose.yml` as `TRANSCRIPTION_TARGET_BUSY`,
+    # `TRANSCRIPTION_MIN_SESSIONS` and `TRANSCRIPTION_MAX_SESSIONS`, so a
+    # compose operator can actually reach them - which for a while they could
+    # not, the exact regret above one indirection along.
+    TARGET_BUSY: float = 0.85
+    MIN_SESSIONS: int = 1
+    MAX_SESSIONS: int | None = None
+
     PROVIDER_CONFIG_PATH: str
+
+    @field_validator("MAX_SESSIONS", mode="before")
+    @classmethod
+    def _blank_max_sessions_means_no_pin(cls, value: Any) -> Any:
+        """
+        Reads an empty MAX_SESSIONS as "no operator pin", same as unset
+
+        Compose has no way to omit an environment key, so the
+        transcription-service block passes
+        `MAX_SESSIONS: ${TRANSCRIPTION_MAX_SESSIONS:-}` and every stock
+        deployment hands this an empty string. Without this, that empty string
+        fails `int | None` parsing at boot and the container refuses to start -
+        which would turn an optional tuning knob into a required one for
+        everybody who copied the shipped compose file, the loudest possible
+        version of a change that is supposed to be inert by default.
+
+        Only the empty case is special-cased: a typo'd `MAX_SESSIONS=lots`
+        still fails loudly, because silently auto-tuning under a value an
+        operator believed was a hard pin is precisely the misconfiguration
+        nobody would find.
+        """
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
+
+    @field_validator("TRANSCRIPTION_HOST_ID")
+    @classmethod
+    def _resolve_transcription_host_id(cls, value: str) -> str:
+        """
+        Resolves the published host identity and rejects one that could forge
+        a key elsewhere in the telemetry namespace
+
+        Keys are built by interpolating this into `scribe:v1:ts:{host}`, so a
+        value containing `:` would let this host write over another part of the
+        namespace. It is checked once here, at boot, rather than on every
+        heartbeat: a misconfiguration should stop the process, not be
+        rediscovered five times a second.
+
+        The hostname fallback is applied here too, so the value that reaches
+        the check is the one that will actually be published.
+        """
+        host_id = value or socket.gethostname()
+        if ":" in host_id:
+            raise ValueError(
+                "TRANSCRIPTION_HOST_ID must not contain ':' - it is "
+                "interpolated into telemetry Redis keys"
+            )
+        return host_id
 
 
 class JobContextDefinitionUID(StrEnum):
@@ -57,6 +147,7 @@ class TranscriptionProviderUID(StrEnum):
 
     DEBUG = "debug"
     WHISPER_STREAMING = "whisper-streaming"
+    LUMEN_GRANITE = "lumen-granite"
 
 
 class TranscriptionProviderConfigSchema(BaseModel):
@@ -125,6 +216,84 @@ class Config:
         return self._api_key
 
     @property
+    def metrics_api_key(self) -> str:
+        """
+        Secret API key for reading the metrics endpoint
+
+        Separate from api_key on purpose - that one opens transcription
+        sessions, this one only reads counters. Empty disables the endpoint.
+        """
+        return self._metrics_api_key
+
+    @property
+    def redis_url(self) -> str:
+        """
+        Connection URL for the fleet telemetry backplane
+
+        Empty disables publishing entirely - no connection is opened. Telemetry
+        is the only thing that reads it; transcription never touches Redis.
+        """
+        return self._redis_url
+
+    @property
+    def transcription_host_id(self) -> str:
+        """
+        Identity this host publishes its telemetry under
+
+        Already resolved and validated: never empty, never contains ':'.
+        """
+        return self._transcription_host_id
+
+    @property
+    def audio_silence_threshold(self) -> float:
+        """
+        Linear RMS threshold below which the ingress audio meter reads silence
+
+        Only the webserver's own ingress meter reads it; a provider that meters
+        its own stage still uses whatever its provider config says, so the two
+        can be tuned independently for a deployment where they legitimately
+        differ.
+        """
+        return self._audio_silence_threshold
+
+    @property
+    def target_busy(self) -> float:
+        """
+        Headroom fraction the capacity estimator's ceiling aims at
+        (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §3)
+
+        Dimensionless, and deliberately the same number on every device: the
+        hardware-specific part (per-session cost) is measured by the
+        estimator, not configured, so nothing here needs to differ between a
+        CPU box and a GPU box.
+        """
+        return self._target_busy
+
+    @property
+    def min_sessions(self) -> int:
+        """
+        Floor under the capacity estimator's ceiling
+        (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §3)
+
+        Exists so a mis-measurement - a noisy or unlucky window - can never
+        take a worker's admitted capacity to zero.
+        """
+        return self._min_sessions
+
+    @property
+    def max_sessions(self) -> int | None:
+        """
+        Operator hard pin on a worker's session capacity
+        (archived-plans/2026-07-27-02-PLAN-AdmissionControl.md §3)
+
+        None leaves the estimator auto-tuning, which is the shipped default.
+        Set, it disables auto-tuning entirely and the estimate is exactly this
+        number - an operator statement about the deployment, not a measurement
+        the estimator could ever second-guess.
+        """
+        return self._max_sessions
+
+    @property
     def ws_init_timeout_sec(self) -> float:
         """
         Seconds to wait for websocket to send initialization messages before closing if not sent
@@ -153,6 +322,13 @@ class Config:
         self._port = env.PORT
         self._host = str(env.HOST)
         self._api_key = env.API_KEY
+        self._metrics_api_key = env.METRICS_API_KEY
+        self._redis_url = env.REDIS_URL
+        self._transcription_host_id = env.TRANSCRIPTION_HOST_ID
+        self._audio_silence_threshold = env.AUDIO_SILENCE_THRESHOLD
+        self._target_busy = env.TARGET_BUSY
+        self._min_sessions = env.MIN_SESSIONS
+        self._max_sessions = env.MAX_SESSIONS
         self._ws_init_timeout_sec = env.WS_INIT_TIMEOUT_SEC
 
         with open(env.PROVIDER_CONFIG_PATH, "r", encoding="utf-8") as file:

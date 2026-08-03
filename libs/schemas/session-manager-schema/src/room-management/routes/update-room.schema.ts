@@ -17,11 +17,13 @@ import { ROOM_MANAGEMENT_TAG } from '#src/tags.js';
 import { ROOM_SCHEMA } from '../entities/room.schema.js';
 
 const UPDATE_ROOM_SCHEMA = {
-  description: 'Update mutable fields on a room.',
+  description:
+    'Update mutable fields on a room. Refused with 409 for the demo caption ' +
+    'room, whose name is part of its fixed, seeded identity.',
   tags: [ROOM_MANAGEMENT_TAG],
   security: ADMIN_API_KEY_SECURITY,
   headers: Type.Object({
-    authorization: ADMIN_API_KEY_AUTH_HEADER_SCHEMA,
+    authorization: Type.Optional(ADMIN_API_KEY_AUTH_HEADER_SCHEMA),
   }),
   body: Type.Object({
     roomUid: Type.String({ format: 'uuid' }),
@@ -33,6 +35,10 @@ const UPDATE_ROOM_SCHEMA = {
     ...INVALID_ADMIN_KEY_REPLY_SCHEMA,
     404: Type.Object({
       code: Type.Literal('ROOM_NOT_FOUND'),
+      message: Type.String(),
+    }),
+    409: Type.Object({
+      code: Type.Literal('DEMO_ROOM_NOT_RENAMABLE'),
       message: Type.String(),
     }),
   },

@@ -4,27 +4,31 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scribear_transcription_service"
-version = "0.0.0"
+# Kept in step with the npm workspace packages by hand — changesets does not
+# manage this file (see RELEASING.md, "Version sources"). CI tags the published
+# image `v<version>` from here, so letting it drift would tag
+# transcription-service v0.0.0 in a release where every other image is v0.2.0.
+version = "0.2.0"
 authors = [{ name = "scribear" }]
 description = "ScribeAR Server backend transcription service"
 requires-python = ">=3.12"
 dependencies = [
     # Type validation
-    "pydantic==2.12.0",
+    "pydantic==2.13.4",
 
     # Configuration
-    "python-dotenv==1.1.1",
+    "python-dotenv==1.2.2",
 
     # Log coloring
     "colorama==0.4.6",
 
     # Web server
-    "fastapi==0.119.0",
-    "starlette==0.48.0",
+    "fastapi==0.139.2",
+    "starlette==1.3.1",
     "httpx==0.28.1",
-    "uvicorn==0.37.0",
-    "websockets==15.0.0",
-    "requests==2.32.5",
+    "uvicorn==0.51.0",
+    "websockets==16.1.1",
+    "requests==2.34.2",
 
     # Audio decoding
     "soundfile==0.13.1",
@@ -32,6 +36,11 @@ dependencies = [
 
     # Multi process management
     "multiprocess==0.70.18",
+
+    # Fleet telemetry backplane (B1.7). Optional at runtime - nothing is
+    # imported unless REDIS_URL is set - but not an optional dependency, since
+    # a deployment that turns publishing on must not have to reinstall to get it.
+    "redis==8.0.1",
 ]
 
 [project.optional-dependencies]
@@ -42,18 +51,20 @@ dev = [
     "watchfiles==1.1.0",
 
     # Unit testing and coverage
-    "pytest==8.4.2",
+    "pytest==9.1.1",
     "coverage==7.11.0",
-    "pytest-asyncio==1.2.0",
+    # Not a security bump in itself: pytest-asyncio 1.2 caps pytest below 9,
+    # so it has to move for the pytest 9 advisory fix to resolve.
+    "pytest-asyncio==1.4.0",
     "pytest-mock==3.15.1",
     "pytest-timeout==2.4.0",
     "pytest-order==1.3.0",
     "freezegun==1.5.5",
 
     # Code linting and formatting
-    "black==25.9.0",
-    "isort==7.0.0",
-    "pylint==4.0.0",
+    "black==26.5.1",
+    "isort==8.0.1",
+    "pylint==4.0.6",
 
     # Type hinting
     "multiprocess-stubs==0.1.0",
@@ -63,20 +74,33 @@ dev = [
 faster-whisper = ["ctranslate2==4.7.1", "faster-whisper==1.2.1"]
 # Optional dependencies used by Silero VAD (CUDA wheel, default)
 # install them with `uv sync --extra silero-vad`
-silero-vad = ["torch==2.9.1", "torchaudio==2.9.1"]
+silero-vad = ["torch==2.13.0", "torchaudio==2.11.0"]
 # Optional dependencies used by Silero VAD (CPU-only wheel)
 # install them with `uv sync --extra silero-vad-cpu`
 # uv resolves torch/torchaudio from the pytorch-cpu index (see [tool.uv.sources])
-silero-vad-cpu = ["torch==2.9.1", "torchaudio==2.9.1"]
+silero-vad-cpu = ["torch==2.13.0", "torchaudio==2.11.0"]
 
 [tool.uv]
 package = true
+
+# silero-vad and silero-vad-cpu ask for the same torch version from different
+# indexes, and a single universal resolution can only hold one of them. Declaring
+# the extras conflicting gives each its own resolution. Without this, uv resolves
+# both together, the explicit pytorch-cpu index below wins for both, and the CUDA
+# image silently gets a CPU-only torch - so the Silero VAD context cannot run on
+# the GPU no matter how it is configured.
+#
+# The two extras are never installed together: the CPU image and `make sync_cpu`
+# use silero-vad-cpu, the CUDA images and `make sync` use silero-vad.
+conflicts = [[{ extra = "silero-vad" }, { extra = "silero-vad-cpu" }]]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
+# silero-vad deliberately has no source mapping: it resolves from PyPI, whose
+# Linux torch wheels are the CUDA build (and pull the nvidia-* runtime packages).
 [tool.uv.sources]
 torch = [{ index = "pytorch-cpu", extra = "silero-vad-cpu" }]
 torchaudio = [{ index = "pytorch-cpu", extra = "silero-vad-cpu" }]
@@ -94,6 +118,12 @@ find = { where = ["."] }
 [tool.black]
 line-length = 80
 skip-magic-trailing-comma = true
+# Pin the target so formatting is decided against the interpreter CI runs
+# (3.12), not whatever newer grammar black would otherwise infer. black 26
+# began auto-selecting up to py315 and then warning that a 3.12 process cannot
+# AST-verify code formatted for 3.15; fixing the target removes both the drift
+# and the warning.
+target-version = ["py312"]
 
 [tool.isort]
 profile = "black"

@@ -1,0 +1,18 @@
+[Unit]
+Description=Periodically deploy the latest ScribeAR images (%i)
+
+[Timer]
+# Matches watchtower's old default poll interval (WATCHTOWER_POLL_INTERVAL=1800).
+# Tighten for staging, loosen for production - see UPGRADING.md "watchtower is
+# gone" for why production wants this interval chosen deliberately.
+OnBootSec=2min
+OnUnitActiveSec=30min
+# Spreads runs out if this host or a shared registry rate-limit is also
+# serving other timers/crontabs at :00/:30.
+RandomizedDelaySec=90
+# Catches up a missed run if the host was down when the timer would have
+# fired, rather than silently waiting for the next scheduled tick.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

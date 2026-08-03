@@ -1,1 +1,7 @@
 provider_config.json
+
+# A real deployment's own onsite allowlist/landing content, copied from
+# onsite-allowlist.example.conf / onsite/content-default and customized -
+# same reasoning as provider_config.json above.
+onsite-allowlist.conf
+onsite-content/

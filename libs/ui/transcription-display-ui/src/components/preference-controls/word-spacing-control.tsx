@@ -34,12 +34,19 @@ export const WordSpacingControl = ({
   return (
     <>
       <Typography>Word Spacing</Typography>
-      <Stack direction="row" alignItems="center" spacing={2}>
+      <Stack
+        direction="row"
+        spacing={2}
+        sx={{
+          alignItems: 'center',
+        }}
+      >
         <Typography sx={{ minWidth: 75, textAlign: 'left' }}>
           {TRANSCRIPTION_DISPLAY_CONFG.wordSpacingEm.min}x
         </Typography>
         <Slider
           aria-label="Word spacing control"
+          getAriaValueText={(v) => `${v.toString()}em word spacing`}
           valueLabelDisplay="auto"
           min={TRANSCRIPTION_DISPLAY_CONFG.wordSpacingEm.min}
           max={TRANSCRIPTION_DISPLAY_CONFG.wordSpacingEm.max}

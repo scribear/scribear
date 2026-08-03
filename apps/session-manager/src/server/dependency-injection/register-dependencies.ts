@@ -7,6 +7,10 @@ import {
 } from 'awilix';
 
 import { DBClient } from '#src/db/db-client.js';
+import { CanaryRoomSeeder } from '#src/server/features/canary-room/canary-room-seeder.js';
+import { DatabaseController } from '#src/server/features/database/database.controller.js';
+import { DemoRoomSeeder } from '#src/server/features/demo-room/demo-room-seeder.js';
+import { DemoRoomController } from '#src/server/features/demo-room/demo-room.controller.js';
 import { DeviceManagementController } from '#src/server/features/device-management/device-management.controller.js';
 import { DeviceManagementRepository } from '#src/server/features/device-management/device-management.repository.js';
 import { DeviceManagementService } from '#src/server/features/device-management/device-management.service.js';
@@ -22,9 +26,11 @@ import { ScheduleManagementService } from '#src/server/features/schedule-managem
 import { SessionAuthController } from '#src/server/features/session-auth/session-auth.controller.js';
 import { SessionAuthRepository } from '#src/server/features/session-auth/session-auth.repository.js';
 import { SessionAuthService } from '#src/server/features/session-auth/session-auth.service.js';
+import { TestAudioRoomsSeeder } from '#src/server/features/test-audio-rooms/test-audio-rooms-seeder.js';
 import { DeviceAuthRepository } from '#src/server/shared/repositories/device-auth.repository.js';
 import { AdminAuthService } from '#src/server/shared/services/admin-auth.service.js';
 import { DeviceAuthService } from '#src/server/shared/services/device-auth.service.js';
+import { DevicePresenceService } from '#src/server/shared/services/device-presence.service.js';
 import { EventBusService } from '#src/server/shared/services/event-bus.service.js';
 import { HashService } from '#src/server/shared/services/hash.service.js';
 import { ServiceAuthService } from '#src/server/shared/services/service-auth.service.js';
@@ -46,9 +52,14 @@ function registerDependencies(
     baseConfig: asValue(config.baseConfig),
     adminAuthConfig: asValue(config.adminAuthConfig),
     serviceAuthConfig: asValue(config.serviceAuthConfig),
+    devicePresenceConfig: asValue(config.devicePresenceConfig),
     sessionTokenConfig: asValue(config.sessionTokenConfig),
     dbClientConfig: asValue(config.dbClientConfig),
     materializationWorkerConfig: asValue(config.materializationWorkerConfig),
+    demoRoomConfig: asValue(config.demoRoomConfig),
+    testAudioRoomsConfig: asValue(config.testAudioRoomsConfig),
+    canaryRoomConfig: asValue(config.canaryRoomConfig),
+    scheduleManagementConfig: asValue(config.scheduleManagementConfig),
 
     // Database
     dbClient: asClass(DBClient, { lifetime: Lifetime.SINGLETON }),
@@ -63,6 +74,12 @@ function registerDependencies(
     }),
     deviceAuthService: asClass(DeviceAuthService, {
       lifetime: Lifetime.SCOPED,
+    }),
+    // Singleton: the write-coalescing map is process-wide state. A scoped
+    // instance would start empty on every request and write on every poll,
+    // which is exactly what the coalescing exists to avoid.
+    devicePresenceService: asClass(DevicePresenceService, {
+      lifetime: Lifetime.SINGLETON,
     }),
     sessionTokenService: asClass(SessionTokenService, {
       lifetime: Lifetime.SINGLETON,
@@ -134,6 +151,42 @@ function registerDependencies(
     }),
     sessionAuthRepository: asClass(SessionAuthRepository, {
       lifetime: Lifetime.SINGLETON,
+    }),
+
+    // Demo caption room. Constructed regardless, but a
+    // no-op unless `demoRoomConfig.enabled` (the default); `create-server.ts`
+    // only resolves and runs it when enabled. SCOPED (not SINGLETON) because it
+    // depends on scoped services; resolving it once from the root container
+    // at startup produces a single instance for the process, with its scoped
+    // dependencies cached on that same root scope (same pattern as
+    // `materializationWorker` above).
+    demoRoomSeeder: asClass(DemoRoomSeeder, {
+      lifetime: Lifetime.SCOPED,
+    }),
+    // Read-only status endpoint for the admin console. Always registered (the
+    // route reports `enabled: false` when the feature is off), so unlike the
+    // seeder it is not gated behind the flag at wiring time.
+    demoRoomController: asClass(DemoRoomController, {
+      lifetime: Lifetime.SCOPED,
+    }),
+
+    // Operator test-audio rooms. Same shape as `demoRoomSeeder` above:
+    // constructed regardless, resolved and run by `create-server.ts` only when
+    // `TEST_AUDIO_DEVICE_SECRET` is set. SCOPED for the same reason.
+    testAudioRoomsSeeder: asClass(TestAudioRoomsSeeder, {
+      lifetime: Lifetime.SCOPED,
+    }),
+
+    // Monitoring canary room. Same shape again: constructed regardless,
+    // resolved and run by `create-server.ts` only when `CANARY_DEVICE_SECRET`
+    // is set. SCOPED for the same reason.
+    canaryRoomSeeder: asClass(CanaryRoomSeeder, {
+      lifetime: Lifetime.SCOPED,
+    }),
+
+    // Database schema state, for the admin console's Config Check.
+    databaseController: asClass(DatabaseController, {
+      lifetime: Lifetime.SCOPED,
     }),
   } as NameAndRegistrationPair<AppDependencies>);
 }

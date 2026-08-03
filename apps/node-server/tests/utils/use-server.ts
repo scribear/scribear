@@ -1,15 +1,26 @@
 import { afterAll, beforeAll, inject } from 'vitest';
 
 import { LogLevel } from '@scribear/base-fastify-server';
+import type { SecretPlaceholders } from '@scribear/node-server-schema';
 
 import type {
   AppConfig,
   BaseConfig,
+  DemoRoomConfig,
   SessionManagerClientConfig,
+  TelemetryPublisherConfig,
   TranscriptionServiceClientConfig,
 } from '#src/app-config/app-config.js';
 import createServer from '#src/server/create-server.js';
+import { DEFAULT_DEMO_SESSION_UID } from '#src/server/features/demo-room/demo-room.constants.js';
+import type { ServiceAuthConfig } from '#src/server/shared/services/service-auth.service.js';
 import type { SessionTokenConfig } from '#src/server/shared/services/session-token.service.js';
+
+/**
+ * Inbound service API key the test server accepts on internal service routes.
+ * Exported so auth tests can present it (and mutate nothing else).
+ */
+export const TEST_SERVICE_API_KEY = 'test-node-server-service-key';
 
 interface ServerCtx {
   fastify: Awaited<ReturnType<typeof createServer>>['fastify'];
@@ -22,9 +33,13 @@ interface ServerCtx {
  */
 export interface TestAppConfigOverrides {
   baseConfig?: Partial<BaseConfig>;
+  serviceAuthConfig?: Partial<ServiceAuthConfig>;
   sessionTokenConfig?: Partial<SessionTokenConfig>;
   sessionManagerClientConfig?: Partial<SessionManagerClientConfig>;
   transcriptionServiceClientConfig?: Partial<TranscriptionServiceClientConfig>;
+  telemetryPublisherConfig?: Partial<TelemetryPublisherConfig>;
+  demoRoomConfig?: Partial<DemoRoomConfig>;
+  secretPlaceholders?: Partial<SecretPlaceholders>;
 }
 
 /**
@@ -54,6 +69,10 @@ export function buildTestAppConfig(
       host: '127.0.0.1',
       ...overrides.baseConfig,
     },
+    serviceAuthConfig: {
+      serviceApiKey: TEST_SERVICE_API_KEY,
+      ...overrides.serviceAuthConfig,
+    },
     sessionTokenConfig: {
       signingKey: sessionTokenSigningKey,
       ...overrides.sessionTokenConfig,
@@ -67,6 +86,31 @@ export function buildTestAppConfig(
       baseUrl: transcriptionServiceBaseUrl,
       apiKey: transcriptionApiKey,
       ...overrides.transcriptionServiceClientConfig,
+    },
+    // Off by default: an integration suite has no Redis, and a publisher that
+    // retried against one for the length of the run would log an outage into
+    // every test's output.
+    telemetryPublisherConfig: {
+      redisUrl: '',
+      nodeInstanceId: 'test-node-instance',
+      ...overrides.telemetryPublisherConfig,
+    },
+    // Off by default so the demo caption source is neither constructed nor
+    // started for suites that don't opt in.
+    demoRoomConfig: {
+      enabled: false,
+      sessionUid: DEFAULT_DEMO_SESSION_UID,
+      ...overrides.demoRoomConfig,
+    },
+    // None of the fixture's own secrets contain the CHANGEME marker, so the
+    // default here is "nothing is a placeholder" - tests that want to assert
+    // the opposite override individual fields.
+    secretPlaceholders: {
+      sessionTokenSigningKeyIsPlaceholder: false,
+      sessionManagerServiceApiKeyIsPlaceholder: false,
+      nodeServerServiceApiKeyIsPlaceholder: false,
+      transcriptionServiceApiKeyIsPlaceholder: false,
+      ...overrides.secretPlaceholders,
     },
   } as unknown as AppConfig;
 }

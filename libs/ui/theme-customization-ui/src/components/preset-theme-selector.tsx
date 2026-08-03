@@ -48,9 +48,14 @@ export const PresetThemeSelector = ({
   };
 
   return (
-    <Stack direction="row" alignItems="center" justifyContent="space-between">
+    <Stack
+      direction="row"
+      sx={{
+        alignItems: 'center',
+        justifyContent: 'space-between',
+      }}
+    >
       <Typography>Preset Themes</Typography>
-
       <Box
         sx={{
           display: 'flex',
@@ -59,12 +64,17 @@ export const PresetThemeSelector = ({
         }}
       >
         <Tooltip title="View Preset Themes">
-          <IconButton color="inherit" onClick={showPresetThemeSelector}>
+          <IconButton
+            color="inherit"
+            aria-label="View Preset Themes"
+            aria-haspopup="true"
+            aria-expanded={isThemeSelectorOpen}
+            onClick={showPresetThemeSelector}
+          >
             <PaletteIcon />
           </IconButton>
         </Tooltip>
       </Box>
-
       <Popover
         open={isThemeSelectorOpen}
         anchorEl={themeSelectorAnchorEl}
@@ -72,11 +82,19 @@ export const PresetThemeSelector = ({
         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
         transformOrigin={{ vertical: 'top', horizontal: 'left' }}
       >
-        <Grid container padding={2} spacing={2} sx={{ width: 224 }}>
+        <Grid
+          container
+          spacing={2}
+          sx={{
+            padding: 2,
+            width: 224,
+          }}
+        >
           {PRESET_THEMES.map((theme) => (
             <Grid size={3} key={theme.id}>
               <Tooltip title={theme.name}>
                 <ButtonBase
+                  aria-label={theme.name}
                   onClick={() => {
                     handleApplyPresetTheme(theme);
                   }}
@@ -87,10 +105,15 @@ export const PresetThemeSelector = ({
                     borderColor: theme.accentColor,
                     backgroundColor: theme.backgroundColor,
                     borderRadius: 1,
+                    // Neutral ring so the swatch boundary is always perceivable,
+                    // even when the accent border has near-zero contrast with the
+                    // swatch background (e.g. Pitch Black's black-on-black). SC 1.4.11
+                    boxShadow: (t) => `0 0 0 1px ${t.palette.divider}`,
                   }}
                 >
                   <Typography
                     variant="body2"
+                    aria-hidden="true"
                     sx={{
                       color: theme.transcriptionColor,
                       fontWeight: 'bold',

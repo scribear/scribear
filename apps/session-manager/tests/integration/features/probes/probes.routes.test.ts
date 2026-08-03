@@ -1,5 +1,7 @@
+import { describe, expect, inject } from 'vitest';
+
 import { LogLevel } from '@scribear/base-fastify-server';
-import { afterAll, describe, expect, inject } from 'vitest';
+import { SHIPPED_TRANSCRIPTION_PROVIDER_IDS } from '@scribear/session-manager-schema';
 
 import type { AppConfig } from '#src/app-config/app-config.js';
 import createServer from '#src/server/create-server.js';
@@ -40,7 +42,12 @@ describe('Probes Routes', () => {
     it('returns 503 with database fail when the database is unreachable', async () => {
       // Arrange - spin up a server pointing at a non-existent database host
       const brokenConfig = {
-        baseConfig: { isDevelopment: false, logLevel: LogLevel.SILENT, port: 0, host: '127.0.0.1' },
+        baseConfig: {
+          isDevelopment: false,
+          logLevel: LogLevel.SILENT,
+          port: 0,
+          host: '127.0.0.1',
+        },
         adminAuthConfig: { adminApiKey: TEST_ADMIN_KEY },
         dbClientConfig: {
           ...inject('dbConfig'),
@@ -53,12 +60,24 @@ describe('Probes Routes', () => {
           staleAfterMs: 24 * 60 * 60 * 1000,
           maxRoomsPerTick: 1000,
         },
+        demoRoomConfig: {
+          enabled: false,
+          sessionUid: 'deadbeef-0000-4000-8000-000000000001',
+        },
+        testAudioRoomsConfig: { enabled: false, deviceSecret: '' },
+        canaryRoomConfig: { enabled: false, deviceSecret: '' },
+        scheduleManagementConfig: {
+          transcriptionProviderIds: [...SHIPPED_TRANSCRIPTION_PROVIDER_IDS],
+        },
       } as unknown as AppConfig;
       const { fastify } = await createServer(brokenConfig);
       await fastify.ready();
 
       // Act
-      const res = await fastify.inject({ method: 'GET', url: `${BASE}/readiness` });
+      const res = await fastify.inject({
+        method: 'GET',
+        url: `${BASE}/readiness`,
+      });
       await fastify.close();
 
       // Assert

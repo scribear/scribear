@@ -47,6 +47,8 @@ export const SplitDivider = ({
         placement="left"
       >
         <IconButton
+          aria-label={isOpen ? 'Collapse panel' : 'Expand panel'}
+          aria-expanded={isOpen}
           onClick={(e) => {
             e.stopPropagation();
             onToggle();

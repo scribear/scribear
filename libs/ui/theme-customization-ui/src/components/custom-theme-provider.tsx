@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 
+import { isLightColor, readableTextColor } from '#src/utils/color-contrast.js';
+
 /**
  * Props for {@link CustomThemeProvider}.
  */
@@ -30,10 +32,19 @@ export const CustomThemeProvider = ({
   children,
 }: CustomThemeProviderProps) => {
   const theme = useMemo(() => {
+    // Derive palette mode + default text color from the chosen background's
+    // luminance. Without this MUI keeps its light-mode near-black default text,
+    // so any default-colored Typography/icon is invisible on a dark background
+    // (only the explicitly-colored transcription text was safe before). SC 1.4.3
+    const mode = isLightColor(backgroundColor) ? 'light' : 'dark';
     return createTheme({
       palette: {
+        mode,
         background: {
           default: backgroundColor,
+        },
+        text: {
+          primary: readableTextColor(backgroundColor),
         },
         primary: {
           main: accentColor,

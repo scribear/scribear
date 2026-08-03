@@ -1,7 +1,7 @@
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined';
 import HourglassTopIcon from '@mui/icons-material/HourglassTop';
 import NotInterestedIcon from '@mui/icons-material/NotInterested';
-import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutline';
+import PauseCircleOutlinedIcon from '@mui/icons-material/PauseCircleOutlined';
 import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
 
@@ -29,10 +29,10 @@ export const WebspeechStatusIcon = () => {
     icon = <HourglassTopIcon />;
     tooltip = `${displayName} is starting`;
   } else if (webspeechStatus === WebspeechStatus.ACTIVE) {
-    icon = <CheckCircleOutlineIcon />;
+    icon = <CheckCircleOutlinedIcon />;
     tooltip = `${displayName} is transcribing`;
   } else if (webspeechStatus === WebspeechStatus.ACTIVE_MUTE) {
-    icon = <PauseCircleOutlineIcon />;
+    icon = <PauseCircleOutlinedIcon />;
     tooltip = `${displayName} is not transcribing, microphone muted`;
   } else if (webspeechStatus === WebspeechStatus.UNSUPPORTED) {
     icon = <NotInterestedIcon />;
@@ -47,7 +47,11 @@ export const WebspeechStatusIcon = () => {
 
   return (
     <Tooltip title={tooltip}>
-      <Stack sx={{ p: 1 }}>{icon}</Stack>
+      {/* role="img" + aria-label exposes the status (distinct icon shapes carry
+          it visually) to AT, which a tooltip on a non-focusable box does not. */}
+      <Stack sx={{ p: 1 }} role="img" aria-label={tooltip}>
+        {icon}
+      </Stack>
     </Tooltip>
   );
 };

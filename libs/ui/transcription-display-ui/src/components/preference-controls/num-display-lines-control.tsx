@@ -68,12 +68,19 @@ export const NumDisplayLinesControl = ({
   return (
     <>
       <Typography>Number of Display Lines</Typography>
-      <Stack direction="row" alignItems="center" spacing={2}>
+      <Stack
+        direction="row"
+        spacing={2}
+        sx={{
+          alignItems: 'center',
+        }}
+      >
         <Typography sx={{ minWidth: 75, textAlign: 'left' }}>
           {minNumDisplayLines}
         </Typography>
         <Slider
           aria-label="Number of display lines control"
+          getAriaValueText={(v) => `${v.toString()} lines`}
           valueLabelDisplay="auto"
           min={minNumDisplayLines}
           max={maxNumDisplayLines}
@@ -87,8 +94,9 @@ export const NumDisplayLinesControl = ({
         </Typography>
       </Stack>
       <Typography
-        color="warning"
         sx={{
+          // warning.dark (not warning.main) to clear 4.5:1 on the light surface. SC 1.4.3
+          color: 'warning.dark',
           display: isDisabled ? 'block' : 'none',
           textAlign: 'center',
         }}

@@ -4,7 +4,9 @@ Defines WorkerProcessManager that manages main process communication with Worker
 
 import asyncio
 import logging
+import threading
 from collections import deque
+from dataclasses import dataclass
 from queue import Empty
 from typing import Any, Callable, Generic, TypeVar, cast
 
@@ -16,8 +18,13 @@ from src.shared.utils.event_emitter import Event, EventEmitter
 
 from .job_context_interface import JobContextInterface
 from .job_interface import JobInterface
-from .job_result import JobException, JobSuccess
-from .result import Result, ResultType
+from .job_result import (
+    JobException,
+    JobExecutionObservation,
+    JobObserver,
+    JobSuccess,
+)
+from .result import JobExecutionResult, Result, ResultType
 from .task import (
     DeregisterJobTask,
     QueueDataTask,
@@ -34,6 +41,22 @@ NS_PER_SEC = 1000000000
 
 # Rolling window over which a worker's busy/idle ratio is averaged.
 ROLLING_UTILIZATION_WINDOW_NS = 10 * 60 * NS_PER_SEC
+
+# Rolling utilization at or above which a worker is treated as having no
+# headroom. Not 1.0: the window is a 10-minute average, so a worker that is
+# genuinely pinned rarely reports exactly 1.0. See is_saturated.
+SATURATION_UTILIZATION = 0.95
+
+# How long a single background get() blocks before the poll loop rechecks its
+# stop flag. Bounds how long the (daemon) result-poller thread can be parked in
+# a blocking queue read on an idle queue.
+RESULT_POLL_TIMEOUT_SEC = 0.1
+
+# How long wait_shutdown() waits for the worker process (and then the poller
+# thread) to exit on its own before forcing it. Generous enough for a graceful
+# exit that finishes the in-flight batch and destroys contexts, but bounded so
+# a wedged worker or reader can never hang shutdown indefinitely.
+WORKER_EXIT_TIMEOUT_SEC = 10.0
 
 C = TypeVar("C", bound=tuple)
 D = TypeVar("D")
@@ -197,6 +220,69 @@ class _RollingUtilization:
             self._busy_time_ns += increment_ns
 
 
+@dataclass(frozen=True)
+class ActiveJob:
+    """
+    One job currently registered to a worker, correlated to the caller's own
+    identifiers for it
+
+    session_uid/room_uid are opaque to this layer - accepted from
+    `register_job` and reported back verbatim - so that `/providers/health`
+    can show which session/room a worker is actively processing rather than
+    only the aggregate `live_job_count`. Either is None when the caller
+    supplied none (e.g. an older node-server peer).
+    """
+
+    job_id: int
+    session_uid: str | None
+    room_uid: str | None
+
+
+@dataclass(frozen=True)
+class WorkerSnapshot:
+    """
+    Point-in-time view of one worker, safe to read from a request handler
+
+    Exists so callers outside the pool can observe worker load without
+    reaching through private attributes.
+    """
+
+    worker_id: int
+    utilization: float
+    live_job_count: int
+    total_jobs_registered: int
+    context_ids: set[int]
+    alive: bool
+    active_jobs: tuple[ActiveJob, ...]
+
+
+def is_saturated(snapshot: WorkerSnapshot) -> bool:
+    """
+    Whether a worker has no headroom left
+
+    Args:
+        snapshot    - Point-in-time view of the worker
+
+    Returns:
+        True when the worker is pinned and actually holding work
+
+    Utilization alone is not enough. `_RollingUtilization` reports 1.0 once a
+    worker has recorded busy time but no idle time yet, which is exactly the
+    state a freshly-booted worker is in after creating its contexts - so a
+    utilization-only test calls every cold start saturated. A worker holding no
+    jobs is not saturated whatever the window says.
+
+    Shared by the readiness probe and by per-provider health so the two cannot
+    disagree about what "saturated" means; they draw different conclusions from
+    it (readiness reports the pool degraded, provider health reports one
+    provider degraded), but from the same predicate.
+    """
+    return (
+        snapshot.utilization >= SATURATION_UTILIZATION
+        and snapshot.live_job_count > 0
+    )
+
+
 class WorkerProcessManager:
     """
     Main process interface for managing WorkerProcess
@@ -310,12 +396,71 @@ class WorkerProcessManager:
         """
         return set(self._context_defs.keys())
 
+    @property
+    def worker_id(self) -> int:
+        """
+        Gets unique identifier of the worker this manages
+        """
+        return self._worker_id
+
+    @property
+    def live_job_count(self) -> int:
+        """
+        Gets number of jobs currently registered to this worker
+        """
+        return len(self._registered_job_handles)
+
+    @property
+    def total_jobs_registered(self) -> int:
+        """
+        Gets number of jobs ever registered to this worker
+
+        Monotonic for the lifetime of the worker process, so consumers can
+        difference successive reads to get a registration rate.
+        """
+        return self._next_job_id
+
+    @property
+    def alive(self) -> bool:
+        """
+        Whether the worker process is still running
+
+        A worker that dies after initialization is otherwise invisible: the
+        result-queue poll loop simply times out forever, and any job already
+        registered to that worker never completes and never errors. Nothing
+        else in the pool notices, so this is the only signal that distinguishes
+        a wedged worker from an idle one.
+        """
+        return self._process.is_alive()
+
+    def snapshot(self) -> WorkerSnapshot:
+        """
+        Gets a point-in-time view of this worker's load
+
+        Side effect free, so it is safe to call from a request handler.
+        """
+        return WorkerSnapshot(
+            worker_id=self._worker_id,
+            utilization=self.utilization,
+            live_job_count=self.live_job_count,
+            total_jobs_registered=self.total_jobs_registered,
+            context_ids=self.context_ids,
+            alive=self.alive,
+            active_jobs=tuple(
+                ActiveJob(
+                    job_id, *self._job_correlation.get(job_id, (None, None))
+                )
+                for job_id in self._registered_job_handles
+            ),
+        )
+
     def __init__(
         self,
         logger: Logger,
         worker_id: int,
         context_defs: dict[int, JobContextInterface[Any]],
         rolling_utilization_window_ns: int = ROLLING_UTILIZATION_WINDOW_NS,
+        job_observer: JobObserver | None = None,
     ):
         """
         Constructor blocks until the worker process has finished creating all
@@ -329,9 +474,12 @@ class WorkerProcessManager:
                                 initialize on this worker
             rolling_utilization_window_ns - Override for utilization smoothing window
                                               (production should use the default)
+            job_observer    - Optional callback invoked on the event loop thread
+                                for every completed job execution
         """
         self._log = logger.child({"worker_id": worker_id})
         self._worker_id = worker_id
+        self._job_observer = job_observer
 
         self._rolling_utilization = _RollingUtilization(
             rolling_utilization_window_ns
@@ -340,6 +488,16 @@ class WorkerProcessManager:
         self._next_job_id = 0
         self._context_defs = context_defs
         self._registered_job_handles: dict[int, JobHandle[Any, Any, Any]] = {}
+        # Caller-supplied session/room identifiers per job, reported on
+        # /providers/health via ActiveJob. Kept only while the job lives, so
+        # it cannot grow with the number of sessions the process has ever
+        # served. Unlike the provider label (see RegisterJobTask.label), this
+        # is read only by the health snapshot, never by the result-recording
+        # path, so it is safe for it to disappear at deregistration.
+        self._job_correlation: dict[int, tuple[str | None, str | None]] = {}
+
+        # Signals the result-poller thread to stop. Set during wait_shutdown.
+        self._stopping = threading.Event()
 
         # False positive
         # pylint: disable=no-member
@@ -361,9 +519,24 @@ class WorkerProcessManager:
         self._process.start()
 
         # Block until worker confirms it has created every assigned context.
-        # Drain log records that may arrive before the init result.
+        # Drain log records that may arrive before the init result. Poll with a
+        # timeout and watch process liveness so a worker that dies during
+        # initialization (e.g. a native model-load crash that never reports an
+        # error) raises here instead of blocking the constructor forever - the
+        # parent holds the result queue's write fd, so a blocking read would
+        # never see EOF on worker exit.
         while True:
-            result = self._result_queue.get(block=True)
+            try:
+                result = self._result_queue.get(
+                    block=True, timeout=RESULT_POLL_TIMEOUT_SEC
+                )
+            except Empty:
+                if not self._process.is_alive():
+                    raise RuntimeError(
+                        f"Worker {worker_id} exited during initialization "
+                        f"(exit code {self._process.exitcode})"
+                    ) from None
+                continue
             if result.type == ResultType.LOGGING:
                 self._log.logger.handle(result.record)
                 continue
@@ -378,38 +551,132 @@ class WorkerProcessManager:
                 )
             break
 
-        # Start the asyncio task that polls for results from the workers
-        self._result_poller_task = asyncio.create_task(self._poll_results())
+        # Poll for worker results on a dedicated daemon thread rather than via
+        # asyncio.to_thread. A to_thread call runs on the event loop's default
+        # executor, which loop.close() joins on teardown; if the blocking queue
+        # read is wedged (the parent holds the write fd, so it never sees EOF),
+        # that join - and shutdown - hangs forever. A daemon thread we own is
+        # never joined at loop close and never blocks interpreter exit, so a
+        # wedged read can no longer hang teardown. Results are marshalled back
+        # onto the event loop so job handlers keep running there.
+        self._loop = asyncio.get_running_loop()
+        self._poll_thread = threading.Thread(
+            target=self._poll_loop,
+            name=f"wpm-result-poller-{worker_id}",
+            daemon=True,
+        )
+        self._poll_thread.start()
 
-    async def _poll_results(self):
+    def _poll_loop(self):
         """
-        Loop that continuously pulls from results queue and emits events when a result is received
+        Daemon-thread loop that pulls results from the worker's result queue.
+
+        Log records are handled inline (logging is thread-safe) so that shutdown
+        log records are flushed even while the event loop is blocked in
+        wait_shutdown. Job and state-change results are marshalled onto the event
+        loop so job handlers and utilization bookkeeping keep running on the loop
+        thread, exactly as before. Runs until wait_shutdown sets the stop flag or
+        the queue is closed.
         """
-        while True:
-            # Run the blocking `get()` call in a separate thread to avoid
-            # blocking the asyncio event loop.
-            result = await asyncio.to_thread(self._result_queue.get)
+        while not self._stopping.is_set():
+            try:
+                result = self._result_queue.get(
+                    block=True, timeout=RESULT_POLL_TIMEOUT_SEC
+                )
+            except Empty:
+                continue
+            except (OSError, ValueError, EOFError):
+                # Queue closed / connection torn down during shutdown.
+                break
 
             if result.type == ResultType.LOGGING:
                 self._log.logger.handle(result.record)
-            elif result.type == ResultType.STATE_CHANGE:
-                self._rolling_utilization.increment(
-                    result.state, result.time_elapsed_ns
-                )
-            elif result.type == ResultType.JOB_EXECUTION:
-                if result.job_id not in self._registered_job_handles:
-                    continue
-                job_handle = self._registered_job_handles[result.job_id]
-                job_handle.emit(job_handle.JobResultEvent, result.result)
+                continue
 
-                if result.result.has_exception:
-                    job_handle.deregister()
+            try:
+                self._loop.call_soon_threadsafe(
+                    self._handle_loop_result, result
+                )
+            except RuntimeError:
+                # Event loop already closed; nothing left to dispatch to.
+                break
+
+    def _handle_loop_result(self, result: Result):
+        """
+        Handle a non-logging worker result on the event loop thread. Emits job
+        results to their handles and folds state changes into the utilization
+        window - both of which touch loop-thread state, so they must not run on
+        the poller thread.
+        """
+        if result.type == ResultType.STATE_CHANGE:
+            self._rolling_utilization.increment(
+                result.state, result.time_elapsed_ns
+            )
+        elif result.type == ResultType.JOB_EXECUTION:
+            # Observe before the registration check: a result that arrives
+            # after its job was deregistered still describes work the worker
+            # really did, and dropping it would under-report utilization
+            # exactly when jobs are churning.
+            self._observe_job_execution(result)
+
+            if result.job_id not in self._registered_job_handles:
+                return
+            job_handle = self._registered_job_handles[result.job_id]
+            job_handle.emit(job_handle.JobResultEvent, result.result)
+
+            if result.result.has_exception:
+                job_handle.deregister()
+
+    def _observe_job_execution(self, result: JobExecutionResult):
+        """
+        Reports a completed job execution to the configured observer
+
+        Args:
+            result  - Job execution result received from the worker
+
+        The observer is out-of-band bookkeeping (metrics), so a fault in it
+        must not take the result-dispatch path down with it - a job result
+        that never reaches its handle would stall a live transcription
+        session. Failures are logged and swallowed.
+        """
+        if self._job_observer is None:
+            return
+
+        job_result = result.result
+        try:
+            self._job_observer(
+                JobExecutionObservation(
+                    worker_id=self._worker_id,
+                    job_id=result.job_id,
+                    # Read off the result itself, stamped there at job
+                    # creation (see RegisterJobTask.label / _JobEntry.label),
+                    # rather than looked up here by job_id: this observer call
+                    # runs before the registration check specifically because
+                    # a result can arrive after its job was deregistered, and
+                    # a job's own registration bookkeeping (_registered_job_handles)
+                    # is gone by then.
+                    label=result.label,
+                    stats=job_result.stats,
+                    exception=(
+                        job_result.value if job_result.has_exception else None
+                    ),
+                    counters=job_result.counters,
+                )
+            )
+        # pylint: disable-next=broad-exception-caught
+        except Exception as error:
+            self._log.error(
+                "Job observer raised", context={"error": str(error)}
+            )
 
     def register_job(
         self,
         context_ids: tuple[int, ...],
         period_ms: int,
         job: JobInterface[C, D, R, Conf],
+        label: str = "",
+        session_uid: str | None = None,
+        room_uid: str | None = None,
     ) -> JobHandle[D, R, Conf]:
         """
         Registers a new job with WorkerProcess
@@ -418,6 +685,12 @@ class WorkerProcessManager:
             context_ids     - Context ids of context instances to provide to Job, can be empty
             period_ms       - Frequency at which job should be run
             job             - Definition of job to register
+            label           - Opaque grouping label reported to the job observer
+            session_uid     - Opaque caller session identifier reported on
+                                /providers/health via ActiveJob, None if the
+                                caller supplied none
+            room_uid        - Opaque caller room identifier reported alongside
+                                session_uid
 
         Returns:
             JobHandle for registered job
@@ -433,7 +706,7 @@ class WorkerProcessManager:
         self._next_job_id += 1
 
         self._task_queue.put(
-            RegisterJobTask(job_id, context_ids, period_ms, job)
+            RegisterJobTask(job_id, context_ids, period_ms, job, label)
         )
 
         def _queue_data(data: list[D]):
@@ -445,11 +718,18 @@ class WorkerProcessManager:
         def _deregister():
             self._task_queue.put(DeregisterJobTask(job_id))
             del self._registered_job_handles[job_id]
+            # Kept only while the job lives, so the correlation map cannot
+            # grow with the number of sessions the process has ever served.
+            # The provider label has no equivalent here to pop: it travels on
+            # the job's own JobExecutionResult (see RegisterJobTask.label),
+            # not through bookkeeping this method owns.
+            self._job_correlation.pop(job_id, None)
 
         job_handle = JobHandle[D, R, Conf](
             self._worker_id, job_id, _queue_data, _update_config, _deregister
         )
         self._registered_job_handles[job_id] = job_handle
+        self._job_correlation[job_id] = (session_uid, room_uid)
         return job_handle
 
     def send_terminate(self):
@@ -461,23 +741,64 @@ class WorkerProcessManager:
         """
         self._task_queue.put(TerminateWorkerTask())
 
+    def _drain_logging_results(self, block_timeout: float | None):
+        """
+        Fetch a single result from the result queue, if available, and log it
+        if it is a logging result. Used during shutdown once the async
+        poller has been stopped.
+
+        Args:
+            block_timeout   - None to poll without blocking, a float to block
+                                up to that many seconds waiting for a result
+
+        Returns:
+            True if a result was fetched, False if the queue was empty
+        """
+        try:
+            if block_timeout is None:
+                result = self._result_queue.get_nowait()
+            else:
+                result = self._result_queue.get(timeout=block_timeout)
+        except Empty:
+            return False
+        if result.type == ResultType.LOGGING:
+            self._log.logger.handle(result.record)
+        return True
+
     def wait_shutdown(self):
         """
         Blocks while waiting for worker process to exit before returning
         Should call send_terminate() before wait_shutdown()
-        """
-        self._process.join()
 
-        # Cancel the async poller and drain any results the worker emitted
-        # during shutdown (e.g. destroy logs) so callers see them.
-        self._result_poller_task.cancel()
-        while True:
-            try:
-                result = self._result_queue.get_nowait()
-            except Empty:
-                break
-            if result.type == ResultType.LOGGING:
-                self._log.logger.handle(result.record)
+        Bounded so it can never hang indefinitely: the worker is force-terminated
+        if it does not exit gracefully within WORKER_EXIT_TIMEOUT_SEC (e.g. a job
+        stuck in an infinite loop, or a wedged result reader backing up the
+        pipe). The daemon poller keeps draining the result queue in the
+        background - independently of the event loop, which this synchronous call
+        blocks - so the worker's result feeder never blocks on a full pipe while
+        we wait for it to exit.
+        """
+        self._process.join(timeout=WORKER_EXIT_TIMEOUT_SEC)
+        if self._process.is_alive():
+            self._log.warning("Worker did not exit gracefully; terminating")
+            self._process.terminate()
+            self._process.join(timeout=WORKER_EXIT_TIMEOUT_SEC)
+            if self._process.is_alive():
+                self._process.kill()
+                self._process.join()
+
+        # Stop the poller now that the worker is gone. It is a daemon thread, so
+        # even if it is wedged inside a partial multiprocess read (never
+        # unblocked because the parent still holds the write fd) it can never
+        # block interpreter exit or the event loop's executor shutdown.
+        self._stopping.set()
+        self._poll_thread.join(timeout=WORKER_EXIT_TIMEOUT_SEC)
+
+        # If the poller stopped cleanly we are the sole reader, so flush any
+        # results it left behind (e.g. context-destroy logs) before returning.
+        if not self._poll_thread.is_alive():
+            while self._drain_logging_results(block_timeout=None):
+                pass
 
         self._task_queue.close()
         self._result_queue.close()

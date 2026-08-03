@@ -46,6 +46,49 @@ describe('RoomManagementRepository', () => {
     });
   });
 
+  describe('createWithFixedUid', (it) => {
+    const FIXED_UID = 'deadbeef-0000-4000-8000-000000000003';
+
+    it('inserts a room at the given uid', async () => {
+      // Act
+      const result = await repository.createWithFixedUid(FIXED_UID, {
+        name: 'Demo Room',
+        timezone: 'UTC',
+        autoSessionEnabled: false,
+      });
+
+      // Assert
+      expect(result.uid).toBe(FIXED_UID);
+      expect(result.name).toBe('Demo Room');
+    });
+
+    it('is idempotent: a second call with the same uid returns the original row unchanged', async () => {
+      // Arrange
+      await repository.createWithFixedUid(FIXED_UID, {
+        name: 'Demo Room',
+        timezone: 'UTC',
+        autoSessionEnabled: false,
+      });
+
+      // Act - simulates a second instance racing to seed the same demo room
+      const result = await repository.createWithFixedUid(FIXED_UID, {
+        name: 'Different Name',
+        timezone: 'America/New_York',
+        autoSessionEnabled: true,
+      });
+
+      // Assert - the pre-existing row wins, not the second call's data
+      expect(result.uid).toBe(FIXED_UID);
+      expect(result.name).toBe('Demo Room');
+
+      const all = await dbContext.db
+        .selectFrom('rooms')
+        .select('uid')
+        .execute();
+      expect(all).toHaveLength(1);
+    });
+  });
+
   describe('findById', (it) => {
     it('returns the mapped room when found', async () => {
       // Arrange
@@ -135,7 +178,11 @@ describe('RoomManagementRepository', () => {
       await insertRoom('Room B');
 
       // Act
-      const result = await repository.list({ search: null, cursor: null, limit: 50 });
+      const result = await repository.list({
+        search: null,
+        cursor: null,
+        limit: 50,
+      });
 
       // Assert
       expect(result.items).toHaveLength(2);
@@ -148,7 +195,11 @@ describe('RoomManagementRepository', () => {
       await insertRoom('Room B');
 
       // Act
-      const result = await repository.list({ search: null, cursor: null, limit: 1 });
+      const result = await repository.list({
+        search: null,
+        cursor: null,
+        limit: 1,
+      });
 
       // Assert
       expect(result.items).toHaveLength(1);
@@ -161,7 +212,11 @@ describe('RoomManagementRepository', () => {
       await insertRoom('Beta Room');
 
       // Act
-      const result = await repository.list({ search: 'alpha', cursor: null, limit: 50 });
+      const result = await repository.list({
+        search: 'alpha',
+        cursor: null,
+        limit: 50,
+      });
 
       // Assert
       expect(result.items).toHaveLength(1);
@@ -305,6 +360,35 @@ describe('RoomManagementRepository', () => {
 
       // Act
       const result = await repository.findRoomMembership(deviceUid);
+
+      // Assert
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe('findSourceDeviceUid', (it) => {
+    it("returns the source device's uid", async () => {
+      // Arrange - one source and one plain member, so the query has to
+      // discriminate rather than just return the first membership row.
+      const { uid: roomUid } = await insertRoom();
+      const { uid: sourceUid } = await insertDevice();
+      const { uid: memberUid } = await insertDevice();
+      await repository.addDeviceToRoom(roomUid, sourceUid, true);
+      await repository.addDeviceToRoom(roomUid, memberUid, false);
+
+      // Act
+      const result = await repository.findSourceDeviceUid(roomUid);
+
+      // Assert
+      expect(result).toBe(sourceUid);
+    });
+
+    it('returns undefined for a room with no source device', async () => {
+      // Arrange
+      const { uid: roomUid } = await insertRoom();
+
+      // Act
+      const result = await repository.findSourceDeviceUid(roomUid);
 
       // Assert
       expect(result).toBeUndefined();

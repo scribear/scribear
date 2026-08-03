@@ -67,6 +67,15 @@ export interface TranscriptionDisplayContainerProps {
   getBoundedDisplayPreferences: (
     containerHeightPx: number,
   ) => BoundedDisplayPreferences;
+  // Fill the parent's height instead of the viewport's. Set when the container
+  // shares the screen with something else (e.g. the translated caption panel),
+  // so the two divide one viewport rather than each claiming all of it.
+  fillParentHeight?: boolean;
+  // Whether this region announces new text to assistive technology. Defaults to true.
+  // Set false when another region on the page (e.g. translated captions) is the
+  // one the reader has chosen to follow - two live regions carrying the same
+  // speech announce it twice and make both unusable.
+  announceUpdates?: boolean;
 }
 
 /**
@@ -81,6 +90,8 @@ export const TranscriptionDisplayContainer = ({
   fontSizePx,
   lineHeightPx,
   getBoundedDisplayPreferences,
+  fillParentHeight = false,
+  announceUpdates = true,
 }: TranscriptionDisplayContainerProps) => {
   const { containerHeightPx, setContainerHeightPx } =
     useTranscriptionDisplayHeight();
@@ -114,12 +125,31 @@ export const TranscriptionDisplayContainer = ({
   );
 
   return (
-    <Box sx={{ height: '100dvh', width: '100%', p: 2 }}>
+    <Box
+      sx={{ height: fillParentHeight ? '100%' : '100dvh', width: '100%', p: 2 }}
+    >
       <Box ref={containerRef} sx={{ height: '100%' }}>
         <Stack direction="row">
           <Box
             ref={textContainerRef}
             onScroll={handleScroll}
+            // Live-caption region for assistive technology. `role="log"` announces
+            // only newly appended nodes (finalized/committed sections) and leaves
+            // history in place; `polite` queues so it never interrupts the user;
+            // `aria-relevant="additions text"` + `aria-atomic="false"` announce just
+            // the new node, not the whole transcript. Interim text below is
+            // `aria-hidden` so its word-by-word churn is never announced (it is
+            // announced exactly once, later, when it becomes a committed section).
+            // `tabIndex={0}` makes the region focusable so keyboard + AT users can
+            // scroll back through history (arrow/PageUp/PageDown/Home/End) — the
+            // scrollbar is visually hidden but the region stays keyboard-scrollable,
+            // with a visible focus ring for SC 2.4.7.
+            role="log"
+            aria-live={announceUpdates ? 'polite' : 'off'}
+            aria-relevant="additions text"
+            aria-atomic="false"
+            aria-label="Live transcription"
+            tabIndex={0}
             sx={{
               marginTop: `${verticalPositionPx.toString()}px`,
               height: `${displayHeightPx.toString()}px`,
@@ -130,13 +160,27 @@ export const TranscriptionDisplayContainer = ({
               },
               msOverflowStyle: 'none',
               scrollbarWidth: 'none',
+              '&:focus-visible': {
+                outline: '2px solid',
+                outlineColor: 'transcriptionColor',
+                outlineOffset: '2px',
+              },
             }}
           >
             <CommittedSections
               sections={commitedSections}
               textStyle={textStyle}
             />
-            <Typography color="transcriptionColor" sx={textStyle}>
+            <Typography
+              color="transcriptionColor"
+              sx={textStyle}
+              // Interim/in-progress results change many times per second; feeding
+              // that churn to a live region makes speech stutter and a braille
+              // display reflow continuously. Hide it from AT — sighted users still
+              // see it live, and it is announced once when it moves to a committed
+              // section above. (SC 4.1.3, 1.3.1)
+              aria-hidden="true"
+            >
               {/* Keyed spans so React only appends new nodes — never mutates existing ones,
                   keeping browser re-layout cost proportional to each new chunk. */}
               {activeSection.sequences.map((seq) => (

@@ -3,4 +3,19 @@
 **/node_modules
 **/dist
 **/coverage
+# The webapps keep tsc's build info outside ./dist (vite would delete it there),
+# so exclude it explicitly - it is a local build artifact, and letting it into
+# the context would invalidate the `COPY . .` layer whenever a developer builds.
+**/*.tsbuildinfo
 transcription_service
+
+# Not inputs to any image build. Excluded so they neither bloat the context nor
+# invalidate the `COPY . .` layer (and every workspace build below it) when they
+# change. `scribear.wiki` is a sibling wiki checkout some clones symlink here.
+lumen
+scribear.wiki
+
+# Fixture audio: `speech` is a build input (the monitoring-sidecar image copies
+# it in for the synthetic canary), the rest is integration-test material only.
+test_audio_files/*
+!test_audio_files/speech

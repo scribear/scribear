@@ -10,6 +10,14 @@ on:
 permissions:
   actions: read
   contents: read
+  packages: write
+
+# Deployments queue rather than cancel: a superseded CD run may already have
+# pushed images or deployed, so letting it finish keeps the registry and the
+# deploy target consistent.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   changes:
@@ -17,58 +25,53 @@ jobs:
     outputs:
       workspaces: ${{ steps.changes.outputs.workspaces }}
       has_changes: ${{ steps.changes.outputs.has_changes }}
+      image_matrix: ${{ steps.image_matrix.outputs.matrix }}
+      has_images: ${{ steps.image_matrix.outputs.has_images }}
+      build_matrix: ${{ steps.image_matrix.outputs.build_matrix }}
     steps:
-      - uses: actions/checkout@v4
+      # fetch-depth: 0 so detect-changes can diff against the previous commit.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Detect Changed Workspaces
         id: changes
         uses: ./.github/actions/detect-changes
 
-  docker-build:
-    needs: [changes]
-    if: needs.changes.outputs.has_changes == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - image_name: scribear/scribear-db
-            build_context: infra/scribear-db
-            dockerfile: infra/scribear-db/Dockerfile
-            workspace: infra/scribear-db
-            version_file: infra/scribear-db/package.json
-          - image_name: scribear/scribear-nginx
-            build_context: infra/scribear-nginx
-            dockerfile: infra/scribear-nginx/Dockerfile
-            workspace: infra/scribear-nginx
-            version_file: infra/scribear-nginx/package.json
-          - image_name: scribear/client-webapp
-            build_context: .
-            dockerfile: apps/client-webapp/Dockerfile
-            workspace: apps/client-webapp
-            version_file: apps/client-webapp/package.json
-          - image_name: scribear/kiosk-webapp
-            build_context: .
-            dockerfile: apps/kiosk-webapp/Dockerfile
-            workspace: apps/kiosk-webapp
-            version_file: apps/kiosk-webapp/package.json
-          - image_name: scribear/standalone-webapp
-            build_context: .
-            dockerfile: apps/standalone-webapp/Dockerfile
-            workspace: apps/standalone-webapp
-            version_file: apps/standalone-webapp/package.json
-          - image_name: scribear/session-manager
-            build_context: .
-            dockerfile: apps/session-manager/Dockerfile
-            workspace: apps/session-manager
-            version_file: apps/session-manager/package.json
-          - image_name: scribear/node-server
-            build_context: .
-            dockerfile: apps/node-server/Dockerfile
-            workspace: apps/node-server
-            version_file: apps/node-server/package.json
+      - name: Resolve node image matrix
+        id: image_matrix
+        uses: ./.github/actions/node-image-matrix
+        with:
+          workspaces: ${{ steps.changes.outputs.workspaces }}
+
+  # Seeds the node_modules cache on the default branch. GitHub only lets a PR
+  # restore caches from its own branch or its base, so without this every new
+  # PR would pay for a cold `npm ci` in all six of its Node jobs; with it, only
+  # a lockfile change does. Costs ~10s when the lockfile is unchanged.
+  warm-dependency-cache:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-node
+
+  # One job per (image, native runner arch) pair - see APPLE-SILICON-FINDINGS.md
+  # for why native ubuntu-24.04-arm rather than QEMU (measured 9.9x slower on
+  # the CPU transcription image). Each leg pushes its half of the image by
+  # digest; docker-merge below combines the two digests into one multi-arch
+  # manifest under the real tags. Scoped to the Node and infra images in
+  # .github/node-images.json only - the three transcription images
+  # (python-cd.yml) stay amd64-only for now, since they are the more expensive
+  # legs to add and nothing on this list needs them to build a Mac dev stack.
+  docker-build:
+    needs: [changes]
+    if: needs.changes.outputs.has_images == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.build_matrix) }}
+    name: docker-build (${{ matrix.image_name }}, ${{ matrix.platform }})
+    runs-on: ${{ matrix.runs_on }}
+    steps:
+      - uses: actions/checkout@v5
 
       - name: Resolve image tags
         id: tags
@@ -77,23 +80,98 @@ jobs:
           version_file: ${{ matrix.version_file }}
 
       - name: Build Container
-        if: contains(needs.changes.outputs.workspaces, matrix.workspace)
         uses: ./.github/actions/build-container
         with:
           image_name: ${{ matrix.image_name }}
           build_context: ${{ matrix.build_context }}
           dockerfile: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          build_args: ${{ steps.tags.outputs.build_args }}
           cache_variant: ${{ github.ref_name }}
           custom_tags: ${{ steps.tags.outputs.tags }}
-          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub_password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          platforms: ${{ matrix.platform }}
+          push_by_digest: "true"
+
+  # Combines each image's per-arch digests (uploaded as artifacts by
+  # build-container above, one matrix job per image so a slow image's merge
+  # cannot block a fast one's) into a single multi-arch manifest under the real
+  # tags, via `docker buildx imagetools create`. This is the "final
+  # manifest-only push" the old comment in build-container referred to.
+  docker-merge:
+    needs: [changes, docker-build]
+    if: needs.changes.outputs.has_images == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.image_matrix) }}
+    name: docker-merge (${{ matrix.image_name }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve image tags
+        id: tags
+        uses: ./.github/actions/resolve-container-tags
+        with:
+          version_file: ${{ matrix.version_file }}
+
+      # Matches nothing (and the download step below finds no files) on a build
+      # that resolved no tags - identical to the old "build without publishing"
+      # case, just discovered here instead of inside build-container.
+      - name: Download digests
+        if: steps.tags.outputs.tags != ''
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-${{ matrix.image_slug }}-*
+          merge-multiple: true
+
+      - name: Login to GHCR
+        if: steps.tags.outputs.tags != ''
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: steps.tags.outputs.tags != ''
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create and push the multi-arch manifest
+        if: steps.tags.outputs.tags != ''
+        working-directory: /tmp/digests
+        env:
+          IMAGE_NAME: ${{ matrix.image_name }}
+          TAGS: ${{ steps.tags.outputs.tags }}
+        run: |
+          tag_args=()
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && tag_args+=(-t "ghcr.io/${IMAGE_NAME}:${tag}")
+          done <<< "$TAGS"
+
+          digest_refs=()
+          for digest in *; do
+            digest_refs+=("ghcr.io/${IMAGE_NAME}@sha256:${digest}")
+          done
+
+          docker buildx imagetools create "${tag_args[@]}" "${digest_refs[@]}"
+
+      - name: Inspect the published manifest
+        if: steps.tags.outputs.tags != ''
+        env:
+          IMAGE_NAME: ${{ matrix.image_name }}
+          TAGS: ${{ steps.tags.outputs.tags }}
+        run: |
+          first_tag=$(echo "$TAGS" | head -n1)
+          docker buildx imagetools inspect "ghcr.io/${IMAGE_NAME}:${first_tag}"
 
   deploy-standalone-webapp:
-    needs: [changes, docker-build]
+    needs: [changes, docker-merge]
     if: contains(needs.changes.outputs.workspaces, 'apps/standalone-webapp') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-node
 
       - name: Run build

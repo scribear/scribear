@@ -5,6 +5,7 @@ import {
   HttpError,
 } from '@scribear/base-fastify-server';
 import {
+  ADMIN_FETCH_JOIN_CODE_SCHEMA,
   EXCHANGE_DEVICE_TOKEN_SCHEMA,
   EXCHANGE_JOIN_CODE_SCHEMA,
   FETCH_JOIN_CODE_SCHEMA,
@@ -62,6 +63,38 @@ export class SessionAuthController {
               validStart: result.next.validStart.toISOString(),
               validEnd: result.next.validEnd.toISOString(),
             },
+    });
+  }
+
+  async adminFetchJoinCode(
+    req: BaseFastifyRequest<typeof ADMIN_FETCH_JOIN_CODE_SCHEMA>,
+    res: BaseFastifyReply<typeof ADMIN_FETCH_JOIN_CODE_SCHEMA>,
+  ) {
+    const result = await this._sessionAuthService.fetchJoinCodeForAdmin(
+      req.body.sessionUid,
+      new Date(),
+    );
+
+    if (result === 'SESSION_NOT_FOUND') {
+      throw HttpError.notFound('SESSION_NOT_FOUND', 'Session not found.');
+    }
+    if (result === 'SESSION_NOT_CURRENTLY_ACTIVE') {
+      res
+        .code(200)
+        .send({ status: 'not-active', joinCode: null, validEnd: null });
+      return;
+    }
+    if (result === 'JOIN_CODE_SCOPES_EMPTY') {
+      res
+        .code(200)
+        .send({ status: 'no-join-scopes', joinCode: null, validEnd: null });
+      return;
+    }
+
+    res.code(200).send({
+      status: 'ok',
+      joinCode: result.joinCode,
+      validEnd: result.validEnd.toISOString(),
     });
   }
 

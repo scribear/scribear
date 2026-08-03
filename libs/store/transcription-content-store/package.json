@@ -1,6 +1,6 @@
 {
   "name": "@scribear/transcription-content-store",
-  "version": "0.0.0",
+  "version": "0.2.0",
   "description": "",
   "author": "scribear",
   "main": "dist/src/index.js",
@@ -12,8 +12,14 @@
   },
   "type": "module",
   "imports": {
-    "#src/*": "./dist/src/*",
-    "#tests/*": "./dist/tests/*"
+    "#src/*": {
+      "development": "./src/*",
+      "default": "./dist/src/*"
+    },
+    "#tests/*": {
+      "development": "./tests/*",
+      "default": "./dist/tests/*"
+    }
   },
   "scripts": {
     "build": "tsc --build",
@@ -25,6 +31,6 @@
   },
   "dependencies": {
     "@reduxjs/toolkit": "2.11.2",
-    "uuid": "13.0.0"
+    "uuid": "14.0.1"
   }
 }

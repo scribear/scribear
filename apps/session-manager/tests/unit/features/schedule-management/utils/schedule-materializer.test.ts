@@ -76,9 +76,9 @@ describe('materializeSchedule', () => {
       expect(result).toHaveLength(0);
     });
 
-    it('drops the occurrence when occurrence start is before activeStart', () => {
-      // Arrange - activeStart is late in the day; localStartTime is earlier, so
-      // the computed UTC start would be before activeStart.
+    it('drops the occurrence when clipping to activeStart leaves nothing of it', () => {
+      // Arrange - activeStart is at the occurrence's own end, so clipping the
+      // start forward to activeStart leaves a zero-length residue.
       const schedule = makeSchedule({
         activeStart: new Date('2024-06-03T14:00:00Z'), // 14:00 UTC = 10:00 EDT
         frequency: 'ONCE',
@@ -125,7 +125,7 @@ describe('materializeSchedule', () => {
       expect(result[2]!.startUtc).toEqual(new Date('2024-06-07T14:00:00Z')); // Fri
     });
 
-    it('respects activeEnd and excludes occurrences whose end exceeds it', () => {
+    it('respects activeEnd and excludes occurrences that fall entirely beyond it', () => {
       // Arrange
       const schedule = makeSchedule({
         activeEnd: new Date('2024-06-05T14:30:00Z'), // Cuts off after Wed
@@ -143,12 +143,13 @@ describe('materializeSchedule', () => {
         new Date('2024-06-10T00:00:00Z'),
       );
 
-      // Assert - Mon and Wed qualify; Fri's end (14:30) > activeEnd (14:30 on Wed) - wait, activeEnd is Jun 5 14:30
-      // Fri Jun 7 14:30 > Jun 5 14:30 → excluded
-      // Wed Jun 5 14:30 <= Jun 5 14:30 → included
+      // Assert - Mon and Wed qualify. Wed ends exactly at activeEnd, so
+      // clipping is a no-op and it survives whole. Fri Jun 7 starts a full two
+      // days after activeEnd, so clipping leaves nothing at all and it goes.
       expect(result).toHaveLength(2);
       expect(result[0]!.startUtc).toEqual(new Date('2024-06-03T14:00:00Z'));
       expect(result[1]!.startUtc).toEqual(new Date('2024-06-05T14:00:00Z'));
+      expect(result[1]!.endUtc).toEqual(new Date('2024-06-05T14:30:00Z'));
     });
 
     it('includes an occurrence that started before windowStart but ends within it', () => {
@@ -425,6 +426,207 @@ describe('materializeSchedule', () => {
       expect(result).toHaveLength(1);
       expect(result[0]!.startUtc).toEqual(new Date('2024-06-03T13:00:00Z'));
       expect(result[0]!.endUtc).toEqual(new Date('2024-06-03T14:00:00Z'));
+    });
+  });
+
+  // Both ends of the active range used to *drop* an occurrence that straddled
+  // them. For the daily 00:00-23:59 window the admin console creates, every
+  // occurrence straddles both ends of any range that does not begin at
+  // midnight and finish at 23:59, so "auto sessions until 15:00" materialized
+  // nothing at all and "from now" materialized nothing until tomorrow.
+  describe('clipping to the active range', () => {
+    const DAILY = {
+      localStartTime: '00:00:00',
+      localEndTime: '23:59:00',
+      frequency: 'WEEKLY' as const,
+      daysOfWeek: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'],
+    };
+
+    it('clips an occurrence to activeEnd instead of dropping it', () => {
+      // Arrange - a daily 00:00-23:59 window ending at 15:00 on Wednesday.
+      const schedule = makeSchedule({
+        ...DAILY,
+        activeStart: new Date('2024-06-05T00:00:00Z'),
+        activeEnd: new Date('2024-06-05T15:00:00Z'),
+      });
+
+      // Act
+      const result = materializeSchedule(
+        schedule,
+        TZ_UTC,
+        new Date('2024-06-05T00:00:00Z'),
+        new Date('2024-06-12T00:00:00Z'),
+      );
+
+      // Assert - one occurrence, running to activeEnd rather than to 23:59.
+      expect(result).toHaveLength(1);
+      expect(result[0]!.startUtc).toEqual(new Date('2024-06-05T00:00:00Z'));
+      expect(result[0]!.endUtc).toEqual(new Date('2024-06-05T15:00:00Z'));
+    });
+
+    it('clips an occurrence to activeStart instead of dropping it', () => {
+      // Arrange - the same daily window, starting at 16:00 on Wednesday.
+      const schedule = makeSchedule({
+        ...DAILY,
+        activeStart: new Date('2024-06-05T16:00:00Z'),
+        activeEnd: null,
+      });
+
+      // Act
+      const result = materializeSchedule(
+        schedule,
+        TZ_UTC,
+        new Date('2024-06-05T16:00:00Z'),
+        new Date('2024-06-07T00:00:00Z'),
+      );
+
+      // Assert - today's occurrence survives, starting at activeStart; the
+      // next day's is untouched.
+      expect(result).toHaveLength(2);
+      expect(result[0]!.startUtc).toEqual(new Date('2024-06-05T16:00:00Z'));
+      expect(result[0]!.endUtc).toEqual(new Date('2024-06-05T23:59:00Z'));
+      expect(result[1]!.startUtc).toEqual(new Date('2024-06-06T00:00:00Z'));
+    });
+
+    it('clips both ends of a single occurrence', () => {
+      // Arrange
+      const schedule = makeSchedule({
+        ...DAILY,
+        activeStart: new Date('2024-06-05T09:00:00Z'),
+        activeEnd: new Date('2024-06-05T15:00:00Z'),
+      });
+
+      // Act
+      const result = materializeSchedule(
+        schedule,
+        TZ_UTC,
+        new Date('2024-06-05T00:00:00Z'),
+        new Date('2024-06-12T00:00:00Z'),
+      );
+
+      // Assert
+      expect(result).toHaveLength(1);
+      expect(result[0]!.startUtc).toEqual(new Date('2024-06-05T09:00:00Z'));
+      expect(result[0]!.endUtc).toEqual(new Date('2024-06-05T15:00:00Z'));
+    });
+
+    it('drops a clipped residue shorter than the minimum session duration', () => {
+      // Arrange - activeEnd 30 s into the day leaves half a minute, which is
+      // shorter than a join-code handoff window and, at exactly zero, would
+      // violate `sessions_scheduled_end_after_start`.
+      const schedule = makeSchedule({
+        ...DAILY,
+        activeStart: new Date('2024-06-05T00:00:00Z'),
+        activeEnd: new Date('2024-06-05T00:00:30Z'),
+      });
+
+      // Act
+      const result = materializeSchedule(
+        schedule,
+        TZ_UTC,
+        new Date('2024-06-05T00:00:00Z'),
+        new Date('2024-06-12T00:00:00Z'),
+      );
+
+      // Assert
+      expect(result).toHaveLength(0);
+    });
+
+    it('keeps a clipped residue of exactly the minimum session duration', () => {
+      // Arrange - the boundary of the previous case.
+      const schedule = makeSchedule({
+        ...DAILY,
+        activeStart: new Date('2024-06-05T00:00:00Z'),
+        activeEnd: new Date('2024-06-05T00:01:00Z'),
+      });
+
+      // Act
+      const result = materializeSchedule(
+        schedule,
+        TZ_UTC,
+        new Date('2024-06-05T00:00:00Z'),
+        new Date('2024-06-12T00:00:00Z'),
+      );
+
+      // Assert
+      expect(result).toHaveLength(1);
+      expect(result[0]!.endUtc).toEqual(new Date('2024-06-05T00:01:00Z'));
+    });
+
+    it('leaves an unclipped occurrence shorter than the minimum alone', () => {
+      // Arrange - a 30-second occurrence the operator asked for explicitly.
+      // The floor applies to clipped residues, not to what was requested.
+      const schedule = makeSchedule({
+        activeStart: new Date('2024-06-03T00:00:00Z'),
+        activeEnd: null,
+        localStartTime: '09:00:00',
+        localEndTime: '09:00:30',
+        frequency: 'ONCE',
+        daysOfWeek: null,
+      });
+
+      // Act
+      const result = materializeSchedule(
+        schedule,
+        TZ_UTC,
+        new Date('2024-06-01T00:00:00Z'),
+        new Date('2024-06-30T00:00:00Z'),
+      );
+
+      // Assert
+      expect(result).toHaveLength(1);
+      expect(result[0]!.endUtc).toEqual(new Date('2024-06-03T09:00:30Z'));
+    });
+
+    it('clips on absolute instants, so a DST-shifted occurrence keeps the right ones', () => {
+      // Arrange - fall-back day. 01:30 local resolves to the standard-time
+      // instant 06:30 UTC, so the 00:30-01:30 occurrence really runs
+      // 04:30-06:30 UTC (two hours). An activeEnd of 06:00 UTC must clip it
+      // there - not to the daylight reading's 05:30, and not drop it.
+      const schedule = makeSchedule({
+        activeStart: new Date('2024-11-03T04:00:00Z'),
+        activeEnd: new Date('2024-11-03T06:00:00Z'),
+        localStartTime: '00:30:00',
+        localEndTime: '01:30:00',
+        frequency: 'ONCE',
+        daysOfWeek: null,
+      });
+
+      // Act
+      const result = materializeSchedule(
+        schedule,
+        TZ_NY,
+        new Date('2024-11-03T00:00:00Z'),
+        new Date('2024-11-04T00:00:00Z'),
+      );
+
+      // Assert
+      expect(result).toHaveLength(1);
+      expect(result[0]!.startUtc).toEqual(new Date('2024-11-03T04:30:00Z'));
+      expect(result[0]!.endUtc).toEqual(new Date('2024-11-03T06:00:00Z'));
+    });
+
+    it('still drops an occurrence that lies entirely outside the active range', () => {
+      // Arrange - Monday only, with an active range covering the Wednesday.
+      const schedule = makeSchedule({
+        activeStart: new Date('2024-06-05T00:00:00Z'),
+        activeEnd: new Date('2024-06-06T00:00:00Z'),
+        localStartTime: '09:00:00',
+        localEndTime: '10:00:00',
+        frequency: 'WEEKLY',
+        daysOfWeek: ['MON'],
+      });
+
+      // Act
+      const result = materializeSchedule(
+        schedule,
+        TZ_UTC,
+        new Date('2024-06-01T00:00:00Z'),
+        new Date('2024-06-30T00:00:00Z'),
+      );
+
+      // Assert
+      expect(result).toHaveLength(0);
     });
   });
 

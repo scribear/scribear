@@ -35,7 +35,14 @@ export const ToggleMicrophoneButton = ({
     <Tooltip
       title={isMicrophoneActive ? 'Mute Microphone' : 'Unmute Microphone'}
     >
-      <IconButton color="inherit" onClick={toggleMicrophone}>
+      <IconButton
+        color="inherit"
+        aria-label={
+          isMicrophoneActive ? 'Mute Microphone' : 'Unmute Microphone'
+        }
+        aria-pressed={isMicrophoneActive}
+        onClick={toggleMicrophone}
+      >
         {isMicrophoneActive ? <MicIcon /> : <MicOffIcon />}
       </IconButton>
     </Tooltip>

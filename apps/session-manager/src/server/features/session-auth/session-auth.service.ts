@@ -5,7 +5,11 @@ import type { AuthMethod, SessionScope } from '@scribear/scribear-db';
 import type { AppDependencies } from '#src/server/dependency-injection/app-dependencies.js';
 import { generateRandomCode } from '#src/server/utils/generate-random-code.js';
 
-import type { JoinCode, SessionAuthRow } from './session-auth.repository.js';
+import type {
+  DBOrTrx,
+  JoinCode,
+  SessionAuthRow,
+} from './session-auth.repository.js';
 
 const JOIN_CODE_LENGTH = 8;
 const JOIN_CODE_DURATION_MS = 5 * 60 * 1000;
@@ -81,6 +85,13 @@ export class SessionAuthService {
       const session = await this._repo.findSessionForAuth(trx, sessionUid);
       if (!session) return 'SESSION_NOT_FOUND' as const;
 
+      // A canceled session is invisible to devices by construction:
+      // `my-schedule` filters `canceled_at`, so no device should ever be
+      // holding this uid. Report it as gone rather than adding a new error
+      // code to this route's published contract - and, more importantly,
+      // rather than minting a code that would exchange into a live token.
+      if (session.canceledAt !== null) return 'SESSION_NOT_FOUND' as const;
+
       const inRoom = await this._repo.isDeviceInRoom(
         trx,
         deviceUid,
@@ -129,6 +140,104 @@ export class SessionAuthService {
       }
 
       return { current, next };
+    });
+  }
+
+  /**
+   * Ensures a currently-valid join code exists for a session, minting one if
+   * none is active. Unlike `fetchJoinCodes`, this skips the device-membership
+   * check and next-code precomputation - there is no device request context
+   * at boot - so it is only appropriate for boot-time seeding (the demo-room
+   * seeder), not for the device-facing join-code endpoint.
+   *
+   * @param sessionUid The session to ensure a join code for.
+   * @param now Reference instant for expiry calculations.
+   * @returns The current join code, or `null` if the session does not exist.
+   */
+  async ensureCurrentJoinCode(
+    sessionUid: string,
+    now: Date,
+  ): Promise<string | null> {
+    return this._repo.db.transaction().execute(async (trx) => {
+      const locked = await this._repo.lockSession(trx, sessionUid);
+      if (!locked) return null;
+
+      const code = await this._findOrMintCurrentJoinCode(trx, sessionUid, now);
+      return code.joinCode;
+    });
+  }
+
+  /**
+   * Admin-console counterpart to `ensureCurrentJoinCode`: mints/reuses a join
+   * code for an arbitrary session on behalf of an authenticated operator
+   * (unlike the device-facing `fetchJoinCodes`, which requires a device token
+   * and room membership the admin console has neither of).
+   *
+   * Unlike `ensureCurrentJoinCode` (boot-time seeding, trusted caller, no
+   * further checks), this also validates the session the way `exchangeJoinCode`
+   * would — empty `joinCodeScopes` or an inactive window mean a minted code
+   * would never actually exchange, which would mislead the console into
+   * showing a broken "Open live captions" link.
+   *
+   * @param sessionUid The session to fetch/mint a join code for.
+   * @param now Reference instant for the active-window check and expiry.
+   */
+  async fetchJoinCodeForAdmin(
+    sessionUid: string,
+    now: Date,
+  ): Promise<
+    | { joinCode: string; validEnd: Date }
+    | 'SESSION_NOT_FOUND'
+    | 'SESSION_NOT_CURRENTLY_ACTIVE'
+    | 'JOIN_CODE_SCOPES_EMPTY'
+  > {
+    return this._repo.db.transaction().execute(async (trx) => {
+      const locked = await this._repo.lockSession(trx, sessionUid);
+      if (!locked) return 'SESSION_NOT_FOUND' as const;
+
+      const session = await this._repo.findSessionForAuth(trx, sessionUid);
+      if (!session) return 'SESSION_NOT_FOUND' as const;
+
+      if (session.joinCodeScopes.length === 0) {
+        return 'JOIN_CODE_SCOPES_EMPTY' as const;
+      }
+
+      if (!isSessionCurrentlyActive(session, now)) {
+        return 'SESSION_NOT_CURRENTLY_ACTIVE' as const;
+      }
+
+      const code = await this._findOrMintCurrentJoinCode(trx, sessionUid, now);
+      return { joinCode: code.joinCode, validEnd: code.validEnd };
+    });
+  }
+
+  /**
+   * Returns the join code covering `now`, minting one if none is active.
+   * Shared by `ensureCurrentJoinCode` and `fetchJoinCodeForAdmin`, which
+   * differ only in what they check before calling this.
+   *
+   * Callers must already hold the per-session lock (`lockSession`) so two
+   * concurrent calls can't both pass the find-then-insert check and emit
+   * duplicate active codes.
+   */
+  private async _findOrMintCurrentJoinCode(
+    trx: DBOrTrx,
+    sessionUid: string,
+    now: Date,
+  ): Promise<JoinCode> {
+    const codes = await this._repo.findActiveJoinCodes(trx, sessionUid, now);
+    const current = codes.find(
+      (c) =>
+        c.validStart.getTime() <= now.getTime() &&
+        c.validEnd.getTime() > now.getTime(),
+    );
+    if (current) return current;
+
+    return this._repo.insertJoinCode(trx, {
+      joinCode: this._generateJoinCode(),
+      sessionUid,
+      validStart: now,
+      validEnd: new Date(now.getTime() + JOIN_CODE_DURATION_MS),
     });
   }
 
@@ -213,6 +322,21 @@ export class SessionAuthService {
       joinCode,
     );
     if (!codeRow) return 'JOIN_CODE_NOT_FOUND' as const;
+    // A code is exchangeable only inside `[validStart, validEnd)` - the same
+    // window `fetchJoinCodes` and `_findOrMintCurrentJoinCode` use to decide
+    // which code is "current". Checking only `validEnd` made the handoff code
+    // that `fetchJoinCodes` pre-mints 60s before expiry (validStart ==
+    // current.validEnd) exchangeable the instant it was minted, stretching a
+    // code's usable life from the intended 5 minutes to nearly 10.
+    //
+    // Not-yet-valid answers 404 rather than 410: 410 GONE claims the code is
+    // permanently finished when it is about to work, and a distinct status
+    // would confirm an unused code to anyone guessing at the 8-character
+    // space. Nothing legitimate presents a future code - the kiosk QR renders
+    // only `current` - so this costs no working flow.
+    if (codeRow.validStart.getTime() > now.getTime()) {
+      return 'JOIN_CODE_NOT_FOUND' as const;
+    }
     if (codeRow.validEnd.getTime() <= now.getTime()) {
       return 'JOIN_CODE_EXPIRED' as const;
     }
@@ -380,7 +504,16 @@ export class SessionAuthService {
   }
 }
 
+/**
+ * Mirrors `schedule-management`'s `findActiveSession` predicate, including its
+ * `canceled_at IS NULL` clause. Canceling does not move a session's window -
+ * `cancel-session` only accepts *upcoming* occurrences, so time eventually
+ * catches up to every canceled row's slot - which means a start/end-only
+ * predicate starts reporting canceled sessions as live and mints tokens for
+ * them.
+ */
 function isSessionCurrentlyActive(session: SessionAuthRow, now: Date): boolean {
+  if (session.canceledAt !== null) return false;
   if (session.effectiveStart.getTime() > now.getTime()) return false;
   if (
     session.effectiveEnd !== null &&
@@ -391,7 +524,13 @@ function isSessionCurrentlyActive(session: SessionAuthRow, now: Date): boolean {
   return true;
 }
 
+/**
+ * Whether a session can never issue another token. Cancellation is terminal in
+ * the same way an elapsed end time is: an already-issued refresh token must
+ * stop working, not keep re-minting for the rest of the (canceled) window.
+ */
 function isSessionEnded(session: SessionAuthRow, now: Date): boolean {
+  if (session.canceledAt !== null) return true;
   return (
     session.effectiveEnd !== null &&
     session.effectiveEnd.getTime() <= now.getTime()

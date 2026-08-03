@@ -6,3 +6,31 @@ find the full documentation for it [in our repository](https://github.com/change
 
 We have a quick list of common questions to get you started engaging with this project in
 [our documentation](https://github.com/changesets/changesets/blob/main/docs/common-questions.md).
+
+## ScribeAR versioning conventions
+
+- **Add a changeset with every PR** that touches an npm workspace package
+  (`apps/*`, `infra/*`, `libs/**`) — run `npm run changeset` and pick a
+  `patch` or `minor` bump. There is no CI check enforcing this, so it relies
+  on habit.
+- **All `@scribear/*` packages share one version number.** `config.json`
+  puts every workspace package in a single `fixed` group, so running
+  `npm run changeset:version` bumps *every* package to the same new version
+  at once — not just the ones a given changeset names. Pick the bump type
+  (`patch` vs `minor`) based on the most significant change in whatever set
+  of changesets you're about to consume.
+- **`transcription_service` is Python and outside changesets' scope
+  entirely** — `@changesets/cli` only manages the npm workspaces listed in
+  the root `package.json`. Its version lives in
+  `transcription_service/pyproject.toml` and must be bumped **by hand**.
+  Keep its **major.minor in sync with the npm fixed-group version**; its
+  **patch** number can diverge for Python-only fixes that don't warrant an
+  npm-side release.
+- **Release flow:** land feature PRs into `staging` (each with a changeset)
+  → on `staging`, run `npm run changeset:version` to consume pending
+  changesets and bump every package (and bump `transcription_service`'s
+  `pyproject.toml` to match) → commit that version bump → only then open the
+  `staging` → `main` PR. `main`'s CD workflows tag production Docker images
+  using the version committed in `package.json` / `pyproject.toml` at the
+  time of the push to `main`, so versions must be bumped *before* that PR,
+  not after.

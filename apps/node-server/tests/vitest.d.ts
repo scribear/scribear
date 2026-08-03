@@ -14,5 +14,17 @@ declare module 'vitest' {
     sessionTokenSigningKey: string;
     /** API key the live Transcription Service expects on its WS handshake. */
     transcriptionApiKey: string;
+    /**
+     * URL of the Redis container backing the telemetry backplane (B1.7),
+     * addressed from the host. The transcription service reaches the same
+     * server by its network alias instead; the two URLs are not
+     * interchangeable.
+     */
+    redisUrl: string;
+    /**
+     * `TRANSCRIPTION_HOST_ID` the Transcription Service container publishes
+     * its host snapshot under, so a test can address that key directly.
+     */
+    transcriptionHostId: string;
   }
 }

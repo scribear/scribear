@@ -30,6 +30,49 @@ describe('DeviceManagementRepository', () => {
     });
   });
 
+  describe('createWithFixedUid', (it) => {
+    const FIXED_UID = 'deadbeef-0000-4000-8000-000000000002';
+
+    it('inserts a device at the given uid', async () => {
+      // Act
+      const result = await repository.createWithFixedUid(FIXED_UID, {
+        name: 'Demo Source',
+        activationCode: TEST_CODE,
+        expiry: FUTURE_EXPIRY,
+      });
+
+      // Assert
+      expect(result.uid).toBe(FIXED_UID);
+      expect(result.name).toBe('Demo Source');
+    });
+
+    it('is idempotent: a second call with the same uid returns the original row unchanged', async () => {
+      // Arrange
+      await repository.createWithFixedUid(FIXED_UID, {
+        name: 'Demo Source',
+        activationCode: TEST_CODE,
+        expiry: FUTURE_EXPIRY,
+      });
+
+      // Act - simulates a second instance racing to seed the same demo device
+      const result = await repository.createWithFixedUid(FIXED_UID, {
+        name: 'Different Name',
+        activationCode: 'OTHERCODE',
+        expiry: FUTURE_EXPIRY,
+      });
+
+      // Assert - the pre-existing row wins, not the second call's data
+      expect(result.uid).toBe(FIXED_UID);
+      expect(result.name).toBe('Demo Source');
+
+      const all = await dbContext.db
+        .selectFrom('devices')
+        .select('uid')
+        .execute();
+      expect(all).toHaveLength(1);
+    });
+  });
+
   describe('findById', (it) => {
     it('returns the device with null room fields when not in a room', async () => {
       // Arrange
@@ -164,7 +207,11 @@ describe('DeviceManagementRepository', () => {
       // Arrange - activate a device so its code is consumed
       await dbContext.db
         .insertInto('devices')
-        .values({ name: 'pending', activation_code: TEST_CODE, expiry: FUTURE_EXPIRY })
+        .values({
+          name: 'pending',
+          activation_code: TEST_CODE,
+          expiry: FUTURE_EXPIRY,
+        })
         .execute();
       await repository.activate(TEST_CODE, TEST_HASH);
 
@@ -316,7 +363,13 @@ describe('DeviceManagementRepository', () => {
         .execute();
 
       // Act
-      const result = await repository.list({ search: null, active: null, roomUid: null, cursor: null, limit: 50 });
+      const result = await repository.list({
+        search: null,
+        active: null,
+        roomUid: null,
+        cursor: null,
+        limit: 50,
+      });
 
       // Assert
       expect(result.items).toHaveLength(2);
@@ -342,7 +395,13 @@ describe('DeviceManagementRepository', () => {
         .execute();
 
       // Act
-      const result = await repository.list({ search: null, active: null, roomUid: null, cursor: null, limit: 1 });
+      const result = await repository.list({
+        search: null,
+        active: null,
+        roomUid: null,
+        cursor: null,
+        limit: 1,
+      });
 
       // Assert
       expect(result.items).toHaveLength(1);
@@ -364,7 +423,13 @@ describe('DeviceManagementRepository', () => {
         .execute();
 
       // Act
-      const result = await repository.list({ search: null, active: true, roomUid: null, cursor: null, limit: 50 });
+      const result = await repository.list({
+        search: null,
+        active: true,
+        roomUid: null,
+        cursor: null,
+        limit: 50,
+      });
 
       // Assert
       expect(result.items).toHaveLength(1);
@@ -400,7 +465,13 @@ describe('DeviceManagementRepository', () => {
         .execute();
 
       // Act
-      const result = await repository.list({ search: null, active: null, roomUid: '', cursor: null, limit: 50 });
+      const result = await repository.list({
+        search: null,
+        active: null,
+        roomUid: '',
+        cursor: null,
+        limit: 50,
+      });
 
       // Assert
       expect(result.items).toHaveLength(1);

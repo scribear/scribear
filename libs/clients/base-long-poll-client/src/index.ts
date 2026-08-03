@@ -1,5 +1,6 @@
 export { LongPollClient } from './long-poll-client.js';
 export { createLongPollClient } from './create-long-poll-client.js';
+export { LongPollResponseError } from './errors.js';
 export {
   NetworkError,
   UnexpectedResponseError,

@@ -1,5 +1,6 @@
 import { describe, expect } from 'vitest';
 
+import { DEMO_SOURCE_DEVICE_UID } from '#src/server/features/demo-room/demo-room.constants.js';
 import { useDb } from '#tests/utils/use-db.js';
 import { ADMIN_HEADER, useServer } from '#tests/utils/use-server.js';
 
@@ -37,7 +38,7 @@ describe('Device Management Routes', () => {
   }): string {
     const setCookie = res.headers['set-cookie'];
     const raw = (Array.isArray(setCookie) ? setCookie[0] : setCookie) ?? '';
-    const nameValue = `${raw}`.split(';')[0]!;
+    const nameValue = String(raw).split(';')[0]!;
     return nameValue.slice(nameValue.indexOf('=') + 1);
   }
 
@@ -197,7 +198,15 @@ describe('Device Management Routes', () => {
     });
 
     it('paginates results using limit and cursor', async () => {
-      // Arrange
+      // Arrange - the assertions below count every device in the database, not
+      // just the three registered here, so the table has to start empty. The
+      // suite's own `afterEach` guarantees that between tests *in this file*;
+      // it guarantees nothing about a row another file left behind, and this
+      // test failed exactly that way once. Same order as the `useDb` truncation:
+      // rooms first, so nothing in room_devices still references a device.
+      await dbContext.db.deleteFrom('rooms').execute();
+      await dbContext.db.deleteFrom('devices').execute();
+
       await registerDevice('Device A');
       await registerDevice('Device B');
       await registerDevice('Device C');
@@ -221,7 +230,7 @@ describe('Device Management Routes', () => {
       // Act - second page
       const secondRes = await server.fastify.inject({
         method: 'GET',
-        url: `${BASE}/list-devices?limit=2&cursor=${firstBody.nextCursor}`,
+        url: `${BASE}/list-devices?limit=2&cursor=${firstBody.nextCursor!}`,
         headers: { authorization: ADMIN_HEADER },
       });
 
@@ -233,6 +242,74 @@ describe('Device Management Routes', () => {
       }>();
       expect(secondBody.items).toHaveLength(1);
       expect(secondBody.nextCursor).toBeNull();
+    });
+
+    it('does not repeat a row when rows share a millisecond', async () => {
+      // Arrange - `created_at` is a `timestamptz` and keeps microseconds, but
+      // the cursor round-trips through a JS `Date` and an ISO-8601 string, so
+      // it can only name a millisecond. These three rows share one
+      // millisecond and differ only below it, and their uids are ordered
+      // against their microseconds on purpose: uid(A) sorts after uid(B),
+      // which is the case that used to duplicate A onto page two when the
+      // query ordered on the raw column but filtered on the truncated one.
+      // Registering three devices back to back lands in one millisecond often
+      // enough that the test above failed roughly two runs in eight; this one
+      // forces the collision instead of waiting for it.
+      await dbContext.db.deleteFrom('rooms').execute();
+      await dbContext.db.deleteFrom('devices').execute();
+
+      const uidB = '00000000-0000-4000-8000-000000000001';
+      const uidC = '00000000-0000-4000-8000-000000000002';
+      const uidA = '00000000-0000-4000-8000-000000000003';
+      await dbContext.db
+        .insertInto('devices')
+        .values(
+          [
+            { uid: uidA, name: 'Device A', micros: '000100' },
+            { uid: uidB, name: 'Device B', micros: '000200' },
+            { uid: uidC, name: 'Device C', micros: '000300' },
+          ].map(({ uid, name, micros }) => ({
+            uid,
+            name,
+            created_at: `2026-01-01T00:00:00.${micros}Z`,
+            // devices_active_has_hash: a pending device carries an
+            // activation code and expiry and no hash.
+            activation_code: `code-${uid}`,
+            expiry: '2030-01-01T00:00:00.000Z',
+          })),
+        )
+        .execute();
+
+      // Act - walk both pages
+      const firstRes = await server.fastify.inject({
+        method: 'GET',
+        url: `${BASE}/list-devices?limit=2`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+      const firstBody = firstRes.json<{
+        items: { uid: string }[];
+        nextCursor: string | null;
+      }>();
+      const secondRes = await server.fastify.inject({
+        method: 'GET',
+        url: `${BASE}/list-devices?limit=2&cursor=${firstBody.nextCursor!}`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+      const secondBody = secondRes.json<{
+        items: { uid: string }[];
+        nextCursor: string | null;
+      }>();
+
+      // Assert - every row is returned exactly once across the two pages
+      expect(firstRes.statusCode).toBe(200);
+      expect(secondRes.statusCode).toBe(200);
+      expect(firstBody.items).toHaveLength(2);
+      expect(secondBody.items).toHaveLength(1);
+      expect(secondBody.nextCursor).toBeNull();
+
+      const seen = [...firstBody.items, ...secondBody.items].map((d) => d.uid);
+      expect(new Set(seen).size).toBe(3);
+      expect([...seen].sort()).toEqual([uidB, uidC, uidA].sort());
     });
   });
 
@@ -301,6 +378,24 @@ describe('Device Management Routes', () => {
       expect(res.statusCode).toBe(404);
       expect(res.json<{ code: string }>().code).toBe('DEVICE_NOT_FOUND');
     });
+
+    it("returns 409 DEMO_SOURCE_DEVICE_NOT_REREGISTRABLE for the demo caption room's placeholder device", async () => {
+      // Arrange / Act - the guard runs on the uid alone, so this does not
+      // depend on the demo room actually being seeded (this suite runs with
+      // DEMO_ROOM_ENABLED off).
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${BASE}/reregister-device`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { deviceUid: DEMO_SOURCE_DEVICE_UID },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe(
+        'DEMO_SOURCE_DEVICE_NOT_REREGISTRABLE',
+      );
+    });
   });
 
   describe('POST /update-device', (it) => {
@@ -367,6 +462,23 @@ describe('Device Management Routes', () => {
       expect(res.json<{ code: string }>().code).toBe('DEVICE_NOT_FOUND');
     });
 
+    it("returns 409 DEMO_SOURCE_DEVICE_NOT_DELETABLE for the demo caption room's placeholder device", async () => {
+      // Arrange / Act - deleting it would strand the demo room without a
+      // source; the guard runs on the uid alone, independent of DEMO_ROOM_ENABLED.
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: `${BASE}/delete-device`,
+        headers: { authorization: ADMIN_HEADER },
+        body: { deviceUid: DEMO_SOURCE_DEVICE_UID },
+      });
+
+      // Assert
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ code: string }>().code).toBe(
+        'DEMO_SOURCE_DEVICE_NOT_DELETABLE',
+      );
+    });
+
     it('returns 409 when the device is the source of a room', async () => {
       // Arrange
       const { deviceUid, activationCode } = await registerDevice('Source');
@@ -396,6 +508,56 @@ describe('Device Management Routes', () => {
       expect(res.json<{ code: string }>().code).toBe(
         'WOULD_LEAVE_ROOM_WITHOUT_SOURCE',
       );
+    });
+  });
+
+  describe('device presence (B1.6)', (it) => {
+    async function listDevices() {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${BASE}/list-devices`,
+        headers: { authorization: ADMIN_HEADER },
+      });
+      return res.json<{
+        items: { uid: string; lastSeenAt: string | null; online: boolean }[];
+      }>().items;
+    }
+
+    it('reports a never-seen device as offline with a null timestamp', async () => {
+      // Arrange - registered but never activated, so it has never made a
+      // device-authenticated request.
+      await registerDevice('Never Seen');
+
+      // Act
+      const devices = await listDevices();
+
+      // Assert
+      expect(devices[0]?.lastSeenAt).toBeNull();
+      expect(devices[0]?.online).toBe(false);
+    });
+
+    it('stamps last-seen on any device-authenticated request', async () => {
+      // Arrange - the stamp lives in the device-token hook rather than in a
+      // single handler, so get-my-device is enough to prove the whole
+      // device-authenticated surface is covered.
+      const { activationCode } = await registerDevice('Seen');
+      const activation = await activateDevice(activationCode);
+      const token = extractDeviceToken(activation);
+
+      // Act
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: `${BASE}/get-my-device`,
+        headers: { cookie: `DEVICE_TOKEN=${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+
+      // Assert - the write is fire-and-forget, so it may land just after the
+      // response.
+      await expect
+        .poll(async () => (await listDevices())[0]?.online)
+        .toBe(true);
+      expect((await listDevices())[0]?.lastSeenAt).not.toBeNull();
     });
   });
 

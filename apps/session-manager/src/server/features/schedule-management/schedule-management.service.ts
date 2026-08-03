@@ -18,11 +18,17 @@ import {
   RoomScheduleVersionBumpedChannel,
   SessionConfigVersionBumpedChannel,
 } from '#src/server/shared/events/schedule-management.events.js';
+import { isPgExclusionViolation } from '#src/server/shared/pg-errors.js';
 
 import { reconcileAutoSessions } from './utils/auto-session-reconciler.js';
+import { assertCancelable, assertUncancelable } from './utils/cancellation.js';
+import type { CancelEligibility } from './utils/cancellation.js';
 import { detectConflict } from './utils/conflict-detector.js';
 import { buildScheduledSessionRow } from './utils/occurrence-to-session.js';
-import { materializeSchedule } from './utils/schedule-materializer.js';
+import {
+  MIN_SESSION_DURATION_SECONDS,
+  materializeSchedule,
+} from './utils/schedule-materializer.js';
 import type { ScheduleForMaterialization } from './utils/schedule-materializer.js';
 import { materializeWindow } from './utils/window-materializer.js';
 
@@ -64,7 +70,6 @@ export class MaterializationFailedError extends Error {
 }
 
 const MATERIALIZATION_WINDOW_DAYS = 7;
-const MIN_AUTO_SESSION_DURATION_SECONDS = 60;
 const CONFLICT_CHECK_HORIZON_DAYS = 14;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -187,6 +192,26 @@ function scheduleToMaterializationRecord(
 }
 
 /**
+ * Whether two local wall-clock times denote the same time of day.
+ *
+ * A string comparison is not enough. `HH:MM` and `HH:MM:SS` are both accepted
+ * on the wire and the database stores either as `TIME`, so a row written as
+ * `08:00` reads back as `08:00:00`. An update that merges a request's `08:00`
+ * against that stored value is exactly the collision the
+ * `*_local_times_distinct` CHECK constraints fire on, and `'08:00:00' ===
+ * '08:00'` is false - so a naive pre-check passes the request straight through
+ * to the constraint and the operator gets a 500 for a plain input error.
+ */
+function localTimesEqual(a: string, b: string): boolean {
+  return toSecondsOfDay(a) === toSecondsOfDay(b);
+}
+
+function toSecondsOfDay(time: string): number {
+  const [h = 0, m = 0, s = 0] = time.split(':').map(Number);
+  return h * 3600 + m * 60 + s;
+}
+
+/**
  * Thrown inside a `_runWithEvents` transaction callback to force a rollback
  * while still returning a typed result code to the caller. Kysely commits on
  * normal return and rolls back on throw; this sentinel bridges the gap for
@@ -211,21 +236,61 @@ class RollbackError extends Error {
  *  - Bumps `room_schedule_version` and `last_materialized_at`.
  */
 export class ScheduleManagementService {
+  private static readonly _MAX_LIST_SESSIONS_RANGE_DAYS = 31;
+
   private _log: AppDependencies['logger'];
   private _dbClient: AppDependencies['dbClient'];
   private _repo: AppDependencies['scheduleManagementRepository'];
   private _eventBus: AppDependencies['eventBusService'];
+  /**
+   * Provider keys this deployment's transcription-service defines. See
+   * `TRANSCRIPTION_PROVIDER_IDS` in `app-config.ts` for why the accepted set is
+   * configuration rather than a schema enum or a live lookup.
+   */
+  private _transcriptionProviderIds: Set<string>;
 
   constructor(
     logger: AppDependencies['logger'],
     dbClient: AppDependencies['dbClient'],
     scheduleManagementRepository: AppDependencies['scheduleManagementRepository'],
     eventBusService: AppDependencies['eventBusService'],
+    scheduleManagementConfig: AppDependencies['scheduleManagementConfig'],
   ) {
     this._log = logger;
     this._dbClient = dbClient;
     this._repo = scheduleManagementRepository;
     this._eventBus = eventBusService;
+    this._transcriptionProviderIds = new Set(
+      scheduleManagementConfig.transcriptionProviderIds,
+    );
+  }
+
+  /**
+   * The provider keys this service accepts, in configured order. Exposed so the
+   * controller can name them in the rejection message - an operator who typed
+   * `whipser` should not have to go read the deployment's env to find out what
+   * was expected.
+   */
+  get transcriptionProviderIds(): string[] {
+    return [...this._transcriptionProviderIds];
+  }
+
+  /**
+   * Rejects a `transcriptionProviderId` the deployment has no provider for.
+   *
+   * Checked here, at write time, because the alternative is that it surfaces at
+   * *stream* time: transcription-service raises "Invalid Provider Key" and
+   * closes the upstream socket 1007, node-server retries a permanently
+   * unsatisfiable request forever, and every viewer of that room watches a
+   * banner promising a reconnection that cannot happen. The typo is made once,
+   * by an operator, at a keyboard - that is where it should be answered.
+   *
+   * `undefined` (an update that does not touch the field) passes: it cannot
+   * introduce a bad value.
+   */
+  private _isKnownTranscriptionProvider(id: string | undefined): boolean {
+    if (id === undefined) return true;
+    return this._transcriptionProviderIds.has(id);
   }
 
   /**
@@ -306,7 +371,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         newAutoEnabled,
         collector.sessionBumps,
       );
@@ -425,7 +490,7 @@ export class ScheduleManagementService {
       room.timezone,
       now,
       windowEnd,
-      MIN_AUTO_SESSION_DURATION_SECONDS,
+      MIN_SESSION_DURATION_SECONDS,
       room.autoSessionEnabled,
       collector.sessionBumps,
     );
@@ -452,7 +517,11 @@ export class ScheduleManagementService {
     | 'INVALID_ACTIVE_END'
     | 'INVALID_LOCAL_TIMES'
     | 'INVALID_FREQUENCY_FIELDS'
+    | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
   > {
+    if (!this._isKnownTranscriptionProvider(data.transcriptionProviderId)) {
+      return 'UNKNOWN_TRANSCRIPTION_PROVIDER' as const;
+    }
     return this._runWithEvents(async (trx, collector) => {
       const room = await this._repo.lockRoom(trx, data.roomUid);
       if (!room) return 'ROOM_NOT_FOUND' as const;
@@ -466,7 +535,7 @@ export class ScheduleManagementService {
         now,
         collector,
       );
-      if (result === 'CONFLICT' || result === 'INVALID_ACTIVE_START') {
+      if (typeof result === 'string') {
         return result;
       }
 
@@ -544,7 +613,11 @@ export class ScheduleManagementService {
     | 'INVALID_ACTIVE_END'
     | 'INVALID_LOCAL_TIMES'
     | 'INVALID_FREQUENCY_FIELDS'
+    | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
   > {
+    if (!this._isKnownTranscriptionProvider(data.transcriptionProviderId)) {
+      return 'UNKNOWN_TRANSCRIPTION_PROVIDER' as const;
+    }
     return this._runWithEvents(async (trx, collector) => {
       const existing = await this._repo.findScheduleByUid(trx, uid);
       if (existing?.activeEnd !== null) {
@@ -610,8 +683,16 @@ export class ScheduleManagementService {
     data: CreateWindowInput,
     now: Date,
   ): Promise<
-    AutoSessionWindow | 'ROOM_NOT_FOUND' | 'CONFLICT' | 'INVALID_ACTIVE_END'
+    | AutoSessionWindow
+    | 'ROOM_NOT_FOUND'
+    | 'CONFLICT'
+    | 'INVALID_ACTIVE_END'
+    | 'INVALID_LOCAL_TIMES'
+    | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
   > {
+    if (!this._isKnownTranscriptionProvider(data.transcriptionProviderId)) {
+      return 'UNKNOWN_TRANSCRIPTION_PROVIDER' as const;
+    }
     return this._runWithEvents(async (trx, collector) => {
       const room = await this._repo.lockRoom(trx, data.roomUid);
       if (!room) return 'ROOM_NOT_FOUND' as const;
@@ -692,8 +773,16 @@ export class ScheduleManagementService {
     data: UpdateWindowInput,
     now: Date,
   ): Promise<
-    AutoSessionWindow | 'NOT_FOUND' | 'CONFLICT' | 'INVALID_ACTIVE_END'
+    | AutoSessionWindow
+    | 'NOT_FOUND'
+    | 'CONFLICT'
+    | 'INVALID_ACTIVE_END'
+    | 'INVALID_LOCAL_TIMES'
+    | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
   > {
+    if (!this._isKnownTranscriptionProvider(data.transcriptionProviderId)) {
+      return 'UNKNOWN_TRANSCRIPTION_PROVIDER' as const;
+    }
     return this._runWithEvents(async (trx, collector) => {
       const existing = await this._repo.findWindowByUid(trx, uid);
       if (existing?.activeEnd !== null) {
@@ -748,7 +837,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );
@@ -769,16 +858,61 @@ export class ScheduleManagementService {
   }
 
   /**
+   * Fetches the room's currently-active session (effective start ≤ now and
+   * effective end > now or null), of any type, or `null` if none is active.
+   * @param roomUid The room to query.
+   * @param now Instant against which "active" is evaluated.
+   * @returns The active session, `null` if none is active, or `'ROOM_NOT_FOUND'`.
+   */
+  async findActiveSession(
+    roomUid: string,
+    now: Date,
+  ): Promise<Session | null | 'ROOM_NOT_FOUND'> {
+    const exists = await this._repo.roomExists(this._repo.db, roomUid);
+    if (!exists) return 'ROOM_NOT_FOUND' as const;
+    const session = await this._repo.findActiveSession(
+      this._repo.db,
+      roomUid,
+      now,
+    );
+    return session ?? null;
+  }
+
+  /**
    * Lists sessions in the room whose effective interval overlaps
    * `[range.from, range.to)`, ordered by effective start ascending.
    * @param roomUid The room to query.
    * @param range Time range to test for overlap.
+   * @returns The matching sessions, or `'ROOM_NOT_FOUND'` if the room does not exist.
    */
   async listSessionsForRoomInRange(
     roomUid: string,
     range: { from: Date; to: Date },
-  ): Promise<Session[]> {
+  ): Promise<Session[] | 'ROOM_NOT_FOUND'> {
+    const exists = await this._repo.roomExists(this._repo.db, roomUid);
+    if (!exists) return 'ROOM_NOT_FOUND' as const;
     return this._repo.listSessionsForRoomInRange(this._repo.db, roomUid, range);
+  }
+
+  /**
+   * Lists sessions across one, several, or (when `roomUids` is null) all
+   * rooms whose effective interval overlaps `[range.from, range.to)`, for
+   * calendar views. Includes canceled sessions.
+   * @param roomUids Rooms to restrict to, or `null` for all rooms.
+   * @param range Time range to test for overlap; capped at
+   * `_MAX_LIST_SESSIONS_RANGE_DAYS`.
+   * @returns The matching sessions, or `'RANGE_TOO_LARGE'` if the range exceeds the cap.
+   */
+  async listSessionsInRange(
+    roomUids: string[] | null,
+    range: { from: Date; to: Date },
+  ): Promise<Session[] | 'RANGE_TOO_LARGE'> {
+    const rangeDays =
+      (range.to.getTime() - range.from.getTime()) / (24 * 60 * 60 * 1000);
+    if (rangeDays > ScheduleManagementService._MAX_LIST_SESSIONS_RANGE_DAYS) {
+      return 'RANGE_TOO_LARGE';
+    }
+    return this._repo.listSessionsInRange(this._repo.db, roomUids, range);
   }
 
   /**
@@ -828,7 +962,15 @@ export class ScheduleManagementService {
   async createOnDemandSession(
     data: CreateOnDemandSessionInput,
     now: Date,
-  ): Promise<Session | 'ROOM_NOT_FOUND' | 'ANOTHER_SESSION_ACTIVE'> {
+  ): Promise<
+    | Session
+    | 'ROOM_NOT_FOUND'
+    | 'ANOTHER_SESSION_ACTIVE'
+    | 'UNKNOWN_TRANSCRIPTION_PROVIDER'
+  > {
+    if (!this._isKnownTranscriptionProvider(data.transcriptionProviderId)) {
+      return 'UNKNOWN_TRANSCRIPTION_PROVIDER' as const;
+    }
     return this._runWithEvents(async (trx, collector) => {
       const room = await this._repo.lockRoom(trx, data.roomUid);
       if (!room) return 'ROOM_NOT_FOUND' as const;
@@ -885,7 +1027,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );
@@ -974,7 +1116,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );
@@ -1032,7 +1174,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );
@@ -1040,6 +1182,107 @@ export class ScheduleManagementService {
       await this._finalizeRoomWrite(trx, session.roomUid, now, collector);
 
       const updated = await this._repo.findSessionByUid(trx, session.uid);
+      return updated ?? ('NOT_FOUND' as const);
+    });
+  }
+
+  /**
+   * Cancels a single upcoming `SCHEDULED` session occurrence by setting
+   * `canceled_at = now`, without affecting its parent schedule or any other
+   * occurrence. `AUTO` and `ON_DEMAND` sessions, already-canceled sessions,
+   * and sessions that have already started are rejected (see
+   * `assertCancelable`). The freed slot is reconciled into `AUTO` sessions
+   * where covered by an active window, mirroring `endSessionEarly`.
+   * @param uid The session to cancel.
+   * @param now The reference instant; becomes `canceled_at`.
+   * @returns The updated session, or an error code.
+   */
+  async cancelSession(
+    uid: string,
+    now: Date,
+  ): Promise<Session | 'NOT_FOUND' | Exclude<CancelEligibility, 'OK'>> {
+    return this._runWithEvents(async (trx, collector) => {
+      const session = await this._repo.findSessionByUid(trx, uid);
+      if (!session) return 'NOT_FOUND' as const;
+
+      const eligibility = assertCancelable(session, now);
+      if (eligibility !== 'OK') return eligibility;
+
+      const room = await this._repo.lockRoom(trx, session.roomUid);
+      if (!room) return 'NOT_FOUND' as const;
+
+      await this._repo.setSessionsConstraintsDeferred(trx);
+
+      const canceled = await this._repo.cancelSession(trx, uid, now);
+      // Lost a race with another cancel between findSessionByUid and here.
+      if (!canceled) return 'SESSION_ALREADY_CANCELED' as const;
+      collector.sessionBumps.set(canceled.uid, canceled.sessionConfigVersion);
+
+      const windowEnd = addDays(now, MATERIALIZATION_WINDOW_DAYS);
+      await reconcileAutoSessions(
+        trx,
+        this._repo,
+        session.roomUid,
+        room.timezone,
+        now,
+        windowEnd,
+        MIN_SESSION_DURATION_SECONDS,
+        room.autoSessionEnabled,
+        collector.sessionBumps,
+      );
+
+      await this._finalizeRoomWrite(trx, session.roomUid, now, collector);
+
+      const updated = await this._repo.findSessionByUid(trx, uid);
+      return updated ?? ('NOT_FOUND' as const);
+    });
+  }
+
+  /**
+   * Reverses a `cancelSession` call ("Undo") by clearing `canceled_at`.
+   * Re-admits the row to the narrowed `sessions_no_overlap` exclusion
+   * constraint (§2.3/§3.2) — if another session now occupies the freed slot
+   * (e.g. an AUTO session backfilled it), this returns
+   * `'SLOT_NO_LONGER_AVAILABLE'` rather than corrupting the schedule.
+   * @param uid The session to uncancel.
+   * @param now The reference instant; used only for `_finalizeRoomWrite`.
+   * @returns The updated session, or an error code.
+   */
+  async uncancelSession(
+    uid: string,
+    now: Date,
+  ): Promise<
+    Session | 'NOT_FOUND' | 'SESSION_NOT_CANCELED' | 'SLOT_NO_LONGER_AVAILABLE'
+  > {
+    return this._runWithEvents(async (trx, collector) => {
+      const session = await this._repo.findSessionByUid(trx, uid);
+      if (!session) return 'NOT_FOUND' as const;
+
+      const eligibility = assertUncancelable(session);
+      if (eligibility !== 'OK') return eligibility;
+
+      const room = await this._repo.lockRoom(trx, session.roomUid);
+      if (!room) return 'NOT_FOUND' as const;
+
+      let uncanceled;
+      try {
+        uncanceled = await this._repo.uncancelSession(trx, uid);
+      } catch (e) {
+        if (isPgExclusionViolation(e)) {
+          return 'SLOT_NO_LONGER_AVAILABLE' as const;
+        }
+        throw e;
+      }
+      // Lost a race with another uncancel between findSessionByUid and here.
+      if (!uncanceled) return 'SESSION_NOT_CANCELED' as const;
+      collector.sessionBumps.set(
+        uncanceled.uid,
+        uncanceled.sessionConfigVersion,
+      );
+
+      await this._finalizeRoomWrite(trx, session.roomUid, now, collector);
+
+      const updated = await this._repo.findSessionByUid(trx, uid);
       return updated ?? ('NOT_FOUND' as const);
     });
   }
@@ -1076,7 +1319,7 @@ export class ScheduleManagementService {
     }
 
     // Validate before the DB CHECK fires (local_times_distinct constraint).
-    if (data.localStartTime === data.localEndTime) {
+    if (localTimesEqual(data.localStartTime, data.localEndTime)) {
       return 'INVALID_LOCAL_TIMES';
     }
 
@@ -1169,7 +1412,7 @@ export class ScheduleManagementService {
       room.timezone,
       now,
       windowEnd,
-      MIN_AUTO_SESSION_DURATION_SECONDS,
+      MIN_SESSION_DURATION_SECONDS,
       room.autoSessionEnabled,
       collector.sessionBumps,
     );
@@ -1229,7 +1472,7 @@ export class ScheduleManagementService {
       room.timezone,
       now,
       windowEnd,
-      MIN_AUTO_SESSION_DURATION_SECONDS,
+      MIN_SESSION_DURATION_SECONDS,
       room.autoSessionEnabled,
       collector.sessionBumps,
     );
@@ -1257,10 +1500,24 @@ export class ScheduleManagementService {
     now: Date,
     collector: EventCollector,
     options: { skipReconcile?: boolean } = {},
-  ): Promise<AutoSessionWindow | 'CONFLICT' | 'INVALID_ACTIVE_END'> {
+  ): Promise<
+    | AutoSessionWindow
+    | 'CONFLICT'
+    | 'INVALID_ACTIVE_END'
+    | 'INVALID_LOCAL_TIMES'
+  > {
     const { activeStart, activeEnd } = data;
     if (activeEnd !== null && activeEnd.getTime() <= activeStart.getTime()) {
       return 'INVALID_ACTIVE_END';
+    }
+
+    // Validate before the DB CHECK fires
+    // (auto_session_windows_local_times_distinct constraint), exactly as
+    // `_doCreateSchedule` does. Without it the CHECK raises inside the
+    // transaction and the operator gets an opaque 500 for the same typo the
+    // schedule path answers with a sentence.
+    if (localTimesEqual(data.localStartTime, data.localEndTime)) {
+      return 'INVALID_LOCAL_TIMES';
     }
 
     const windowEnd = addDays(now, MATERIALIZATION_WINDOW_DAYS);
@@ -1328,7 +1585,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );
@@ -1372,7 +1629,7 @@ export class ScheduleManagementService {
         room.timezone,
         now,
         windowEnd,
-        MIN_AUTO_SESSION_DURATION_SECONDS,
+        MIN_SESSION_DURATION_SECONDS,
         room.autoSessionEnabled,
         collector.sessionBumps,
       );
