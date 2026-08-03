@@ -163,6 +163,19 @@ export interface ConfigCheckReport {
  * never leave this process: every finding reports a classification, and
  * `describeSecret` is the only thing that turns a secret into prose.
  */
+/**
+ * The one logging call this service makes, narrowed to what it needs.
+ *
+ * Passed into `check()` rather than injected, deliberately: `configCheckService`
+ * is a SINGLETON and the useful logger here is the *request-scoped* one (it
+ * carries `reqId`), so injecting it would pin whichever request happened to
+ * build the singleton first. The controller already threads `req.hostname`
+ * through for the same reason, and `req.log` rides along with it.
+ */
+export interface CheckLogger {
+  debug: (obj: Record<string, unknown>, msg: string) => void;
+}
+
 export interface ConfigCheckConfig {
   declaredEnv: string;
   /** True when the server was started with `--dev`. */
@@ -847,28 +860,46 @@ export function evaluateStaticChecks(
  * confidence is exactly the failure mode this check exists to avoid; see
  * `evaluatePublicOriginCheck`'s doc.
  */
+/**
+ * Whether a dotted-quad IPv4 address is one that cannot be reached from
+ * outside the network that handed it out. Split out so the IPv4-mapped IPv6
+ * form (`::ffff:10.1.2.3`) is judged by exactly the same rules rather than by
+ * a second, drifting copy of them.
+ */
+function isUnroutableIPv4(host: string): boolean {
+  const [a, b] = host.split('.').map(Number);
+  if (a === undefined || b === undefined) return false;
+  return (
+    a === 127 || // loopback
+    a === 10 || // RFC1918
+    (a === 172 && b >= 16 && b <= 31) || // RFC1918
+    (a === 192 && b === 168) || // RFC1918
+    (a === 169 && b === 254) || // link-local
+    a === 0 // "this network"
+  );
+}
+
 function looksUnreachableExternally(host: string): boolean {
   const h = host.toLowerCase();
   if (h === 'localhost' || h.endsWith('.localhost')) return true;
   if (h.endsWith('.local')) return true;
 
-  if (isIPv4(h)) {
-    const octets = h.split('.').map(Number);
-    const [a, b] = octets;
-    if (a === undefined || b === undefined) return false;
-    return (
-      a === 127 || // loopback
-      a === 10 || // RFC1918
-      (a === 172 && b >= 16 && b <= 31) || // RFC1918
-      (a === 192 && b === 168) || // RFC1918
-      (a === 169 && b === 254) || // link-local
-      a === 0 // "this network"
-    );
-  }
+  if (isIPv4(h)) return isUnroutableIPv4(h);
 
   if (isIPv6(h)) {
+    // An IPv4-mapped address (`::ffff:127.0.0.1`) is IPv6 by syntax and IPv4 by
+    // reach, and none of the prefix tests below match one — so without this it
+    // would fall through as "not ruled out" while being literally loopback.
+    // Node hands these out for a v4 peer on a dual-stack socket, so it is a
+    // plausible Host header, not a curiosity.
+    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(h);
+    if (mapped?.[1] !== undefined && isIPv4(mapped[1])) {
+      return isUnroutableIPv4(mapped[1]);
+    }
+
     return (
       h === '::1' || // loopback
+      h === '::' || // unspecified
       h.startsWith('fc') || // unique-local fc00::/7
       h.startsWith('fd') ||
       h.startsWith('fe8') || // link-local fe80::/10
@@ -1052,7 +1083,10 @@ export class ConfigCheckService {
    * existing direct caller of `.check()` — the great majority of this file's
    * own unit tests — is unaffected; only the HTTP route passes a real value.
    */
-  async check(requestHostname = ''): Promise<ConfigCheckReport> {
+  async check(
+    requestHostname = '',
+    log?: CheckLogger,
+  ): Promise<ConfigCheckReport> {
     const { environment, environmentSource, declaredButInvalid } =
       resolveEnvironment(this._config);
 
@@ -1071,7 +1105,7 @@ export class ConfigCheckService {
       this._checkDatabase(environment),
       this._checkMonitoring(environment),
       this._checkSecretPlaceholders(environment),
-      this._checkSessionManagerKey(environment),
+      this._checkSessionManagerKey(environment, log),
       this._checkBackup(environment),
       this._checkTestAudioServiceKey(environment),
     ]);
@@ -1818,7 +1852,7 @@ export class ConfigCheckService {
           title: 'The monitoring sidecar is not answering',
           detail: `monitoring-sidecar's /api/monitoring/v1/config-audit ${probeFailure(response, this._config.upstreamTimeoutMs)}. While it is down this console cannot show alerts, and three things go unchecked rather than confirmed: node-server's classification of JWT_SECRET, NODE_SERVER_KEY, NODE_SERVER_SERVICE_KEY and TRANSCRIPTION_API_KEY; whether the sidecar and node-server agree on NODE_SERVER_SERVICE_KEY; and every fleet metric Prometheus scrapes from it.`,
           remediation:
-            'Check `docker compose ps monitoring-sidecar` and `docker compose logs monitoring-sidecar`, and that ADMIN_MONITORING_SIDECAR_BASE_URL points at it on the backend network (monitoring-sidecar:80 by default).',
+            'Check `docker compose ps monitoring-sidecar` and `docker compose logs monitoring-sidecar`, and that MONITORING_SIDECAR_BASE_URL points at it on the backend network (http://monitoring-sidecar:80 by default).',
           docUrl: DOC.monitoring,
         },
         { development: 'advisory', staging: 'warning', production: 'warning' },
@@ -1896,6 +1930,7 @@ export class ConfigCheckService {
    */
   private async _checkSessionManagerKey(
     env: DeploymentEnv,
+    log?: CheckLogger,
   ): Promise<ConfigFinding[]> {
     if (this._config.adminApiKey === '') return [];
 
@@ -1906,9 +1941,20 @@ export class ConfigCheckService {
           signal: AbortSignal.timeout(this._config.upstreamTimeoutMs),
         });
       status = response?.status;
-    } catch {
+    } catch (err: unknown) {
       // Unreachable, timed out, or an unreadable body. Not evidence about the
-      // key, and already reported by the health rollup.
+      // key, and already reported by the health rollup — so this stays silent
+      // on the page rather than guessing.
+      //
+      // It is logged, though, because this catch is deliberately broad: it also
+      // absorbs a genuine defect in `getSchemaStatus` (an unexpected response
+      // shape, a bad timeout signal), and the health rollup probes a *different*
+      // endpoint, so nothing else would necessarily surface that. Silent on the
+      // page, never silent in the logs.
+      log?.debug(
+        { err },
+        'config-check: session-manager key probe could not run; reporting nothing about SESSION_MANAGER_API_KEY',
+      );
       return [];
     }
 

@@ -1003,6 +1003,28 @@ describe('evaluatePublicOriginCheck', (it) => {
     );
   });
 
+  // An IPv4-mapped address is IPv6 by syntax and IPv4 by reach. Node hands
+  // these out for a v4 peer on a dual-stack socket, so it is a plausible Host
+  // header — and every IPv6 prefix test misses it, so before this it passed
+  // through as "not ruled out" while being literally loopback.
+  it('flags an IPv4-mapped IPv6 loopback', () => {
+    expect(idsFor('::ffff:127.0.0.1')).toContain(
+      'public-origin-not-externally-resolvable',
+    );
+  });
+
+  it('flags an IPv4-mapped IPv6 RFC1918 address', () => {
+    expect(idsFor('::ffff:10.1.2.3')).toContain(
+      'public-origin-not-externally-resolvable',
+    );
+  });
+
+  it('stays quiet for an IPv4-mapped IPv6 public address', () => {
+    expect(idsFor('::ffff:93.184.216.34')).not.toContain(
+      'public-origin-not-externally-resolvable',
+    );
+  });
+
   it('flags a bare single-label hostname (Compose service name shape)', () => {
     expect(idsFor('admin-server')).toContain(
       'public-origin-not-externally-resolvable',
@@ -2271,6 +2293,32 @@ describe('cross-service key agreement', () => {
     it('stays quiet when the gateway throws', async () => {
       const found = await keyIds({
         getSchemaStatus: () => Promise.reject(new Error('timed out')),
+      });
+
+      expect(found).not.toContain('session-manager-admin-key-mismatch');
+    });
+
+    // Silent on the page is right — a probe that could not run is not evidence
+    // about the key. Silent in the logs is not: this catch is broad enough to
+    // absorb a real defect in `getSchemaStatus`, and the health rollup probes a
+    // different endpoint, so nothing else would necessarily surface it.
+    it('logs the reason it could not run, even though it reports nothing', async () => {
+      const err = new Error('timed out');
+      const debug = vi.fn();
+
+      await keyService({
+        getSchemaStatus: () => Promise.reject(err),
+      }).check('', { debug });
+
+      expect(debug).toHaveBeenCalledWith(
+        { err },
+        expect.stringContaining('SESSION_MANAGER_API_KEY'),
+      );
+    });
+
+    it('does not require a logger', async () => {
+      const found = await keyIds({
+        getSchemaStatus: () => Promise.reject(new Error('boom')),
       });
 
       expect(found).not.toContain('session-manager-admin-key-mismatch');

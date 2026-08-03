@@ -30,7 +30,7 @@ export class ConfigCheckController {
    * that function's doc for why this is the only place that fact is visible.
    */
   async configCheck(req: BaseFastifyRequest, res: BaseFastifyReply) {
-    const report = await this._configCheckService.check(req.hostname);
+    const report = await this._configCheckService.check(req.hostname, req.log);
     res.code(200).send(okEnvelope(report));
   }
 }
