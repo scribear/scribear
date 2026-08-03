@@ -101,5 +101,6 @@ of them.
 
 The stub enforces Chrome's real 9216-token quota using the token cost measured
 from the real API (`≈ 560 + 0.209 × chars`, fitted to samples in
-`browser-ai/WebAPISummarizer-Dev.md`), so a chunk size that production would
+`tools/browser-ai/WebAPISummarizer-Dev.md`), so a chunk size that production
+would
 reject is rejected here too.

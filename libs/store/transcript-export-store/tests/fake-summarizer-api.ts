@@ -8,7 +8,7 @@ import type {
 /**
  * Chrome's real quota, and the token cost measured from real inputs:
  * `tokens ~= 560 + 0.209 * chars` (fitted to 903/4515/8987/44806-char samples
- * in `browser-ai/WebAPISummarizer-Dev.md`).
+ * in `tools/browser-ai/WebAPISummarizer-Dev.md`).
  *
  * The fake enforces this rather than a round number so a chunk size that would
  * blow the real quota fails here too.
