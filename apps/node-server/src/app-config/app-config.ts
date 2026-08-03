@@ -9,6 +9,7 @@ import type { SecretPlaceholders } from '@scribear/node-server-schema';
 import { DEFAULT_DEMO_SESSION_UID } from '#src/server/features/demo-room/demo-room.constants.js';
 import type { ServiceAuthConfig } from '#src/server/shared/services/service-auth.service.js';
 import type { SessionTokenConfig } from '#src/server/shared/services/session-token.service.js';
+import { isPlaceholderSecret } from '#src/server/utils/constant-time-equal.js';
 
 const CONFIG_SCHEMA = Type.Object({
   LOG_LEVEL: Type.Enum(LogLevel),
@@ -60,19 +61,6 @@ export interface DemoRoomConfig {
   enabled: boolean;
   /** Session UID captions are published for; matches the seeded session. */
   sessionUid: string;
-}
-
-/**
- * Matches the `deployment/.env.example` stub marker as a substring — the same
- * check `config-check.service.ts` on the Admin Server makes of its own
- * secrets. Duplicated rather than shared: this codebase restates rather than
- * shares this kind of check across services (see e.g. transcription-service's
- * Python side restating the status schema rather than importing it), and it
- * is three lines.
- */
-const PLACEHOLDER_MARKER = 'CHANGEME';
-function isPlaceholder(value: string): boolean {
-  return value.toUpperCase().includes(PLACEHOLDER_MARKER);
 }
 
 export interface TelemetryPublisherConfig {
@@ -143,19 +131,55 @@ export class AppConfig {
    * value (PLAN-ConfigCheck-Coverage Phase 2) — reported on `GET /status`,
    * the endpoint the monitoring sidecar already polls, and from there relayed
    * to Config Check on the Admin Server.
+   *
+   * Uses `isPlaceholderSecret`, not a local restatement of the `CHANGEME`
+   * substring match: `config-check.service.ts` on the Admin Server *does*
+   * restate this check for its own secrets rather than importing this
+   * service's copy, and that cross-service duplication is deliberate (see
+   * e.g. transcription-service's Python side restating the status schema
+   * rather than importing it) — but `isPlaceholderSecret` is already this
+   * service's one definition of "unusable", the same one
+   * `assertNotPlaceholderKey` builds its boot guard on, and reusing it here
+   * keeps that true instead of growing a second, driftable copy inside this
+   * file.
+   *
+   * `isPlaceholderSecret` treats an empty string as a placeholder too, so an
+   * unset secret is flagged the same as one still reading `CHANGEME`. That is
+   * deliberately not the same distinction the Admin Server's own
+   * `describeSecret`/`admin-session-secret-missing` draws between "not set"
+   * and "placeholder": that distinction exists there because
+   * `ADMIN_SESSION_SECRET` has a fallback — unset, it signs cookies with a
+   * random secret minted per boot, a materially different failure with a
+   * different remediation than a known, public secret. None of the four
+   * secrets classified here have any such fallback: each is used directly, as
+   * an HMAC key or a presented bearer credential, so empty and `CHANGEME` are
+   * equally guessable and share one remediation ("set a real high-entropy
+   * secret"). Collapsing them into one flag per secret is what that equal
+   * consequence justifies.
+   *
+   * One of the four is additionally unobservable as "empty" here in
+   * practice: `NODE_SERVER_SERVICE_API_KEY`'s `ServiceAuthService` constructor
+   * calls `assertNotPlaceholderKey`, which throws for both empty and
+   * `CHANGEME`, and it is resolved from the DI container inside
+   * `serviceApiKeyHook` on every request that requires the service key —
+   * including `/status` itself. That is a fail-closed *guard*, not a
+   * boot-time check: this process starts fine either way, and the throw
+   * happens on the first request that needs the key. So a deployment with
+   * that one key empty or placeholder fails every service-key-guarded
+   * request rather than ever reaching this getter with a false-green answer.
    */
   get secretPlaceholders(): SecretPlaceholders {
     return {
-      sessionTokenSigningKeyIsPlaceholder: isPlaceholder(
+      sessionTokenSigningKeyIsPlaceholder: isPlaceholderSecret(
         this._env.SESSION_TOKEN_SIGNING_KEY,
       ),
-      sessionManagerServiceApiKeyIsPlaceholder: isPlaceholder(
+      sessionManagerServiceApiKeyIsPlaceholder: isPlaceholderSecret(
         this._env.SESSION_MANAGER_SERVICE_API_KEY,
       ),
-      nodeServerServiceApiKeyIsPlaceholder: isPlaceholder(
+      nodeServerServiceApiKeyIsPlaceholder: isPlaceholderSecret(
         this._env.NODE_SERVER_SERVICE_API_KEY,
       ),
-      transcriptionServiceApiKeyIsPlaceholder: isPlaceholder(
+      transcriptionServiceApiKeyIsPlaceholder: isPlaceholderSecret(
         this._env.TRANSCRIPTION_SERVICE_API_KEY,
       ),
     };
