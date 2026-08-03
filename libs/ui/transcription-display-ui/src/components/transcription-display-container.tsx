@@ -67,6 +67,15 @@ export interface TranscriptionDisplayContainerProps {
   getBoundedDisplayPreferences: (
     containerHeightPx: number,
   ) => BoundedDisplayPreferences;
+  // Fill the parent's height instead of the viewport's. Set when the container
+  // shares the screen with something else (e.g. the translated caption panel),
+  // so the two divide one viewport rather than each claiming all of it.
+  fillParentHeight?: boolean;
+  // Whether this region announces new text to assistive technology. Defaults to true.
+  // Set false when another region on the page (e.g. translated captions) is the
+  // one the reader has chosen to follow - two live regions carrying the same
+  // speech announce it twice and make both unusable.
+  announceUpdates?: boolean;
 }
 
 /**
@@ -81,6 +90,8 @@ export const TranscriptionDisplayContainer = ({
   fontSizePx,
   lineHeightPx,
   getBoundedDisplayPreferences,
+  fillParentHeight = false,
+  announceUpdates = true,
 }: TranscriptionDisplayContainerProps) => {
   const { containerHeightPx, setContainerHeightPx } =
     useTranscriptionDisplayHeight();
@@ -114,7 +125,9 @@ export const TranscriptionDisplayContainer = ({
   );
 
   return (
-    <Box sx={{ height: '100dvh', width: '100%', p: 2 }}>
+    <Box
+      sx={{ height: fillParentHeight ? '100%' : '100dvh', width: '100%', p: 2 }}
+    >
       <Box ref={containerRef} sx={{ height: '100%' }}>
         <Stack direction="row">
           <Box
@@ -132,7 +145,7 @@ export const TranscriptionDisplayContainer = ({
             // scrollbar is visually hidden but the region stays keyboard-scrollable,
             // with a visible focus ring for SC 2.4.7.
             role="log"
-            aria-live="polite"
+            aria-live={announceUpdates ? 'polite' : 'off'}
             aria-relevant="additions text"
             aria-atomic="false"
             aria-label="Live transcription"

@@ -1,4 +1,8 @@
-import { type PayloadAction, createSlice } from '@reduxjs/toolkit';
+import {
+  type PayloadAction,
+  createSelector,
+  createSlice,
+} from '@reduxjs/toolkit';
 import { v4 as uuidv4 } from 'uuid';
 
 /** Sliding-window size for the latency moving averages. */
@@ -149,6 +153,37 @@ export const selectInProgressTranscriptionText = (
   if (state.transcriptionContent.inProgressTranscription === null) return '';
   return state.transcriptionContent.inProgressTranscription.text.join('');
 };
+
+/**
+ * Selects the whole transcript as plain text - committed paragraphs first, then
+ * the paragraph currently being built - separated by blank lines.
+ *
+ * Interim (in-progress) text is deliberately excluded. It is rewritten several
+ * times a second and is not yet a record of anything; a transcript saved
+ * mid-word would contain a guess the recogniser was about to revise. Anything
+ * real reaches a committed sequence within a second or so.
+ */
+export const selectTranscriptText = createSelector(
+  [selectCommitedSections, selectActiveSection],
+  (commitedSections, activeSection) => {
+    const paragraphs = commitedSections.map((section) => section.text.trim());
+    const active = activeSection.sequences
+      .map((sequence) => sequence.text.join(''))
+      .join('')
+      .trim();
+    if (active !== '') paragraphs.push(active);
+    return paragraphs.filter((paragraph) => paragraph !== '').join('\n\n');
+  },
+);
+
+/**
+ * Selects an approximate word count for the transcript, for UI that has to say
+ * how much there is before spending minutes summarising it.
+ */
+export const selectTranscriptWordCount = createSelector(
+  [selectTranscriptText],
+  (text) => (text === '' ? 0 : text.split(/\s+/).length),
+);
 
 /** Skew-free pipeline latency (ms) for finalized transcripts; 0 if no samples. */
 export const selectFinalPipelineLatencyMs = (state: WithTranscriptionContent) =>
