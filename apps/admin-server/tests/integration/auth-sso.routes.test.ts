@@ -179,7 +179,7 @@ describe('Auth SSO routes — enabled', () => {
       });
       expect(res.json()).toEqual({
         ok: true,
-        data: { local: true, sso: true },
+        data: { local: true, sso: true, grafana: false },
       });
     });
   });

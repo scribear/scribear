@@ -459,6 +459,17 @@ export class AppConfig {
     };
   }
 
+  /**
+   * Whether the Grafana nav link should appear in the admin console. True when
+   * `ADMIN_GRAFANA_BASE_URL` is set — the same signal Config Check uses to
+   * decide whether to probe Grafana. The URL itself stays server-side (it's
+   * an in-cluster URL, not browser-reachable); the webapp's link is
+   * root-relative `/grafana/d/...` through the nginx subpath proxy.
+   */
+  get grafanaEnabled(): boolean {
+    return this._env.ADMIN_GRAFANA_BASE_URL !== '';
+  }
+
   constructor(path?: string) {
     this._isDevelopment = process.argv.includes('--dev');
 

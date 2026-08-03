@@ -61,6 +61,11 @@ const GATED_LOCATIONS: {
     denial: 'frontend',
   },
   { name: 'admin-webapp', header: 'location /admin/ {', denial: 'frontend' },
+  {
+    name: 'grafana (monitoring)',
+    header: 'location /grafana/ {',
+    denial: 'frontend',
+  },
 ];
 
 describe('nginx onsite-only access gate', (it) => {

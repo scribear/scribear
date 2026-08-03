@@ -107,6 +107,7 @@ export const AUDIO_STATS_TTL_MS = 10_000;
 export interface AuthConfig {
   local: boolean;
   sso: boolean;
+  grafana: boolean;
 }
 
 export interface Identity {

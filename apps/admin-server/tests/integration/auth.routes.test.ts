@@ -32,7 +32,7 @@ describe('Auth routes', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({
         ok: true,
-        data: { local: true, sso: false },
+        data: { local: true, sso: false, grafana: false },
       });
     });
   });
@@ -181,7 +181,7 @@ describe('Auth with local login disabled', () => {
       });
       expect(configRes.json()).toEqual({
         ok: true,
-        data: { local: false, sso: false },
+        data: { local: false, sso: false, grafana: false },
       });
 
       const loginRes = await server.fastify.inject({

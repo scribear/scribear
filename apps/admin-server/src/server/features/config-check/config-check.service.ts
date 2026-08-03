@@ -1043,13 +1043,13 @@ export class ConfigCheckService {
             category: 'monitoring',
             title: 'Grafana admin password is still the example placeholder',
             detail:
-              'Grafana accepted admin/CHANGEME, the deployment/.env.example placeholder. Anyone who has read the repository can sign in to Grafana as an administrator.',
+              'Grafana accepted admin/CHANGEME, the deployment/.env.example placeholder. Anyone who has read the repository can sign in to Grafana as an administrator. Grafana is now proxied through nginx at /grafana/ — reachable from the entire onsite/VPN range, not just loopback — and has no brute-force lockout by default.',
             remediation:
               'Set GRAFANA_ADMIN_PASSWORD in deployment/.env to a high-entropy secret and recreate the grafana container — its admin password is set from GF_SECURITY_ADMIN_PASSWORD only on first start.',
             docUrl: DOC.monitoring,
           },
           {
-            development: 'advisory',
+            development: 'critical',
             staging: 'critical',
             production: 'critical',
           },

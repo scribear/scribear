@@ -3,11 +3,21 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { AppDependencies } from './app-dependencies.js';
 
 /**
+ * Keys of `AppDependencies` whose values are objects (controllers, services,
+ * configs) — excluding primitive values like `grafanaEnabled: boolean`, which
+ * are never resolved via `resolveHandler` and would break its `in`-operator
+ * type guard.
+ */
+type ControllerKey = {
+  [K in keyof AppDependencies]: AppDependencies[K] extends object ? K : never;
+}[keyof AppDependencies];
+
+/**
  * Creates a wrapper that resolves a controller from the request DI scope and
  * delegates to the named method. Keeps routers free of direct class imports.
  */
 function resolveHandler<
-  C extends keyof AppDependencies,
+  C extends ControllerKey,
   M extends keyof AppDependencies[C],
 >(controller: C, method: M): AppDependencies[C][M] {
   const wrapper = async (req: FastifyRequest, res: FastifyReply) => {

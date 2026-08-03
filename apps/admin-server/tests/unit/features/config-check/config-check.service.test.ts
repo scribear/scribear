@@ -1175,17 +1175,30 @@ describe('the monitoring probes', () => {
     });
 
     describe('the default-password probe', (it) => {
-      it('fires critical in staging/production when admin/CHANGEME is accepted', async () => {
+      it('fires critical in every environment when admin/CHANGEME is accepted', async () => {
         stubProbes({
           ...MONITORING_HEALTHY,
           [`${GRAFANA_TEST_URL}/api/org`]: { status: 200 },
         });
-        const report = await monitoringService().check();
-        const found = report.findings.find(
+        const prodReport = await monitoringService().check();
+        const prodFound = prodReport.findings.find(
           (f) => f.id === 'monitoring-grafana-default-password',
         );
-        expect(found).toBeTruthy();
-        expect(found?.severity).toBe('critical');
+        expect(prodFound).toBeTruthy();
+        expect(prodFound?.severity).toBe('critical');
+
+        // Now also critical in development: Grafana is proxied through nginx at
+        // /grafana/ (onsite/VPN-reachable, not just loopback) and has no
+        // brute-force lockout, so CHANGEME is a real exposure even on a dev box.
+        const devReport = await monitoringService({
+          declaredEnv: 'development',
+          isDevelopment: true,
+        }).check();
+        const devFound = devReport.findings.find(
+          (f) => f.id === 'monitoring-grafana-default-password',
+        );
+        expect(devFound).toBeTruthy();
+        expect(devFound?.severity).toBe('critical');
       });
 
       it('does not fire when the credentials are rejected', async () => {

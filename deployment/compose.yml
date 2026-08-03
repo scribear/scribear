@@ -241,7 +241,7 @@ services:
       # Not `:?`-guarded, like DEPLOYMENT_ENV below and unlike the secrets: it
       # changes what is *reported*, never what runs, and must not be able to
       # stop a stack from starting.
-      COMPOSE_FILE_VERSION: "16"
+      COMPOSE_FILE_VERSION: "17"
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80
@@ -957,11 +957,13 @@ services:
   # Grafana UI beyond logging in
   # (archived-plans/2026-07-28-01-PLAN-Grafana-Monitoring.md invariant 4).
   #
-  # Loopback-bound by default: Grafana has real auth (an admin password),
-  # unlike Prometheus above, but a staging box is often on a routable
-  # network, so the default stays conservative. Reach it via
-  # `ssh -L 3000:localhost:3000 <host>`, or set GRAFANA_BIND=0.0.0.0 to open
-  # it to the LAN as an explicit, deliberate choice.
+  # Proxied at /grafana/ through nginx (subpath mode) — open
+  # https://<host>/grafana/ in a browser, or click "Grafana" in the admin
+  # console's nav bar. The host-port mapping below is the escape hatch for
+  # direct access (loopback by default; set GRAFANA_BIND=0.0.0.0 for LAN).
+  # With subpath mode on, http://localhost:3000/ redirects to
+  # http://localhost/grafana/ (port dropped), so type /grafana/ explicitly
+  # when tunneling.
   grafana:
     profiles:
       - monitoring
@@ -972,6 +974,23 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-CHANGEME}
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
+      # Subpath mode so Grafana is proxied at /grafana/ through nginx — same
+      # origin as the admin console, one URL, no SSH tunnel. See
+      # 2026-08-02-03-RESEARCH-GrafanaDemo.md and the /grafana/ location block
+      # in infra/scribear-nginx/nginx.conf.
+      #
+      # GF_SERVER_ROOT_URL uses Grafana's own %(...)s placeholders, NOT compose
+      # interpolation (compose only touches ${...}). %(protocol)s resolves to
+      # Grafana's *listen* protocol (http, since it sits behind nginx), and
+      # %(domain)s resolves to GF_SERVER_DOMAIN — neither is derived from the
+      # incoming request. So the scheme is hardcoded to https:// (nginx
+      # terminates TLS) and the domain comes from GRAFANA_SERVER_DOMAIN below.
+      # Getting this wrong leaves appUrl as http://localhost/grafana/, which
+      # breaks Grafana Live's WebSocket origin check and any link Grafana
+      # generates (copy-link, alert notifications).
+      GF_SERVER_ROOT_URL: "https://%(domain)s/grafana/"
+      GF_SERVER_DOMAIN: ${GRAFANA_SERVER_DOMAIN:-localhost}
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
