@@ -9,6 +9,7 @@ import {
 import type { ConfigCheckConfig } from '#src/server/features/config-check/config-check.service.js';
 import {
   ConfigCheckService,
+  evaluatePublicOriginCheck,
   evaluateStaticChecks,
   resolveEnvironment,
 } from '#src/server/features/config-check/config-check.service.js';
@@ -109,6 +110,22 @@ const REACHABLE_DB: DbClientLike = {
 const FRESH_BACKUP = { newestDumpAgeMs: () => Promise.resolve(0) };
 
 /**
+ * A `TestAudioGatewayService` stand-in that reports the feature as unset —
+ * `TEST_AUDIO_BASE_URL` empty, matching `CLEAN`'s implicit default — so
+ * `_checkTestAudioServiceKey` short-circuits before ever calling
+ * `listDevices()`. Every helper below except the dedicated `testAudioService`
+ * describe block uses this, the same way they pass `{ enabled: false }` for
+ * the monitoring gateways they are not testing.
+ */
+const TEST_AUDIO_GATEWAY_DISABLED = {
+  enabled: false,
+  listDevices: () =>
+    Promise.reject(
+      new Error('listDevices() should not be called while disabled'),
+    ),
+};
+
+/**
  * A `ConfigCheckService` whose only live dependency is the database: fleet
  * telemetry is off, every probed service answers, and session-manager reports the
  * same schema version this build expects, so the findings from `check()` are
@@ -130,6 +147,7 @@ function dbService(
     dbClient as unknown as Args[3],
     gateway(reportedLatest) as unknown as Args[4],
     FRESH_BACKUP as unknown as Args[5],
+    TEST_AUDIO_GATEWAY_DISABLED as unknown as Args[6],
   );
 }
 
@@ -234,6 +252,7 @@ function healthService(components: HealthComponentLike[]): ConfigCheckService {
     REACHABLE_DB as unknown as Args[3],
     gateway(LATEST_MIGRATION) as unknown as Args[4],
     FRESH_BACKUP as unknown as Args[5],
+    TEST_AUDIO_GATEWAY_DISABLED as unknown as Args[6],
   );
 }
 
@@ -351,6 +370,7 @@ function monitoringService(
     REACHABLE_DB as unknown as Args[3],
     gateway(LATEST_MIGRATION) as unknown as Args[4],
     FRESH_BACKUP as unknown as Args[5],
+    TEST_AUDIO_GATEWAY_DISABLED as unknown as Args[6],
   );
 }
 
@@ -383,6 +403,7 @@ function backupService(
     REACHABLE_DB as unknown as Args[3],
     gateway(LATEST_MIGRATION) as unknown as Args[4],
     backupDirectory as unknown as Args[5],
+    TEST_AUDIO_GATEWAY_DISABLED as unknown as Args[6],
   );
 }
 
@@ -632,6 +653,83 @@ describe('evaluateStaticChecks', () => {
     });
   });
 
+  describe('the local admin password', (it) => {
+    // CLEAN's own `adminLocalCredentials` password half is 16 characters —
+    // "healthy" for every test in this block that does not override it.
+    it('accepts a password at or above the 8-character minimum', () => {
+      const found = ids({ adminLocalCredentials: 'engrit 8charmin' });
+      expect(found).not.toContain('admin-local-credentials-weak');
+      expect(found).not.toContain('admin-local-credentials-malformed');
+    });
+
+    it('flags a password shorter than 8 characters', () => {
+      expect(ids({ adminLocalCredentials: 'engrit 1234567' })).toContain(
+        'admin-local-credentials-weak',
+      );
+    });
+
+    it('flags the one-character password the placeholder check alone would pass', () => {
+      // The motivating case: `x` contains no placeholder marker, so
+      // `admin-local-credentials-placeholder` stays quiet on its own.
+      const found = ids({ adminLocalCredentials: 'engrit x' });
+      expect(found).not.toContain('admin-local-credentials-placeholder');
+      expect(found).toContain('admin-local-credentials-weak');
+    });
+
+    it('does not flag a password of exactly 8 characters', () => {
+      expect(ids({ adminLocalCredentials: 'engrit exactly8' })).not.toContain(
+        'admin-local-credentials-weak',
+      );
+    });
+
+    it('is a warning in staging but blocks production, like the session secret', () => {
+      const [found] = check({
+        declaredEnv: 'staging',
+        adminLocalCredentials: 'engrit short',
+      }).filter((f) => f.id === 'admin-local-credentials-weak');
+
+      expect(found?.severity).toBe('warning');
+      expect(found?.productionSeverity).toBe('critical');
+    });
+
+    it('flags a value with no space as malformed, not as a zero-length password', () => {
+      const found = ids({ adminLocalCredentials: 'nopasswordhere' });
+      expect(found).toContain('admin-local-credentials-malformed');
+      expect(found).not.toContain('admin-local-credentials-weak');
+    });
+
+    it('flags a trailing space (empty password) as malformed', () => {
+      expect(ids({ adminLocalCredentials: 'engrit ' })).toContain(
+        'admin-local-credentials-malformed',
+      );
+    });
+
+    it('flags a leading space (empty username) as malformed', () => {
+      expect(ids({ adminLocalCredentials: ' engritpassword' })).toContain(
+        'admin-local-credentials-malformed',
+      );
+    });
+
+    it('does not flag an absent (login disabled) credential', () => {
+      const found = ids({
+        adminLocalCredentials: '',
+        // CLEAN's Azure vars are already all set, so this stays a clean
+        // SSO-only deployment rather than also tripping no-login-method.
+      });
+      expect(found).not.toContain('admin-local-credentials-weak');
+      expect(found).not.toContain('admin-local-credentials-malformed');
+    });
+
+    // One mistake, one finding: a value that already reads as the example
+    // placeholder is reported once, by the placeholder check, not a second
+    // time here as "too short" — mirrors the session-secret guard above.
+    it('does not also flag a placeholder value as weak, even when the parsed password is short', () => {
+      const found = ids({ adminLocalCredentials: 'CHANGEMEuser yz' });
+      expect(found).toContain('admin-local-credentials-placeholder');
+      expect(found).not.toContain('admin-local-credentials-weak');
+    });
+  });
+
   describe('login configuration', (it) => {
     it('flags a deployment nobody can sign in to', () => {
       expect(
@@ -853,6 +951,97 @@ describe('evaluateStaticChecks', () => {
         ).toBeTruthy();
       }
     });
+  });
+});
+
+describe('evaluatePublicOriginCheck', (it) => {
+  const idsFor = (host: string): string[] =>
+    evaluatePublicOriginCheck(host, 'production').map((f) => f.id);
+
+  it('flags localhost', () => {
+    expect(idsFor('localhost')).toContain(
+      'public-origin-not-externally-resolvable',
+    );
+  });
+
+  it('flags a loopback IPv4 literal', () => {
+    expect(idsFor('127.0.0.1')).toContain(
+      'public-origin-not-externally-resolvable',
+    );
+  });
+
+  it.each(['10.1.2.3', '172.16.0.5', '172.31.255.255', '192.168.1.1'])(
+    'flags the private IPv4 address %s',
+    (host) => {
+      expect(idsFor(host)).toContain('public-origin-not-externally-resolvable');
+    },
+  );
+
+  it('does not flag a public-looking IPv4 address', () => {
+    // 172.32.x is outside the 172.16/12 RFC1918 block by one - a real
+    // boundary check, not just "starts with 172".
+    expect(idsFor('172.32.0.1')).toEqual([]);
+  });
+
+  it('flags a link-local IPv4 address', () => {
+    expect(idsFor('169.254.1.1')).toContain(
+      'public-origin-not-externally-resolvable',
+    );
+  });
+
+  it('flags an IPv6 loopback literal', () => {
+    expect(idsFor('::1')).toContain('public-origin-not-externally-resolvable');
+  });
+
+  it('flags an IPv6 unique-local address', () => {
+    expect(idsFor('fd12:3456:789a::1')).toContain(
+      'public-origin-not-externally-resolvable',
+    );
+  });
+
+  it('flags a bare single-label hostname (Compose service name shape)', () => {
+    expect(idsFor('admin-server')).toContain(
+      'public-origin-not-externally-resolvable',
+    );
+  });
+
+  it('flags a .local mDNS name', () => {
+    expect(idsFor('my-laptop.local')).toContain(
+      'public-origin-not-externally-resolvable',
+    );
+  });
+
+  it('does not flag a normal-looking public FQDN', () => {
+    // Cannot be *confirmed* reachable from admin-server's position (see the
+    // function's own doc) - only "not ruled out", which is silence.
+    expect(idsFor('scribear.example.edu')).toEqual([]);
+  });
+
+  it('does not flag a public IPv4 address', () => {
+    expect(idsFor('8.8.8.8')).toEqual([]);
+  });
+
+  it('reports nothing for an empty hostname', () => {
+    expect(idsFor('')).toEqual([]);
+  });
+
+  it('is advisory in development but blocks production', () => {
+    const [found] = evaluatePublicOriginCheck('localhost', 'staging').filter(
+      (f) => f.id === 'public-origin-not-externally-resolvable',
+    );
+    expect(found?.severity).toBe('critical');
+    expect(found?.productionSeverity).toBe('critical');
+
+    const [devFound] = evaluatePublicOriginCheck(
+      'localhost',
+      'development',
+    ).filter((f) => f.id === 'public-origin-not-externally-resolvable');
+    expect(devFound?.severity).toBe('advisory');
+  });
+
+  it('names the offending host in the detail', () => {
+    const [found] = evaluatePublicOriginCheck('localhost', 'production');
+    expect(found?.detail).toContain('localhost');
   });
 });
 
@@ -1392,6 +1581,160 @@ describe('the monitoring probes', () => {
         false,
       );
     });
+  });
+});
+
+/** What `TestAudioGatewayService.listDevices()` can resolve to. */
+type TestAudioResultLike =
+  | { kind: 'response'; status: number; body?: unknown }
+  | { kind: 'unparseable'; status: number }
+  | { kind: 'unreachable'; err: unknown };
+
+/**
+ * A `ConfigCheckService` with a stand-in `TestAudioGatewayService`: `enabled`
+ * mirrors `TEST_AUDIO_BASE_URL` being set, and `listDevices()` resolves to
+ * `result` exactly once — every other dependency is healthy, so `check()`'s
+ * findings are exactly what `_checkTestAudioServiceKey` made of `result`.
+ */
+function testAudioService(
+  enabled: boolean,
+  result: TestAudioResultLike,
+  overrides: Partial<ConfigCheckConfig> = {},
+): ConfigCheckService {
+  type Args = ConstructorParameters<typeof ConfigCheckService>;
+  const gatewayStub = {
+    enabled,
+    listDevices: () => Promise.resolve(result),
+  };
+  return new ConfigCheckService(
+    { ...CLEAN, ...overrides },
+    { enabled: false } as unknown as Args[1],
+    { check: () => Promise.resolve([]) } as unknown as Args[2],
+    REACHABLE_DB as unknown as Args[3],
+    gateway(LATEST_MIGRATION) as unknown as Args[4],
+    FRESH_BACKUP as unknown as Args[5],
+    gatewayStub as unknown as Args[6],
+  );
+}
+
+async function testAudioIds(
+  enabled: boolean,
+  result: TestAudioResultLike,
+  overrides: Partial<ConfigCheckConfig> = {},
+): Promise<string[]> {
+  const report = await testAudioService(enabled, result, overrides).check();
+  return report.findings.map((f) => f.id);
+}
+
+describe('the test audio service key probe', (it) => {
+  it('does not probe at all when TEST_AUDIO_BASE_URL is unset', async () => {
+    // `enabled: false` here stands for "TEST_AUDIO_BASE_URL is empty" -
+    // `listDevices()` on this stub would reject if ever called, so a passing
+    // test also proves the probe was skipped, not merely that its result
+    // produced no finding.
+    const found = await testAudioIds(false, {
+      kind: 'unreachable',
+      err: new Error('should not be called'),
+    });
+    expect(found.some((id) => id.startsWith('test-audio-service-key-'))).toBe(
+      false,
+    );
+  });
+
+  it('reports nothing when the key is accepted', async () => {
+    const found = await testAudioIds(true, {
+      kind: 'response',
+      status: 200,
+      body: { devices: [] },
+    });
+    expect(found.some((id) => id.startsWith('test-audio-service-key-'))).toBe(
+      false,
+    );
+  });
+
+  it('flags a rejected key (wrong, not placeholder) as a mismatch, not a pass', async () => {
+    const found = await testAudioIds(true, {
+      kind: 'response',
+      status: 401,
+      body: {},
+    });
+    expect(found).toContain('test-audio-service-key-mismatch');
+  });
+
+  it('also flags a 403 as a mismatch', async () => {
+    const found = await testAudioIds(true, {
+      kind: 'response',
+      status: 403,
+      body: {},
+    });
+    expect(found).toContain('test-audio-service-key-mismatch');
+  });
+
+  it('is critical in staging and production, unlike a probe that could not run', async () => {
+    const [found] = (
+      await testAudioService(true, {
+        kind: 'response',
+        status: 401,
+        body: {},
+      }).check()
+    ).findings.filter((f) => f.id === 'test-audio-service-key-mismatch');
+    expect(found?.severity).toBe('critical');
+  });
+
+  it('reports "could not verify" - not a pass - when the generator is unreachable', async () => {
+    const found = await testAudioIds(true, {
+      kind: 'unreachable',
+      err: new Error('connect ECONNREFUSED'),
+    });
+    expect(found).toContain('test-audio-service-key-probe-unavailable');
+    expect(found).not.toContain('test-audio-service-key-mismatch');
+  });
+
+  it('reports "could not verify" when the response body is unparseable', async () => {
+    const found = await testAudioIds(true, {
+      kind: 'unparseable',
+      status: 200,
+    });
+    expect(found).toContain('test-audio-service-key-probe-unavailable');
+  });
+
+  it('reports "could not verify" on an unexpected status, not a pass', async () => {
+    const found = await testAudioIds(true, {
+      kind: 'response',
+      status: 500,
+      body: {},
+    });
+    expect(found).toContain('test-audio-service-key-probe-unavailable');
+  });
+
+  it('the "could not verify" finding is only a warning, never critical', async () => {
+    const [found] = (
+      await testAudioService(true, {
+        kind: 'unreachable',
+        err: new Error('timeout'),
+      }).check()
+    ).findings.filter(
+      (f) => f.id === 'test-audio-service-key-probe-unavailable',
+    );
+    expect(found?.severity).toBe('warning');
+    expect(found?.productionSeverity).toBe('warning');
+  });
+
+  it('does not probe when the key is still the example placeholder', async () => {
+    // Already reported by the static placeholder check - probing would
+    // either bury it under a second finding or, worse, read as "verified"
+    // if the generator happens to hold the same placeholder.
+    const found = await testAudioIds(
+      true,
+      { kind: 'unreachable', err: new Error('should not be called') },
+      { testAudioServiceKey: 'CHANGEME' },
+    );
+    expect(found).toContain('test-audio-service-key-placeholder');
+    expect(found.some((id) => id.startsWith('test-audio-service-key-'))).toBe(
+      true, // only the placeholder finding, none of the probe's own ids
+    );
+    expect(found).not.toContain('test-audio-service-key-mismatch');
+    expect(found).not.toContain('test-audio-service-key-probe-unavailable');
   });
 });
 

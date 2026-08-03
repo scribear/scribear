@@ -1,3 +1,4 @@
+import { isIPv4, isIPv6 } from 'node:net';
 import { Type } from 'typebox';
 import type { Static } from 'typebox';
 import { Value } from 'typebox/value';
@@ -215,6 +216,9 @@ export interface ConfigCheckConfig {
   upstreamTimeoutMs: number;
 }
 
+/** See `evaluateStaticChecks`'s "local admin password strength" section. */
+const MIN_LOCAL_PASSWORD_LENGTH = 8;
+
 const PLACEHOLDER_MARKER = 'CHANGEME';
 
 /** Matches the stub marker as a substring — see `assertNotPlaceholderKey`. */
@@ -285,6 +289,26 @@ export function resolveEnvironment(config: ConfigCheckConfig): {
     environmentSource: 'inferred',
     declaredButInvalid: declared !== '',
   };
+}
+
+/**
+ * Splits `ADMIN_LOCAL_CREDENTIALS` into its password half, mirroring
+ * `LocalAuthService`'s own parse rule exactly — split on the FIRST space
+ * only, so the password may itself contain spaces — so this check and
+ * boot-time parsing can never disagree about what the password actually is.
+ * Deliberately duplicated rather than imported: `LocalAuthService`'s parse is
+ * private to its constructor, and re-deriving three characters of `indexOf`
+ * logic here is cheaper and lower-risk than exporting it and coupling the two
+ * files together for a one-line rule.
+ *
+ * Returns `null` for anything `LocalAuthService` itself treats as malformed —
+ * no space, an empty username, or an empty password — which is reported as
+ * its own finding rather than measured as a (nonexistent) password.
+ */
+function parseLocalCredentialsPassword(raw: string): string | null {
+  const spaceIdx = raw.indexOf(' ');
+  if (spaceIdx <= 0 || spaceIdx === raw.length - 1) return null;
+  return raw.slice(spaceIdx + 1);
 }
 
 /**
@@ -607,6 +631,81 @@ export function evaluateStaticChecks(
     );
   }
 
+  // ---- local admin password strength ----
+  // Guarded on `!isPlaceholder` for the same reason the session-secret length
+  // check is: a placeholder value is already reported once, above, and
+  // reporting it a second time here (as "too short") would be a second
+  // finding for one cause. `ADMIN_LOCAL_CREDENTIALS` is not itself the
+  // secret — it is `"<username> <password>"`, parsed by `LocalAuthService`
+  // (split on the FIRST space only, so the password may contain spaces) — so
+  // measuring `config.adminLocalCredentials.length` directly would be
+  // measuring the username too, and would never fall to zero even for a
+  // one-character password. `parseLocalCredentialsPassword` mirrors that
+  // parse rule exactly so this check and boot-time parsing can never
+  // disagree about what the password actually is.
+  if (localLoginEnabled && !isPlaceholder(config.adminLocalCredentials)) {
+    const parsedPassword = parseLocalCredentialsPassword(
+      config.adminLocalCredentials,
+    );
+
+    if (parsedPassword === null) {
+      // No space, an empty username, or an empty password:
+      // `LocalAuthService` treats this as malformed and disables local login
+      // entirely (with a warn-level log), which `localLoginEnabled` above
+      // does not know — it is only `.trim() !== ''`. Worth its own finding
+      // rather than folding into `no-login-method` below: that check already
+      // has its own SSO-completeness reasoning, and conflating "local login
+      // is configured but broken" with "local login was never configured"
+      // would point the operator at the wrong fix (configure SSO) instead of
+      // the actual one (fix the format).
+      findings.push(
+        finding(
+          {
+            id: 'admin-local-credentials-malformed',
+            category: 'access',
+            title: 'ADMIN_LOCAL_CREDENTIALS is set but malformed',
+            detail:
+              'The value has no space separating a username from a password (or an empty username/password), so LocalAuthService disables local login entirely at boot. The admin console silently falls back to SSO only, with nothing on the sign-in page saying why.',
+            remediation:
+              'Set ADMIN_LOCAL_CREDENTIALS in deployment/.env to "<username> <password>" (one space between the two), or clear it entirely to disable local login on purpose.',
+          },
+          {
+            development: 'advisory',
+            staging: 'critical',
+            production: 'critical',
+          },
+          env,
+        ),
+      );
+    } else if (parsedPassword.length < MIN_LOCAL_PASSWORD_LENGTH) {
+      // The bar here is deliberately not the 32-character random-secret
+      // minimum `ADMIN_SESSION_SECRET` gets above: that value is generated
+      // once and never typed by a human, so asking for high entropy costs
+      // nothing. This one is a memorized password behind a login form, where
+      // NIST SP 800-63B's guidance is a length floor rather than a forced
+      // high-entropy string — 8 characters, the same floor OWASP ASVS L1
+      // uses. Below that, a password is guessable in a practical number of
+      // attempts even behind the login route's own rate limit.
+      findings.push(
+        finding(
+          {
+            id: 'admin-local-credentials-weak',
+            category: 'access',
+            title: `The local admin password is shorter than ${String(MIN_LOCAL_PASSWORD_LENGTH)} characters`,
+            detail: `${describeSecret(parsedPassword)}, below the ${String(MIN_LOCAL_PASSWORD_LENGTH)}-character minimum (NIST SP 800-63B / OWASP ASVS L1) for a password protecting full read-write admin access.`,
+            remediation: `Set ADMIN_LOCAL_CREDENTIALS in deployment/.env to "<username> <password>" with a password of at least ${String(MIN_LOCAL_PASSWORD_LENGTH)} characters — a short passphrase of a few random words is both easy to remember and long enough.`,
+          },
+          {
+            development: 'advisory',
+            staging: 'warning',
+            production: 'critical',
+          },
+          env,
+        ),
+      );
+    }
+  }
+
   if (!localLoginEnabled && !ssoFullyConfigured) {
     // Not a hardening nit: nobody can sign in at all. Checks the same
     // 5-var completeness as `isEnabled()`, not the looser `ssoConfigured` —
@@ -733,6 +832,115 @@ export function evaluateStaticChecks(
 }
 
 /**
+ * True when `host` (a Host-header hostname — no port, no brackets) certainly
+ * cannot be resolved by a device outside this host/network: loopback,
+ * RFC1918/link-local IPv4, loopback/unique-local/link-local IPv6, `.local`
+ * mDNS, or a bare single-label name — the shape of a Docker Compose service
+ * name or a LAN machine's own hostname, which resolves only on that specific
+ * network's DNS.
+ *
+ * Deliberately one-directional. A host that passes this (has a dot, isn't a
+ * private/loopback IP) is merely *not ruled out* — admin-server sits inside
+ * the backend network and has no way to dial out and confirm anything
+ * resolves from a device that isn't itself, so a normal-looking public FQDN
+ * is reported as "nothing to say", never as "reachable". Overstating that
+ * confidence is exactly the failure mode this check exists to avoid; see
+ * `evaluatePublicOriginCheck`'s doc.
+ */
+function looksUnreachableExternally(host: string): boolean {
+  const h = host.toLowerCase();
+  if (h === 'localhost' || h.endsWith('.localhost')) return true;
+  if (h.endsWith('.local')) return true;
+
+  if (isIPv4(h)) {
+    const octets = h.split('.').map(Number);
+    const [a, b] = octets;
+    if (a === undefined || b === undefined) return false;
+    return (
+      a === 127 || // loopback
+      a === 10 || // RFC1918
+      (a === 172 && b >= 16 && b <= 31) || // RFC1918
+      (a === 192 && b === 168) || // RFC1918
+      (a === 169 && b === 254) || // link-local
+      a === 0 // "this network"
+    );
+  }
+
+  if (isIPv6(h)) {
+    return (
+      h === '::1' || // loopback
+      h.startsWith('fc') || // unique-local fc00::/7
+      h.startsWith('fd') ||
+      h.startsWith('fe8') || // link-local fe80::/10
+      h.startsWith('fe9') ||
+      h.startsWith('fea') ||
+      h.startsWith('feb')
+    );
+  }
+
+  // No dot at all: not a real FQDN, so it can only be a bare label — a
+  // Compose service name (`admin-server`), an unqualified LAN hostname, or
+  // similar. None of those resolve outside the network that hands them out.
+  return !h.includes('.');
+}
+
+/**
+ * Is the address this request reached admin-server on one that certainly
+ * will not resolve for the audience a QR code is meant for?
+ *
+ * There is no `PUBLIC_ORIGIN` (or equivalent) variable anywhere in this
+ * deployment for admin-server to read and check — confirmed by reading
+ * `deployment/compose.yml` and `infra/scribear-nginx/nginx.conf`: nginx's own
+ * `server_name` is the wildcard `_` (matches any Host), and the one `ORIGIN`
+ * value in `deployment/.env.example` is read only by the demo curl scripts
+ * (`deployment/create-room.sh` and siblings), never by nginx or any service.
+ * `apps/admin-webapp/src/lib/join-url.ts` and `kiosk-url.ts` build every join
+ * link and kiosk QR code from `window.location.origin` — literally whatever
+ * host the operator's own browser used to reach the admin console — so the
+ * *only* place this fact exists is the Host header of the request that
+ * asked for this very report, forwarded unchanged by nginx
+ * (`proxy_set_header Host $host;`).
+ *
+ * That makes this check necessarily request-scoped, not deployment-scoped: it
+ * says "the address you reached this page on", not "the deployment's public
+ * origin" — a different admin, or the same admin through a different tunnel,
+ * could get a different answer from the same deployment. And it can only
+ * rule addresses *out*: admin-server sits inside the backend network with no
+ * way to dial out from a device that isn't itself, so a normal-looking public
+ * hostname is reported as nothing (silence, like every other check on this
+ * page that found no problem) rather than as verified-reachable — see
+ * `looksUnreachableExternally`'s doc for why overclaiming here would be worse
+ * than staying silent.
+ */
+export function evaluatePublicOriginCheck(
+  requestHostname: string,
+  env: DeploymentEnv,
+): ConfigFinding[] {
+  const host = requestHostname.trim();
+  // Should not happen over HTTP/1.1+ (Host is mandatory), and there is
+  // nothing to check without one — not worth its own finding.
+  if (host === '') return [];
+
+  if (!looksUnreachableExternally(host)) return [];
+
+  return [
+    finding(
+      {
+        id: 'public-origin-not-externally-resolvable',
+        category: 'access',
+        title:
+          'The address used to reach this console will not resolve outside this host/network',
+        detail: `This request reached admin-server as "${host}" — a loopback, private-network, or container-local address. join-url.ts and kiosk-url.ts build every join link and kiosk QR code from exactly this address (the browser's own window.location.origin), so a QR code generated by an operator reaching the console this way will not resolve for anyone outside this host or network — invisible until a room fails in front of an audience. admin-server cannot confirm the opposite (that a normal-looking public hostname actually resolves off-host) from inside the backend network, so this check only catches addresses that certainly will not work.`,
+        remediation:
+          'Reach the admin console through the same public DNS name your audience will use to scan the QR code (e.g. https://scribear.example.edu), not a loopback address, private IP, VPN-only alias, or bare container/service name. If a load balancer or reverse proxy sits in front of this nginx, verify it forwards the public Host header rather than an internal one.',
+      },
+      { development: 'advisory', staging: 'critical', production: 'critical' },
+      env,
+    ),
+  ];
+}
+
+/**
  * Why a `_probe` call did not produce a usable answer, as a clause to drop
  * into a finding's detail.
  *
@@ -816,6 +1024,7 @@ export class ConfigCheckService {
   private _dbClient: AppDependencies['dbClient'];
   private _sessionManagerGatewayService: AppDependencies['sessionManagerGatewayService'];
   private _backupDirectoryService: AppDependencies['backupDirectoryService'];
+  private _testAudioGatewayService: AppDependencies['testAudioGatewayService'];
 
   constructor(
     configCheckConfig: ConfigCheckConfig,
@@ -824,6 +1033,7 @@ export class ConfigCheckService {
     dbClient: AppDependencies['dbClient'],
     sessionManagerGatewayService: AppDependencies['sessionManagerGatewayService'],
     backupDirectoryService: AppDependencies['backupDirectoryService'],
+    testAudioGatewayService: AppDependencies['testAudioGatewayService'],
   ) {
     this._config = configCheckConfig;
     this._fleetTelemetryService = fleetTelemetryService;
@@ -831,9 +1041,18 @@ export class ConfigCheckService {
     this._dbClient = dbClient;
     this._sessionManagerGatewayService = sessionManagerGatewayService;
     this._backupDirectoryService = backupDirectoryService;
+    this._testAudioGatewayService = testAudioGatewayService;
   }
 
-  async check(): Promise<ConfigCheckReport> {
+  /**
+   * @param requestHostname The Host header of the request that asked for
+   * this report (no port), used only by `evaluatePublicOriginCheck` — see
+   * its doc for why this one check is necessarily request-scoped rather than
+   * a property of `ConfigCheckConfig`. Defaults to `''` (no finding) so every
+   * existing direct caller of `.check()` — the great majority of this file's
+   * own unit tests — is unaffected; only the HTTP route passes a real value.
+   */
+  async check(requestHostname = ''): Promise<ConfigCheckReport> {
     const { environment, environmentSource, declaredButInvalid } =
       resolveEnvironment(this._config);
 
@@ -845,6 +1064,7 @@ export class ConfigCheckService {
       secretPlaceholders,
       sessionManagerKey,
       backup,
+      testAudioServiceKey,
     ] = await Promise.all([
       this._checkTelemetryBackplane(environment),
       this._checkServiceReachability(environment),
@@ -853,10 +1073,12 @@ export class ConfigCheckService {
       this._checkSecretPlaceholders(environment),
       this._checkSessionManagerKey(environment),
       this._checkBackup(environment),
+      this._checkTestAudioServiceKey(environment),
     ]);
 
     const findings = [
       ...evaluateStaticChecks(this._config, environment, declaredButInvalid),
+      ...evaluatePublicOriginCheck(requestHostname, environment),
       ...database,
       ...telemetry,
       ...services,
@@ -864,6 +1086,7 @@ export class ConfigCheckService {
       ...secretPlaceholders,
       ...sessionManagerKey,
       ...backup,
+      ...testAudioServiceKey,
     ];
 
     const summary: Record<CheckSeverity, number> = {
@@ -1173,6 +1396,105 @@ export class ConfigCheckService {
     }
 
     return findings;
+  }
+
+  /**
+   * Is `TEST_AUDIO_SERVICE_KEY` actually the key `test-audio-generator` is
+   * running with — not just "not the example placeholder" (the static check
+   * above), but *live-verified* against the service it authenticates to.
+   *
+   * A key that is present, non-placeholder, and simply wrong — the operator
+   * copied the wrong value, or only one of the two `.env` copies was updated
+   * on a redeploy — is invisible to every check that inspects
+   * `TEST_AUDIO_SERVICE_KEY` alone; today it reads identically to a correct
+   * key right up until an operator presses "Send test audio" on a room and
+   * it fails. Shaped like `_checkGrafana`'s password check for the same
+   * reason: probe with the gateway already used for real traffic
+   * (`TestAudioGatewayService`, injected — the same "the value never leaves
+   * the process it authenticates from" discipline `_checkGrafana`'s doc
+   * describes) rather than re-deriving the URL/header here, and keep the
+   * three outcomes — verified, verified-wrong, and could-not-verify —
+   * distinct, the same distinction `probeFailure` exists to preserve for
+   * Grafana/Prometheus: a probe that could not run must not read as a pass.
+   *
+   * `listDevices()` (`GET /devices`) is the cheapest authenticated route the
+   * generator exposes — a read, not a job start — so this never triggers an
+   * actual test-audio stream just to check a key.
+   *
+   * Gated on `!isPlaceholder`, same as the local-password check above: a
+   * placeholder key is already reported by `secretChecks`, and a placeholder
+   * key that happens to be identical on both sides (an operator who copied
+   * the *same* placeholder into both `.env` files) would otherwise probe as
+   * "verified" and bury the far more important placeholder finding under a
+   * reassuring green result.
+   */
+  private async _checkTestAudioServiceKey(
+    env: DeploymentEnv,
+  ): Promise<ConfigFinding[]> {
+    if (!this._testAudioGatewayService.enabled) return [];
+    if (isPlaceholder(this._config.testAudioServiceKey)) return [];
+
+    const result = await this._testAudioGatewayService.listDevices();
+
+    const couldNotVerify = (detail: string): ConfigFinding[] => [
+      finding(
+        {
+          id: 'test-audio-service-key-probe-unavailable',
+          category: 'secrets',
+          title:
+            'Could not verify TEST_AUDIO_SERVICE_KEY against the test audio generator',
+          detail,
+          remediation:
+            'Check that test-audio-generator is running and reachable at TEST_AUDIO_BASE_URL, then re-check.',
+        },
+        { development: 'advisory', staging: 'warning', production: 'warning' },
+        env,
+      ),
+    ];
+
+    if (result.kind === 'unreachable') {
+      return couldNotVerify(
+        'TEST_AUDIO_BASE_URL is set and test-audio-generator did not answer GET /devices. TEST_AUDIO_SERVICE_KEY could not be checked either way — this is not a pass.',
+      );
+    }
+
+    if (result.kind === 'unparseable') {
+      return couldNotVerify(
+        `test-audio-generator answered GET /devices with HTTP ${String(result.status)} and a body Config Check could not parse. TEST_AUDIO_SERVICE_KEY could not be checked either way — this is not a pass.`,
+      );
+    }
+
+    if (result.status === 401 || result.status === 403) {
+      return [
+        finding(
+          {
+            id: 'test-audio-service-key-mismatch',
+            category: 'secrets',
+            title:
+              'TEST_AUDIO_SERVICE_KEY is rejected by the test audio generator',
+            detail: `GET /devices answered HTTP ${String(result.status)}. TEST_AUDIO_SERVICE_KEY is set and is not the example placeholder, but does not match test-audio-generator's own copy — every "Send test audio" attempt for a room will fail, indistinguishable from the room page alone from the generator being down.`,
+            remediation:
+              "Set TEST_AUDIO_SERVICE_KEY in deployment/.env to match test-audio-generator's own TEST_AUDIO_SERVICE_KEY (its inbound key), then recreate both containers.",
+          },
+          {
+            development: 'warning',
+            staging: 'critical',
+            production: 'critical',
+          },
+          env,
+        ),
+      ];
+    }
+
+    if (result.status >= 200 && result.status < 300) return [];
+
+    // Any other status the generator could actually answer with (5xx, an
+    // unexpected 4xx) is a service that answered but not usably — same
+    // "could not verify" bucket as unreachable/unparseable, not a pass and
+    // not a confirmed mismatch either.
+    return couldNotVerify(
+      `test-audio-generator answered GET /devices with HTTP ${String(result.status)}, neither the 200 a valid key produces nor the 401/403 a rejected one would. TEST_AUDIO_SERVICE_KEY could not be checked either way — this is not a pass.`,
+    );
   }
 
   /**
