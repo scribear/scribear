@@ -36,6 +36,8 @@ import { DEMO_ROOM_UID } from '@scribear/session-manager-schema';
 import type { Device, Room, Session } from '@scribear/session-manager-schema';
 
 import { ConfirmDialog } from '#src/components/confirm-dialog';
+import { DevicePresenceChip } from '#src/components/device-presence-chip';
+import { ErrorState } from '#src/components/error-state';
 import { NameWithUid } from '#src/components/name-with-uid';
 import { TimezoneNote } from '#src/components/timezone-note';
 import type { RoomDetail } from '#src/lib/admin-api';
@@ -447,12 +449,27 @@ export const RoomDetailPage = () => {
   }
 
   if (!detail) {
-    return misconfigured ? (
-      <Alert severity="error">
-        Admin backend misconfiguration — an operator must check the
-        server&apos;s ADMIN_API_KEY.
-      </Alert>
-    ) : (
+    // "Room not found." is a statement about the deployment, so it is reserved
+    // for the one error that actually means it: a 404. Every other failure —
+    // session-manager down, a wrong ADMIN_API_KEY, a rate limit, no network —
+    // used to render the same sentence, which is the §5 bug one level up from
+    // the lists (PLAN-VisibleErrors §5; the plan located it in the devices
+    // table below, but that table is unreachable without `detail`).
+    // Keyed on the status, not the code: admin-server passes an upstream 404
+    // through with whatever `code` Session Manager sent.
+    if (
+      error !== null &&
+      !(error instanceof ApiError && error.status === 404)
+    ) {
+      return (
+        <ErrorState
+          title="Could not load this room."
+          error={error}
+          onRetry={reload}
+        />
+      );
+    }
+    return (
       <Typography
         sx={{
           color: 'text.secondary',
@@ -704,6 +721,7 @@ export const RoomDetailPage = () => {
             <TableRow>
               <TableCell>Name</TableCell>
               <TableCell>Status</TableCell>
+              <TableCell>Presence</TableCell>
               <TableCell>Role</TableCell>
               <TableCell align="right">Actions</TableCell>
             </TableRow>
@@ -711,7 +729,7 @@ export const RoomDetailPage = () => {
           <TableBody>
             {devices.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                   <Typography
                     sx={{
                       color: 'text.secondary',
@@ -737,6 +755,17 @@ export const RoomDetailPage = () => {
                       label={device.active ? 'Active' : 'Pending'}
                       color={device.active ? 'success' : 'warning'}
                       variant="outlined"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {/* Distinct from Status: activation and presence are two
+                        different facts. A device can be Active and Offline at
+                        the same time (registered, currently unplugged) — the
+                        exact case the silent-room runbook asks about. */}
+                    <DevicePresenceChip
+                      active={device.active}
+                      online={device.online}
+                      lastSeenAt={device.lastSeenAt}
                     />
                   </TableCell>
                   <TableCell>

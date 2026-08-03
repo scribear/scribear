@@ -6,6 +6,7 @@ import type { Static } from 'typebox';
 import { BUILD_INFO_PATH, LogLevel } from '@scribear/base-fastify-server';
 
 import type { AdminDbClientConfig } from '#src/db/admin-db-client.js';
+import type { AlertsConfig } from '#src/server/features/alerts/alerts.service.js';
 import {
   BACKUP_DIRECTORY_PATH,
   type BackupDirectoryConfig,
@@ -375,6 +376,19 @@ export class AppConfig {
    */
   get backupDirectoryConfig(): BackupDirectoryConfig {
     return { path: BACKUP_DIRECTORY_PATH };
+  }
+
+  /**
+   * Inputs for `AlertsService` (admin console → monitoring sidecar, §4.3 of
+   * PLAN-VisibleErrors). Same base URL and timeout `configCheckConfig`
+   * already reads for `/config-audit` — one core dependency, one knob for how
+   * long an admin waits on it.
+   */
+  get alertsConfig(): AlertsConfig {
+    return {
+      monitoringSidecarBaseUrl: this._env.MONITORING_SIDECAR_BASE_URL,
+      upstreamTimeoutMs: this._env.HEALTH_CHECK_TIMEOUT_SEC * SECOND_MS,
+    };
   }
 
   get sessionManagerGatewayConfig(): SessionManagerGatewayConfig {

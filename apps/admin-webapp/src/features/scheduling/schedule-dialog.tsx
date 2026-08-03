@@ -37,7 +37,6 @@ import {
   DAYS_OF_WEEK,
   SCOPES,
   diffScheduleUpdate,
-  errorMessage,
   isoToLocalInput,
   localInputToIso,
 } from './scheduling-form-helpers';
@@ -100,7 +99,7 @@ export const ScheduleDialog = ({
   onClose,
   onSaved,
 }: ScheduleDialogProps) => {
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showApiError } = useToast();
   const [form, setForm] = useState<ScheduleFormState>(() =>
     schedule
       ? scheduleToFormState(schedule)
@@ -187,7 +186,7 @@ export const ScheduleDialog = ({
           if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
             setMisconfigured(true);
           } else {
-            showError(errorMessage(err, 'Failed to create schedule.'));
+            showApiError(err, 'Failed to create schedule.');
           }
         })
         .finally(() => {
@@ -219,7 +218,7 @@ export const ScheduleDialog = ({
           if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
             setMisconfigured(true);
           } else {
-            showError(errorMessage(err, 'Failed to update schedule.'));
+            showApiError(err, 'Failed to update schedule.');
           }
         })
         .finally(() => {

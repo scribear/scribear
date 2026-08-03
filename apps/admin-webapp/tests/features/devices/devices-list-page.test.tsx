@@ -69,8 +69,10 @@ describe('DevicesListPage', () => {
     });
   });
 
-  describe('error state', (it) => {
-    it('shows a toast and falls back to the empty state on a non-ApiError rejection', async () => {
+  describe('failed state', (it) => {
+    // PLAN-VisibleErrors §5: "No devices found." is a claim about the
+    // deployment and must be unreachable when the load failed.
+    it('never says "No devices found." when the load failed', async () => {
       // Arrange
       vi.mocked(adminApi.listDevices).mockRejectedValue(
         new Error('network down'),
@@ -82,14 +84,42 @@ describe('DevicesListPage', () => {
 
       // Assert
       expect(
-        await screen.findByText('Failed to load devices.'),
+        await screen.findByText('Could not load devices.'),
       ).toBeInTheDocument();
-      expect(screen.getByText('No devices found.')).toBeInTheDocument();
+      expect(screen.queryByText('No devices found.')).not.toBeInTheDocument();
+    });
+
+    it('names the cause and the next action for an unreachable Session Manager', async () => {
+      // Arrange - what admin-server sends when session-manager is down
+      // (`session-manager-gateway.service.ts#classify`).
+      vi.mocked(adminApi.listDevices).mockRejectedValue(
+        new ApiError(
+          'UPSTREAM_UNREACHABLE',
+          'The admin backend is currently unreachable.',
+          503,
+          'req-abc',
+        ),
+      );
+
+      // Act
+      renderWithProviders(<DevicesListPage />);
+      await waitForLoad();
+
+      // Assert
+      expect(
+        await screen.findByText(
+          'The admin server could not reach Session Manager.',
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/session-manager service is running/),
+      ).toBeInTheDocument();
+      expect(screen.getByText('req-abc')).toBeInTheDocument();
     });
   });
 
   describe('BACKEND_MISCONFIGURATION', (it) => {
-    it('shows the ADMIN_API_KEY alert instead of a toast', async () => {
+    it('names ADMIN_API_KEY and offers no retry, because retrying cannot help', async () => {
       // Arrange
       vi.mocked(adminApi.listDevices).mockRejectedValue(
         new ApiError('BACKEND_MISCONFIGURATION', 'nope', 502),
@@ -103,6 +133,9 @@ describe('DevicesListPage', () => {
       expect(
         await screen.findByText(/admin backend misconfiguration/i),
       ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Retry' }),
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -138,6 +171,110 @@ describe('DevicesListPage', () => {
       // Assert
       expect(screen.getByText('Kiosk 1')).toBeInTheDocument();
       expect(screen.getByText('device-1')).toBeInTheDocument();
+    });
+  });
+
+  describe('Presence', (it) => {
+    it('shows Online for a device currently connected', async () => {
+      // Arrange
+      vi.mocked(adminApi.listDevices).mockResolvedValue({
+        items: [
+          buildDevice({
+            uid: 'device-1',
+            name: 'Kiosk 1',
+            online: true,
+            lastSeenAt: '2026-01-01T12:00:00.000Z',
+          }),
+        ],
+        nextCursor: null,
+      });
+
+      // Act
+      renderWithProviders(<DevicesListPage />);
+      await waitForLoad();
+
+      // Assert
+      expect(screen.getByText('Online')).toBeInTheDocument();
+    });
+
+    it('flags an activated device that has gone offline as a real problem, distinct from a merely-pending one', async () => {
+      // Arrange: Active + Offline is the "unplugged kiosk" case — the device
+      // was set up and is expected to be reachable, so this gets a `warning`
+      // color rather than the neutral one an unactivated device gets.
+      vi.mocked(adminApi.listDevices).mockResolvedValue({
+        items: [
+          buildDevice({
+            uid: 'device-1',
+            name: 'Kiosk 1',
+            active: true,
+            online: false,
+            lastSeenAt: '2026-01-01T08:00:00.000Z',
+          }),
+        ],
+        nextCursor: null,
+      });
+
+      // Act
+      renderWithProviders(<DevicesListPage />);
+      await waitForLoad();
+
+      // Assert
+      expect(screen.getByText('Offline').closest('.MuiChip-root')).toHaveClass(
+        'MuiChip-colorWarning',
+      );
+    });
+
+    it('does not flag a not-yet-activated device that has never connected as a problem', async () => {
+      // Arrange
+      vi.mocked(adminApi.listDevices).mockResolvedValue({
+        items: [
+          buildDevice({
+            uid: 'device-1',
+            name: 'Kiosk 1',
+            active: false,
+            online: false,
+            lastSeenAt: null,
+          }),
+        ],
+        nextCursor: null,
+      });
+
+      // Act
+      renderWithProviders(<DevicesListPage />);
+      await waitForLoad();
+
+      // Assert
+      expect(screen.getByText('Offline').closest('.MuiChip-root')).toHaveClass(
+        'MuiChip-colorDefault',
+      );
+    });
+
+    it('shows the last-seen time on hover, distinguishing "seen before" from "never seen"', async () => {
+      // Arrange
+      vi.mocked(adminApi.listDevices).mockResolvedValue({
+        items: [
+          buildDevice({
+            uid: 'device-1',
+            name: 'Kiosk 1',
+            active: true,
+            online: false,
+            lastSeenAt: '2026-01-01T08:00:00.000Z',
+          }),
+        ],
+        nextCursor: null,
+      });
+      renderWithProviders(<DevicesListPage />);
+      await waitForLoad();
+
+      // Act
+      fireEvent.mouseOver(screen.getByText('Offline'));
+
+      // Assert
+      expect(
+        await screen.findByText(
+          `Last seen ${new Date('2026-01-01T08:00:00.000Z').toLocaleString()}`,
+        ),
+      ).toBeInTheDocument();
     });
   });
 

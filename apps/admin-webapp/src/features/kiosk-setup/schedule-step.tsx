@@ -41,7 +41,7 @@ import type {
   SessionScope,
 } from '#src/lib/admin-api';
 import { adminApi } from '#src/lib/admin-api';
-import { ApiError, isApiErrorCode } from '#src/lib/api-error';
+import { isApiErrorCode } from '#src/lib/api-error';
 import { useToast } from '#src/lib/toast-context';
 
 import type { CommonFormState } from './schedule-form-utils';
@@ -77,10 +77,6 @@ const FREQUENCIES: readonly ScheduleFrequency[] = [
   'BIWEEKLY',
 ];
 const RANGE_DAYS = 90;
-
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof ApiError ? err.message : fallback;
-}
 
 interface ScheduleFormState extends CommonFormState {
   name: string;
@@ -387,7 +383,7 @@ export const ScheduleStep = ({
   roomTimezone,
   onCreated,
 }: ScheduleStepProps) => {
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showApiError } = useToast();
   const [mode, setMode] = useState<Mode>('none');
   const [scheduleForm, setScheduleForm] =
     useState<ScheduleFormState>(emptyScheduleForm);
@@ -438,7 +434,7 @@ export const ScheduleStep = ({
         if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
           setMisconfigured(true);
         } else {
-          showError(errorMessage(err, "Failed to load the room's schedules."));
+          showApiError(err, "Failed to load the room's schedules.");
         }
       })
       .finally(() => {
@@ -517,7 +513,7 @@ export const ScheduleStep = ({
         if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
           setMisconfigured(true);
         } else {
-          showError(errorMessage(err, 'Failed to create schedule.'));
+          showApiError(err, 'Failed to create schedule.');
         }
       })
       .finally(() => {
@@ -573,11 +569,9 @@ export const ScheduleStep = ({
             return null;
           })
           .catch((err: unknown) => {
-            showError(
-              errorMessage(
-                err,
-                'Open hours saved, but auto-sessions could not be enabled for the room.',
-              ),
+            showApiError(
+              err,
+              'Open hours saved, but auto-sessions could not be enabled for the room.',
             );
             return null;
           });
@@ -592,7 +586,7 @@ export const ScheduleStep = ({
         if (isApiErrorCode(err, 'BACKEND_MISCONFIGURATION')) {
           setMisconfigured(true);
         } else {
-          showError(errorMessage(err, 'Failed to save open hours.'));
+          showApiError(err, 'Failed to save open hours.');
         }
       })
       .finally(() => {

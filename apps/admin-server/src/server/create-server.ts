@@ -9,6 +9,7 @@ import '#src/server/shared/types/fastify-augmentation.js';
 
 import type { AppDependencies } from './dependency-injection/app-dependencies.js';
 import registerDependencies from './dependency-injection/register-dependencies.js';
+import { alertsRouter } from './features/alerts/alerts.router.js';
 import { auditRouter } from './features/audit/audit.router.js';
 import { authRouter } from './features/auth/auth.router.js';
 import { configCheckRouter } from './features/config-check/config-check.router.js';
@@ -64,6 +65,7 @@ async function createServer(config: AppConfig) {
   fastify.register(auditRouter);
   fastify.register(fleetRouter);
   fastify.register(testAudioRouter);
+  fastify.register(alertsRouter);
 
   const dbClient =
     dependencyContainer.resolve<AppDependencies['dbClient']>('dbClient');

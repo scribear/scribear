@@ -82,6 +82,55 @@ describe('JoinSessionModal', () => {
     expect(screen.getByRole('dialog')).not.toHaveAttribute('aria-describedby');
   });
 
+  it('explains a rate-limited join instead of telling the room to retry', () => {
+    renderIdleDialog({ joinError: JoinError.RATE_LIMITED });
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(
+      'Too many people are joining at once. Wait a minute, then try the same join code again — this clears on its own.',
+    );
+    // The two instructions that make the problem worse: an immediate retry
+    // (every seat in the room takes it at the same moment) and fetching a new
+    // join code (exchanged over the same rate-limited route).
+    expect(alert).not.toHaveTextContent(/please try again/i);
+    expect(alert).not.toHaveTextContent(/new join code/i);
+  });
+
+  it('states the rate limit as transient, not as a fault in the join code', () => {
+    renderIdleDialog({ joinError: JoinError.RATE_LIMITED });
+
+    // `warning` = degraded/transient, no action yet. Nothing is wrong with
+    // what the user typed, so the field must not be marked invalid either.
+    const alert = screen.getByRole('alert');
+    expect(alert.className).toContain('MuiAlert-colorWarning');
+    expect(alert.className).not.toContain('MuiAlert-colorError');
+    expect(screen.getByLabelText('Join Code')).not.toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+  });
+
+  it('names the service, not the join code, when the response had no readable body', () => {
+    renderIdleDialog({ joinError: JoinError.SERVICE_UNREACHABLE });
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/could not reach the session service/i);
+    expect(alert).toHaveTextContent(/not a problem with your join code/i);
+    expect(alert.className).toContain('MuiAlert-colorError');
+    expect(screen.getByLabelText('Join Code')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+  });
+
+  it('tells the user to reload, not just to retry, on a version mismatch', () => {
+    renderIdleDialog({ joinError: JoinError.VERSION_MISMATCH });
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/out of date/i);
+    expect(alert).toHaveTextContent(/reload the page/i);
+  });
+
   it('leaves a failed join attempt reading as an error', () => {
     renderIdleDialog({ joinError: JoinError.JOIN_CODE_NOT_FOUND });
 

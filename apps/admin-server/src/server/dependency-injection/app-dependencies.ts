@@ -8,6 +8,11 @@ import type {
   AdminDbClient,
   AdminDbClientConfig,
 } from '#src/db/admin-db-client.js';
+import type { AlertsController } from '#src/server/features/alerts/alerts.controller.js';
+import type {
+  AlertsConfig,
+  AlertsService,
+} from '#src/server/features/alerts/alerts.service.js';
 import type { AuditController } from '#src/server/features/audit/audit.controller.js';
 import type { AuthController } from '#src/server/features/auth/auth.controller.js';
 import type {
@@ -142,6 +147,11 @@ interface AppDependencies extends BaseDependencies {
   fleetTelemetryService: FleetTelemetryService;
   fleetEventsService: FleetEventsService;
   fleetController: FleetController;
+
+  // Alerts (monitoring sidecar, PLAN-VisibleErrors §4.3)
+  alertsConfig: AlertsConfig;
+  alertsService: AlertsService;
+  alertsController: AlertsController;
 }
 
 /**

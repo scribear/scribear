@@ -83,6 +83,21 @@ services:
       # offline between two writes.
       DEVICE_LAST_SEEN_WRITE_INTERVAL_SEC: ${DEVICE_LAST_SEEN_WRITE_SEC:-60}
       DEVICE_ONLINE_TTL_SEC: ${DEVICE_ONLINE_TTL_SEC:-180}
+      # Per-client-IP limits on the two unauthenticated credential-exchange
+      # routes, plus the outcome-conditional cap on *failed* join-code
+      # exchanges. The calibration argument (and the measured bcrypt cost that
+      # sets the real, global ceiling) lives on SessionAuthRateLimitConfig in
+      # session-auth.router.ts. Most likely to need raising:
+      # SESSION_AUTH_RATE_LIMIT_REFRESH_MAX, whose default is sized for ~2,500
+      # viewers behind one egress IP. Note "per IP" means "per whatever the
+      # last hop reported" - behind a load balancer with nginx's
+      # set_real_ip_from left commented out, these become deployment-wide.
+      SESSION_AUTH_RATE_LIMIT_JOIN_CODE_MAX: ${SESSION_AUTH_RATE_LIMIT_JOIN_CODE_MAX:-600}
+      SESSION_AUTH_RATE_LIMIT_JOIN_CODE_WINDOW_SEC: ${SESSION_AUTH_RATE_LIMIT_JOIN_CODE_WINDOW_SEC:-60}
+      SESSION_AUTH_RATE_LIMIT_FAILED_JOIN_CODE_MAX: ${SESSION_AUTH_RATE_LIMIT_FAILED_JOIN_CODE_MAX:-100}
+      SESSION_AUTH_RATE_LIMIT_FAILED_JOIN_CODE_WINDOW_SEC: ${SESSION_AUTH_RATE_LIMIT_FAILED_JOIN_CODE_WINDOW_SEC:-60}
+      SESSION_AUTH_RATE_LIMIT_REFRESH_MAX: ${SESSION_AUTH_RATE_LIMIT_REFRESH_MAX:-1000}
+      SESSION_AUTH_RATE_LIMIT_REFRESH_WINDOW_SEC: ${SESSION_AUTH_RATE_LIMIT_REFRESH_WINDOW_SEC:-60}
       # Defaulted to the bundled container. Point them at a managed Postgres
       # to run the database outside this stack - see deployment/UPGRADING.md,
       # which also covers removing the bundled service and its depends_on.
@@ -226,7 +241,7 @@ services:
       # Not `:?`-guarded, like DEPLOYMENT_ENV below and unlike the secrets: it
       # changes what is *reported*, never what runs, and must not be able to
       # stop a stack from starting.
-      COMPOSE_FILE_VERSION: "16"
+      COMPOSE_FILE_VERSION: "17"
       LOG_LEVEL: ${ADMIN_LOG_LEVEL:-info}
       ADMIN_API_KEY: ${SESSION_MANAGER_API_KEY}
       SESSION_MANAGER_BASE_URL: http://session-manager:80

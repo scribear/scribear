@@ -2,6 +2,7 @@ import EventEmitter from 'eventemitter3';
 
 import { ClockSync, encodeAudioFrame } from '@scribear/audio-frame-protocol';
 import {
+  InvalidResponseBodyError,
   NetworkError,
   UnexpectedResponseError,
 } from '@scribear/base-api-client';
@@ -306,8 +307,10 @@ function decodeSessionTokenExpiryMs(token: string): number | null {
  * Outcome of one `exchange-device-token` call. A failure always carries the
  * reason it failed and whether retrying could ever help - the previous
  * `string | null` return threw both away, which is why session-manager being
- * down, a 429 from a room full of devices, a 500, and a revoked device cookie
- * were indistinguishable to everyone including the operator.
+ * down, an unreachable gateway, a 500, and a revoked device cookie were
+ * indistinguishable to everyone including the operator. (`exchange-device-
+ * token` has no rate limiter - see `session-auth.router.ts` - so a 429 is not
+ * one of the outcomes this route can ever produce.)
  */
 type TokenFetchResult =
   | { token: string }
@@ -994,8 +997,8 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
 
       // Say which failure this is while it is still retrying. The banner's
       // generic "Connection lost. Reconnecting…" cannot distinguish
-      // session-manager being down from a 429 from a revoked device cookie,
-      // and those want three different people to do three different things.
+      // session-manager being unreachable from a revoked device cookie, and
+      // those want two different people to do two different things.
       this.emit('error', { severity: 'warning', message: result.message });
 
       const delayMs = Math.min(
@@ -1034,10 +1037,34 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
           message: 'Cannot reach the ScribeAR session service. Retrying…',
         };
       }
-      // The only other failure `createEndpointClient` reports is an
-      // undeclared status: a 429 from a room full of devices behind one NAT,
-      // or a 502/503/504 from the gateway. All transient by construction -
-      // everything permanent here is a declared status, handled below.
+      // Checked before the generic UnexpectedResponseError case below because
+      // InvalidResponseBodyError *is* one (subclass) - order matters. No
+      // structured body at all means a declared status arrived with nothing
+      // readable behind it - most plausibly session-manager itself failing
+      // partway through a response it had already started (a crash, an OOM
+      // kill, an exception after headers were sent), or the connection
+      // dropping mid-body. (Not nginx substituting its own error page: this
+      // deployment's `infra/scribear-nginx/nginx.conf` sets no `error_page`/
+      // `proxy_intercept_errors` on `/api/session-manager/`, so nginx only
+      // ever supplies its own body when it can't reach session-manager at
+      // all - and that arrives as an *undeclared* status, handled below,
+      // never reaching a body-parse step in the first place.)
+      if (error instanceof InvalidResponseBodyError) {
+        return {
+          token: null,
+          permanent: false,
+          message: `The session service is unreachable (HTTP ${error.status.toString()} with no readable response). Retrying…`,
+        };
+      }
+      // Everything else `createEndpointClient` reports here is an undeclared
+      // status: `exchange-device-token` has no rate limiter (see
+      // `session-auth.router.ts`), so this is never a 429 - either a genuine
+      // 502/503/504 that nginx synthesized itself because it could not reach
+      // session-manager, or a JSON body that parsed but didn't match this
+      // client's schema (version drift after a partial deploy). Both are
+      // transient by construction; everything permanent here is a declared
+      // status, handled below. A generic "could not issue credentials"
+      // message covers both without guessing which one it is.
       return {
         token: null,
         permanent: false,

@@ -37,6 +37,7 @@ export interface TestAppConfigOverrides {
   testAudioConfig?: Partial<AppConfig['testAudioConfig']>;
   configCheckConfig?: Partial<AppConfig['configCheckConfig']>;
   backupDirectoryConfig?: Partial<AppConfig['backupDirectoryConfig']>;
+  alertsConfig?: Partial<AppConfig['alertsConfig']>;
   cookieSecret?: string;
 }
 
@@ -205,6 +206,15 @@ export function buildTestAppConfig(
     backupDirectoryConfig: {
       path: '/nonexistent-in-tests',
       ...overrides.backupDirectoryConfig,
+    },
+    // Same sidecar URL as `configCheckConfig.monitoringSidecarBaseUrl` above —
+    // one stubbed sidecar, two routes reading it. Tests that care about
+    // `/alerts` stub `${TEST_MONITORING_SIDECAR_BASE_URL}/api/monitoring/v1/alerts`
+    // explicitly.
+    alertsConfig: {
+      monitoringSidecarBaseUrl: TEST_MONITORING_SIDECAR_BASE_URL,
+      upstreamTimeoutMs: 500,
+      ...overrides.alertsConfig,
     },
     cookieSecret: overrides.cookieSecret ?? TEST_COOKIE_SECRET,
     // No ADMIN_GRAFANA_BASE_URL in the test environment, so the Grafana nav

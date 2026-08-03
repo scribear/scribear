@@ -26,7 +26,16 @@ const VALID_ENV: Record<string, string> = {
  * cleared before each test so the defaults are what is exercised, and restored
  * afterwards like the rest.
  */
-const OPTIONAL_ENV_KEYS = ['DEMO_ROOM_ENABLED', 'DEMO_SESSION_UID'];
+const OPTIONAL_ENV_KEYS = [
+  'DEMO_ROOM_ENABLED',
+  'DEMO_SESSION_UID',
+  'SESSION_AUTH_RATE_LIMIT_JOIN_CODE_MAX',
+  'SESSION_AUTH_RATE_LIMIT_JOIN_CODE_WINDOW_SEC',
+  'SESSION_AUTH_RATE_LIMIT_FAILED_JOIN_CODE_MAX',
+  'SESSION_AUTH_RATE_LIMIT_FAILED_JOIN_CODE_WINDOW_SEC',
+  'SESSION_AUTH_RATE_LIMIT_REFRESH_MAX',
+  'SESSION_AUTH_RATE_LIMIT_REFRESH_WINDOW_SEC',
+];
 const ENV_KEYS = [...Object.keys(VALID_ENV), ...OPTIONAL_ENV_KEYS];
 
 // A path that does not exist, used to disable dotenv file loading so validation
@@ -184,6 +193,61 @@ describe('AppConfig', () => {
     it('rejects a non-boolean enable flag (only true/false are accepted)', () => {
       // Arrange - env-schema coerces "true"/"false" but not "1".
       process.env['DEMO_ROOM_ENABLED'] = '1';
+
+      // Act / Assert
+      expect(() => new AppConfig(NO_DOTENV_FILE)).toThrow();
+    });
+  });
+
+  describe('session-auth rate limit configuration', (it) => {
+    it('exposes the shipped defaults when nothing is set', () => {
+      // Act - every SESSION_AUTH_RATE_LIMIT_* var is absent.
+      const config = new AppConfig(NO_DOTENV_FILE);
+
+      // Assert - pinned rather than merely "some number", because these are
+      // the values a deployment gets by default and the calibration argument
+      // in `SessionAuthRateLimitConfig` is written against exactly these. A
+      // silent drift back towards the old 100/60 s would put a 250-seat hall
+      // behind one NAT into a permanent 429 again.
+      expect(config.sessionAuthRateLimitConfig).toStrictEqual({
+        exchangeJoinCodeMax: 600,
+        exchangeJoinCodeWindowMs: 60_000,
+        failedExchangeJoinCodeMax: 100,
+        failedExchangeJoinCodeWindowMs: 60_000,
+        refreshSessionTokenMax: 1_000,
+        refreshSessionTokenWindowMs: 60_000,
+      });
+    });
+
+    it('maps overrides and converts the windows from seconds to ms', () => {
+      // Arrange - windows are seconds in the env because that is the unit an
+      // operator thinks in; the router wants milliseconds.
+      process.env['SESSION_AUTH_RATE_LIMIT_JOIN_CODE_MAX'] = '11';
+      process.env['SESSION_AUTH_RATE_LIMIT_JOIN_CODE_WINDOW_SEC'] = '12';
+      process.env['SESSION_AUTH_RATE_LIMIT_FAILED_JOIN_CODE_MAX'] = '13';
+      process.env['SESSION_AUTH_RATE_LIMIT_FAILED_JOIN_CODE_WINDOW_SEC'] = '14';
+      process.env['SESSION_AUTH_RATE_LIMIT_REFRESH_MAX'] = '15';
+      process.env['SESSION_AUTH_RATE_LIMIT_REFRESH_WINDOW_SEC'] = '16';
+
+      // Act
+      const config = new AppConfig(NO_DOTENV_FILE);
+
+      // Assert
+      expect(config.sessionAuthRateLimitConfig).toStrictEqual({
+        exchangeJoinCodeMax: 11,
+        exchangeJoinCodeWindowMs: 12_000,
+        failedExchangeJoinCodeMax: 13,
+        failedExchangeJoinCodeWindowMs: 14_000,
+        refreshSessionTokenMax: 15,
+        refreshSessionTokenWindowMs: 16_000,
+      });
+    });
+
+    it('rejects a zero limit rather than silently blocking every request', () => {
+      // Arrange - `minimum: 1`. A max of 0 would 429 the first request of
+      // every window, which is a very expensive way to learn about a typo in
+      // an env file.
+      process.env['SESSION_AUTH_RATE_LIMIT_REFRESH_MAX'] = '0';
 
       // Act / Assert
       expect(() => new AppConfig(NO_DOTENV_FILE)).toThrow();

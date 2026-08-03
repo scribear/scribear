@@ -35,7 +35,12 @@ async function createServer(config: AppConfig) {
 
   // Rate limiting is opt-in per route (`global: false`); only the
   // unauthenticated credential-exchange routes enable it (see session-auth
-  // router). Long-poll and admin/service routes are intentionally unlimited.
+  // router, whose `SessionAuthRateLimitConfig` documents every limit and how
+  // its default was derived). Long-poll and admin/service routes are
+  // intentionally unlimited. Registered before the routers because per-route
+  // `config.rateLimit` is applied by this plugin's `onRoute` hook, and because
+  // the session-auth router calls `fastify.createRateLimit()` at registration
+  // time for its failed-exchange cap.
   // Throw a BaseHttpError so the base error handler serializes it as 429.
   await fastify.register(fastifyRateLimit, {
     global: false,
@@ -49,7 +54,7 @@ async function createServer(config: AppConfig) {
   fastify.register(deviceManagementRouter);
   fastify.register(roomManagementRouter);
   fastify.register(scheduleManagementRouter);
-  fastify.register(sessionAuthRouter);
+  fastify.register(sessionAuthRouter, config.sessionAuthRateLimitConfig);
   fastify.register(demoRoomRouter);
   fastify.register(databaseRouter);
 

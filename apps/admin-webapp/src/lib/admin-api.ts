@@ -336,7 +336,45 @@ export interface SessionSnapshot {
   processUid: string;
 }
 
-/** One node-server instance's own counters, excluding its session list. */
+/** Which end of a transcription-stream socket performed the close. */
+export type CloseInitiator = 'server' | 'peer';
+
+/** Which side of a session a transcription-stream socket serves. */
+export type ConnectionRole = 'source' | 'client';
+
+/**
+ * One transcription-stream close, labelled.
+ *
+ * `initiator` is the load-bearing label and the reason this record is not just
+ * a code tally: `server` means node-server decided to close and its `reason` is
+ * authoritative (`transcription-stream.controller.ts`'s `closeWith`), while
+ * `peer` means the far end went away — a device navigating, losing Wi-Fi or
+ * being killed — and its `reason` is remote-supplied text normalised against
+ * node-server's known-reason allowlist, collapsing to `other` when it matches
+ * nothing (`node-server-metrics.service.ts`'s `recordWsClose`). Without the
+ * split, a flapping source uplink is indistinguishable from an auth rejection.
+ *
+ * Every count is monotonic since the publishing process started; a label
+ * combination that has never occurred is omitted rather than reported as zero.
+ */
+export interface WsCloseTally {
+  code: number;
+  reason: string;
+  role: ConnectionRole;
+  initiator: CloseInitiator;
+  count: number;
+}
+
+/**
+ * One node-server instance's own counters, excluding its session list.
+ *
+ * **Every `*Total` here is monotonic since `processStartedAt`, not a rate and
+ * not a window.** `processUid` is regenerated on every boot, so a change in it
+ * means the counters restarted from zero — a consumer differencing successive
+ * reads must compare it first. Any surface rendering these numbers has to say
+ * which epoch they count from, or it is presenting a lifetime total as if it
+ * described the present.
+ */
 export interface NodeSnapshot {
   processUid: string;
   processStartedAt: string;
@@ -344,11 +382,27 @@ export interface NodeSnapshot {
   summary: {
     activeSessionCount: number;
     decodeDropsTotal: number;
+    /**
+     * Binary frames a source sent before its AUTH handshake completed, dropped
+     * rather than closed on. Optional on the wire
+     * (`STATUS_PROCESS_SCHEMA.summary.binaryBeforeAuthDropsTotal`) so a
+     * publisher predating it does not fail the strict `Value.Check` on the
+     * read side and vanish from the fleet for a whole rolling deploy — so
+     * `undefined` here means "this publisher does not report it", never zero.
+     */
+    binaryBeforeAuthDropsTotal?: number;
     pendingChunkEvictionsTotal: number;
     upstreamChurnTotal: number;
     authSuccessTotal: number;
     authTimeoutsTotal: number;
     orchestratorFailuresTotal: number;
+    /**
+     * Source registrations refused because the session was already past its
+     * `effectiveEnd` — the only signal that a device is acting on a stale
+     * schedule. Optional for the same backward-compat reason as
+     * `binaryBeforeAuthDropsTotal` above.
+     */
+    endedSessionRegistrationsTotal?: number;
     latencySamplesTotal: number;
     latencyE2eUnavailableTotal: number;
     latencyE2eNegativeTotal: number;
@@ -359,14 +413,14 @@ export interface NodeSnapshot {
     to: UpstreamState;
     count: number;
   }[];
-  wsCloses: {
-    code: number;
-    reason: string;
-    role: 'source' | 'client';
-    initiator: 'server' | 'peer';
-    count: number;
-  }[];
+  wsCloses: WsCloseTally[];
   latency: LatencySeries[];
+  /**
+   * Credential rejections from `verifyAuth`, by reason. **Auth *timeouts* are
+   * not in here** — a connection that never sent `auth` at all is counted only
+   * in `summary.authTimeoutsTotal` — so these two must be presented as separate
+   * facts or the numbers will not add up for whoever reads them.
+   */
   authFailures: { reason: string; count: number }[];
   updatedAt: number;
   nodeInstanceId: string;
@@ -423,6 +477,17 @@ export interface TranscriptionHostSnapshot {
   processUid: string;
   processStartedAt: string;
   numWorkers: number;
+  /**
+   * Sessions this host refused because the requested provider key is not one
+   * it has configured (`TranscriptionProviderRegistry.create_session` raising
+   * `Invalid Provider Key`). Not a capacity refusal and not a transient: it is
+   * a naming disagreement between whoever chose the session's provider key and
+   * the keys this host actually loads, so the fix is a configuration change,
+   * not a retry.
+   *
+   * Monotonic since `processStartedAt` and reset to zero by a restart, so a
+   * consumer differencing successive reads must compare `processUid` first.
+   */
   invalidProviderKeyRejects: number;
   workers: TranscriptionWorker[];
   /** Keyed by configured provider key, verbatim. */
@@ -622,6 +687,40 @@ export interface SessionStatusEvent {
 }
 export type FleetEvent = SessionStatusEvent;
 
+// ---- Monitoring sidecar alerts (PLAN-VisibleErrors §4.3) ----
+
+/**
+ * Mirrors `AlertSeverity` in the monitoring sidecar's `alert-rules.ts`. Only
+ * two — every rule fires only when something is actually wrong, so there is
+ * no `info` tier: an empty `alerts` array *is* the console's healthy state.
+ */
+export type MonitoringAlertSeverity = 'critical' | 'warning';
+
+/**
+ * One firing alert, proxied unchanged from the monitoring sidecar's
+ * `GET /api/monitoring/v1/alerts` through admin-server's `/alerts`. Mirrors
+ * `Alert` in `apps/monitoring-sidecar/.../alert-rules.ts` — restated here for
+ * the same reason `FleetSnapshot` above mirrors its Redis-side type rather
+ * than importing it.
+ */
+export interface MonitoringAlert {
+  id: string;
+  failureModes: string[];
+  severity: MonitoringAlertSeverity;
+  /** One-line human summary including the observed value. */
+  summary: string;
+  /** Cause, and — where the rule implies one — the next action to take. */
+  likelyCause: string;
+  stage: string;
+  value: number;
+  threshold: number;
+}
+
+export interface AlertsReport {
+  alerts: MonitoringAlert[];
+  generatedAt: string;
+}
+
 // ---- Test audio devices (PLAN-TestAudioDevices §2, via the §3 BFF) ----
 // Mirrors `DeviceState`, `GoodParams` and `FaultParams` from
 // apps/test-audio-generator. Restated here rather than imported for the same
@@ -771,7 +870,14 @@ interface EnvelopeOk<T> {
 }
 interface EnvelopeErr {
   ok: false;
-  error: { code: string; message: string; requestId?: string };
+  error: {
+    code: string;
+    message: string;
+    requestId?: string;
+    /** Per-code context. `RATE_LIMITED` carries `retryAfter` here — see
+     *  `rateLimitMessage` in `./api-error`. */
+    details?: Record<string, unknown>;
+  };
 }
 
 type QueryValue = string | number | boolean | null | undefined | string[];
@@ -860,11 +966,17 @@ export class AdminApiClient {
       );
     }
 
-    const err =
+    const err: EnvelopeErr['error'] =
       json && !json.ok
         ? json.error
         : { code: 'UNKNOWN', message: 'The request failed.' };
-    throw new ApiError(err.code, err.message, res.status, err.requestId);
+    throw new ApiError(
+      err.code,
+      err.message,
+      res.status,
+      err.requestId,
+      err.details,
+    );
   }
 
   // ---- Auth ----
@@ -912,6 +1024,15 @@ export class AdminApiClient {
    *  fleet that is genuinely idle. */
   fleet(): Promise<FleetSnapshot> {
     return this._request('GET', '/fleet');
+  }
+
+  // ---- Monitoring sidecar alerts ----
+  /** Throws `ApiError` with code `ALERTS_UNAVAILABLE` when the monitoring
+   *  sidecar could not be asked — never resolves to an empty list for that
+   *  case, since that would be indistinguishable from nothing currently
+   *  firing (PLAN-VisibleErrors §4.3). */
+  alerts(): Promise<AlertsReport> {
+    return this._request('GET', '/alerts');
   }
 
   // ---- Test audio devices ----

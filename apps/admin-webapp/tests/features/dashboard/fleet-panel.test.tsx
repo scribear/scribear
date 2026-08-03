@@ -3,6 +3,8 @@ import { axe } from 'jest-axe';
 import { beforeEach, describe, expect, vi } from 'vitest';
 
 import { FleetPanel } from '#src/features/dashboard/fleet-panel';
+import { FLEET_STALE_AFTER_MS } from '#src/features/dashboard/telemetry-freshness';
+import type { FleetState } from '#src/features/dashboard/use-fleet';
 import { useFleet } from '#src/features/dashboard/use-fleet';
 import type {
   AudioLevelStats,
@@ -92,6 +94,7 @@ function mountFleet(
     sessionEvents,
     connected: true,
     available: true,
+    poll: { status: 'ok', lastSuccessAt: Date.now() },
     refresh: vi.fn(),
   });
   return renderWithProviders(<FleetPanel />).container;
@@ -611,6 +614,211 @@ describe('FleetPanel a11y', (it) => {
       [visibleSession({ sessionUid: 'session-1' })],
       [buildThroughputOnlySnapshot({ sessionUid: 'session-1' })],
     );
+
+    const results = await axe(container);
+
+    expect(results.violations).toHaveLength(0);
+  });
+});
+
+/**
+ * PLAN-VisibleErrors §4.4 at the surface. The bug was never that the panel
+ * kept a stale snapshot — mid-incident that snapshot is evidence — it was that
+ * it kept one while looking exactly like a live one.
+ */
+describe('FleetPanel stale telemetry', (it) => {
+  beforeEach(() => {
+    vi.mocked(useFleet).mockReset();
+  });
+
+  function mountStale(
+    poll: FleetState['poll'],
+    sessions: SessionSnapshot[] = [visibleSession({ sessionUid: 'session-1' })],
+  ): HTMLElement {
+    const snapshot: FleetSnapshot = {
+      generatedAt: 1,
+      nodes: [],
+      sessions,
+      transcriptionHosts: [],
+      providers: [],
+      sessionAudio: [],
+    };
+    vi.mocked(useFleet).mockReturnValue({
+      snapshot,
+      sessionEvents: new Map(),
+      connected: true,
+      available: true,
+      poll,
+      refresh: vi.fn(),
+    });
+    return renderWithProviders(<FleetPanel />).container;
+  }
+
+  it('marks the heading, the chip and the grid itself when the poll degrades', () => {
+    mountStale({
+      status: 'degraded',
+      code: 'TELEMETRY_DEGRADED',
+      message: 'Could not read live fleet telemetry.',
+      lastSuccessAt: Date.now() - 4_000,
+      consecutiveFailures: 1,
+    });
+
+    // Three independent, text-bearing signals — none of them colour alone, and
+    // none of them dependent on the operator scrolling to the same place.
+    expect(
+      screen.getByRole('heading', { name: /last known state/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/not updating · 4s old/)).toBeInTheDocument();
+    expect(screen.getByText(/frozen snapshot/i)).toBeInTheDocument();
+  });
+
+  it('states the cause and the next action, not just that something is wrong', () => {
+    // No sessions: with any, the audio roll-up's own "metering unavailable"
+    // notice is a second `role="alert"` and `getByRole` would be ambiguous.
+    mountStale(
+      {
+        status: 'degraded',
+        code: 'TELEMETRY_DEGRADED',
+        message: 'Could not read live fleet telemetry.',
+        lastSuccessAt: Date.now() - 2_000,
+        consecutiveFailures: 1,
+      },
+      [],
+    );
+
+    const banner = screen.getByRole('alert');
+    expect(banner).toHaveTextContent(/not the current state of the fleet/i);
+    expect(banner).toHaveTextContent(/Could not read live fleet telemetry/);
+    expect(banner).toHaveTextContent(/keeps retrying/i);
+    expect(
+      screen.getByRole('button', { name: /retry now/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('escalates to an error banner once the snapshot outlives the stale threshold', () => {
+    mountStale(
+      {
+        status: 'degraded',
+        code: 'TELEMETRY_DEGRADED',
+        message: 'Could not read live fleet telemetry.',
+        lastSuccessAt: Date.now() - FLEET_STALE_AFTER_MS - 1_000,
+        consecutiveFailures: 4,
+      },
+      [],
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /this is not the live fleet/i,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /do not read this grid as current/i,
+    );
+  });
+
+  it('keeps the ticking age out of the announced banner', () => {
+    // The banner is assertive and the age ticks once a second; a relative age
+    // inside it would re-announce itself indefinitely to a screen-reader user.
+    mountStale(
+      {
+        status: 'degraded',
+        code: 'TELEMETRY_DEGRADED',
+        message: 'Could not read live fleet telemetry.',
+        lastSuccessAt: Date.now() - 134_000,
+        consecutiveFailures: 20,
+      },
+      [],
+    );
+
+    expect(screen.getByRole('alert')).not.toHaveTextContent('2m 14s');
+    // …while the chip, which is in no live region, carries it.
+    expect(screen.getByText(/not updating · 2m 14s old/)).toBeInTheDocument();
+  });
+
+  it('does not present a frozen empty fleet as "No active sessions."', () => {
+    mountStale(
+      {
+        status: 'degraded',
+        code: 'TELEMETRY_DEGRADED',
+        message: 'Could not read live fleet telemetry.',
+        lastSuccessAt: Date.now() - 2_000,
+        consecutiveFailures: 1,
+      },
+      [],
+    );
+
+    expect(
+      screen.getByText(/this is the frozen snapshot/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('No active sessions.')).not.toBeInTheDocument();
+  });
+
+  it('says the SSE chip is about the stream, not about the data', () => {
+    vi.mocked(useFleet).mockReturnValue({
+      snapshot: {
+        generatedAt: 1,
+        nodes: [],
+        sessions: [],
+        transcriptionHosts: [],
+        providers: [],
+        sessionAudio: [],
+      },
+      sessionEvents: new Map(),
+      connected: false,
+      available: true,
+      poll: { status: 'ok', lastSuccessAt: Date.now() },
+      refresh: vi.fn(),
+    });
+    renderWithProviders(<FleetPanel />);
+
+    // A bare "reconnecting…" beside a frozen grid read as a complete account
+    // of the panel's health; it never was.
+    expect(screen.getByText('live stream reconnecting…')).toBeInTheDocument();
+    expect(screen.getByText(/updated \d+s ago/)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('does not say "Loading fleet…" once a read has already failed', () => {
+    // A spinner-shaped lie about a request that is not coming.
+    vi.mocked(useFleet).mockReturnValue({
+      snapshot: null,
+      sessionEvents: new Map(),
+      connected: false,
+      available: true,
+      poll: {
+        status: 'degraded',
+        code: 'TELEMETRY_DEGRADED',
+        message: 'Could not read live fleet telemetry.',
+        lastSuccessAt: null,
+        consecutiveFailures: 2,
+      },
+      refresh: vi.fn(),
+    });
+    renderWithProviders(<FleetPanel />);
+
+    expect(screen.queryByText('Loading fleet…')).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /does not mean the fleet is idle/i,
+    );
+  });
+
+  it('shows no staleness marking at all while the poll is healthy', () => {
+    mountStale({ status: 'ok', lastSuccessAt: Date.now() - 1_000 }, []);
+
+    expect(
+      screen.getByRole('heading', { name: 'Live fleet' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/frozen snapshot/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('has no a11y violations while stale', async () => {
+    const container = mountStale({
+      status: 'degraded',
+      code: 'TELEMETRY_DEGRADED',
+      message: 'Could not read live fleet telemetry.',
+      lastSuccessAt: Date.now() - FLEET_STALE_AFTER_MS - 1_000,
+      consecutiveFailures: 4,
+    });
 
     const results = await axe(container);
 
