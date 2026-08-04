@@ -18,3 +18,7 @@ Client webapp: latency metrics are now opt-in, not always on.
 - Parsing reads the fragment with `URLSearchParams`, so `metrics` coexists with
   other fragment parameters and leaves the existing `#config=<base64>` payload
   the url-config middleware consumes untouched.
+- **The badge itself is now a labelled table** — rows `Pipeline` / `End-To-End`,
+  columns `Final` / `Interim`, with the unit named once in the corner cell —
+  instead of four bare numbers separated by slashes, and it sits centered along
+  the top rather than in the top right, where it covered the header controls.
