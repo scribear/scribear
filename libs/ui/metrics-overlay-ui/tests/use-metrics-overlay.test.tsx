@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { useMetricsOverlay } from '#src/features/metrics-overlay/use-metrics-overlay';
+import { useMetricsOverlay } from '#src/hooks/use-metrics-overlay.js';
 
 /**
  * Minimal host for the hook: renders one line per visible overlay plus a text

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseMetricsFragment } from '#src/features/metrics-overlay/metrics-fragment';
+import { parseMetricsFragment } from '#src/metrics-fragment.js';
 
 describe('parseMetricsFragment', () => {
   it('requests nothing when the fragment is absent or unrelated', () => {

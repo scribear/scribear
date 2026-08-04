@@ -1,10 +1,12 @@
 ---
+'@scribear/metrics-overlay-ui': minor
 '@scribear/live-translation-store': minor
 '@scribear/client-webapp': minor
+'@scribear/kiosk-webapp': minor
 ---
 
-Client webapp: metrics overlays are now opt-in, not always on, and translation
-has one of its own.
+Metrics overlays are now opt-in, not always on; translation has one of its own;
+and the kiosk gets both.
 
 - **Hidden by default.** The latency badge no longer sits over every reader's
   captions. It appears only when the URL fragment asks for it:
@@ -33,6 +35,16 @@ has one of its own.
   means individual requests got slower. Shown whenever the browser can translate
   at all — including with translation off, so the overlay says why there is no
   data rather than disappearing.
+- **Both overlays on the kiosk too.** Same fragment, same `m` key, same cards.
+  The kiosk had been receiving the node's latency updates and discarding them
+  ("the source device does not display latency") — it now records them, which
+  matters because the kiosk is the device whose clock sync makes end-to-end
+  latency measurable at all, and the one standing in the room where a lagging
+  translation gets noticed.
+- **New `@scribear/metrics-overlay-ui` package.** The fragment parsing, the `m`
+  shortcut, the overlay container and the cards live there, presentational and
+  store-agnostic like the other UI libraries; each app keeps a thin container
+  that wires its own selectors.
 - **Translation service — latency instrumentation.** `TranslationService` now
   emits a `sample` event (queue wait, call duration, captions covered, backlog
   left) after each `translate()` that produced text, and counts dropped captions

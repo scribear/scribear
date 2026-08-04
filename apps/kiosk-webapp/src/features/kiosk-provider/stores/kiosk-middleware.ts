@@ -6,7 +6,10 @@ import {
   setMicrophoneServiceStatus,
 } from '@scribear/microphone-store';
 import { appInitialization } from '@scribear/redux-remember-store';
-import { handleTranscript } from '@scribear/transcription-content-store';
+import {
+  handleTranscript,
+  recordLatency,
+} from '@scribear/transcription-content-store';
 
 import type { RootState } from '#src/store/store';
 
@@ -89,6 +92,9 @@ export const createKioskMiddleware =
     });
     kioskService.on('transcript', (event) => {
       store.dispatch(handleTranscript(event));
+    });
+    kioskService.on('latency', (sample) => {
+      store.dispatch(recordLatency(sample));
     });
     kioskService.on('joinCode', (codes) => {
       store.dispatch(setJoinCodes(codes));

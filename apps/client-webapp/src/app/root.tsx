@@ -79,7 +79,7 @@ import {
   TranscriptionDisplayPreferencesMenu,
 } from '@scribear/transcription-display-ui';
 
-import { MetricsOverlay } from '#src/features/metrics-overlay/components/metrics-overlay';
+import { MetricsOverlayContainer } from '#src/features/metrics-overlay/components/metrics-overlay-container';
 import { JoinSessionModal } from '#src/features/session-provider/components/join-session-modal';
 import { LeaveSessionButton } from '#src/features/session-provider/components/leave-session-button';
 import { selectConnectionBanner } from '#src/features/session-provider/stores/derive-connection-banner';
@@ -241,7 +241,7 @@ export const Root = () => {
       headerBreakpoint="md"
     >
       <JoinSessionModal />
-      <MetricsOverlay />
+      <MetricsOverlayContainer />
       <ConnectionStatusBanner
         open={connectionBanner.open}
         severity={connectionBanner.open ? connectionBanner.severity : 'warning'}

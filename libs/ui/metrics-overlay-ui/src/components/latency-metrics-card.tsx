@@ -1,24 +1,30 @@
-import { Box } from '@mui/material';
+import Box from '@mui/material/Box';
 
-import {
-  selectFinalE2eLatencyMs,
-  selectFinalPipelineLatencyMs,
-  selectInProgressE2eLatencyMs,
-  selectInProgressPipelineLatencyMs,
-} from '@scribear/transcription-content-store';
-
-import { MetricsCard } from '#src/features/metrics-overlay/components/metrics-card';
+import { MetricsCard } from '#src/components/metrics-card.js';
 import {
   formatMs,
   metricHeaderCellSx,
   metricValueCellSx,
-} from '#src/features/metrics-overlay/metrics-display';
-import { useAppSelector } from '#src/store/use-redux';
+} from '#src/metrics-display.js';
 
 /**
- * Moving-average transcription latency, as a two-by-two table of milliseconds:
- * rows are where the stopwatch starts, columns are which transcript was
- * measured.
+ * Props for {@link LatencyMetricsCard}. All values are moving averages in
+ * milliseconds, and 0 means "nothing measured yet".
+ */
+export interface LatencyMetricsCardProps {
+  // Skew-free node-side latency for finalized transcripts.
+  pipelineFinalMs: number;
+  // Skew-free node-side latency for interim transcripts.
+  pipelineInterimMs: number;
+  // Capture-to-screen latency for finalized transcripts; 0 until clock sync.
+  e2eFinalMs: number;
+  // Capture-to-screen latency for interim transcripts; 0 until clock sync.
+  e2eInterimMs: number;
+}
+
+/**
+ * Transcription latency, as a two-by-two table of milliseconds: rows are where
+ * the stopwatch starts, columns are which transcript was measured.
  *
  * - "Pipeline" is the skew-free server-side latency (audio ingress to
  *   transcript) and appears as soon as transcripts flow.
@@ -27,16 +33,16 @@ import { useAppSelector } from '#src/store/use-redux';
  * - "Final" is the committed transcript, "Interim" the provisional text that is
  *   still being revised.
  *
- * Positioned by the metrics overlay that renders it, not by itself.
+ * Renders nothing until something has been measured, so an overlay switched on
+ * before a session starts stays out of the way.
  */
-export const LatencyBadge = () => {
-  const pipelineFinal = useAppSelector(selectFinalPipelineLatencyMs);
-  const pipelineInterim = useAppSelector(selectInProgressPipelineLatencyMs);
-  const e2eFinal = useAppSelector(selectFinalE2eLatencyMs);
-  const e2eInterim = useAppSelector(selectInProgressE2eLatencyMs);
-
-  // Nothing measured yet - stay out of the way entirely.
-  if (pipelineFinal <= 0 && pipelineInterim <= 0) return null;
+export const LatencyMetricsCard = ({
+  pipelineFinalMs,
+  pipelineInterimMs,
+  e2eFinalMs,
+  e2eInterimMs,
+}: LatencyMetricsCardProps) => {
+  if (pipelineFinalMs <= 0 && pipelineInterimMs <= 0) return null;
 
   return (
     <MetricsCard
@@ -63,10 +69,10 @@ export const LatencyBadge = () => {
             Pipeline
           </Box>
           <Box component="td" sx={metricValueCellSx}>
-            {formatMs(pipelineFinal)}
+            {formatMs(pipelineFinalMs)}
           </Box>
           <Box component="td" sx={metricValueCellSx}>
-            {formatMs(pipelineInterim)}
+            {formatMs(pipelineInterimMs)}
           </Box>
         </tr>
         <tr>
@@ -74,10 +80,10 @@ export const LatencyBadge = () => {
             End-To-End
           </Box>
           <Box component="td" sx={metricValueCellSx}>
-            {formatMs(e2eFinal)}
+            {formatMs(e2eFinalMs)}
           </Box>
           <Box component="td" sx={metricValueCellSx}>
-            {formatMs(e2eInterim)}
+            {formatMs(e2eInterimMs)}
           </Box>
         </tr>
       </tbody>
