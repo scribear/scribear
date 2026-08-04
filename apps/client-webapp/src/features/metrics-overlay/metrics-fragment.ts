@@ -9,7 +9,7 @@
  */
 
 /** Every metric overlay that can be requested. Extend as more are added. */
-export const METRIC_NAMES = ['latency'] as const;
+export const METRIC_NAMES = ['latency', 'translation'] as const;
 
 export type MetricName = (typeof METRIC_NAMES)[number];
 

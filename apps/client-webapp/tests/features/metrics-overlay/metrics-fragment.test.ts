@@ -19,10 +19,15 @@ describe('parseMetricsFragment', () => {
   });
 
   it('expands "all" to every known overlay', () => {
-    expect(parseMetricsFragment('#metrics=all')).toEqual(new Set(['latency']));
+    expect(parseMetricsFragment('#metrics=all')).toEqual(
+      new Set(['latency', 'translation']),
+    );
   });
 
   it('reads a comma-separated list, ignoring unknown names', () => {
+    expect(parseMetricsFragment('#metrics=latency,translation')).toEqual(
+      new Set(['latency', 'translation']),
+    );
     expect(parseMetricsFragment('#metrics=latency,dropouts')).toEqual(
       new Set(['latency']),
     );

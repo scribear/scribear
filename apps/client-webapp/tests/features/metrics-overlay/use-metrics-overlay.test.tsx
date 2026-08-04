@@ -13,6 +13,7 @@ const Harness = () => {
     <div>
       <input aria-label="join code" />
       {visibleMetrics.has('latency') && <span>latency overlay</span>}
+      {visibleMetrics.has('translation') && <span>translation overlay</span>}
     </div>
   );
 };
@@ -26,6 +27,10 @@ function latencyOverlay() {
   return screen.queryByText('latency overlay');
 }
 
+function translationOverlay() {
+  return screen.queryByText('translation overlay');
+}
+
 afterEach(() => {
   window.location.hash = '';
 });
@@ -36,14 +41,22 @@ describe('useMetricsOverlay', () => {
     expect(latencyOverlay()).not.toBeInTheDocument();
   });
 
-  it('shows the named metric on load', () => {
+  it('shows only the named metric on load', () => {
     renderWithFragment('#metrics=latency');
     expect(latencyOverlay()).toBeInTheDocument();
+    expect(translationOverlay()).not.toBeInTheDocument();
+  });
+
+  it('shows several named metrics', () => {
+    renderWithFragment('#metrics=translation,latency');
+    expect(latencyOverlay()).toBeInTheDocument();
+    expect(translationOverlay()).toBeInTheDocument();
   });
 
   it('shows every metric for "all"', () => {
     renderWithFragment('#metrics=all');
     expect(latencyOverlay()).toBeInTheDocument();
+    expect(translationOverlay()).toBeInTheDocument();
   });
 
   it('shows nothing for a fragment naming only unknown metrics', () => {
@@ -55,6 +68,15 @@ describe('useMetricsOverlay', () => {
     renderWithFragment('');
     fireEvent.keyDown(window, { key: 'm' });
     expect(latencyOverlay()).toBeInTheDocument();
+    expect(translationOverlay()).toBeInTheDocument();
+  });
+
+  it('toggles back to only what the fragment asked for', () => {
+    renderWithFragment('#metrics=latency');
+    fireEvent.keyDown(window, { key: 'm' });
+    fireEvent.keyDown(window, { key: 'm' });
+    expect(latencyOverlay()).toBeInTheDocument();
+    expect(translationOverlay()).not.toBeInTheDocument();
   });
 
   it('toggles back off on a second press', () => {

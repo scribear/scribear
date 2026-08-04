@@ -22,6 +22,7 @@ import {
   type LiveTranslationServiceSlice,
   appendTranslatedSegment,
   clearTranslatedSegments,
+  recordTranslationSample,
   setAvailableTranslationLanguages,
   setTranslationServiceState,
 } from './live-translation-service-slice.js';
@@ -65,6 +66,9 @@ export const createLiveTranslationMiddleware =
     });
     service.on('cleared', () => {
       store.dispatch(clearTranslatedSegments());
+    });
+    service.on('sample', (sample) => {
+      store.dispatch(recordTranslationSample(sample));
     });
 
     /** Re-probes selectable languages; failures leave the picker as it was. */
