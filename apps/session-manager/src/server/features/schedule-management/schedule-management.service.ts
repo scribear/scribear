@@ -236,6 +236,8 @@ class RollbackError extends Error {
  *  - Bumps `room_schedule_version` and `last_materialized_at`.
  */
 export class ScheduleManagementService {
+  /** Disable the 31-day range limit for list sessions queries */
+  private static readonly _ENFORCE_MAX_LIST_SESSIONS_RANGE = false;
   private static readonly _MAX_LIST_SESSIONS_RANGE_DAYS = 31;
 
   private _log: AppDependencies['logger'];
@@ -909,7 +911,10 @@ export class ScheduleManagementService {
   ): Promise<Session[] | 'RANGE_TOO_LARGE'> {
     const rangeDays =
       (range.to.getTime() - range.from.getTime()) / (24 * 60 * 60 * 1000);
-    if (rangeDays > ScheduleManagementService._MAX_LIST_SESSIONS_RANGE_DAYS) {
+    if (
+      ScheduleManagementService._ENFORCE_MAX_LIST_SESSIONS_RANGE &&
+      rangeDays > ScheduleManagementService._MAX_LIST_SESSIONS_RANGE_DAYS
+    ) {
       return 'RANGE_TOO_LARGE';
     }
     return this._repo.listSessionsInRange(this._repo.db, roomUids, range);
