@@ -79,6 +79,7 @@ import {
   TranscriptionDisplayPreferencesMenu,
 } from '@scribear/transcription-display-ui';
 
+import { useMetricsOverlay } from '#src/features/metrics-overlay/use-metrics-overlay';
 import { JoinSessionModal } from '#src/features/session-provider/components/join-session-modal';
 import { LatencyBadge } from '#src/features/session-provider/components/latency-badge';
 import { LeaveSessionButton } from '#src/features/session-provider/components/leave-session-button';
@@ -93,6 +94,7 @@ export const Root = () => {
   const dispatch = useAppDispatch();
   const isHeaderHideEnabled = useAppSelector(selectIsHeaderHideEnabled);
   const connectionBanner = useAppSelector(selectConnectionBanner);
+  const visibleMetrics = useMetricsOverlay();
 
   // Theme
   const backgroundColor = useAppSelector(selectBackgroundColor);
@@ -241,7 +243,7 @@ export const Root = () => {
       headerBreakpoint="md"
     >
       <JoinSessionModal />
-      <LatencyBadge />
+      {visibleMetrics.has('latency') && <LatencyBadge />}
       <ConnectionStatusBanner
         open={connectionBanner.open}
         severity={connectionBanner.open ? connectionBanner.severity : 'warning'}
