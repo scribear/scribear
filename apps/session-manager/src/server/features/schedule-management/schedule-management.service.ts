@@ -912,6 +912,7 @@ export class ScheduleManagementService {
     const rangeDays =
       (range.to.getTime() - range.from.getTime()) / (24 * 60 * 60 * 1000);
     if (
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Flag is intentionally false for now; enable by setting to true
       ScheduleManagementService._ENFORCE_MAX_LIST_SESSIONS_RANGE &&
       rangeDays > ScheduleManagementService._MAX_LIST_SESSIONS_RANGE_DAYS
     ) {
