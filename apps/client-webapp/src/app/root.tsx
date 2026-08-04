@@ -79,8 +79,8 @@ import {
   TranscriptionDisplayPreferencesMenu,
 } from '@scribear/transcription-display-ui';
 
+import { MetricsOverlayContainer } from '#src/features/metrics-overlay/components/metrics-overlay-container';
 import { JoinSessionModal } from '#src/features/session-provider/components/join-session-modal';
-import { LatencyBadge } from '#src/features/session-provider/components/latency-badge';
 import { LeaveSessionButton } from '#src/features/session-provider/components/leave-session-button';
 import { selectConnectionBanner } from '#src/features/session-provider/stores/derive-connection-banner';
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
@@ -241,7 +241,7 @@ export const Root = () => {
       headerBreakpoint="md"
     >
       <JoinSessionModal />
-      <LatencyBadge />
+      <MetricsOverlayContainer />
       <ConnectionStatusBanner
         open={connectionBanner.open}
         severity={connectionBanner.open ? connectionBanner.severity : 'warning'}

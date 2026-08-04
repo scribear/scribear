@@ -20,6 +20,7 @@ import type {
 } from '@scribear/microphone-store';
 import { createNodeServerClient } from '@scribear/node-server-client';
 import {
+  LatencyKind,
   type TRANSCRIPTION_STREAM_SCHEMA,
   type TranscriptionServiceDisconnectReason,
   TranscriptionStreamClientMessageType,
@@ -30,7 +31,10 @@ import {
   MY_SCHEDULE_SCHEMA,
   type Session,
 } from '@scribear/session-manager-schema';
-import type { TranscriptionSequenceInput } from '@scribear/transcription-content-store';
+import type {
+  LatencySample,
+  TranscriptionSequenceInput,
+} from '@scribear/transcription-content-store';
 
 import {
   KioskLifecycle,
@@ -121,6 +125,7 @@ interface KioskServiceEvents {
   connectionStatus: (status: SessionConnectionStatus) => void;
   sessionStatus: (status: SessionStatusSnapshot) => void;
   transcript: (event: TranscriptEvent) => void;
+  latency: (sample: LatencySample) => void;
   joinCode: (
     codes: { current: JoinCodeEntry; next: JoinCodeEntry | null } | null,
   ) => void;
@@ -1231,7 +1236,14 @@ export class KioskService extends EventEmitter<KioskServiceEvents> {
           this._clockSync.record(msg.t0, msg.t1, Date.now());
           break;
         case TranscriptionStreamServerMessageType.LATENCY_UPDATE:
-          // The source device does not display latency; ignore.
+          // The kiosk shows this only behind the metrics overlay, but it is
+          // the device whose clock sync makes `e2eMs` meaningful in the first
+          // place, so it is worth keeping.
+          this.emit('latency', {
+            kind: msg.kind === LatencyKind.FINAL ? 'final' : 'inProgress',
+            pipelineMs: msg.pipelineMs,
+            e2eMs: msg.e2eMs,
+          });
           break;
       }
     });
