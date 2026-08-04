@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import type { MetricName } from '#src/metrics-fragment.js';
-import {
-  METRIC_NAMES,
-  parseMetricsFragment,
-} from '#src/metrics-fragment.js';
+import { METRIC_NAMES, parseMetricsFragment } from '#src/metrics-fragment.js';
 
 /** Key that toggles the metrics overlays on and off. */
 const TOGGLE_KEY = 'm';
