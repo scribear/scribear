@@ -24,7 +24,12 @@ import {
 import {
   liveTranslationServiceReducer,
   selectTranslatedSegments,
+  selectTranslationCallLatency,
+  selectTranslationQueuedCaptions,
+  selectTranslationSampleCount,
   selectTranslationStatus,
+  selectTranslationTotalLatency,
+  selectTranslationWaitLatency,
 } from '#src/live-translation-service-slice.js';
 import {
   TranslationService,
@@ -96,6 +101,45 @@ describe('createLiveTranslationMiddleware', () => {
         expect(selectTranslatedSegments(store.getState())).toHaveLength(1);
       });
       expect(fake.translateCalls).toEqual(['Hello there']);
+    });
+
+    it('records a latency sample for each completed translation', async () => {
+      store.dispatch(
+        handleTranscript({
+          final: { text: ['Hello ', 'there'] },
+          inProgress: null,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(selectTranslationSampleCount(store.getState())).toBe(1);
+      });
+      const total = selectTranslationTotalLatency(store.getState());
+      expect(total.last).toBe(
+        selectTranslationWaitLatency(store.getState()).last +
+          selectTranslationCallLatency(store.getState()).last,
+      );
+      expect(total.average).toBe(total.last);
+      expect(selectTranslationQueuedCaptions(store.getState())).toBe(0);
+    });
+
+    it('drops the latency history when a new session clears the captions', async () => {
+      store.dispatch(
+        handleTranscript({
+          final: { text: ['Hello'] },
+          inProgress: null,
+        }),
+      );
+      await vi.waitFor(() => {
+        expect(selectTranslationSampleCount(store.getState())).toBe(1);
+      });
+
+      store.dispatch(clearTranscription());
+
+      await vi.waitFor(() => {
+        expect(selectTranslationSampleCount(store.getState())).toBe(0);
+      });
+      expect(selectTranslationTotalLatency(store.getState()).average).toBe(0);
     });
 
     it('never translates in-progress transcripts', async () => {
