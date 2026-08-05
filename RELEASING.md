@@ -42,13 +42,19 @@ changelogs.
 - Pushes to `staging` build changed containers with the `staging` and `staging-<commit-sha>` tags.
 - Pushes to `main` build changed containers with the `latest` and `v<major>.<minor>.<patch>` tags.
 - "Changed" is per image: a push rebuilds only the images whose workspace it
-  touched, so an unchanged image keeps `latest` pointing at its previous build
-  and gets no `v<version>` tag for that release. A promotion carrying a release
-  commit rebuilds everything anyway — the bump edits every `package.json`, so
-  every workspace counts as changed — which is why the version bump has to ride
-  the promotion rather than follow it. (The transcription images are the one
-  exception to the rule: a push to `main` always rebuilds all three, changed or
-  not.)
+  touched, so an unchanged image keeps `latest` pointing at its previous build.
+  It still gets the release's `v<version>`, though — `node-cd`'s
+  `backfill-release-tags` job gives every image that this push did not rebuild
+  the release tag as an alias of the manifest already tagged `latest`, so
+  `IMAGE_TAG=v<version>` resolves for the whole stack and not just the parts
+  that happened to change. (The transcription images need no backfill: a push
+  to `main` always rebuilds all three.) An existing `v<version>` is never
+  re-pointed, only missing ones are created.
+- Release tags are not immutable. A push to `main` that carries no version bump
+  — a hotfix promoted on its own — republishes `latest` **and** `v<version>`
+  for whichever images it rebuilt, so that version tag moves for those images
+  and stays put for the rest. If you need a fixed reference to exactly what was
+  deployed, use the image digest or `staging-<sha>`, not the version tag.
 
 ## Version sources
 
