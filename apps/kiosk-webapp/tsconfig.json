@@ -85,6 +85,9 @@
       "path": "../../libs/ui/core-ui"
     },
     {
+      "path": "../../libs/ui/metrics-overlay-ui"
+    },
+    {
       "path": "../../libs/ui/live-translation-ui"
     },
     {

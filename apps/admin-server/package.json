@@ -1,6 +1,6 @@
 {
   "name": "@scribear/admin-server",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Admin BFF for ScribeAR: authenticates IT staff, holds the Session Manager admin key server-side, and proxies admin operations.",
   "author": "scribear",
   "main": "dist/src/index.js",
@@ -45,8 +45,8 @@
     "@fastify/awilix": "8.2.0",
     "@fastify/cookie": "11.0.2",
     "@fastify/rate-limit": "11.1.0",
-    "@scribear/scribear-db": "0.2.0",
-    "@scribear/scribear-redis": "0.2.0",
+    "@scribear/scribear-db": "0.3.0",
+    "@scribear/scribear-redis": "0.3.0",
     "awilix": "13.0.0",
     "env-schema": "7.0.0",
     "fastify": "5.10.0",

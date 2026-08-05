@@ -110,6 +110,33 @@ export interface TranslationServiceState {
   errorMessage: string | null;
   /** True once captions have been dropped; cleared on reset. */
   hasDroppedContent: boolean;
+  /** How many captions have been dropped in total; cleared on reset. */
+  droppedCaptions: number;
+}
+
+/**
+ * Timing for one completed `translate()` call, for the metrics overlay.
+ *
+ * Split into the two legs because they fail differently and are fixed
+ * differently: `waitMs` growing means the model cannot keep up with the room
+ * (the batch sat in the queue), while `translateMs` growing means individual
+ * calls got slower. Their sum is how stale the oldest caption in the batch was
+ * by the time its translation reached the screen, which is what a reader
+ * actually experiences.
+ *
+ * Only emitted for calls that produced text: a failed call is already surfaced
+ * as an `ERROR` state and a gap marker, and timing a timeout would just report
+ * {@link TRANSLATE_TIMEOUT_MS} back.
+ */
+export interface TranslationSample {
+  /** Time the oldest caption in the batch spent queued before the call. */
+  waitMs: number;
+  /** Duration of the `translate()` call itself. */
+  translateMs: number;
+  /** How many finalized captions the call covered. */
+  captionCount: number;
+  /** Captions still queued when the call finished, i.e. the backlog. */
+  queuedCaptions: number;
 }
 
 /**
@@ -122,12 +149,22 @@ interface TranslationServiceEvents {
   segment: (segment: TranslatedSegment) => void;
   /** Fired when the translated caption history should be cleared. */
   cleared: () => void;
+  /** Fired after each `translate()` call that produced text. */
+  sample: (sample: TranslationSample) => void;
 }
 
 /** A caption waiting to be translated. */
 interface QueuedCaption {
   text: string;
   enqueuedAt: number;
+}
+
+/** One batch pulled off the queue, with what it took to assemble it. */
+interface CaptionBatch {
+  text: string;
+  /** When the oldest caption in the batch was queued. */
+  oldestEnqueuedAt: number;
+  captionCount: number;
 }
 
 /**
@@ -152,6 +189,7 @@ export class TranslationService extends EventEmitter<TranslationServiceEvents> {
   #downloadProgress: number | null = null;
   #errorMessage: string | null = null;
   #hasDroppedContent = false;
+  #droppedCaptions = 0;
 
   #queue: QueuedCaption[] = [];
   #isDraining = false;
@@ -188,6 +226,7 @@ export class TranslationService extends EventEmitter<TranslationServiceEvents> {
       downloadProgress: this.#downloadProgress,
       errorMessage: this.#errorMessage,
       hasDroppedContent: this.#hasDroppedContent,
+      droppedCaptions: this.#droppedCaptions,
     };
   }
 
@@ -383,6 +422,7 @@ export class TranslationService extends EventEmitter<TranslationServiceEvents> {
     this.#queue = [];
     this.#lastEmittedWasGap = false;
     this.#hasDroppedContent = false;
+    this.#droppedCaptions = 0;
     this.#emitState();
     this.emit('cleared');
     if (this.#translator) void this.#drain();
@@ -400,8 +440,11 @@ export class TranslationService extends EventEmitter<TranslationServiceEvents> {
 
     this.#queue.push({ text, enqueuedAt: Date.now() });
     if (this.#queue.length > MAX_QUEUE_SEGMENTS) {
-      this.#queue.splice(0, this.#queue.length - MAX_QUEUE_SEGMENTS);
-      this.#markDropped();
+      const overflow = this.#queue.splice(
+        0,
+        this.#queue.length - MAX_QUEUE_SEGMENTS,
+      );
+      this.#markDropped(overflow.length);
     }
     void this.#drain();
   }
@@ -432,19 +475,26 @@ export class TranslationService extends EventEmitter<TranslationServiceEvents> {
         if (this.#queue.length === 0) return;
 
         const batch = this.#takeBatch();
-        if (batch === '') continue;
+        if (batch.text === '') continue;
 
-        const translated = await this.#translateWithTimeout(batch);
+        const startedAt = Date.now();
+        const translated = await this.#translateWithTimeout(batch.text);
         if (this.#generation !== generation) return;
 
         if (translated === null) {
           // Nothing usable came back. Mark the hole so the reader can see
           // that words are missing rather than silently reading on.
-          this.#markDropped();
+          this.#markDropped(batch.captionCount);
           continue;
         }
 
         this.#emitSegment({ text: translated, kind: 'text' });
+        this.emit('sample', {
+          waitMs: Math.max(0, startedAt - batch.oldestEnqueuedAt),
+          translateMs: Math.max(0, Date.now() - startedAt),
+          captionCount: batch.captionCount,
+          queuedCaptions: this.#queue.length,
+        });
         if (this.#status === TranslationStatus.ERROR) {
           // A success after a failure means translation recovered.
           this.#setState({
@@ -481,16 +531,21 @@ export class TranslationService extends EventEmitter<TranslationServiceEvents> {
       this.#queue.shift();
       dropped += 1;
     }
-    if (dropped > 0) this.#markDropped();
+    if (dropped > 0) this.#markDropped(dropped);
   }
 
   /**
    * Pulls the next batch off the queue, up to {@link MAX_BATCH_CHARS}. Always
    * takes at least one caption, so an oversized single caption still moves.
+   *
+   * The oldest caption's enqueue time is carried out with the text: it is the
+   * one the reader has been waiting on, so it is what the latency sample is
+   * measured from.
    */
-  #takeBatch(): string {
+  #takeBatch(): CaptionBatch {
     const parts: string[] = [];
     let length = 0;
+    let oldestEnqueuedAt = Date.now();
     for (;;) {
       const next = this.#queue[0];
       if (next === undefined) break;
@@ -498,10 +553,15 @@ export class TranslationService extends EventEmitter<TranslationServiceEvents> {
         break;
       }
       this.#queue.shift();
+      if (parts.length === 0) oldestEnqueuedAt = next.enqueuedAt;
       parts.push(next.text);
       length += next.text.length;
     }
-    return parts.join(' ').replace(/\s+/g, ' ').trim();
+    return {
+      text: parts.join(' ').replace(/\s+/g, ' ').trim(),
+      oldestEnqueuedAt,
+      captionCount: parts.length,
+    };
   }
 
   /**
@@ -537,9 +597,14 @@ export class TranslationService extends EventEmitter<TranslationServiceEvents> {
   /**
    * Records that content was lost, emitting a gap marker. Consecutive losses
    * coalesce into the marker already on screen instead of stacking ellipses.
+   *
+   * @param count - How many captions were lost. Counted separately from the
+   *   `hasDroppedContent` flag because coalesced markers hide the scale: one
+   *   ellipsis can stand for a single fragment or for a minute of speech.
    */
-  #markDropped(): void {
+  #markDropped(count: number): void {
     this.#hasDroppedContent = true;
+    this.#droppedCaptions += count;
     if (this.#lastEmittedWasGap) {
       this.#emitState();
       return;

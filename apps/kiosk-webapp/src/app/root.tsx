@@ -76,6 +76,7 @@ import {
 import { KioskStatusPanel } from '#src/features/kiosk-provider/components/kiosk-status-panel';
 import { selectConnectionBanner } from '#src/features/kiosk-provider/stores/kiosk-slice';
 import { KioskSplitLayout } from '#src/features/kiosk-split-screen/components/kiosk-split-layout';
+import { MetricsOverlayContainer } from '#src/features/metrics-overlay/components/metrics-overlay-container';
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
 /**
@@ -235,6 +236,7 @@ export const Root = () => {
         activate={() => void dispatch(activateMicrophone())}
         deactivate={() => dispatch(deactivateMicrophone())}
       />
+      <MetricsOverlayContainer />
       {/* Mounted once at the top level, as a full-width bar fixed to the
           viewport bottom, so it's visible regardless of which side of the
           split (transcription display vs. status panel) the underlying

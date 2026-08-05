@@ -1,6 +1,6 @@
 {
   "name": "@scribear/test-audio-source",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Streaming engine for synthetic ScribeAR source devices: device-token auth, WAV framing, DSP effects and a deterministic fault injector",
   "author": "scribear",
   "main": "dist/src/index.js",

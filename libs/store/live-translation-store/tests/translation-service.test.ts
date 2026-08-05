@@ -4,6 +4,7 @@ import {
   GAP_MARKER,
   NO_TRANSLATIONS_MESSAGE,
   type TranslatedSegment,
+  type TranslationSample,
   TranslationService,
   TranslationStatus,
 } from '#src/translation-service.js';
@@ -21,6 +22,13 @@ function collectSegments(service: TranslationService): TranslatedSegment[] {
   const segments: TranslatedSegment[] = [];
   service.on('segment', (segment) => segments.push(segment));
   return segments;
+}
+
+/** Collects latency samples emitted by a service, for assertion. */
+function collectSamples(service: TranslationService): TranslationSample[] {
+  const samples: TranslationSample[] = [];
+  service.on('sample', (sample) => samples.push(sample));
+  return samples;
 }
 
 describe('TranslationService', () => {
@@ -262,6 +270,86 @@ describe('TranslationService', () => {
         0,
       );
       expect(gapRuns).toBe(0);
+    });
+
+    it('counts every dropped caption, not just that some were dropped', async () => {
+      fake.configure({ translateDelayMs: 11_000 });
+
+      for (let i = 0; i < 4; i++) {
+        service.submit(`caption ${i.toString()} ${LONG_CAPTION}`);
+      }
+      await vi.advanceTimersByTimeAsync(120_000);
+
+      // One ellipsis stands for several lost captions; the counter does not.
+      expect(service.state.droppedCaptions).toBeGreaterThan(1);
+    });
+  });
+
+  describe('latency samples', () => {
+    beforeEach(async () => {
+      service = new TranslationService();
+      await service.enable('es');
+    });
+
+    it('splits queue wait from the translate call', async () => {
+      fake.configure({ translateDelayMs: 1000 });
+      const samples = collectSamples(service);
+
+      service.submit(`first ${LONG_CAPTION}`);
+      await vi.advanceTimersByTimeAsync(0);
+      // Queued behind the in-flight call, so it waits out the rest of it.
+      service.submit(`second ${LONG_CAPTION}`);
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(samples).toHaveLength(2);
+      expect(samples[0]).toMatchObject({ waitMs: 0, translateMs: 1000 });
+      expect(samples[1]?.waitMs).toBeGreaterThan(0);
+      expect(samples[1]?.translateMs).toBe(1000);
+    });
+
+    it('measures the wait from the oldest caption in the batch', async () => {
+      fake.configure({ translateDelayMs: 1000 });
+      const samples = collectSamples(service);
+
+      service.submit('first');
+      await vi.advanceTimersByTimeAsync(0);
+      // Both merge into one call, but "second" is the one that has waited.
+      service.submit('second');
+      await vi.advanceTimersByTimeAsync(500);
+      service.submit('third');
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(fake.translateCalls).toEqual(['first', 'second third']);
+      expect(samples[1]?.waitMs).toBe(1000);
+      expect(samples[1]?.captionCount).toBe(2);
+    });
+
+    it('reports the backlog left behind after each call', async () => {
+      fake.configure({ translateDelayMs: 1000 });
+      const samples = collectSamples(service);
+
+      service.submit(`first ${LONG_CAPTION}`);
+      await vi.advanceTimersByTimeAsync(0);
+      service.submit(`second ${LONG_CAPTION}`);
+      service.submit(`third ${LONG_CAPTION}`);
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // "second" and "third" are too long to share a batch, so one is left.
+      expect(samples[0]?.queuedCaptions).toBe(2);
+      expect(samples.at(-1)?.queuedCaptions).toBe(0);
+    });
+
+    it('does not sample a call that produced nothing', async () => {
+      fake.configure({ translateFailsWith: 'InvalidStateError' });
+      const samples = collectSamples(service);
+
+      service.submit('Hello there');
+      await vi.advanceTimersByTimeAsync(0);
+
+      // A failure is already surfaced as ERROR plus a gap; timing it would
+      // only report the timeout back.
+      expect(samples).toEqual([]);
+      expect(service.state.status).toBe(TranslationStatus.ERROR);
     });
   });
 

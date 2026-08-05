@@ -12,6 +12,7 @@ import type { MicrophoneService } from '@scribear/microphone-store';
 import type { NodeServerClient } from '@scribear/node-server-client';
 import { createNodeServerClient } from '@scribear/node-server-client';
 import {
+  LatencyKind,
   TranscriptionStreamClientMessageType,
   TranscriptionStreamServerMessageType,
 } from '@scribear/node-server-schema';
@@ -1096,6 +1097,34 @@ describe('KioskService transcription-stream message handling', () => {
     ]);
     expect(statuses).toEqual([
       { transcriptionServiceConnected: true, sourceDeviceConnected: true },
+    ]);
+  });
+
+  it('emits latency samples so the metrics overlay has something to show', async () => {
+    exchangeDeviceToken.mockResolvedValue(
+      exchangeOk(await mintSessionToken(NOW_MS / 1000 + 600)),
+    );
+    const { service, socket } = await bringSessionActive();
+    const samples: unknown[] = [];
+    service.on('latency', (sample) => samples.push(sample));
+
+    socket.emit('message', {
+      type: TranscriptionStreamServerMessageType.LATENCY_UPDATE,
+      kind: LatencyKind.FINAL,
+      pipelineMs: 300,
+      e2eMs: 500,
+    });
+    socket.emit('message', {
+      type: TranscriptionStreamServerMessageType.LATENCY_UPDATE,
+      kind: LatencyKind.IN_PROGRESS,
+      pipelineMs: 100,
+      // Null until this device's clock has been synced with the node's.
+      e2eMs: null,
+    });
+
+    expect(samples).toEqual([
+      { kind: 'final', pipelineMs: 300, e2eMs: 500 },
+      { kind: 'inProgress', pipelineMs: 100, e2eMs: null },
     ]);
   });
 });
