@@ -21,18 +21,66 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      transcription_service: ${{ steps.filter.outputs.transcription_service }}
+      build_images: ${{ steps.decide.outputs.build_images }}
       image_matrix: ${{ steps.image_matrix.outputs.matrix }}
       build_matrix: ${{ steps.image_matrix.outputs.build_matrix }}
     steps:
+      # fetch-depth: 0 for the same reason node-cd needs it: the base commit
+      # below has to be in the local history for the diff to resolve, and the
+      # default shallow checkout does not contain it.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
       - name: Detect changed paths
         id: filter
         uses: dorny/paths-filter@v3
         with:
+          # Pinned to the pre-push commit, matching what detect-changes does in
+          # node-cd.yml. Left unset, paths-filter diffs against the repository
+          # default branch - which here is `staging`, so on a staging -> main
+          # merge it compares main against the very commits main just absorbed,
+          # finds nothing, and skips the build. That is why no transcription
+          # image ever received a `latest` or `v<version>` tag.
+          #
+          # The zero SHA (branch created by this push) falls back to the default
+          # base rather than failing to resolve; main force-builds below anyway.
+          base: ${{ github.event.before != '0000000000000000000000000000000000000000' && github.event.before || '' }}
           filters: |
+            # `.github/**` is global here for the same reason detect-changes
+            # treats it as global in node-cd: a change to build-container,
+            # resolve-container-tags or the tag policy otherwise reaches the
+            # node images on the next staging push but sits dormant for these
+            # three until someone happens to touch Python source. Rebuilding
+            # costs ~3 minutes on a warm cache - the BUILD_* args are the last
+            # layers in both Dockerfiles - and only bites on staging, since
+            # main and workflow_dispatch build unconditionally below.
             transcription_service:
               - 'transcription_service/**'
+              - '.github/**'
+
+      # A push to main is a release: every production image must come out of it
+      # carrying `latest` and `v<version>`, whether or not its source moved
+      # since the last one, so the path filter only gates staging builds. A
+      # manual dispatch builds everything too - same rule detect-changes applies
+      # in node-cd.yml, where an empty base means "run all workspaces".
+      - name: Decide whether to build images
+        id: decide
+        shell: bash
+        env:
+          TRANSCRIPTION_CHANGED: ${{ steps.filter.outputs.transcription_service }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$TRANSCRIPTION_CHANGED" = "true" ] \
+            || [ "$REF" = "refs/heads/main" ] \
+            || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            build_images=true
+          else
+            build_images=false
+          fi
+          echo "build_images=${build_images}" >> "$GITHUB_OUTPUT"
+          echo "transcription_service changed: ${TRANSCRIPTION_CHANGED:-unknown}, build_images: ${build_images}"
 
       - name: Resolve transcription image matrix
         id: image_matrix
@@ -47,7 +95,7 @@ jobs:
   # Mirrors the shape in node-cd.yml.
   docker-build:
     needs: [changes]
-    if: needs.changes.outputs.transcription_service == 'true'
+    if: needs.changes.outputs.build_images == 'true'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.build_matrix) }}
@@ -85,7 +133,7 @@ jobs:
   # multi-arch index. Mirrors docker-merge in node-cd.yml.
   docker-merge:
     needs: [changes, docker-build]
-    if: needs.changes.outputs.transcription_service == 'true'
+    if: needs.changes.outputs.build_images == 'true'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.image_matrix) }}
