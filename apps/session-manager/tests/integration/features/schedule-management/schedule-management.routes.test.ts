@@ -1187,7 +1187,7 @@ describe('Schedule Management Routes', () => {
       ]);
     });
 
-    it('returns 422 RANGE_TOO_LARGE when the range exceeds 31 days', async () => {
+    it('allows range > 31 days when ENFORCE_MAX_LIST_SESSIONS_RANGE is false', async () => {
       // Arrange
       const { roomUid } = await setupRoom();
 
@@ -1200,9 +1200,9 @@ describe('Schedule Management Routes', () => {
         headers: { authorization: ADMIN_HEADER },
       });
 
-      // Assert
-      expect(res.statusCode).toBe(422);
-      expect(res.json<{ code: string }>().code).toBe('RANGE_TOO_LARGE');
+      // Assert - should return 200 with empty sessions array since no sessions exist in that range
+      expect(res.statusCode).toBe(200);
+      expect(res.json<{ items: unknown[] }>().items).toEqual([]);
     });
   });
 
