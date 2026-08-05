@@ -48,6 +48,9 @@ const GATED_LOCATIONS: {
     header: 'location /api/node-server/ {',
     denial: 'api',
   },
+  // Redirects rather than proxies on the allowed path too (to /client/), so
+  // it is the one gated block with no proxy_pass - see the assertions below.
+  { name: 'site root', header: 'location = / {', denial: 'frontend' },
   { name: 'client-webapp', header: 'location /client/ {', denial: 'frontend' },
   { name: 'kiosk-webapp', header: 'location /kiosk/ {', denial: 'frontend' },
   {
@@ -127,11 +130,15 @@ describe('nginx onsite-only access gate', (it) => {
         ifIndex,
         `${name}'s location block is missing the "if ($onsite = 0) { ... }" gate.`,
       ).toBeGreaterThanOrEqual(0);
-      expect(
-        ifIndex,
-        `${name}'s $onsite gate must run before proxy_pass, not after - ` +
-          'otherwise the request already reached the upstream before being denied.',
-      ).toBeLessThan(proxyIndex);
+      // The site root has no proxy_pass at all - both of its branches are
+      // redirects - so there is no upstream for the gate to run ahead of.
+      if (proxyIndex >= 0) {
+        expect(
+          ifIndex,
+          `${name}'s $onsite gate must run before proxy_pass, not after - ` +
+            'otherwise the request already reached the upstream before being denied.',
+        ).toBeLessThan(proxyIndex);
+      }
 
       if (denial === 'api') {
         expect(block).toContain(`return 403 "${ONSITE_DENIED_MESSAGE}`);
@@ -140,8 +147,14 @@ describe('nginx onsite-only access gate', (it) => {
         // Stops a stale redirect from being replayed by a caching
         // intermediary after the client actually connects - API 403s don't
         // need this (they aren't redirects a client would "come back to").
-        expect(block).toContain(
-          'add_header Cache-Control $onsite_no_cache always;',
+        //
+        // Either the $onsite_no_cache map (no-store only on the gate's own
+        // 302, so a proxied response keeps the upstream's Cache-Control for
+        // hash-versioned assets) or a literal no-store, which the site root
+        // uses because its allowed path is a redirect too and so is equally
+        // IP-dependent. Anything else - or nothing - is a regression.
+        expect(block).toMatch(
+          /add_header Cache-Control (\$onsite_no_cache|"no-store") always;/,
         );
       }
 
