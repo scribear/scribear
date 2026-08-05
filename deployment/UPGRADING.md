@@ -34,6 +34,18 @@ page `/` means depends on where the visitor is, so it must not be cached and
 replayed for the same person on a different network. Every other unrouted path
 still 404s, and `/healthz` is unaffected.
 
+**Redirects now name a path instead of a full URL.** `Location: /client/`
+rather than `Location: https://<host>/client/`, for every redirect nginx
+generates itself — the root, the `/client` and `/grafana` trailing-slash
+redirects, and the onsite gate's redirects to `/extlanding`. On a deployment
+served from the standard port 443 this changes nothing observable. It matters
+if you publish the stack on any other port: the old form was built from the
+`Host` header with the port stripped, so a stack on `:8443` redirected visitors
+to port 443 of the same machine. If you have a proxy, CDN, or test harness in
+front of nginx that assumes an absolute `Location`, this is the release to
+check it against — a relative one has been valid since RFC 7231 and every
+browser accepts it.
+
 ---
 
 ## Unreleased — session-auth rate limits are tunable and recalibrated (`compose.yml` v16)
