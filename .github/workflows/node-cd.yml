@@ -166,6 +166,112 @@ jobs:
           first_tag=$(echo "$TAGS" | head -n1)
           docker buildx imagetools inspect "ghcr.io/${IMAGE_NAME}:${first_tag}"
 
+  # Gives the release's v<version> tag to the images this push did NOT rebuild.
+  #
+  # deployment/compose.yml pins all sixteen services with one ${IMAGE_TAG}, so
+  # `IMAGE_TAG=v0.3.0` only resolves if every image carries that tag. Change
+  # detection means a push to main rebuilds only the images whose workspace it
+  # touched, so an image that did not change gets no release tag at all and
+  # pinning the stack to a version fails on it - not with a useful message,
+  # but with a manifest-unknown pull error on one service. Live proof at the
+  # time of writing: test-audio-generator stopped at v0.1.0 while everything
+  # else reached v0.2.0, so `IMAGE_TAG=v0.2.0` cannot start the stack today.
+  #
+  # A release commit hides this, because bumping every package.json marks every
+  # workspace changed and so rebuilds everything - but that is a side effect of
+  # how versions happen to be bumped, not a guarantee, and it does not survive a
+  # hotfix promoted to main on its own.
+  #
+  # Retag, don't rebuild: `imagetools create` copies the manifest registry-side.
+  # Measured against a real multi-arch image from this registry - source and new
+  # tag report the identical digest (sha256:553e627e...) with linux/amd64 and
+  # linux/arm64 both intact - so the release tag is an alias for the same bits,
+  # not a second build carrying a different provenance stamp. (It re-wraps into
+  # a fresh index only when the source is a single-arch manifest, which nothing
+  # docker-merge publishes ever is.)
+  #
+  # An existing v<version> is never moved, only missing ones are created, so
+  # re-running this can add a tag but can never re-point one.
+  #
+  # main only: the staging tags are `staging` and `staging-<sha>`, and an
+  # unchanged image's `staging` tag already points at its last build, which is
+  # the right answer there. python-cd needs no equivalent - it rebuilds all
+  # three transcription images on every push to main, changed or not.
+  backfill-release-tags:
+    needs: [changes, docker-merge]
+    # Runs whether or not docker-merge had anything to do (no changed images at
+    # all still needs the tags), but never after it failed: a half-published
+    # release must not have the rest of the stack labelled as that version.
+    if: >-
+      !cancelled()
+      && github.ref == 'refs/heads/main'
+      && needs.docker-merge.result != 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Tag every image this push did not rebuild
+        env:
+          # Only the images that were rebuilt; everything else in
+          # node-images.json is what this job is for.
+          IMAGE_MATRIX: ${{ needs.changes.outputs.image_matrix }}
+        run: |
+          node <<'JS' > /tmp/pending.tsv
+          const { readFileSync } = require('fs');
+
+          const images = JSON.parse(
+            readFileSync('.github/node-images.json', 'utf8'),
+          );
+          // Each image's own version file, not one global version: they agree
+          // today because changesets moves the npm packages as a fixed group,
+          // and reading each one keeps this correct if that ever stops.
+          const built = new Set(
+            JSON.parse(process.env.IMAGE_MATRIX || '{"include":[]}').include.map(
+              (image) => image.image_name,
+            ),
+          );
+          for (const image of images) {
+            if (built.has(image.image_name)) continue;
+            const { version } = JSON.parse(
+              readFileSync(image.version_file, 'utf8'),
+            );
+            process.stdout.write(`${image.image_name}\t${version}\n`);
+          }
+          JS
+
+          if [ ! -s /tmp/pending.tsv ]; then
+            echo "This push rebuilt every image; docker-merge already tagged them."
+            exit 0
+          fi
+
+          while IFS=$'\t' read -r image version; do
+            release="ghcr.io/${image}:v${version}"
+            latest="ghcr.io/${image}:latest"
+
+            if docker buildx imagetools inspect "$release" >/dev/null 2>&1; then
+              echo "= ${release} already published - left where it points."
+              continue
+            fi
+
+            if ! docker buildx imagetools inspect "$latest" >/dev/null 2>&1; then
+              echo "! ${latest} does not exist: ${image} has never been released, so there is no manifest to tag. Skipping."
+              continue
+            fi
+
+            echo "+ ${release} -> the manifest currently tagged latest"
+            docker buildx imagetools create -t "$release" "$latest"
+          done < /tmp/pending.tsv
+
   deploy-standalone-webapp:
     needs: [changes, docker-merge]
     if: contains(needs.changes.outputs.workspaces, 'apps/standalone-webapp') && github.ref == 'refs/heads/main'
