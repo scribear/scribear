@@ -1,6 +1,6 @@
 {
   "name": "@scribear/test-audio-generator",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Holds the two operator test-audio devices' tokens and runs them: one synthetic source playing clean speech at an adjustable level and noise floor, one reproducing on demand every audio fault the stack claims to report.",
   "author": "scribear",
   "main": "dist/src/index.js",

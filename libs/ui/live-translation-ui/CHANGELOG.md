@@ -1,8 +1,8 @@
-# @scribear/transcription-display-ui
+# @scribear/live-translation-ui
 
 ## 0.3.0
 
-### Patch Changes
+### Minor Changes
 
 - 2df4286: Add opt-in translated captions, produced in the browser by Chrome's Translator
   API, to the client and kiosk webapps.
@@ -51,7 +51,3 @@
   `npm run e2e:translation`, which runs the real service against real Chrome —
   including real Spanish output, the ellipsis under real backpressure, and the
   20-second timeout.
-
-## 0.2.0
-
-## 0.1.0

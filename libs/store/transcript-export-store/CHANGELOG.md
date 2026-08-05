@@ -1,4 +1,4 @@
-# @scribear/transcription-content-store
+# @scribear/transcript-export-store
 
 ## 0.3.0
 
@@ -68,7 +68,3 @@
   the disk. The suite opts into the summary machinery explicitly so it keeps
   working while the feature is off; a separate file pins the switched-off path,
   including that nothing probes the browser or touches the model on page load.
-
-## 0.2.0
-
-## 0.1.0
