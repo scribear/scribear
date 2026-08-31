@@ -11,7 +11,12 @@ const testTheme = createTheme({
   palette: { transcriptionColor: { main: '#ffff00' } },
 });
 
+/** Wrapper component so `rerender` keeps the theme in place. */
+function ThemeWrapper({ children }: { children: ReactNode }) {
+  return <ThemeProvider theme={testTheme}>{children}</ThemeProvider>;
+}
+
 /** Renders translation UI inside the MUI theme it depends on. */
 export function renderWithProviders(ui: ReactNode) {
-  return render(<ThemeProvider theme={testTheme}>{ui}</ThemeProvider>);
+  return render(ui, { wrapper: ThemeWrapper });
 }

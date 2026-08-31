@@ -105,6 +105,30 @@ describe('TranslatedCaptionsPanel', () => {
     );
   });
 
+  it('holds its scroll position against the browser moving it', () => {
+    // Blink and Gecko shift the offset to keep an "anchor" node still when
+    // content above it resizes, which fights the auto-scroll pin; and
+    // overscrolling the translation must not chain into the pane above it.
+    renderPanel();
+
+    expect(screen.getByRole('log')).toHaveStyle({
+      overflowAnchor: 'none',
+      overscrollBehavior: 'contain',
+    });
+  });
+
+  it('keeps the jump-to-bottom control out of the way while it is following', () => {
+    // Scrollback would be a trap without a way back; the control is rendered
+    // from the start so its space is reserved, but stays hidden - from sighted
+    // readers and assistive technology alike - until it is needed.
+    renderPanel();
+
+    expect(screen.getByRole('button', { hidden: true })).toHaveStyle({
+      visibility: 'hidden',
+    });
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
   it('has no automatically detectable accessibility violations', async () => {
     renderPanel();
 

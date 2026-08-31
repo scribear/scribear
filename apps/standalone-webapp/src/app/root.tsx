@@ -66,6 +66,21 @@ import { VisualizerSettingsMenu } from '#src/features/visualizer/components/visu
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
 /**
+ * How long the caption region may sit scrolled back with no scrolling and no
+ * sign of a reader before it returns to following the speaker.
+ *
+ * Standalone runs on the speaker's own machine with no session behind it, so
+ * the transcript on screen is the only copy of what was said - which cuts both
+ * ways. Silently stopping following means the tail of the talk scrolls past
+ * unread, and nobody is watching the window closely enough to notice, because
+ * the machine is usually mid-presentation and doing something else. Three
+ * minutes without a scroll, a key or a pointer move on a laptop that is
+ * physically in front of someone reads as "not reading right now", and any
+ * real interaction resets the clock.
+ */
+const IDLE_REENGAGE_MS = 180_000;
+
+/**
  * Root layout component for the standalone webapp. Renders the full application
  * shell including the header, drawer menus, microphone controls, provider selector,
  * status modals, and transcription display.
@@ -211,6 +226,7 @@ export const Root = () => {
         fontSizePx={fontSizePx}
         lineHeightPx={lineHeightPx}
         getBoundedDisplayPreferences={getBoundedDisplayPreferences}
+        idleReengageMs={IDLE_REENGAGE_MS}
       />
     </AppLayout>
   );

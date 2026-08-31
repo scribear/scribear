@@ -13,7 +13,13 @@
  *                          supply --activation-code for an existing device
  *                          whose room already has an active session.
  *   --base-url <url>       default https://localhost
- *   --stream-seconds <n>   default 45   how long to stream before scoring
+ *   --stream-seconds <n>   default 45   how long to stream before scoring.
+ *                          Doubles as the soak length: the auto-scroll checks
+ *                          below run for the whole streaming window, so
+ *                          `--stream-seconds 600` is the soak invocation. There
+ *                          is deliberately no separate --soak-seconds, because
+ *                          the soak has nothing to measure except while audio
+ *                          is streaming and transcripts are arriving.
  *   --session-wait-seconds <n>  default 60. Raise it to test a CALENDARED
  *                          session, where the kiosk must be running and idle
  *                          before the session starts.
@@ -30,6 +36,28 @@
  * because credentials were sent once per session instead of once per
  * connection. Nothing short of driving the real browser and then breaking the
  * upstream underneath it catches that.
+ *
+ * Auto-scroll soak (see 20260831-FixAutoScroll-PLAN.md section 6.5). While
+ * audio streams, nothing touches the page, so the caption view must follow the
+ * speaker for the entire run. The run additionally fails if:
+ *
+ *   - `window.__scribearAutoScroll.transcription.userDisengagements` is not 0.
+ *     Nothing clicked, scrolled or typed, so a scroll attributed to a user
+ *     gesture is by definition a misattribution.
+ *   - the "Jump to latest transcription" button was ever visible. That button
+ *     stays mounted and is hidden with `visibility: hidden`, so presence in the
+ *     DOM proves nothing - computed visibility is polled throughout streaming,
+ *     because a transient appearance mid-run is exactly the reported bug.
+ *
+ * The viewport is resized every ~20s during streaming, alternating between a
+ * landscape and a portrait size. This is not incidental: the primary suspected
+ * mechanism is a resize clamping the scroll offset while new caption text
+ * arrives, so a fixed-viewport soak does not exercise the bug at all.
+ *
+ * `suppressedDisengagements`, `lastSuppressedDistancePx` and
+ * `idleReengagements` are reported but never fail the run. The first two count
+ * the bug being caught and ignored - non-zero there is the fix working - and
+ * the third only fires after a scrollback that this run never performs.
  *
  * Requires a running stack (deployment/compose.yml). Chrome is auto-detected
  * from CHROME_PATH, then the usual system locations.
@@ -61,6 +89,26 @@ const WAV = join(
   'speech',
   'harvard_16k_mono.wav',
 );
+
+/** aria-label of the control that only appears once auto-scroll has given up. */
+const JUMP_BUTTON_LABEL = 'Jump to latest transcription';
+
+/**
+ * Sizes cycled through mid-stream. A landscape desktop shape and a portrait
+ * tablet shape, so each resize is a large change in both axes: the suspected
+ * mechanism needs the content to reflow and the scroll offset to be clamped,
+ * which a few pixels of jitter would not achieve.
+ */
+const SOAK_VIEWPORTS = [
+  { width: 1280, height: 800 },
+  { width: 1024, height: 1366 },
+];
+
+/** How often the viewport changes while streaming. */
+const RESIZE_INTERVAL_MS = 20000;
+
+/** How often the jump button's computed visibility is sampled. */
+const VISIBILITY_POLL_MS = 1000;
 
 function resolveChrome() {
   for (const p of CHROME_CANDIDATES) if (existsSync(p)) return p;
@@ -177,6 +225,84 @@ function clickByText(page, needle) {
   }, needle.toLowerCase());
 }
 
+/**
+ * Whether the jump-to-bottom control is visible right now.
+ *
+ * The button is always in the DOM - it is hidden with `visibility: hidden` so
+ * it can fade rather than pop - so `querySelector` returning something says
+ * nothing. Computed style is the only honest signal, and it is read through
+ * `getComputedStyle` rather than the inline style so an ancestor hiding the
+ * whole region also reads as hidden.
+ */
+function isJumpButtonVisible(page) {
+  return page.evaluate((label) => {
+    const buttons = [...document.querySelectorAll(`[aria-label="${label}"]`)];
+    return buttons.some((el) => {
+      const style = getComputedStyle(el);
+      return (
+        style.visibility !== 'hidden' &&
+        style.display !== 'none' &&
+        Number(style.opacity) !== 0
+      );
+    });
+  }, JUMP_BUTTON_LABEL);
+}
+
+/** Counters published by the transcript region's auto-scroll hook, or null. */
+function readAutoScrollDiagnostics(page) {
+  return page.evaluate(() => {
+    const entry = window.__scribearAutoScroll?.transcription;
+    return entry ? { ...entry } : null;
+  });
+}
+
+/**
+ * Streams for `seconds`, resizing the viewport periodically and sampling the
+ * jump button's visibility throughout.
+ *
+ * Deliberately does NOT synthesise pointer movement, clicks or key presses.
+ * Puppeteer's input emulation dispatches real `pointermove` events, which the
+ * hook treats as a presence signal: it would reset the idle-re-engage deadline
+ * and, worse, arm the gesture attribution that `userDisengagements` is meant to
+ * count. Any activity here would mask exactly the failure being measured. The
+ * viewport resizes are safe because `setViewport` goes through the browser, not
+ * the input pipeline, and emits no pointer events.
+ *
+ * @param state Mutated in place, so the caller keeps observations taken before
+ *              a later step throws.
+ */
+async function streamAndWatch(page, seconds, state, log) {
+  const deadline = Date.now() + seconds * 1000;
+
+  while (Date.now() < deadline) {
+    await sleep(Math.min(VISIBILITY_POLL_MS, deadline - Date.now()));
+
+    state.visibilityPolls++;
+    if (await isJumpButtonVisible(page)) {
+      state.jumpButtonVisibleSamples++;
+      if (state.firstJumpButtonSightingMs === null) {
+        state.firstJumpButtonSightingMs = Date.now() - state.startedAtMs;
+        log(
+          `    !!! jump-to-bottom button became visible ${Math.round(
+            state.firstJumpButtonSightingMs / 1000,
+          )}s into the run`,
+        );
+      }
+    }
+
+    // The schedule lives in `state` so the ~20s cadence carries across the
+    // restart rather than restarting from zero either side of it.
+    if (Date.now() >= state.nextResizeAtMs) {
+      state.viewportIndex = (state.viewportIndex + 1) % SOAK_VIEWPORTS.length;
+      const viewport = SOAK_VIEWPORTS[state.viewportIndex];
+      await page.setViewport(viewport);
+      state.resizes++;
+      state.nextResizeAtMs = Date.now() + RESIZE_INTERVAL_MS;
+      log(`    resized to ${viewport.width}x${viewport.height}`);
+    }
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const log = (...m) => {
@@ -231,6 +357,20 @@ async function main() {
     if (e.response.opcode !== 1) return;
     if (e.response.payloadData.includes('"type":"transcript"')) {
       transcripts.push(Date.now());
+    }
+  });
+
+  await page.setViewport(SOAK_VIEWPORTS[0]);
+
+  // The shipped diagnostics publish unconditionally, but the flag is set anyway
+  // so this harness keeps working if publication is ever put behind it again.
+  // Wrapped because localStorage throws on opaque origins such as about:blank,
+  // which this also runs against.
+  await page.evaluateOnNewDocument(() => {
+    try {
+      localStorage.setItem('scribear:debugAutoScroll', '1');
+    } catch {
+      /* opaque origin - nothing to do */
     }
   });
 
@@ -297,9 +437,22 @@ async function main() {
     );
   }
 
+  // Everything from here on is the untouched phase: the page is never clicked,
+  // scrolled or typed into again, so the caption view has no legitimate reason
+  // to stop following the speaker.
+  const soak = {
+    startedAtMs: Date.now(),
+    visibilityPolls: 0,
+    jumpButtonVisibleSamples: 0,
+    firstJumpButtonSightingMs: null,
+    resizes: 0,
+    viewportIndex: 0,
+    nextResizeAtMs: Date.now() + RESIZE_INTERVAL_MS,
+  };
+
   const half = Math.floor(args.streamSeconds / 2);
   log(`--- streaming ${half}s before the restart`);
-  await sleep(half * 1000);
+  await streamAndWatch(page, half, soak, log);
 
   let restartAtMs = null;
   if (args.restartCmd) {
@@ -310,7 +463,9 @@ async function main() {
 
   log(`--- streaming ${args.streamSeconds - half}s after the restart`);
   const framesBeforeTail = binaryFrames;
-  await sleep((args.streamSeconds - half) * 1000);
+  await streamAndWatch(page, args.streamSeconds - half, soak, log);
+
+  const autoScroll = await readAutoScrollDiagnostics(page);
 
   const after = restartAtMs
     ? transcripts.filter((t) => t > restartAtMs).length
@@ -332,6 +487,27 @@ async function main() {
       'no transcripts after the upstream restart (session did not recover)',
     );
   }
+  if (!autoScroll) {
+    failures.push(
+      'window.__scribearAutoScroll.transcription was never published - is the ' +
+        'kiosk running a build with auto-scroll diagnostics?',
+    );
+  } else if (autoScroll.userDisengagements !== 0) {
+    // Nothing touched the page after the microphone was switched on, so a
+    // disengage attributed to a user gesture is a misattribution by definition.
+    failures.push(
+      `auto-scroll disengaged ${autoScroll.userDisengagements}x blaming a user ` +
+        'gesture, but nothing touched the page',
+    );
+  }
+  if (soak.jumpButtonVisibleSamples > 0) {
+    failures.push(
+      `"${JUMP_BUTTON_LABEL}" was visible in ${soak.jumpButtonVisibleSamples} of ` +
+        `${soak.visibilityPolls} samples (first at ` +
+        `${Math.round(soak.firstJumpButtonSightingMs / 1000)}s) - the caption ` +
+        'view stopped following the speaker',
+    );
+  }
 
   const result = {
     ok: failures.length === 0,
@@ -339,6 +515,17 @@ async function main() {
     transcripts: transcripts.length,
     transcriptsBeforeRestart: restartAtMs ? before : null,
     transcriptsAfterRestart: restartAtMs ? after : null,
+    autoScroll: {
+      userDisengagements: autoScroll?.userDisengagements ?? null,
+      // Informational, never a failure: these are the events the old code would
+      // have misread as a scrollback, counted as they are correctly ignored.
+      suppressedDisengagements: autoScroll?.suppressedDisengagements ?? null,
+      lastSuppressedDistancePx: autoScroll?.lastSuppressedDistancePx ?? null,
+      idleReengagements: autoScroll?.idleReengagements ?? null,
+      jumpButtonVisibleSamples: soak.jumpButtonVisibleSamples,
+      visibilityPolls: soak.visibilityPolls,
+      viewportResizes: soak.resizes,
+    },
     failures,
   };
 
@@ -354,6 +541,23 @@ async function main() {
       console.log(`  before restart   : ${before}`);
       console.log(`  after restart    : ${after}`);
     }
+    console.log(`viewport resizes   : ${result.autoScroll.viewportResizes}`);
+    console.log(
+      `jump button seen   : ${result.autoScroll.jumpButtonVisibleSamples}/${result.autoScroll.visibilityPolls} samples`,
+    );
+    console.log(`auto-scroll counters:`);
+    console.log(
+      `  user disengages  : ${result.autoScroll.userDisengagements} (must be 0)`,
+    );
+    console.log(
+      `  suppressed       : ${result.autoScroll.suppressedDisengagements} (informational - the bug, caught)`,
+    );
+    console.log(
+      `  last suppressed  : ${result.autoScroll.lastSuppressedDistancePx}px from bottom`,
+    );
+    console.log(
+      `  idle re-engages  : ${result.autoScroll.idleReengagements} (informational)`,
+    );
     console.log(result.ok ? '\nPASS' : `\nFAIL\n - ${failures.join('\n - ')}`);
   }
 
