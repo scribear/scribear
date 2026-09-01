@@ -323,18 +323,60 @@ describe('useAutoScroll thresholds and self-healing', (it) => {
     handle.update({ lineHeightPx: 96 });
     expect(handle.enabled()).toBe(false);
 
-    // 100px back is past the old threshold but inside the new one, so it must
-    // not be recorded as a fresh disengage. We stay disengaged either way -
-    // only reaching the bottom re-engages - so the counter is what proves the
-    // threshold actually moved.
-    scrollTo(handle.scroller, MAX_SCROLL_PX - 100);
-    expect(handle.enabled()).toBe(false);
+    // Back to the bottom, which re-engages, so the next scrollback is judged
+    // fresh against the new threshold.
+    scrollTo(handle.scroller, MAX_SCROLL_PX);
+    expect(handle.enabled()).toBe(true);
+
+    // 100px back is past the OLD threshold but inside the NEW one, so it must
+    // not disengage at all. This is what proves the threshold actually moved.
+    userScrollsBack(handle, MAX_SCROLL_PX - 100);
+    expect(handle.enabled()).toBe(true);
     expect(handle.hook().getDiagnostics().userDisengagements).toBe(1);
 
-    // Past the new threshold, it is recorded again.
-    scrollTo(handle.scroller, MAX_SCROLL_PX - 200);
+    // Past the new threshold, it disengages and is counted.
+    userScrollsBack(handle, MAX_SCROLL_PX - 200);
     expect(handle.enabled()).toBe(false);
     expect(handle.hook().getDiagnostics().userDisengagements).toBe(2);
+  });
+
+  it('22b: counts one disengagement per gesture, not per scroll event', () => {
+    const handle = mount();
+
+    // A continuous scrollback fires many past-threshold scroll events. Only the
+    // engaged -> disengaged transition is a disengagement; counting per event
+    // would make a single flick look like a dozen in field triage.
+    wheel(handle.scroller.el);
+    for (const offset of [300, 500, 700, 900, 1100]) {
+      scrollTo(handle.scroller, MAX_SCROLL_PX - offset);
+    }
+
+    expect(handle.enabled()).toBe(false);
+    expect(handle.hook().getDiagnostics().userDisengagements).toBe(1);
+  });
+
+  it('23b: follows the speaker immediately after a manual return to the bottom', () => {
+    const handle = mount();
+
+    userScrollsBack(handle, MAX_SCROLL_PX - WELL_PAST_THRESHOLD_PX);
+    expect(handle.enabled()).toBe(false);
+
+    // The reader scrolls back down to the bottom themselves. Their gesture
+    // session is still open at this instant - the settle timer has not run.
+    scrollTo(handle.scroller, MAX_SCROLL_PX);
+    expect(handle.enabled()).toBe(true);
+
+    // New caption text arrives right away, before the session would settle.
+    // Content growth emits no scroll event, so if the pin effect declines to
+    // run here nothing else will move the view - the captions silently stop
+    // following for the rest of the settle window, which is the very symptom
+    // this hook exists to prevent.
+    act(() => {
+      handle.scroller.setContentHeight(CONTENT_PX + 400);
+    });
+    handle.update();
+
+    expect(handle.scroller.scrollTop).toBe(handle.scroller.maxScrollTop);
   });
 
   it('23: re-engages when the user scrolls back to the bottom', () => {
@@ -432,10 +474,16 @@ describe('useAutoScroll pinning', (it) => {
     const handle = mount();
 
     // Open a session BY SCROLLING - an armed gesture alone must never block
-    // pinning (that was the rev-1 bug). Land inside the pin zone so we stay
-    // engaged and it is the in-flight guard, not the flag, doing the work.
+    // pinning (that was the rev-1 bug). Land in the hysteresis dead-zone:
+    // further from the bottom than PIN_TOLERANCE_PX, so the session stays open
+    // (reaching the bottom deliberately ends it, or a reader scrolling back to
+    // the bottom would stop the captions following for the settle window), but
+    // inside THRESHOLD_PX so we stay engaged and it is the in-flight guard,
+    // not the flag, doing the work.
+    const deadZoneOffset =
+      MAX_SCROLL_PX - (PIN_TOLERANCE_PX + THRESHOLD_PX) / 2;
     wheel(handle.scroller.el);
-    scrollTo(handle.scroller, MAX_SCROLL_PX - PIN_TOLERANCE_PX);
+    scrollTo(handle.scroller, deadZoneOffset);
     expect(handle.enabled()).toBe(true);
 
     const offsetBefore = handle.scroller.scrollTop;

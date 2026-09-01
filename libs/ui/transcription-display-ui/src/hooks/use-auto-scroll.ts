@@ -40,21 +40,31 @@ export const USER_INPUT_ARM_MS = 400;
 export const SCROLL_SETTLE_MS = 300;
 
 /*
- * Note for anyone tuning the two constants above: USER_INPUT_ARM_MS (400)
- * deliberately outlasts SCROLL_SETTLE_MS (300). They measure different gaps -
+ * Note for anyone tuning the two constants above. They measure different gaps:
  * arming covers gesture-to-first-scroll latency, settling covers silence after
- * the last scroll - but the overlap means a scroll arriving just after a
- * session closes can still be re-attributed by the original gesture's arm
- * window. That is the behaviour we want (a slow drag stays the user's), and it
- * is why the settle boundary is only observable once the arm has expired.
+ * the last scroll. USER_INPUT_ARM_MS being the larger of the two does NOT mean
+ * an expired session can be revived by the original arm - `closeUserScrollSession`
+ * wipes the arm precisely so that a scroll arriving after 300ms of silence is
+ * treated as the engine's, not the user's. What the arm actually covers is a
+ * gesture whose first scroll is slow to arrive. It does mean the settle
+ * boundary is only observable once the arm has expired, which is why the tests
+ * open their session well before probing it.
  */
 
 /**
- * Window after our own instant scroll in which a `scrollend` is assumed to be
- * ours. Without it, an engine that fires `scrollend` for programmatic scrolls
- * would close a user session mid-momentum and drop the rest of their flick.
+ * Window after our own instant scroll in which a scroll event or `scrollend` is
+ * assumed to be ours rather than the reader's.
+ *
+ * Generous on purpose. The pin is issued from a layout effect but its `scroll`
+ * event is delivered in a later task, and on a kiosk decoding audio the gap can
+ * be far more than a frame; too short a window and a main-thread stall lets the
+ * pin's own scroll open a user session, blocking the next pin. Being generous
+ * is safe because the scroll-attribution check also requires the event to be at
+ * the bottom, and a reader who really is at the bottom gets re-engaged by the
+ * next branch anyway. For `scrollend`, over-matching merely defers the session
+ * close to the settle timer.
  */
-export const PROGRAMMATIC_SCROLLEND_GRACE_MS = 50;
+export const PROGRAMMATIC_SCROLLEND_GRACE_MS = 250;
 
 /**
  * Floor on how often a presence event may restart the idle timer.
@@ -154,6 +164,10 @@ export interface UseAutoScrollOptions {
  * arms. A tap that produces no scroll must not stop us following the speaker.
  *
  * @param dependencies Values that trigger a re-pin when auto-scroll is engaged.
+ *   Must keep a CONSTANT LENGTH across renders. They are spread into an effect
+ *   dependency array, and React compares only the shared prefix when lengths
+ *   differ - it logs a development-only error and then skips the effect, so a
+ *   caller whose array grows would silently stop re-pinning.
  * @param options Tuning knobs; see {@link UseAutoScrollOptions}.
  * @returns Refs and handlers to wire up to the scroll container.
  */
@@ -173,6 +187,11 @@ export const useAutoScroll = (
   const armedAtRef = useRef(Number.NEGATIVE_INFINITY);
   const lastProgrammaticScrollAtRef = useRef(Number.NEGATIVE_INFINITY);
   const userScrollActiveRef = useRef(false);
+  // Mirrors `isAutoScrollEnabled` for use inside event handlers, so a burst of
+  // scroll events in one batch sees the transition rather than stale state.
+  // Without it, a continuous scrollback counts one "disengagement" per frame
+  // and re-arms the idle timer per frame.
+  const engagedRef = useRef(true);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastIdleResetAtRef = useRef(Number.NEGATIVE_INFINITY);
@@ -202,14 +221,25 @@ export const useAutoScroll = (
     container.scrollTo({ top: container.scrollHeight, behavior: 'instant' });
   }, []);
 
-  const closeUserScrollSession = useCallback(() => {
+  /**
+   * Ends an open scroll session but leaves the gesture's arm window intact, so
+   * a drag that is still under way keeps being attributed to the user. Used
+   * when the view reaches the bottom mid-gesture: the pin must be allowed to
+   * run again immediately, but the reader has not finished scrolling.
+   */
+  const endUserScrollSession = useCallback(() => {
     userScrollActiveRef.current = false;
-    armedAtRef.current = Number.NEGATIVE_INFINITY;
     if (settleTimerRef.current !== null) {
       clearTimeout(settleTimerRef.current);
       settleTimerRef.current = null;
     }
   }, []);
+
+  /** Ends the session and forgets the gesture entirely. */
+  const closeUserScrollSession = useCallback(() => {
+    endUserScrollSession();
+    armedAtRef.current = Number.NEGATIVE_INFINITY;
+  }, [endUserScrollSession]);
 
   const extendUserScrollSession = useCallback(() => {
     if (settleTimerRef.current !== null) clearTimeout(settleTimerRef.current);
@@ -224,8 +254,18 @@ export const useAutoScroll = (
       clearTimeout(idleTimerRef.current);
       idleTimerRef.current = null;
     }
+    // Reset alongside the timer, so the presence throttle never carries a
+    // stale stamp into the next disengaged period and swallows its first
+    // presence event.
     lastIdleResetAtRef.current = Number.NEGATIVE_INFINITY;
   }, []);
+
+  /** Re-engages, keeping `engagedRef` in step with the rendered state. */
+  const engage = useCallback(() => {
+    engagedRef.current = true;
+    clearIdleTimer();
+    setIsAutoScrollEnabled(true);
+  }, [clearIdleTimer]);
 
   /**
    * Arms (or re-arms) the idle re-engage timer. Only meaningful while
@@ -254,7 +294,16 @@ export const useAutoScroll = (
           return;
         }
         diagnostics.recordIdleReengage();
+        lastIdleResetAtRef.current = Number.NEGATIVE_INFINITY;
         closeUserScrollSession();
+        engagedRef.current = true;
+        /*
+         * Not a synchronous set-state-in-effect: this runs inside a setTimeout
+         * deferred by `idleReengageMs` (minutes in every shipped app). The rule
+         * reaches it only because the listener effect can call
+         * `restartIdleTimer` to re-arm the deadline.
+         */
+        // eslint-disable-next-line @eslint-react/set-state-in-effect
         setIsAutoScrollEnabled(true);
         // The pin itself is left to the layout effect: `isAutoScrollEnabled`
         // has just changed, so it is about to run anyway, and routing through
@@ -305,14 +354,17 @@ export const useAutoScroll = (
       // Deliberately ungated: this is the self-healing path, and it is what
       // stops a false disengage from being permanent. React bails out when the
       // value is unchanged (`Object.is`), so the common case costs no render.
-      clearIdleTimer();
-      setIsAutoScrollEnabled(true);
+      //
+      // The session has to end here too. The pin effect declines to run while
+      // one is open, so leaving it open after a reader scrolls back to the
+      // bottom would stop the captions following for the rest of the settle
+      // window - the very symptom this hook exists to prevent, just
+      // self-healing instead of permanent. The arm survives, so a drag still
+      // under way keeps being attributed and can scroll away again.
+      endUserScrollSession();
+      engage();
       return;
     }
-
-    // Any scroll away from the bottom means someone is still reading, so push
-    // the idle deadline back out. A no-op when the timer is not running.
-    if (idleTimerRef.current !== null) restartIdleTimer();
 
     // Below this line we would disengage, and only a real gesture may do that.
     if (!userScrollActiveRef.current) {
@@ -320,15 +372,23 @@ export const useAutoScroll = (
       return;
     }
 
-    if (distanceFromBottom > scrollbackThresholdPx) {
+    // A scroll the *user* made means they are still reading, so push the idle
+    // deadline back out. Deliberately not done for unattributed scrolls: a
+    // resize clamp on a rotating kiosk is not evidence of a reader, and
+    // treating it as one would defer the idle re-engage indefinitely.
+    if (idleTimerRef.current !== null) restartIdleTimer();
+
+    if (distanceFromBottom > scrollbackThresholdPx && engagedRef.current) {
+      engagedRef.current = false;
       diagnostics.recordUserDisengage(distanceFromBottom);
       setIsAutoScrollEnabled(false);
       restartIdleTimer();
     }
   }, [
     extendUserScrollSession,
+    endUserScrollSession,
+    engage,
     scrollbackThresholdPx,
-    clearIdleTimer,
     restartIdleTimer,
     diagnostics,
   ]);
@@ -341,10 +401,12 @@ export const useAutoScroll = (
    */
   const jumpToBottom = useCallback(() => {
     closeUserScrollSession();
-    clearIdleTimer();
-    setIsAutoScrollEnabled(true);
+    engage();
+    // Pinned explicitly as well as via the effect. The effect only runs if
+    // `isAutoScrollEnabled` actually changed, and this must work even when it
+    // did not. The second scroll is a no-op once already at the bottom.
     scrollToBottom();
-  }, [closeUserScrollSession, clearIdleTimer, scrollToBottom]);
+  }, [closeUserScrollSession, engage, scrollToBottom]);
 
   const getDiagnostics = useCallback(
     () => diagnostics.snapshot(),
@@ -396,6 +458,12 @@ export const useAutoScroll = (
     // Registered here, not at creation, so it is symmetric with the dispose
     // below and survives StrictMode's mount/unmount/remount.
     diagnostics.register();
+
+    // This effect re-runs when `idleReengageMs` changes, and its cleanup clears
+    // any pending idle timer. Restart it if we are disengaged, or a caller that
+    // changed the delay mid-session would silently lose idle re-engage until
+    // the next scroll.
+    if (!engagedRef.current) restartIdleTimer();
 
     const options = { capture: true, passive: true } as const;
     for (const type of USER_INPUT_EVENTS) {

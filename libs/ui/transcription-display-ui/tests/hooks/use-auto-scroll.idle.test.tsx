@@ -211,16 +211,18 @@ describe('useAutoScroll idle re-engage', (it) => {
     expect(idleReengagements(sink)).toBe(1);
   });
 
-  it('41: a scroll away from the bottom resets the deadline', () => {
+  it('41: a scroll the reader made resets the deadline', () => {
     const { sink, scroller } = setup({ idleReengageMs: IDLE_MS });
 
     disengage(scroller);
     closeGestureSession();
 
     advance(170_000 - (SCROLL_SETTLE_MS + 1));
-    // Still far from the bottom, and unattributed - it must not re-engage or
-    // re-disengage, it must only say "someone is still reading".
+    // A gesture, then movement: this is the reader still working through the
+    // history, which is what should push the deadline out. Still far from the
+    // bottom, so it must not re-engage either.
     act(() => {
+      scroller.el.dispatchEvent(new Event('wheel'));
       scroller.scrollTo(SCROLLED_BACK_PX + 100);
     });
     expect(isEngaged(sink)).toBe(false);
@@ -234,6 +236,28 @@ describe('useAutoScroll idle re-engage', (it) => {
     advance(169_999);
     expect(isEngaged(sink)).toBe(false);
     advance(2);
+    expect(isEngaged(sink)).toBe(true);
+    expect(idleReengagements(sink)).toBe(1);
+  });
+
+  it('41b: an unattributed scroll does NOT reset the deadline', () => {
+    const { sink, scroller } = setup({ idleReengageMs: IDLE_MS });
+
+    disengage(scroller);
+    closeGestureSession();
+
+    advance(170_000 - (SCROLL_SETTLE_MS + 1));
+    // No gesture: this is the engine moving the offset, e.g. a resize clamp on
+    // a kiosk being rotated. It is not evidence that a reader is present, and
+    // treating it as such would let a kiosk that resizes periodically defer
+    // the idle re-engage forever - the display never recovering on its own.
+    act(() => {
+      scroller.scrollTo(SCROLLED_BACK_PX + 100);
+    });
+    expect(isEngaged(sink)).toBe(false);
+
+    // So the ORIGINAL deadline still stands, unmoved.
+    advance(10_000);
     expect(isEngaged(sink)).toBe(true);
     expect(idleReengagements(sink)).toBe(1);
   });

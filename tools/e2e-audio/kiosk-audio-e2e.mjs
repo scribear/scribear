@@ -90,8 +90,15 @@ const WAV = join(
   'harvard_16k_mono.wav',
 );
 
-/** aria-label of the control that only appears once auto-scroll has given up. */
-const JUMP_BUTTON_LABEL = 'Jump to latest transcription';
+/**
+ * aria-labels of the controls that only appear once auto-scroll has given up.
+ * One per caption region: the kiosk mounts the translated-captions region
+ * alongside the transcript when translation is on, and it uses the same hook.
+ */
+const JUMP_BUTTON_LABELS = [
+  'Jump to latest transcription',
+  'Jump to latest translation',
+];
 
 /**
  * Sizes cycled through mid-stream. A landscape desktop shape and a portrait
@@ -235,8 +242,9 @@ function clickByText(page, needle) {
  * whole region also reads as hidden.
  */
 function isJumpButtonVisible(page) {
-  return page.evaluate((label) => {
-    const buttons = [...document.querySelectorAll(`[aria-label="${label}"]`)];
+  return page.evaluate((labels) => {
+    const selector = labels.map((l) => `[aria-label="${l}"]`).join(',');
+    const buttons = [...document.querySelectorAll(selector)];
     return buttons.some((el) => {
       const style = getComputedStyle(el);
       return (
@@ -245,14 +253,27 @@ function isJumpButtonVisible(page) {
         Number(style.opacity) !== 0
       );
     });
-  }, JUMP_BUTTON_LABEL);
+  }, JUMP_BUTTON_LABELS);
 }
 
-/** Counters published by the transcript region's auto-scroll hook, or null. */
+/**
+ * Counters published by every mounted caption region's auto-scroll hook, keyed
+ * by region label, or null if the registry is absent.
+ *
+ * Every region, not just `transcription`: when translation is on the kiosk
+ * mounts a second caption region, and it uses the same hook. Reading only the
+ * transcript would let a translated-caption freeze pass the run silently.
+ */
 function readAutoScrollDiagnostics(page) {
   return page.evaluate(() => {
-    const entry = window.__scribearAutoScroll?.transcription;
-    return entry ? { ...entry } : null;
+    const registry = window.__scribearAutoScroll;
+    if (!registry) return null;
+    return Object.fromEntries(
+      Object.entries(registry).map(([label, counters]) => [
+        label,
+        { ...counters },
+      ]),
+    );
   });
 }
 
@@ -361,18 +382,6 @@ async function main() {
   });
 
   await page.setViewport(SOAK_VIEWPORTS[0]);
-
-  // The shipped diagnostics publish unconditionally, but the flag is set anyway
-  // so this harness keeps working if publication is ever put behind it again.
-  // Wrapped because localStorage throws on opaque origins such as about:blank,
-  // which this also runs against.
-  await page.evaluateOnNewDocument(() => {
-    try {
-      localStorage.setItem('scribear:debugAutoScroll', '1');
-    } catch {
-      /* opaque origin - nothing to do */
-    }
-  });
 
   log('--- opening /kiosk');
   await page.goto(`${args.baseUrl}/kiosk`, {
@@ -492,17 +501,22 @@ async function main() {
       'window.__scribearAutoScroll.transcription was never published - is the ' +
         'kiosk running a build with auto-scroll diagnostics?',
     );
-  } else if (autoScroll.userDisengagements !== 0) {
+  } else {
     // Nothing touched the page after the microphone was switched on, so a
     // disengage attributed to a user gesture is a misattribution by definition.
-    failures.push(
-      `auto-scroll disengaged ${autoScroll.userDisengagements}x blaming a user ` +
-        'gesture, but nothing touched the page',
-    );
+    // Checked per region: a translated-caption freeze must fail the run too.
+    for (const [region, counters] of Object.entries(autoScroll)) {
+      if (counters.userDisengagements !== 0) {
+        failures.push(
+          `${region} auto-scroll disengaged ${counters.userDisengagements}x ` +
+            'blaming a user gesture, but nothing touched the page',
+        );
+      }
+    }
   }
   if (soak.jumpButtonVisibleSamples > 0) {
     failures.push(
-      `"${JUMP_BUTTON_LABEL}" was visible in ${soak.jumpButtonVisibleSamples} of ` +
+      `a jump-to-latest control was visible in ${soak.jumpButtonVisibleSamples} of ` +
         `${soak.visibilityPolls} samples (first at ` +
         `${Math.round(soak.firstJumpButtonSightingMs / 1000)}s) - the caption ` +
         'view stopped following the speaker',
@@ -516,12 +530,10 @@ async function main() {
     transcriptsBeforeRestart: restartAtMs ? before : null,
     transcriptsAfterRestart: restartAtMs ? after : null,
     autoScroll: {
-      userDisengagements: autoScroll?.userDisengagements ?? null,
-      // Informational, never a failure: these are the events the old code would
-      // have misread as a scrollback, counted as they are correctly ignored.
-      suppressedDisengagements: autoScroll?.suppressedDisengagements ?? null,
-      lastSuppressedDistancePx: autoScroll?.lastSuppressedDistancePx ?? null,
-      idleReengagements: autoScroll?.idleReengagements ?? null,
+      // Per caption region. `suppressedDisengagements` and the distances are
+      // informational, never a failure: they count the events the old code
+      // would have misread as a scrollback, as they are correctly ignored.
+      regions: autoScroll,
       jumpButtonVisibleSamples: soak.jumpButtonVisibleSamples,
       visibilityPolls: soak.visibilityPolls,
       viewportResizes: soak.resizes,
@@ -545,19 +557,23 @@ async function main() {
     console.log(
       `jump button seen   : ${result.autoScroll.jumpButtonVisibleSamples}/${result.autoScroll.visibilityPolls} samples`,
     );
-    console.log(`auto-scroll counters:`);
-    console.log(
-      `  user disengages  : ${result.autoScroll.userDisengagements} (must be 0)`,
-    );
-    console.log(
-      `  suppressed       : ${result.autoScroll.suppressedDisengagements} (informational - the bug, caught)`,
-    );
-    console.log(
-      `  last suppressed  : ${result.autoScroll.lastSuppressedDistancePx}px from bottom`,
-    );
-    console.log(
-      `  idle re-engages  : ${result.autoScroll.idleReengagements} (informational)`,
-    );
+    console.log('auto-scroll counters:');
+    for (const [region, c] of Object.entries(result.autoScroll.regions ?? {})) {
+      console.log(`  [${region}]`);
+      console.log(`    user disengages : ${c.userDisengagements} (must be 0)`);
+      console.log(
+        `    suppressed      : ${c.suppressedDisengagements} (informational - the bug, caught)`,
+      );
+      console.log(
+        `    last suppressed : ${c.lastSuppressedDistancePx}px from bottom`,
+      );
+      console.log(
+        `    idle re-engages : ${c.idleReengagements} (informational)`,
+      );
+    }
+    if (result.autoScroll.regions === null) {
+      console.log('  (no diagnostics registry found on the page)');
+    }
     console.log(result.ok ? '\nPASS' : `\nFAIL\n - ${failures.join('\n - ')}`);
   }
 

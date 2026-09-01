@@ -13,6 +13,10 @@ export interface AutoScrollDiagnostics {
   suppressedDisengagements: number;
   // Distance from the bottom at the last suppressed event, for triage.
   lastSuppressedDistancePx: number;
+  // Distance from the bottom at the last user-attributed disengage. The more
+  // interesting of the two in the field: it says how far a reader actually
+  // scrolled before we stepped aside.
+  lastUserDisengageDistancePx: number;
   // Times the idle timer returned the view to the bottom after a scrollback.
   // A high count means the disengage threshold is too eager and readers are
   // being dropped out of follow mode by accident.
@@ -34,7 +38,7 @@ export interface AutoScrollDiagnosticsRecorder {
   dispose: () => void;
 }
 
-/** Shape published on `window` when diagnostics are switched on. */
+/** Shape published on `window`, keyed by caption-region label. */
 type DiagnosticsRegistry = Record<string, AutoScrollDiagnostics>;
 
 /**
@@ -70,23 +74,13 @@ export function readAutoScrollDiagnostics(
 }
 
 /**
- * Whether counters should be published on `window`.
- *
- * Always, deliberately: counting runs regardless (it is two integer increments
- * per scroll event), so gating publication behind a build flag or a
- * localStorage key would save nothing measurable while making a kiosk in a
- * lecture hall un-diagnosable without a redeploy. The registry is a handful of
- * numbers and is removed on unmount.
- */
-function isPublicationEnabled(): boolean {
-  return typeof globalThis !== 'undefined';
-}
-
-/**
  * Creates a diagnostics recorder for one caption region.
  *
- * Counting always runs - it is a couple of integer increments per scroll event
- * - and only publication to `window` is gated. The registry is keyed by label
+ * Counting and publication both always run: it is a couple of integer
+ * increments per scroll event and a handful of numbers on `window`, so gating
+ * either behind a build flag would save nothing measurable while making a kiosk
+ * in a lecture hall un-diagnosable without a redeploy. The registry is keyed by
+ * label
  * because two caption regions (the transcript and the translated captions) are
  * mounted at once on the kiosk, and a single shared object would let whichever
  * mounted last silently erase the other's numbers.
@@ -100,18 +94,18 @@ export function createAutoScrollDiagnostics(
     userDisengagements: 0,
     suppressedDisengagements: 0,
     lastSuppressedDistancePx: 0,
+    lastUserDisengageDistancePx: 0,
     idleReengagements: 0,
   };
-
-  const published = isPublicationEnabled();
 
   return {
     recordSuppressed: (distancePx: number) => {
       counters.suppressedDisengagements += 1;
       counters.lastSuppressedDistancePx = distancePx;
     },
-    recordUserDisengage: () => {
+    recordUserDisengage: (distancePx: number) => {
       counters.userDisengagements += 1;
+      counters.lastUserDisengageDistancePx = distancePx;
     },
     recordIdleReengage: () => {
       counters.idleReengagements += 1;
@@ -126,12 +120,10 @@ export function createAutoScrollDiagnostics(
      * development, which is exactly where someone would go looking for it.
      */
     register: () => {
-      if (!published) return;
       globalWithDiagnostics.__scribearAutoScroll ??= {};
       globalWithDiagnostics.__scribearAutoScroll[label] = counters;
     },
     dispose: () => {
-      if (!published) return;
       const registry = globalWithDiagnostics.__scribearAutoScroll;
       // Only drop the entry if it is still ours; a remount may already have
       // registered a replacement under the same label.
