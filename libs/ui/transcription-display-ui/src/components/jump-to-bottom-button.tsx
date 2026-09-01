@@ -9,6 +9,12 @@ interface JumpToBottomButtonProps {
   visible: boolean;
   // Called when the button is clicked to scroll the transcription view to the bottom.
   onClick: () => void;
+  // Accessible name. Defaults to the transcript wording. Override it wherever a
+  // second caption region is on screen at the same time - the kiosk and client
+  // apps mount the transcript and the translated captions together, and two
+  // buttons with the same accessible name give a screen-reader user no way to
+  // tell which region they are about to jump.
+  label?: string;
 }
 
 /**
@@ -17,12 +23,13 @@ interface JumpToBottomButtonProps {
 export const JumpToBottomButton = ({
   visible,
   onClick,
+  label = 'Jump to latest transcription',
 }: JumpToBottomButtonProps) => {
   return (
     <IconButton
       color="transcriptionColor"
       onClick={onClick}
-      aria-label="Jump to latest transcription"
+      aria-label={label}
       sx={{
         visibility: visible ? 'visible' : 'hidden',
         alignSelf: 'end',

@@ -76,6 +76,12 @@ export interface TranscriptionDisplayContainerProps {
   // one the reader has chosen to follow - two live regions carrying the same
   // speech announce it twice and make both unusable.
   announceUpdates?: boolean;
+  // Return to following the speaker this many ms after the reader scrolls back,
+  // if nothing scrolls and no sign of a reader arrives. `null` (the default)
+  // leaves the view where they put it indefinitely. Set it on an unattended
+  // display, where captions frozen for the rest of a session is a far worse
+  // outcome than a reader losing their place once.
+  idleReengageMs?: number | null;
 }
 
 /**
@@ -92,6 +98,7 @@ export const TranscriptionDisplayContainer = ({
   getBoundedDisplayPreferences,
   fillParentHeight = false,
   announceUpdates = true,
+  idleReengageMs = null,
 }: TranscriptionDisplayContainerProps) => {
   const { containerHeightPx, setContainerHeightPx } =
     useTranscriptionDisplayHeight();
@@ -101,19 +108,17 @@ export const TranscriptionDisplayContainer = ({
     getBoundedDisplayPreferences(containerHeightPx);
   const displayHeightPx = numDisplayLines * lineHeightPx;
 
-  const {
-    isAutoScrollEnabled,
-    setIsAutoScrollEnabled,
-    textContainerRef,
-    textBottomRef,
-    handleScroll,
-  } = useAutoScroll([
-    commitedSections,
-    activeSection,
-    inProgressTranscriptionText,
-    containerHeightPx,
-    displayHeightPx,
-  ]);
+  const { isAutoScrollEnabled, textContainerRef, handleScroll, jumpToBottom } =
+    useAutoScroll(
+      [
+        commitedSections,
+        activeSection,
+        inProgressTranscriptionText,
+        containerHeightPx,
+        displayHeightPx,
+      ],
+      { lineHeightPx, label: 'transcription', idleReengageMs },
+    );
 
   const textStyle = useMemo<SxProps<Theme>>(
     () => ({
@@ -155,6 +160,17 @@ export const TranscriptionDisplayContainer = ({
               height: `${displayHeightPx.toString()}px`,
               width: '100%',
               overflowY: 'scroll',
+              // Belt-and-braces, not the fix. Blink and Gecko reposition the
+              // scroll offset to hold an "anchor" node still when content above
+              // it changes size. The anchor should sit above everything that
+              // mutates here, but a re-wrap from a late webfont or a width
+              // change can still reach above it, and an append-only caption log
+              // gains nothing from anchoring in any case. No-op in WebKit,
+              // which does not implement it.
+              overflowAnchor: 'none',
+              // Keep overscroll inside this box: no chaining to the page, and a
+              // damped rubber-band on iOS.
+              overscrollBehavior: 'contain',
               '&::-webkit-scrollbar': {
                 display: 'none',
               },
@@ -188,13 +204,10 @@ export const TranscriptionDisplayContainer = ({
               ))}
               <span>{inProgressTranscriptionText}</span>
             </Typography>
-            <Box ref={textBottomRef} />
           </Box>
           <JumpToBottomButton
             visible={!isAutoScrollEnabled}
-            onClick={() => {
-              setIsAutoScrollEnabled(true);
-            }}
+            onClick={jumpToBottom}
           />
         </Stack>
       </Box>

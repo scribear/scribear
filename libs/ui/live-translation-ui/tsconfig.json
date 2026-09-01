@@ -21,6 +21,9 @@
       "path": "../core-ui"
     },
     {
+      "path": "../transcription-display-ui"
+    },
+    {
       "path": "../../store/live-translation-store"
     }
   ]

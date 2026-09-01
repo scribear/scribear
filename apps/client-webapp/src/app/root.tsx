@@ -86,6 +86,20 @@ import { selectConnectionBanner } from '#src/features/session-provider/stores/de
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
 /**
+ * How long the caption region may sit scrolled back with no scrolling and no
+ * sign of a reader before it returns to following the speaker.
+ *
+ * Unlike the kiosk this is a personal device, so a reader who scrolled back
+ * deliberately has a stronger claim to stay put - but three minutes of *zero*
+ * input, not even a mouse twitch, is a strong "put the laptop down and went
+ * back to listening" signal, and coming back to a display that quietly stopped
+ * following the speaker is the worse surprise. A reader who is genuinely
+ * present keeps resetting the timer just by moving the pointer, so on this
+ * class of device the timer should almost never fire on someone still reading.
+ */
+const IDLE_REENGAGE_MS = 180_000;
+
+/**
  * Top-level page layout for the client webapp. Renders the transcription display
  * inside an `AppLayout` with theme and display-preference drawer menus.
  */
@@ -260,6 +274,7 @@ export const Root = () => {
             lineHeightPx={lineHeightPx}
             getBoundedDisplayPreferences={getBoundedDisplayPreferences}
             fillParentHeight
+            idleReengageMs={IDLE_REENGAGE_MS}
             // When translation is on, the translated panel is the region the
             // reader chose to follow and the one that announces. Two live
             // regions carrying the same speech announce it twice and make
@@ -279,6 +294,10 @@ export const Root = () => {
               wordSpacingEm={wordSpacingEm}
               fontSizePx={fontSizePx}
               lineHeightPx={lineHeightPx}
+              // Translation is the region a reader who turned it on is
+              // actually following, so it needs the same unattended recovery
+              // as the transcript beside it.
+              idleReengageMs={IDLE_REENGAGE_MS}
             />
           </Box>
         )}

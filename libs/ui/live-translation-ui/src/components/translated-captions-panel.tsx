@@ -1,5 +1,3 @@
-import { useEffect, useRef } from 'react';
-
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import LinearProgress from '@mui/material/LinearProgress';
@@ -11,6 +9,10 @@ import {
   type TranslatedSegment,
   TranslationStatus,
 } from '@scribear/live-translation-store';
+import {
+  JumpToBottomButton,
+  useAutoScroll,
+} from '@scribear/transcription-display-ui';
 
 /**
  * Wording required on every translated caption view. Machine translation of
@@ -45,6 +47,12 @@ export interface TranslatedCaptionsPanelProps {
   lineHeightPx: number;
   // Height of the scrolling caption area, in pixels.
   displayHeightPx?: number;
+  // Return to following the speaker this many ms after the reader scrolls back,
+  // if nothing scrolls and no sign of a reader arrives. `null` (the default)
+  // leaves the view where they put it indefinitely. Set it on an unattended
+  // display, where translated captions frozen for the rest of a session is a
+  // far worse outcome than a reader losing their place once.
+  idleReengageMs?: number | null;
 }
 
 /**
@@ -66,12 +74,17 @@ export const TranslatedCaptionsPanel = ({
   fontSizePx,
   lineHeightPx,
   displayHeightPx = 160,
+  idleReengageMs = null,
 }: TranslatedCaptionsPanelProps) => {
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'end' });
-  }, [segments]);
+  const { isAutoScrollEnabled, textContainerRef, handleScroll, jumpToBottom } =
+    useAutoScroll(
+      // The text metrics belong here alongside the segments: changing the
+      // caption size reflows the content, so the view has to re-pin against
+      // the new bottom. Without them a reader who bumps the font mid-pause
+      // sits a line off the bottom until the next segment arrives.
+      [segments, lineHeightPx, fontSizePx, wordSpacingEm, displayHeightPx],
+      { lineHeightPx, label: 'translation', idleReengageMs },
+    );
 
   const textStyle: SxProps<Theme> = {
     wordSpacing: `${wordSpacingEm.toString()}em`,
@@ -137,44 +150,79 @@ export const TranslatedCaptionsPanel = ({
         </Alert>
       )}
 
-      <Box
-        // The reader turned translation on, so this is the region they are
-        // following - it announces, and the original transcript region is
-        // switched to `aria-live="off"` by the app so the same speech is not
-        // announced twice. `lang` is what makes a screen reader pronounce the
-        // text with the right voice instead of reading Spanish as English.
-        role="log"
-        aria-live="polite"
-        aria-relevant="additions text"
-        aria-atomic="false"
-        aria-label={`Translated captions, ${targetLanguageLabel}`}
-        lang={targetLanguage}
-        tabIndex={0}
-        sx={{
-          height: `${displayHeightPx.toString()}px`,
-          overflowY: 'auto',
-          '&:focus-visible': {
-            outline: '2px solid',
-            outlineColor: 'transcriptionColor',
-            outlineOffset: '2px',
-          },
-        }}
-      >
-        <Typography color="transcriptionColor" sx={textStyle}>
-          {segments.map((segment) => (
-            <span
-              key={segment.id}
-              // Gap markers stand in for captions dropped to catch up with the
-              // speaker. Dimming them keeps a reader from mistaking the
-              // ellipsis for something that was said.
-              style={segment.kind === 'gap' ? { opacity: 0.6 } : undefined}
-            >
-              {segment.text}{' '}
-            </span>
-          ))}
-        </Typography>
-        <Box ref={bottomRef} />
-      </Box>
+      {/* The button sits beside the captions rather than above or below them:
+          this panel is a short strip under the transcript, and stealing a line
+          of its height for a control would cost a visible fraction of the
+          translated text. */}
+      <Stack direction="row">
+        <Box
+          ref={textContainerRef}
+          onScroll={handleScroll}
+          // The reader turned translation on, so this is the region they are
+          // following - it announces, and the original transcript region is
+          // switched to `aria-live="off"` by the app so the same speech is not
+          // announced twice. `lang` is what makes a screen reader pronounce the
+          // text with the right voice instead of reading Spanish as English.
+          role="log"
+          aria-live="polite"
+          aria-relevant="additions text"
+          aria-atomic="false"
+          aria-label={`Translated captions, ${targetLanguageLabel}`}
+          lang={targetLanguage}
+          tabIndex={0}
+          sx={{
+            height: `${displayHeightPx.toString()}px`,
+            width: '100%',
+            overflowY: 'scroll',
+            // Hidden the same three ways as the transcript pane above, so the
+            // two regions match. In a 160px strip a native scrollbar is a
+            // visible fraction of the panel; the jump-to-latest control is the
+            // affordance that says there is more to see.
+            '&::-webkit-scrollbar': {
+              display: 'none',
+            },
+            msOverflowStyle: 'none',
+            scrollbarWidth: 'none',
+            // Blink and Gecko shift the scroll offset to hold an "anchor" node
+            // still when content above it resizes. Translated segments are
+            // rewritten in place as the translator revises a sentence, so an
+            // anchor here can be mutated out from under the browser mid-frame;
+            // an append-only caption log gains nothing from anchoring anyway.
+            // No-op in WebKit, which does not implement it.
+            overflowAnchor: 'none',
+            // Keep overscroll inside this box: scrolling back through the
+            // translation must not chain into the transcript pane above it,
+            // and iOS gets a damped rubber-band instead of a page bounce.
+            overscrollBehavior: 'contain',
+            '&:focus-visible': {
+              outline: '2px solid',
+              outlineColor: 'transcriptionColor',
+              outlineOffset: '2px',
+            },
+          }}
+        >
+          <Typography color="transcriptionColor" sx={textStyle}>
+            {segments.map((segment) => (
+              <span
+                key={segment.id}
+                // Gap markers stand in for captions dropped to catch up with the
+                // speaker. Dimming them keeps a reader from mistaking the
+                // ellipsis for something that was said.
+                style={segment.kind === 'gap' ? { opacity: 0.6 } : undefined}
+              >
+                {segment.text}{' '}
+              </span>
+            ))}
+          </Typography>
+        </Box>
+        <JumpToBottomButton
+          visible={!isAutoScrollEnabled}
+          onClick={jumpToBottom}
+          // The transcript mounts its own jump control alongside this one, so
+          // the two need distinguishable accessible names.
+          label="Jump to latest translation"
+        />
+      </Stack>
     </Box>
   );
 };
