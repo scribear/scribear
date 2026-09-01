@@ -80,6 +80,20 @@ import { MetricsOverlayContainer } from '#src/features/metrics-overlay/component
 import { useAppDispatch, useAppSelector } from '#src/store/use-redux';
 
 /**
+ * How long the caption region may sit scrolled back with no scrolling and no
+ * sign of a reader before it returns to following the speaker.
+ *
+ * The kiosk is a room display nobody owns: if it drops out of follow mode -
+ * whether someone walked up and flicked the transcript, or a stray scroll got
+ * mistaken for one - there is usually no one watching who would think to press
+ * "jump to latest", and the captions stay frozen for the rest of the lecture.
+ * That outcome is far worse for the room than the cost of this timer, which is
+ * that a single person reading back through history without touching anything
+ * for three minutes loses their place once and has to scroll back again.
+ */
+const IDLE_REENGAGE_MS = 180_000;
+
+/**
  * Top-level page layout for the kiosk webapp. Renders a split-screen view with
  * the transcription display on the left and the kiosk status panel on the right,
  * together with a microphone toggle button and settings drawer menus.
@@ -267,6 +281,7 @@ export const Root = () => {
                 lineHeightPx={lineHeightPx}
                 getBoundedDisplayPreferences={getBoundedDisplayPreferences}
                 fillParentHeight
+                idleReengageMs={IDLE_REENGAGE_MS}
                 // When translation is on, the translated panel is the region
                 // the reader chose to follow and the one that announces. Two
                 // live regions carrying the same speech announce it twice and
@@ -288,6 +303,10 @@ export const Root = () => {
                   wordSpacingEm={wordSpacingEm}
                   fontSizePx={fontSizePx}
                   lineHeightPx={lineHeightPx}
+                  // Translation is the region a reader who turned it on is
+                  // actually following, so it needs the same unattended
+                  // recovery as the transcript beside it.
+                  idleReengageMs={IDLE_REENGAGE_MS}
                 />
               </Box>
             )}

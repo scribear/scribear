@@ -4,18 +4,11 @@
     "outDir": "./dist",
     "rootDir": ".",
     "paths": {
-      "#src/*": [
-        "./src/*"
-      ],
-      "#tests/*": [
-        "./tests/*"
-      ]
+      "#src/*": ["./src/*"],
+      "#tests/*": ["./tests/*"]
     }
   },
-  "include": [
-    "src",
-    "tests"
-  ],
+  "include": ["src", "tests"],
   "references": [
     {
       "path": "../core-ui"
