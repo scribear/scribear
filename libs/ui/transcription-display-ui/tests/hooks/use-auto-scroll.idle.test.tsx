@@ -100,14 +100,10 @@ function Harness({ options, publish }: HarnessProps) {
 
 function setup(options: UseAutoScrollOptions) {
   const sink: ApiSink = { current: null };
-  const view = render(
-    <Harness
-      options={options}
-      publish={(api) => {
-        sink.current = api;
-      }}
-    />,
-  );
+  const publish = (api: UseAutoScrollResult) => {
+    sink.current = api;
+  };
+  const view = render(<Harness options={options} publish={publish} />);
   const el = view.getByTestId('scroller');
   const scroller = installFakeScroller(el, {
     contentHeight: CONTENT_PX,
@@ -119,7 +115,13 @@ function setup(options: UseAutoScrollOptions) {
   // programmatic-scroll grace window and the settle window before the first
   // gesture - otherwise the gesture is mistaken for our own scroll.
   advance(MOUNT_SETTLE_MS);
-  return { sink, scroller, unmount: view.unmount };
+  /** Re-renders with different options, as a live preference change would. */
+  const update = (next: UseAutoScrollOptions) => {
+    act(() => {
+      view.rerender(<Harness options={next} publish={publish} />);
+    });
+  };
+  return { sink, scroller, unmount: view.unmount, update };
 }
 
 /** Reads the latest hook result, failing loudly rather than asserting on null. */
@@ -258,6 +260,76 @@ describe('useAutoScroll idle re-engage', (it) => {
 
     // So the ORIGINAL deadline still stands, unmoved.
     advance(10_000);
+    expect(isEngaged(sink)).toBe(true);
+    expect(idleReengagements(sink)).toBe(1);
+  });
+
+  it('41c: changing idleReengageMs while disengaged re-arms the deadline', () => {
+    const { sink, scroller, update } = setup({ idleReengageMs: IDLE_MS });
+
+    disengage(scroller);
+    closeGestureSession();
+    advance(60_000);
+    expect(isEngaged(sink)).toBe(false);
+
+    // The preference changes mid-session. The effect that owns the timer
+    // re-runs and its cleanup clears the pending one; without an explicit
+    // re-arm the deadline would be silently dropped and an unattended display
+    // would never recover on its own again.
+    update({ idleReengageMs: 20_000 });
+
+    // The new deadline governs, measured from the change - not the old one, and
+    // emphatically not "never".
+    advance(19_999);
+    expect(isEngaged(sink)).toBe(false);
+    expect(idleReengagements(sink)).toBe(0);
+
+    advance(2);
+    expect(isEngaged(sink)).toBe(true);
+    expect(scroller.scrollTop).toBe(scroller.maxScrollTop);
+    expect(idleReengagements(sink)).toBe(1);
+  });
+
+  it('41d: switching idleReengageMs to null while disengaged stops the timer', () => {
+    const { sink, scroller, update } = setup({ idleReengageMs: IDLE_MS });
+
+    disengage(scroller);
+    closeGestureSession();
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+    update({ idleReengageMs: null });
+
+    advance(THIRTY_MINUTES_MS);
+    expect(isEngaged(sink)).toBe(false);
+    expect(idleReengagements(sink)).toBe(0);
+  });
+
+  it('41e: a focused caption region is never yanked to the bottom', () => {
+    const { sink, scroller } = setup({ idleReengageMs: IDLE_MS });
+
+    disengage(scroller);
+    closeGestureSession();
+
+    // Someone is reading the history with the keyboard or a screen reader and
+    // is producing no presence events, because they are not moving. Focus is
+    // the evidence that they are still here; moving the view out from under
+    // them is the WCAG 2.2.2 concern this timer raises.
+    scroller.el.tabIndex = 0;
+    act(() => {
+      scroller.el.focus();
+    });
+    expect(document.activeElement).toBe(scroller.el);
+
+    advance(IDLE_MS * 3);
+    expect(isEngaged(sink)).toBe(false);
+    expect(idleReengagements(sink)).toBe(0);
+    expect(scroller.scrollTop).toBe(SCROLLED_BACK_PX);
+
+    // Once they leave, unattended recovery resumes.
+    act(() => {
+      scroller.el.blur();
+    });
+    advance(IDLE_MS);
     expect(isEngaged(sink)).toBe(true);
     expect(idleReengagements(sink)).toBe(1);
   });

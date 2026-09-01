@@ -38,6 +38,8 @@ function advance(ms: number): void {
 }
 
 interface Harness {
+  // Changes the caption line height, as a live user preference would.
+  setLineHeight: (px: number) => void;
   // The scroll container's fake layout, driven by the test.
   scroller: FakeScroller;
   // The `role="log"` element the auto-scroll hook is wired to.
@@ -58,10 +60,14 @@ interface Harness {
  * @returns Handles for driving and inspecting the panel.
  */
 function mountPanel(): Harness {
-  let segmentCount = 3;
+  let lineHeightPx = LINE_HEIGHT_PX;
+  // Held stable across renders, exactly as the Redux selector behind this prop
+  // is: rebuilding it every render would make `segments` change identity on
+  // every re-render and mask whether the other props reach the pin effect.
+  let segments = Array.from({ length: 3 }, (_, i) => makeSegment(i));
   const panel = () => (
     <TranslatedCaptionsPanel
-      segments={Array.from({ length: segmentCount }, (_, i) => makeSegment(i))}
+      segments={segments}
       status={TranslationStatus.READY}
       targetLanguage="es"
       targetLanguageLabel="Spanish"
@@ -69,7 +75,7 @@ function mountPanel(): Harness {
       errorMessage={null}
       wordSpacingEm={0.25}
       fontSizePx={32}
-      lineHeightPx={LINE_HEIGHT_PX}
+      lineHeightPx={lineHeightPx}
     />
   );
 
@@ -81,8 +87,22 @@ function mountPanel(): Harness {
   });
 
   const appendSegment = () => {
-    segmentCount += 1;
+    segments = [...segments, makeSegment(segments.length)];
     act(() => {
+      scroller.setContentHeight(scroller.contentHeight + SEGMENT_PX);
+      view.rerender(panel());
+    });
+  };
+
+  /**
+   * Simulates the reader bumping the caption size. The segments are untouched -
+   * only the metrics change - so this reaches the pin effect only if those
+   * metrics are dependencies of it.
+   */
+  const setLineHeight = (px: number) => {
+    lineHeightPx = px;
+    act(() => {
+      // Bigger text reflows to taller content, so the bottom moves.
       scroller.setContentHeight(scroller.contentHeight + SEGMENT_PX);
       view.rerender(panel());
     });
@@ -100,6 +120,7 @@ function mountPanel(): Harness {
   advance(QUIET_MS);
 
   return {
+    setLineHeight,
     scroller,
     log,
     appendSegment,
@@ -264,6 +285,20 @@ describe('TranslatedCaptionsPanel auto-scroll', () => {
     advance(QUIET_MS);
     appendSegment();
     expect(scroller.scrollTop).toBe(scroller.maxScrollTop);
+  });
+
+  it('re-pins when the reader changes the caption size mid-pause', () => {
+    // The caption metrics are dependencies of the pin, not just of the
+    // scrollback threshold: changing the font reflows the content, so the
+    // bottom moves. Without them the panel sits a line off the bottom until
+    // the next segment happens to arrive - which, during a pause in speech,
+    // can be a long time.
+    const { scroller, setLineHeight, isJumpButtonVisible } = mountPanel();
+
+    setLineHeight(96);
+
+    expect(scroller.scrollTop).toBe(scroller.maxScrollTop);
+    expect(isJumpButtonVisible()).toBe(false);
   });
 
   it('pins instantly rather than animating', () => {

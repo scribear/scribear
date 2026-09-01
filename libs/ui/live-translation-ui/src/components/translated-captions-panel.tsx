@@ -77,11 +77,14 @@ export const TranslatedCaptionsPanel = ({
   idleReengageMs = null,
 }: TranslatedCaptionsPanelProps) => {
   const { isAutoScrollEnabled, textContainerRef, handleScroll, jumpToBottom } =
-    useAutoScroll([segments], {
-      lineHeightPx,
-      label: 'translation',
-      idleReengageMs,
-    });
+    useAutoScroll(
+      // The text metrics belong here alongside the segments: changing the
+      // caption size reflows the content, so the view has to re-pin against
+      // the new bottom. Without them a reader who bumps the font mid-pause
+      // sits a line off the bottom until the next segment arrives.
+      [segments, lineHeightPx, fontSizePx, wordSpacingEm, displayHeightPx],
+      { lineHeightPx, label: 'translation', idleReengageMs },
+    );
 
   const textStyle: SxProps<Theme> = {
     wordSpacing: `${wordSpacingEm.toString()}em`,
@@ -170,7 +173,16 @@ export const TranslatedCaptionsPanel = ({
           sx={{
             height: `${displayHeightPx.toString()}px`,
             width: '100%',
-            overflowY: 'auto',
+            overflowY: 'scroll',
+            // Hidden the same three ways as the transcript pane above, so the
+            // two regions match. In a 160px strip a native scrollbar is a
+            // visible fraction of the panel; the jump-to-latest control is the
+            // affordance that says there is more to see.
+            '&::-webkit-scrollbar': {
+              display: 'none',
+            },
+            msOverflowStyle: 'none',
+            scrollbarWidth: 'none',
             // Blink and Gecko shift the scroll offset to hold an "anchor" node
             // still when content above it resizes. Translated segments are
             // rewritten in place as the translator revises a sentence, so an

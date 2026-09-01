@@ -195,6 +195,12 @@ export const useAutoScroll = (
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastIdleResetAtRef = useRef(Number.NEGATIVE_INFINITY);
+  // Latest `restartIdleTimer`, so the presence listener can call it without the
+  // listener effect depending on it. See the effect that maintains it.
+  const restartIdleTimerRef = useRef<() => void>(() => undefined);
+  // Length of the caller's dependency array on the previous render; see the
+  // check in the pin effect.
+  const dependencyCountRef = useRef<number | null>(null);
 
   // A lazy `useState` initialiser, not a ref written during render: it gives
   // one stable recorder per mounted instance without touching a ref while
@@ -210,6 +216,12 @@ export const useAutoScroll = (
     const container = textContainerRef.current;
     if (!container) return;
     lastProgrammaticScrollAtRef.current = performance.now();
+    // Load-bearing for `isOwnScroll`, not only for latency: an instant scroll
+    // updates `scrollTop` to the bottom synchronously, so the pin's own echo
+    // always reports distance ~0 and is recognised as ours. Switching this back
+    // to `smooth` (or to `scrollIntoView`) would break that half of the guard,
+    // and the echo could open a user session and block the next pin.
+    //
     // `scrollTo` with an explicit `instant`, not `scrollIntoView` and not a
     // bare `scrollTop =`. A smooth animation is re-targeted on every interim
     // update so it never settles - it only adds lag and, on iOS, races the
@@ -293,25 +305,29 @@ export const useAutoScroll = (
           arm();
           return;
         }
+        // Nor anyone whose keyboard or screen-reader focus is parked inside the
+        // captions: that is someone reading, and moving the view out from under
+        // them is the WCAG 2.2.2 concern this timer raises. Note this is
+        // necessary but not sufficient on iOS - VoiceOver's cursor is not DOM
+        // focus, so a VoiceOver reader can still be here without `activeElement`
+        // saying so. Real-device confirmation is still owed.
+        const container = textContainerRef.current;
+        if (container?.contains(document.activeElement)) {
+          arm();
+          return;
+        }
         diagnostics.recordIdleReengage();
-        lastIdleResetAtRef.current = Number.NEGATIVE_INFINITY;
         closeUserScrollSession();
-        engagedRef.current = true;
-        /*
-         * Not a synchronous set-state-in-effect: this runs inside a setTimeout
-         * deferred by `idleReengageMs` (minutes in every shipped app). The rule
-         * reaches it only because the listener effect can call
-         * `restartIdleTimer` to re-arm the deadline.
-         */
-        // eslint-disable-next-line @eslint-react/set-state-in-effect
-        setIsAutoScrollEnabled(true);
+        // Deferred by `idleReengageMs` - minutes in every shipped app - so
+        // this is nothing like a synchronous set-state during an effect.
+        engage();
         // The pin itself is left to the layout effect: `isAutoScrollEnabled`
         // has just changed, so it is about to run anyway, and routing through
         // it keeps one code path responsible for the scroll offset.
       }, idleReengageMs);
     };
     arm();
-  }, [idleReengageMs, closeUserScrollSession, diagnostics]);
+  }, [idleReengageMs, closeUserScrollSession, engage, diagnostics]);
 
   const handleScroll = useCallback(() => {
     const container = textContainerRef.current;
@@ -440,7 +456,7 @@ export const useAutoScroll = (
       const now = performance.now();
       if (now - lastIdleResetAtRef.current < IDLE_ACTIVITY_THROTTLE_MS) return;
       lastIdleResetAtRef.current = now;
-      restartIdleTimer();
+      restartIdleTimerRef.current();
     };
 
     const handleScrollEnd = () => {
@@ -458,12 +474,6 @@ export const useAutoScroll = (
     // Registered here, not at creation, so it is symmetric with the dispose
     // below and survives StrictMode's mount/unmount/remount.
     diagnostics.register();
-
-    // This effect re-runs when `idleReengageMs` changes, and its cleanup clears
-    // any pending idle timer. Restart it if we are disengaged, or a caller that
-    // changed the delay mid-session would silently lose idle re-engage until
-    // the next scroll.
-    if (!engagedRef.current) restartIdleTimer();
 
     const options = { capture: true, passive: true } as const;
     for (const type of USER_INPUT_EVENTS) {
@@ -490,12 +500,49 @@ export const useAutoScroll = (
       clearIdleTimer();
       activeDiagnostics.dispose();
     };
-  }, [closeUserScrollSession, clearIdleTimer, restartIdleTimer, diagnostics]);
+  }, [closeUserScrollSession, clearIdleTimer, diagnostics]);
+
+  // Keeps the presence listener reaching the current `restartIdleTimer` without
+  // taking it as a dependency, and re-arms the deadline when `idleReengageMs`
+  // changes while disengaged.
+  //
+  // Both halves matter. If the listener effect depended on `restartIdleTimer`,
+  // changing the delay would tear down and rebuild every listener, and that
+  // effect's cleanup closes an open user scroll session - silently
+  // de-attributing a reader who happened to be mid-drag when the prop changed.
+  useLayoutEffect(() => {
+    restartIdleTimerRef.current = restartIdleTimer;
+    if (engagedRef.current) return;
+    // Drop the timer armed with the previous delay before re-arming. This has
+    // to be explicit: `restartIdleTimer` returns early when `idleReengageMs` is
+    // `null`, so it never reaches its own clear - and a caller switching the
+    // feature off mid-session would otherwise still be yanked to the bottom by
+    // the deadline they just disabled.
+    clearIdleTimer();
+    restartIdleTimer();
+  }, [restartIdleTimer, clearIdleTimer]);
 
   // Layout effect, not effect: pin in the same frame the new text lays out,
   // before paint. Under `useEffect` the browser gets a frame in which the
   // content has grown but the scroll has not moved.
   useLayoutEffect(() => {
+    // The caller's array is spread into this effect's dependencies, and React
+    // compares only the shared prefix when the length changes - it logs a
+    // development-only message and then SKIPS the effect, so re-pinning would
+    // stop silently in production. Say so in terms a caller can act on.
+    if (
+      dependencyCountRef.current !== null &&
+      dependencyCountRef.current !== dependencies.length
+    ) {
+      console.error(
+        `useAutoScroll: the \`dependencies\` array changed length ` +
+          `(${dependencyCountRef.current.toString()} -> ${dependencies.length.toString()}). ` +
+          'It must be constant-length across renders, or auto-scroll will stop ' +
+          'following new content.',
+      );
+    }
+    dependencyCountRef.current = dependencies.length;
+
     if (!isAutoScrollEnabled) return;
     // Never fight a scroll actually in flight. Note this tests the *active*
     // session, not merely armed intent - a tap must not stop the captions.
