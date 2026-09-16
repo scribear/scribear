@@ -202,6 +202,7 @@ export class TranslationService extends EventEmitter<TranslationServiceEvents> {
    * language, or a session, the user has already moved on from.
    */
   #generation = 0;
+  #contentGeneration = 0;
 
   #languageProbe: Promise<TranslationLanguageOption[]> | null = null;
 
@@ -418,7 +419,7 @@ export class TranslationService extends EventEmitter<TranslationServiceEvents> {
    * Leaves translation enabled.
    */
   reset(): void {
-    this.#generation += 1;
+    this.#contentGeneration += 1;
     this.#queue = [];
     this.#lastEmittedWasGap = false;
     this.#hasDroppedContent = false;
@@ -466,10 +467,14 @@ export class TranslationService extends EventEmitter<TranslationServiceEvents> {
     if (this.#isDraining) return;
     this.#isDraining = true;
     const generation = this.#generation;
+    const contentGeneration = this.#contentGeneration;
+    const isStale = () =>
+      this.#generation !== generation ||
+      this.#contentGeneration !== contentGeneration;
 
     try {
       while (this.#queue.length > 0) {
-        if (this.#generation !== generation || !this.#translator) return;
+        if (isStale() || !this.#translator) return;
 
         this.#dropStaleCaptions();
         if (this.#queue.length === 0) return;
@@ -479,7 +484,7 @@ export class TranslationService extends EventEmitter<TranslationServiceEvents> {
 
         const startedAt = Date.now();
         const translated = await this.#translateWithTimeout(batch.text);
-        if (this.#generation !== generation) return;
+        if (isStale()) return;
 
         if (translated === null) {
           // Nothing usable came back. Mark the hole so the reader can see
@@ -509,7 +514,7 @@ export class TranslationService extends EventEmitter<TranslationServiceEvents> {
       // generation and makes this loop bail. Anything queued since belongs to
       // the new generation and would otherwise sit untouched until the next
       // submit(), so hand it to a fresh loop.
-      if (this.#generation !== generation && this.#queue.length > 0) {
+      if (isStale() && this.#queue.length > 0) {
         void this.#drain();
       }
     }
