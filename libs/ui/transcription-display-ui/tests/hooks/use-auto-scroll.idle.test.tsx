@@ -304,34 +304,32 @@ describe('useAutoScroll idle re-engage', (it) => {
     expect(idleReengagements(sink)).toBe(0);
   });
 
-  it('41e: a focused caption region is never yanked to the bottom', () => {
+  it('41e: parked focus does not prevent idle re-engagement', () => {
     const { sink, scroller } = setup({ idleReengageMs: IDLE_MS });
 
-    disengage(scroller);
-    closeGestureSession();
-
-    // Someone is reading the history with the keyboard or a screen reader and
-    // is producing no presence events, because they are not moving. Focus is
-    // the evidence that they are still here; moving the view out from under
-    // them is the WCAG 2.2.2 concern this timer raises.
+    // Reproduce the field sequence exactly: focus first, then scroll back.
     scroller.el.tabIndex = 0;
     act(() => {
       scroller.el.focus();
     });
     expect(document.activeElement).toBe(scroller.el);
 
-    advance(IDLE_MS * 3);
+    disengage(scroller);
     expect(isEngaged(sink)).toBe(false);
-    expect(idleReengagements(sink)).toBe(0);
     expect(scroller.scrollTop).toBe(SCROLLED_BACK_PX);
 
-    // Once they leave, unattended recovery resumes.
-    act(() => {
-      scroller.el.blur();
-    });
-    advance(IDLE_MS);
+    // Focus is persistent browser state, not evidence of new activity. Once
+    // the configured quiet period passes, auto-scroll must recover even though
+    // focus remains parked on the caption region.
+    advance(IDLE_MS - 1);
+    expect(isEngaged(sink)).toBe(false);
+    expect(idleReengagements(sink)).toBe(0);
+
+    advance(2);
     expect(isEngaged(sink)).toBe(true);
     expect(idleReengagements(sink)).toBe(1);
+    expect(scroller.scrollTop).toBe(scroller.maxScrollTop);
+    expect(document.activeElement).toBe(scroller.el);
   });
 
   it('42: pointermove alone keeps a present reader from being interrupted', () => {
