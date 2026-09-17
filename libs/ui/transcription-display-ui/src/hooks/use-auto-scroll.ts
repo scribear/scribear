@@ -305,17 +305,10 @@ export const useAutoScroll = (
           arm();
           return;
         }
-        // Nor anyone whose keyboard or screen-reader focus is parked inside the
-        // captions: that is someone reading, and moving the view out from under
-        // them is the WCAG 2.2.2 concern this timer raises. Note this is
-        // necessary but not sufficient on iOS - VoiceOver's cursor is not DOM
-        // focus, so a VoiceOver reader can still be here without `activeElement`
-        // saying so. Real-device confirmation is still owed.
-        const container = textContainerRef.current;
-        if (container?.contains(document.activeElement)) {
-          arm();
-          return;
-        }
+        // A new focus or presence event restarts this deadline through
+        // `noteReaderPresent`. Do not treat focus that merely remains parked
+        // inside the captions as continuing activity: DOM focus has no expiry,
+        // so doing so would re-arm this timer forever after one click or Tab.
         diagnostics.recordIdleReengage();
         closeUserScrollSession();
         // Deferred by `idleReengageMs` - minutes in every shipped app - so
