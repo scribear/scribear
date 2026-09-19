@@ -2,6 +2,7 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 
+import { clientWebappDisplayUrl } from '#src/config/client-webapp-url';
 import { useAppSelector } from '#src/store/use-redux';
 
 import { KioskLifecycle } from '../services/kiosk-service-status';
@@ -63,20 +64,32 @@ export const KioskStatusPanel = () => {
               <>
                 <Typography>Session: {activeSession.name}</Typography>
                 {activeSession.currentJoinCode && (
-                  <>
-                    <Typography
-                      variant="h4"
-                      component="p"
-                      sx={{
-                        fontFamily: 'monospace',
-                      }}
-                    >
-                      Join Code: {activeSession.currentJoinCode.joinCode}
-                    </Typography>
+                  <Stack spacing={2}>
+                    {/* Where, then what: a join code says nothing about the
+                        site it belongs to. One group, so the spacing separates
+                        the instruction from the QR. */}
+                    <Stack spacing={0.5}>
+                      <Typography
+                        variant="h6"
+                        component="p"
+                        sx={{ wordBreak: 'break-word' }}
+                      >
+                        Join at {clientWebappDisplayUrl()}
+                      </Typography>
+                      <Typography
+                        variant="h4"
+                        component="p"
+                        sx={{
+                          fontFamily: 'monospace',
+                        }}
+                      >
+                        Join Code: {activeSession.currentJoinCode.joinCode}
+                      </Typography>
+                    </Stack>
                     <JoinCodeQrCode
                       joinCode={activeSession.currentJoinCode.joinCode}
                     />
-                  </>
+                  </Stack>
                 )}
               </>
             )}
