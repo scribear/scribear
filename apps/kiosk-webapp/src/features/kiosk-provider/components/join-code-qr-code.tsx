@@ -2,11 +2,13 @@ import Box from '@mui/material/Box';
 
 import { QRCodeSVG } from 'qrcode.react';
 
-// Trailing slash is required: the reverse proxy serves the client webapp at
-// `/client/`, and a request to `/client` (no slash) 404s. A scanned QR encodes
-// this verbatim, so the slash is what makes the scanned link resolve.
-const CLIENT_WEBAPP_URL =
-  import.meta.env.VITE_CLIENT_WEBAPP_URL ?? `${window.location.origin}/client/`;
+import { CLIENT_WEBAPP_URL } from '#src/config/client-webapp-url';
+
+/** Maximum intrinsic QR size; responsive styling lets it shrink on narrow panels. */
+const QR_SIZE_PX = 320;
+
+/** Quiet zone in modules. The spec requires four; the library defaults to none. */
+const QR_MARGIN_MODULES = 4;
 
 /**
  * Builds a client webapp URL with the join code embedded as a URL config
@@ -28,16 +30,32 @@ export const JoinCodeQrCode = ({ joinCode }: JoinCodeQrCodeProps) => {
   const joinUrl = buildJoinUrl(joinCode);
 
   return (
-    <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-      {/* size is the intrinsic/max px; the style lets it shrink to fit a narrow
-          panel (max 200px, square via the SVG viewBox) instead of overflowing.
-          `title` gives the QR a text alternative for assistive technology. */}
-      <QRCodeSVG
-        value={joinUrl}
-        size={200}
-        title={`QR code to join session, code ${joinCode}`}
-        style={{ width: '100%', height: 'auto', maxWidth: 200 }}
-      />
+    <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+      {/* Light plate under the code: the background is user-chosen and the
+          panel is dark by default, so the symbol brings its own. */}
+      <Box
+        sx={{
+          backgroundColor: 'grey.100',
+          borderRadius: 1,
+          lineHeight: 0,
+          maxWidth: QR_SIZE_PX,
+          p: 1,
+          width: '100%',
+        }}
+      >
+        {/* `size` is the intrinsic/max px; the style lets it shrink to fit a
+            narrow panel. `title` is the text alternative. */}
+        <QRCodeSVG
+          value={joinUrl}
+          size={QR_SIZE_PX}
+          level="M"
+          marginSize={QR_MARGIN_MODULES}
+          bgColor="#ffffff"
+          fgColor="#000000"
+          title={`QR code to join session, code ${joinCode}`}
+          style={{ width: '100%', height: 'auto' }}
+        />
+      </Box>
     </Box>
   );
 };
