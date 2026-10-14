@@ -12,7 +12,8 @@
     "libs/clients/*",
     "libs/schemas/*",
     "libs/store/*",
-    "libs/ui/*"
+    "libs/ui/*", 
+    "experiments"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

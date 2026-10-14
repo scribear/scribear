@@ -3,6 +3,10 @@
 
 ### Place other files to ignore here
 
+#development
+*.pem
+traces
+
 ### https://github.com/github/gitignore/blob/622c03138bc602b6834aaba64f3061d478c91333/Python.gitignore
 # Byte-compiled / optimized / DLL files
 __pycache__/

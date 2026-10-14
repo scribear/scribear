@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<body>
+  <pre id="out">Testing...</pre>
+
+  <script type="module">
+    const out = document.querySelector("#out");
+
+    if (!navigator.gpu) {
+      out.textContent = "WebGPU unavailable";
+    } else {
+      const adapter = await navigator.gpu.requestAdapter();
+
+      out.textContent = JSON.stringify({
+        webgpu: true,
+        maxBufferSize: adapter.limits.maxBufferSize,
+        maxStorageBufferBindingSize:
+          adapter.limits.maxStorageBufferBindingSize,
+        maxComputeWorkgroupStorageSize:
+          adapter.limits.maxComputeWorkgroupStorageSize,
+        maxComputeInvocationsPerWorkgroup:
+          adapter.limits.maxComputeInvocationsPerWorkgroup,
+        features: [...adapter.features]
+      }, null, 2);
+    }
+  </script>
+</body>
+</html>
