@@ -47,7 +47,11 @@ export const KioskActivationForm = () => {
         // role="alert" (MUI Alert default) announces the async failure. SC 4.1.3
         <Alert severity="error">{registrationError}</Alert>
       )}
-      <Button onClick={handleActivate} loading={isSubmitting}>
+      <Button
+        variant="contained"
+        onClick={handleActivate}
+        loading={isSubmitting}
+      >
         Activate
       </Button>
     </Stack>
