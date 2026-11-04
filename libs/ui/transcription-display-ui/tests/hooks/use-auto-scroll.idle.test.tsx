@@ -74,6 +74,7 @@ interface ApiSink {
 interface HarnessProps {
   options: UseAutoScrollOptions;
   publish: (api: UseAutoScrollResult) => void;
+  deps?: unknown[];
 }
 
 /**
@@ -81,8 +82,8 @@ interface HarnessProps {
  * `handleScroll` wired to `onScroll`, so the layout effects actually run and
  * the imperative listeners actually attach.
  */
-function Harness({ options, publish }: HarnessProps) {
-  const auto = useAutoScroll([], options);
+function Harness({ options, publish, deps = [] }: HarnessProps) {
+  const auto = useAutoScroll(deps, options);
   const { textContainerRef, handleScroll } = auto;
   // Published from an effect rather than during render, so the test always
   // reads a committed result and nothing is mutated in the render phase.
@@ -103,7 +104,9 @@ function setup(options: UseAutoScrollOptions) {
   const publish = (api: UseAutoScrollResult) => {
     sink.current = api;
   };
-  const view = render(<Harness options={options} publish={publish} />);
+  const view = render(
+    <Harness options={options} publish={publish} deps={[0]} />,
+  );
   const el = view.getByTestId('scroller');
   const scroller = installFakeScroller(el, {
     contentHeight: CONTENT_PX,
@@ -118,10 +121,19 @@ function setup(options: UseAutoScrollOptions) {
   /** Re-renders with different options, as a live preference change would. */
   const update = (next: UseAutoScrollOptions) => {
     act(() => {
-      view.rerender(<Harness options={next} publish={publish} />);
+      view.rerender(<Harness options={next} publish={publish} deps={[0]} />);
     });
   };
-  return { sink, scroller, unmount: view.unmount, update };
+  /** Simulates new transcript text arriving: content grows, deps change. */
+  const speak = (version: number, contentHeight: number) => {
+    act(() => {
+      scroller.setContentHeight(contentHeight);
+      view.rerender(
+        <Harness options={options} publish={publish} deps={[version]} />,
+      );
+    });
+  };
+  return { sink, scroller, unmount: view.unmount, update, speak };
 }
 
 /** Reads the latest hook result, failing loudly rather than asserting on null. */
@@ -330,6 +342,34 @@ describe('useAutoScroll idle re-engage', (it) => {
     expect(idleReengagements(sink)).toBe(1);
     expect(scroller.scrollTop).toBe(scroller.maxScrollTop);
     expect(document.activeElement).toBe(scroller.el);
+  });
+
+  it('41f: after a silent idle re-engage, resumed speech stays pinned (#213)', () => {
+    const { sink, scroller, speak } = setup({ idleReengageMs: IDLE_MS });
+
+    // Field sequence from 213, focus parked and reader scrolls back
+    scroller.el.tabIndex = 0;
+    act(() => {
+      scroller.el.focus();
+    });
+    disengage(scroller);
+    expect(isEngaged(sink)).toBe(false);
+
+    //and the room stays silent past the idle deadline. There is no new content.
+    advance(IDLE_MS + 1);
+    expect(isEngaged(sink)).toBe(true);
+    expect(scroller.scrollTop).toBe(scroller.maxScrollTop);
+
+    // The speaker starts again: new text arrives and the content grows.
+    advance(MOUNT_SETTLE_MS);
+    speak(1, CONTENT_PX + 400);
+    expect(isEngaged(sink)).toBe(true);
+    expect(scroller.scrollTop).toBe(scroller.maxScrollTop);
+
+    // And it keeps going.
+    speak(2, CONTENT_PX + 800);
+    expect(isEngaged(sink)).toBe(true);
+    expect(scroller.scrollTop).toBe(scroller.maxScrollTop);
   });
 
   it('42: pointermove alone keeps a present reader from being interrupted', () => {
