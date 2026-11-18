@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111827" />
+    <title>ScribeAR Browser Translation Lab</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header class="hero">
+        <p class="eyebrow">ScribeAR · standalone browser test</p>
+        <h1>Browser Translation Lab</h1>
+        <p class="lede">
+          Test Bergamot translation without a ScribeAR session. Manual text,
+          fixed test cases, and browser speech recognition all feed the same
+          local translation pipeline.
+        </p>
+      </header>
+
+      <section class="card setup" aria-labelledby="setup-heading">
+        <div class="section-heading">
+          <div>
+            <p class="step">Step 1</p>
+            <h2 id="setup-heading">Prepare translation</h2>
+          </div>
+          <span id="translation-status" class="status" data-tone="idle"
+            >Checking browser…</span
+          >
+        </div>
+
+        <div class="controls two-column">
+          <label>
+            Source
+            <select disabled>
+              <option>English (Whisper-compatible)</option>
+            </select>
+          </label>
+          <label>
+            Target language
+            <select id="target-language" disabled>
+              <option value="">Loading Mozilla registry…</option>
+            </select>
+          </label>
+        </div>
+
+        <button id="prepare-translation" class="primary" disabled>
+          Download / load translation model
+        </button>
+        <div class="progress-row" id="translation-progress-row" hidden>
+          <progress id="translation-progress" max="1" value="0"></progress>
+          <span id="translation-progress-label">0%</span>
+        </div>
+        <p id="translation-detail" class="detail" aria-live="polite"></p>
+      </section>
+
+      <div class="lab-grid">
+        <section class="card" aria-labelledby="manual-heading">
+          <p class="step">Step 2A</p>
+          <h2 id="manual-heading">Manual text</h2>
+          <label>
+            English input
+            <textarea id="manual-input" rows="5">
+Welcome to ScribeAR. This sentence is translated entirely inside your browser.</textarea
+            >
+          </label>
+          <button id="translate-manual" disabled>Translate text</button>
+        </section>
+
+        <section class="card" aria-labelledby="cases-heading">
+          <p class="step">Step 2B</p>
+          <h2 id="cases-heading">Repeatable test cases</h2>
+          <p class="detail">
+            Checks ordinary speech, numbers, punctuation, and protected-looking
+            content. Results are judged for completion, not exact wording.
+          </p>
+          <div class="button-row">
+            <button id="run-cases" disabled>Run 4 cases</button>
+            <button id="simulate-live" class="secondary" disabled>
+              Simulate live captions
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <section class="card" aria-labelledby="speech-heading">
+        <div class="section-heading">
+          <div>
+            <p class="step">Step 2C</p>
+            <h2 id="speech-heading">Microphone transcription</h2>
+          </div>
+          <span id="speech-status" class="status" data-tone="idle"
+            >Not started</span
+          >
+        </div>
+
+        <div class="speech-options">
+          <label class="checkbox-label">
+            <input id="local-speech-only" type="checkbox" checked />
+            Require on-device browser speech recognition
+          </label>
+          <p class="detail">
+            When enabled, audio must remain on this device. The browser may ask
+            to install an English speech language pack.
+          </p>
+        </div>
+
+        <div class="button-row">
+          <button id="start-speech" disabled>Start microphone</button>
+          <button id="stop-speech" class="secondary" disabled>Stop</button>
+        </div>
+
+        <div class="transcript-box">
+          <p class="label">Final browser transcript</p>
+          <p id="speech-final">—</p>
+          <p class="label">Interim</p>
+          <p id="speech-interim" class="interim">—</p>
+        </div>
+      </section>
+
+      <section class="card output-card" aria-labelledby="output-heading">
+        <div class="section-heading">
+          <div>
+            <p class="step">Output</p>
+            <h2 id="output-heading">Translation results</h2>
+          </div>
+          <button id="clear-results" class="ghost">Clear</button>
+        </div>
+        <div id="results" class="results" aria-live="polite">
+          <p class="empty">Prepare a model, then choose a test above.</p>
+        </div>
+      </section>
+
+      <section class="card notes" aria-labelledby="notes-heading">
+        <h2 id="notes-heading">What this page isolates</h2>
+        <ul>
+          <li>No session manager, WebSocket, or ScribeAR backend is used.</li>
+          <li>Only finalized speech results are sent to translation.</li>
+          <li>
+            Translation text stays in the browser; the network only downloads
+            model files.
+          </li>
+          <li>Reloading the page should reuse the model from Cache Storage.</li>
+        </ul>
+      </section>
+    </main>
+    <script type="module" src="/main.ts"></script>
+  </body>
+</html>

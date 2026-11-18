@@ -72,9 +72,9 @@ export const rootReducer = rememberReducer(reducers);
 
 // Creates and returns the configured Redux store for the kiosk webapp.
 export const createAppStore = (microphoneService: MicrophoneService) => {
-  // Safe to construct on any browser: it probes for the Translator API and
-  // reports itself unsupported when absent, which keeps the translation UI off
-  // screen everywhere except Chromium desktop.
+  // Safe to construct on any browser: it probes for Bergamot/WASM and the
+  // native Translator fallback, reporting unsupported only when neither
+  // runtime is available.
   const translationService = new TranslationService();
 
   const store = configureStore({

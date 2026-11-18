@@ -60,7 +60,7 @@ export const NO_TRANSLATIONS_MESSAGE = 'No translations are available.';
 /**
  * Runtime state of in-browser translation.
  *
- * - `UNSUPPORTED` - this browser has no Translator API. The feature is hidden.
+ * - `UNSUPPORTED` - this browser has no local translation runtime. Hidden.
  * - `OFF` - supported, but the user has not turned translation on.
  * - `PREPARING` - `create()` is in flight for an already-downloaded model.
  * - `DOWNLOADING` - `create()` is in flight and pulling down a language model.
@@ -214,7 +214,7 @@ export class TranslationService extends EventEmitter<TranslationServiceEvents> {
       : TranslationStatus.UNSUPPORTED;
   }
 
-  /** Whether this browser exposes the Translator API at all. */
+  /** Whether this browser exposes any supported local translation runtime. */
   get isSupported(): boolean {
     return this.#api !== null;
   }

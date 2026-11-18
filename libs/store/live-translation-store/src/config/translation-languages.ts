@@ -11,40 +11,54 @@ export const TRANSCRIPT_SOURCE_LANGUAGE = 'en';
 export const DEFAULT_TARGET_LANGUAGE = 'es';
 
 /**
- * BCP-47 tags we ask the browser about.
+ * BCP-47 tags we ask the active local translation provider about.
  *
- * There is no API that enumerates supported pairs - `Translator.availability()`
- * answers one pair at a time and Chrome deliberately reports every uncached
- * pair as `downloadable`, so the only way to build a picker is to probe a
- * candidate list and drop whatever comes back `unavailable`. Probing is cheap
- * (no network, no model load) but it is not free, so this list is the set
- * Chrome's TranslateKit documents rather than all of BCP-47.
+ * The common Translator interface answers one pair at a time, so the picker
+ * probes a candidate list and drops whatever comes back `unavailable`. This
+ * list is the union of Mozilla's released English→target Bergamot directions
+ * and Chromium TranslateKit's documented targets. The registry remains the
+ * source of truth: a language with no released model simply disappears.
  *
  * Codes that fail on one browser/version simply disappear from the picker, so
  * over-listing is safe; under-listing silently hides a working language.
  */
 export const CANDIDATE_TARGET_LANGUAGES: readonly string[] = [
+  'af',
   'ar',
+  'az',
+  'be',
   'bg',
   'bn',
+  'bs',
+  'ca',
   'cs',
   'da',
   'de',
   'el',
   'es',
+  'et',
+  'eu',
+  'fa',
   'fi',
   'fr',
+  'gl',
+  'gu',
   'he',
   'hi',
   'hr',
   'hu',
   'id',
+  'is',
   'it',
   'ja',
   'kn',
   'ko',
   'lt',
+  'lv',
+  'ml',
   'mr',
+  'ms',
+  'nb',
   'nl',
   'no',
   'pl',
@@ -53,12 +67,17 @@ export const CANDIDATE_TARGET_LANGUAGES: readonly string[] = [
   'ru',
   'sk',
   'sl',
+  'sq',
+  'sr',
   'sv',
   'ta',
   'te',
   'th',
+  'tl',
   'tr',
+  'ug',
   'uk',
+  'ur',
   'vi',
   'zh',
   'zh-Hant',
@@ -70,27 +89,42 @@ export const CANDIDATE_TARGET_LANGUAGES: readonly string[] = [
  * falls back to the tag itself, which is still selectable.
  */
 const FALLBACK_LANGUAGE_NAMES: Record<string, string> = {
+  af: 'Afrikaans',
   ar: 'Arabic',
+  az: 'Azerbaijani',
+  be: 'Belarusian',
   bg: 'Bulgarian',
   bn: 'Bengali',
+  bs: 'Bosnian',
+  ca: 'Catalan',
   cs: 'Czech',
   da: 'Danish',
   de: 'German',
   el: 'Greek',
   es: 'Spanish',
+  et: 'Estonian',
+  eu: 'Basque',
+  fa: 'Persian',
   fi: 'Finnish',
   fr: 'French',
+  gl: 'Galician',
+  gu: 'Gujarati',
   he: 'Hebrew',
   hi: 'Hindi',
   hr: 'Croatian',
   hu: 'Hungarian',
   id: 'Indonesian',
+  is: 'Icelandic',
   it: 'Italian',
   ja: 'Japanese',
   kn: 'Kannada',
   ko: 'Korean',
   lt: 'Lithuanian',
+  lv: 'Latvian',
+  ml: 'Malayalam',
   mr: 'Marathi',
+  ms: 'Malay',
+  nb: 'Norwegian Bokmål',
   nl: 'Dutch',
   no: 'Norwegian',
   pl: 'Polish',
@@ -99,12 +133,17 @@ const FALLBACK_LANGUAGE_NAMES: Record<string, string> = {
   ru: 'Russian',
   sk: 'Slovak',
   sl: 'Slovenian',
+  sq: 'Albanian',
+  sr: 'Serbian',
   sv: 'Swedish',
   ta: 'Tamil',
   te: 'Telugu',
   th: 'Thai',
+  tl: 'Tagalog',
   tr: 'Turkish',
+  ug: 'Uyghur',
   uk: 'Ukrainian',
+  ur: 'Urdu',
   vi: 'Vietnamese',
   zh: 'Chinese (Simplified)',
   'zh-Hant': 'Chinese (Traditional)',

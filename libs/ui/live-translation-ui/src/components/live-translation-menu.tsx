@@ -27,8 +27,8 @@ type PendingAction =
  * Props for {@link LiveTranslationMenu}.
  */
 export interface LiveTranslationMenuProps {
-  // Whether this browser exposes the Translator API. When false the entire
-  // menu is omitted - there is nothing here a user could act on.
+  // Whether this browser can run Bergamot/WASM or a native Translator. When
+  // false the entire menu is omitted - there is nothing here a user could use.
   isSupported: boolean;
   // Whether the user currently has translated captions turned on.
   isEnabled: boolean;

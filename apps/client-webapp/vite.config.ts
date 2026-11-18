@@ -48,6 +48,16 @@ export default defineConfig({
     proxy: {
       '/api/session-manager': 'http://localhost:8001',
       '/api/node-server': { target: 'http://localhost:8002', ws: true },
+      '/mozilla-models': {
+        target: 'https://storage.googleapis.com',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) =>
+          path.replace(
+            /^\/mozilla-models/,
+            '/moz-fx-translations-data--303e-prod-translations-data',
+          ),
+      },
     },
   },
   preview: {

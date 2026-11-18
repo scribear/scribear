@@ -653,3 +653,9 @@ docker-compose.override.yaml
 # compose.yml) - faster-whisper/silero-vad weights fetched at runtime, gigabytes
 # per model, never something to commit.
 deployment/models/
+
+# Generated from @browsermt/bergamot-translator before client/kiosk builds.
+# The WASM binary is about 5 MB and is reproducibly copied from package-lock.
+apps/client-webapp/public/bergamot/
+apps/kiosk-webapp/public/bergamot/
+tools/translation-lab/public/bergamot/

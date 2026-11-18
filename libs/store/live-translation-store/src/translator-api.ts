@@ -1,5 +1,5 @@
 /**
- * Minimal typings for the W3C Translator API (Chrome 138+, Edge 138+).
+ * Common interface for the local Bergamot runtime and the W3C Translator API.
  *
  * @see https://webmachinelearning.github.io/translation-api/
  *
@@ -43,7 +43,7 @@ export interface TranslatorInstance {
   readonly targetLanguage: string;
 }
 
-/** The static half of the API, exposed as `self.Translator`. */
+/** The static half of a translation provider. */
 export interface TranslatorApi {
   availability: (options: {
     sourceLanguage: string;
@@ -53,15 +53,23 @@ export interface TranslatorApi {
 }
 
 /**
- * Returns `self.Translator` if this browser exposes it, else `null`.
+ * Loads Bergamot lazily. Keeping this import behind the browser capability
+ * check matters in tests and server-side tooling: browsermt installs a Node
+ * Worker shim as a module side effect when no browser Worker exists.
  *
- * Reading it is wrapped because the property lives behind a secure-context
- * check and, in sandboxed or policy-restricted frames, touching an absent
- * global through a `Proxy`-based polyfill can throw rather than be `undefined`.
- * A caption view must never fail to render because a browser feature probe
- * threw.
+ * The native API remains a fallback for Chromium and for deployments that
+ * have not configured the `/mozilla-models` proxy yet.
  */
-export function getTranslatorApi(): TranslatorApi | null {
+let bergamotApiPromise: Promise<TranslatorApi> | null = null;
+
+function loadBergamotApi(): Promise<TranslatorApi> {
+  bergamotApiPromise ??= import('./bergamot-translator-api.js').then(
+    ({ bergamotTranslatorApi }) => bergamotTranslatorApi,
+  );
+  return bergamotApiPromise;
+}
+
+function getNativeTranslatorApi(): TranslatorApi | null {
   try {
     const candidate = (globalThis as { Translator?: unknown }).Translator;
     if (typeof candidate !== 'object' && typeof candidate !== 'function') {
@@ -81,10 +89,58 @@ export function getTranslatorApi(): TranslatorApi | null {
   }
 }
 
+function isBergamotRuntimeSupported(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.Worker === 'function' &&
+    typeof WebAssembly === 'object' &&
+    typeof fetch === 'function' &&
+    typeof DecompressionStream === 'function' &&
+    typeof crypto.subtle === 'object'
+  );
+}
+
+function createPreferredApi(nativeApi: TranslatorApi | null): TranslatorApi {
+  return {
+    availability: async (options) => {
+      try {
+        const bergamotApi = await loadBergamotApi();
+        const availability = await bergamotApi.availability(options);
+        if (availability !== 'unavailable') return availability;
+      } catch {
+        // A missing proxy or failed registry request can still use Chromium's
+        // built-in model when the browser provides one.
+      }
+      return nativeApi?.availability(options) ?? 'unavailable';
+    },
+    create: async (options) => {
+      try {
+        const bergamotApi = await loadBergamotApi();
+        const availability = await bergamotApi.availability(options);
+        if (availability !== 'unavailable') {
+          return await bergamotApi.create(options);
+        }
+      } catch (error) {
+        if (nativeApi === null) throw error;
+      }
+
+      if (nativeApi !== null) return nativeApi.create(options);
+      throw new Error(
+        `No local translation model is available for ${options.sourceLanguage} → ${options.targetLanguage}`,
+      );
+    },
+  };
+}
+
+export function getTranslatorApi(): TranslatorApi | null {
+  const nativeApi = getNativeTranslatorApi();
+  return isBergamotRuntimeSupported()
+    ? createPreferredApi(nativeApi)
+    : nativeApi;
+}
+
 /**
- * Whether in-browser translation is even worth offering to this user. Callers
- * use this to hide the whole feature - button, menu and dialogs - rather than
- * show controls that can only fail.
+ * Whether this browser can run either Bergamot/WASM or its native Translator.
  */
 export function isTranslatorApiSupported(): boolean {
   return getTranslatorApi() !== null;

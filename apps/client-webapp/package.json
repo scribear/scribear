@@ -16,9 +16,10 @@
     }
   },
   "scripts": {
-    "build": "tsc -b && vite build",
+    "bergamot:assets": "node ../../tools/bergamot/copy-assets.mjs",
+    "build": "npm run bergamot:assets && tsc -b && vite build",
     "preview": "vite preview",
-    "dev": "vite",
+    "dev": "npm run bergamot:assets && vite",
     "format": "prettier --check ./src ./tests",
     "format:fix": "prettier --write ./src ./tests",
     "lint": "eslint ./src ./tests",

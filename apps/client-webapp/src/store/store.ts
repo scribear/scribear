@@ -67,9 +67,9 @@ export const rootReducer = rememberReducer(reducers);
 
 // Creates and returns the configured Redux store for the client webapp.
 export const createAppStore = () => {
-  // Constructing this is safe on any browser: it probes for the Translator API
-  // and reports itself unsupported when absent, which is what keeps the
-  // translation UI off screen everywhere except Chromium desktop.
+  // Constructing this is safe on any browser: it probes for Bergamot/WASM and
+  // the native Translator fallback, reporting unsupported only when neither
+  // runtime is available.
   const translationService = new TranslationService();
   // Summarization is currently switched off at
   // `IS_SUMMARIZATION_ENABLED` in `@scribear/transcript-export-store`, so this

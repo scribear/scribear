@@ -31,6 +31,7 @@
     "test:unit": "vitest run --project unit"
   },
   "dependencies": {
+    "@browsermt/bergamot-translator": "0.4.9",
     "@reduxjs/toolkit": "2.11.2",
     "eventemitter3": "5.0.4",
     "typebox": "1.1.5"

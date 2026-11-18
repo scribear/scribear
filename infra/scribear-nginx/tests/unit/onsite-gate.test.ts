@@ -48,6 +48,11 @@ const GATED_LOCATIONS: {
     header: 'location /api/node-server/ {',
     denial: 'api',
   },
+  {
+    name: 'Mozilla translation model proxy',
+    header: 'location /mozilla-models/ {',
+    denial: 'api',
+  },
   // Redirects rather than proxies on the allowed path too (to /client/), so
   // it is the one gated block with no proxy_pass - see the assertions below.
   { name: 'site root', header: 'location = / {', denial: 'frontend' },
